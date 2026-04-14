@@ -1,0 +1,1646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vocal-More — SwiftUI Prototype</title>
+<style>
+/* ═══════════════════════════════════════════════════════
+   FOUNDATIONS
+   ═══════════════════════════════════════════════════════ */
+
+:root {
+  color-scheme: light dark;
+
+  /* macOS system-like palette — light */
+  --bg-canvas: #f5f5f7;
+  --bg-window: #ffffff;
+  --bg-sidebar: rgba(0,0,0,0.028);
+  --bg-sidebar-selected: rgba(0,0,0,0.06);
+  --bg-group: #ffffff;
+  --bg-group-border: rgba(0,0,0,0.06);
+  --bg-menu: rgba(255,255,255,0.92);
+  --bg-menu-hover: rgba(0,122,255,0.85);
+  --bg-toggle-on: #34c759;
+  --bg-toggle-off: rgba(0,0,0,0.09);
+  --bg-input: rgba(0,0,0,0.04);
+  --bg-input-border: rgba(0,0,0,0.1);
+
+  --text-primary: rgba(0,0,0,0.85);
+  --text-secondary: rgba(0,0,0,0.5);
+  --text-tertiary: rgba(0,0,0,0.3);
+  --text-menu: rgba(0,0,0,0.85);
+  --text-menu-hover: #ffffff;
+  --text-accent: #007aff;
+
+  --separator: rgba(0,0,0,0.08);
+  --window-shadow: 0 22px 70px rgba(0,0,0,0.13), 0 0 0 0.5px rgba(0,0,0,0.08);
+  --menu-shadow: 0 12px 40px rgba(0,0,0,0.18), 0 0 0 0.5px rgba(0,0,0,0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-canvas: #1e1e1e;
+    --bg-window: #2c2c2e;
+    --bg-sidebar: rgba(255,255,255,0.035);
+    --bg-sidebar-selected: rgba(255,255,255,0.08);
+    --bg-group: rgba(255,255,255,0.05);
+    --bg-group-border: rgba(255,255,255,0.06);
+    --bg-menu: rgba(40,40,42,0.92);
+    --bg-menu-hover: rgba(0,122,255,0.85);
+    --bg-input: rgba(255,255,255,0.06);
+    --bg-input-border: rgba(255,255,255,0.1);
+
+    --text-primary: rgba(255,255,255,0.88);
+    --text-secondary: rgba(255,255,255,0.5);
+    --text-tertiary: rgba(255,255,255,0.25);
+    --text-menu: rgba(255,255,255,0.88);
+
+    --separator: rgba(255,255,255,0.08);
+    --window-shadow: 0 22px 70px rgba(0,0,0,0.45), 0 0 0 0.5px rgba(255,255,255,0.08);
+    --menu-shadow: 0 12px 40px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(255,255,255,0.06);
+  }
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   PAGE LAYOUT
+   ═══════════════════════════════════════════════════════ */
+
+.page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 60px 40px 120px;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 16px;
+  padding-left: 2px;
+}
+
+.section {
+  margin-bottom: 72px;
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   1. FLOATING CAPSULE
+   ═══════════════════════════════════════════════════════ */
+
+.capsule-stage {
+  position: relative;
+  height: 320px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0f3460 100%);
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 40px;
+}
+
+/* Fake desktop dots — to ground the capsule on a "desktop" */
+.capsule-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(255,255,255,0.015) 1px, transparent 1px),
+    radial-gradient(circle at 60% 50%, rgba(255,255,255,0.01) 1px, transparent 1px),
+    radial-gradient(circle at 80% 25%, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 3px 3px, 5px 5px, 4px 4px;
+}
+
+.capsule-controls {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
+}
+
+.capsule-controls button {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.capsule-controls button:hover {
+  background: rgba(255,255,255,0.14);
+  color: rgba(255,255,255,0.9);
+}
+
+.capsule-controls button.active {
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+  border-color: rgba(255,255,255,0.3);
+}
+
+/* Capsule widget */
+.capsule {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow:
+    0 0 0 0.5px rgba(255,255,255,0.06),
+    0 4px 24px rgba(0, 0, 0, 0.3),
+    0 20px 50px rgba(0, 0, 0, 0.2);
+  padding: 0 14px;
+  gap: 0;
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+  transition:
+    opacity 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    padding 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.capsule.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* Waveform */
+.waveform {
+  display: flex;
+  align-items: center;
+  gap: 1.5px;
+  height: 22px;
+}
+
+.waveform .bar {
+  width: 2px;
+  min-height: 3px;
+  max-height: 20px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.88);
+  border-radius: 1px;
+}
+
+/* Capsule buttons (hands-free mode) */
+.capsule-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  transition: background 0.15s ease, transform 0.1s ease;
+  flex-shrink: 0;
+}
+
+.capsule-btn:active { transform: scale(0.88); }
+
+.btn-cancel {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.75);
+  margin-right: 10px;
+}
+.btn-cancel:hover { background: rgba(255, 59, 48, 0.55); color: #fff; }
+
+.btn-finish {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.75);
+  margin-left: 10px;
+}
+.btn-finish:hover { background: rgba(52, 199, 89, 0.55); color: #fff; }
+
+.capsule.handsFree .capsule-btn { display: flex; }
+
+/* Thinking / processing state */
+.thinking-container {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  height: 22px;
+}
+
+.thinking-text {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.35) 0%,
+    rgba(255,255,255,0.88) 40%,
+    rgba(255,255,255,0.88) 60%,
+    rgba(255,255,255,0.35) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2.2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.progress-track {
+  width: 44px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 1.5px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: rgba(255, 255, 255, 0.65);
+  border-radius: 1.5px;
+  transition: width 0.25s ease;
+}
+
+/* State visibility */
+.capsule.state-recording .waveform { display: flex; }
+.capsule.state-recording .thinking-container { display: none; }
+.capsule.state-processing .waveform { display: none; }
+.capsule.state-processing .thinking-container { display: flex; }
+.capsule.state-processing .capsule-btn { display: none; }
+
+
+/* ═══════════════════════════════════════════════════════
+   2. MENU BAR DROPDOWN
+   ═══════════════════════════════════════════════════════ */
+
+.menubar-stage {
+  position: relative;
+  height: 400px;
+  border-radius: 16px;
+  background: var(--bg-canvas);
+  overflow: hidden;
+  border: 1px solid var(--separator);
+}
+
+/* Fake macOS menu bar */
+.fake-menubar {
+  height: 25px;
+  background: var(--bg-menu);
+  backdrop-filter: blur(30px) saturate(1.8);
+  -webkit-backdrop-filter: blur(30px) saturate(1.8);
+  border-bottom: 0.5px solid var(--separator);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 12px;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  position: relative;
+}
+
+.menubar-icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+}
+
+.menubar-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: var(--text-primary);
+  opacity: 0.8;
+}
+
+.menubar-icon.recording svg { fill: #ff3b30; opacity: 1; }
+
+.menubar-clock {
+  font-size: 13px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  opacity: 0.85;
+}
+
+/* Menu dropdown */
+.menu-dropdown {
+  position: absolute;
+  top: 30px;
+  right: 80px;
+  width: 236px;
+  background: var(--bg-menu);
+  backdrop-filter: blur(40px) saturate(2);
+  -webkit-backdrop-filter: blur(40px) saturate(2);
+  border-radius: 6px;
+  box-shadow: var(--menu-shadow);
+  padding: 4px 0;
+  z-index: 100;
+  font-size: 13px;
+  opacity: 0;
+  transform: scale(0.98) translateY(-4px);
+  transform-origin: top right;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  pointer-events: none;
+}
+
+.menu-dropdown.visible {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  pointer-events: auto;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 12px 0 8px;
+  cursor: default;
+  border-radius: 4px;
+  margin: 0 4px;
+  position: relative;
+  color: var(--text-menu);
+}
+
+.menu-item:hover {
+  background: var(--bg-menu-hover);
+  color: var(--text-menu-hover);
+}
+
+.menu-item .check {
+  width: 16px;
+  flex-shrink: 0;
+  font-size: 12px;
+  text-align: center;
+  opacity: 0.8;
+}
+
+.menu-item .label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-item .shortcut {
+  font-size: 12px;
+  opacity: 0.45;
+  margin-left: 16px;
+  flex-shrink: 0;
+}
+
+.menu-item .submenu-arrow {
+  font-size: 9px;
+  opacity: 0.4;
+  margin-left: auto;
+  padding-left: 12px;
+}
+
+.menu-item.disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.menu-separator {
+  height: 1px;
+  background: var(--separator);
+  margin: 4px 12px;
+}
+
+.menu-item.has-submenu:hover .submenu {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.submenu {
+  position: absolute;
+  left: calc(100% + 2px);
+  top: -4px;
+  width: 220px;
+  background: var(--bg-menu);
+  backdrop-filter: blur(40px) saturate(2);
+  border-radius: 6px;
+  box-shadow: var(--menu-shadow);
+  padding: 4px 0;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.1s ease, transform 0.1s ease;
+  pointer-events: none;
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   3. SETTINGS PANEL
+   ═══════════════════════════════════════════════════════ */
+
+.settings-window {
+  border-radius: 10px;
+  box-shadow: var(--window-shadow);
+  background: var(--bg-window);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-width: 680px;
+}
+
+/* Window chrome (title bar) */
+.window-titlebar {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  background: var(--bg-window);
+  border-bottom: 0.5px solid var(--separator);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.traffic-lights {
+  display: flex;
+  gap: 8px;
+}
+
+.traffic-light {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.tl-close { background: #ff5f57; }
+.tl-minimize { background: #febc2e; }
+.tl-maximize { background: #28c840; }
+
+.window-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Settings body */
+.settings-body {
+  display: flex;
+  min-height: 460px;
+}
+
+/* Sidebar */
+.settings-sidebar {
+  width: 180px;
+  background: var(--bg-sidebar);
+  padding: 10px 8px;
+  flex-shrink: 0;
+  border-right: 0.5px solid var(--separator);
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: default;
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 1px;
+  transition: background 0.1s ease;
+}
+
+.sidebar-item:hover {
+  background: var(--bg-sidebar-selected);
+}
+
+.sidebar-item.active {
+  background: var(--bg-sidebar-selected);
+  font-weight: 500;
+}
+
+.sidebar-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+  color: #fff;
+}
+
+.sidebar-icon.general { background: #8e8e93; }
+.sidebar-icon.audio   { background: #ff9500; }
+.sidebar-icon.asr     { background: #007aff; }
+.sidebar-icon.llm     { background: #af52de; }
+.sidebar-icon.hotkey  { background: #ff3b30; }
+.sidebar-icon.dict    { background: #34c759; }
+
+/* Settings content area */
+.settings-content {
+  flex: 1;
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+
+.settings-group {
+  margin-bottom: 24px;
+}
+
+.settings-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  padding-left: 12px;
+}
+
+.settings-group-box {
+  background: var(--bg-group);
+  border: 0.5px solid var(--bg-group-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 12px;
+}
+
+.setting-row + .setting-row {
+  border-top: 0.5px solid var(--separator);
+}
+
+.setting-label {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.setting-description {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* Toggle switch */
+.toggle {
+  width: 32px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--bg-toggle-off);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.toggle.on { background: var(--bg-toggle-on); }
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.toggle.on::after {
+  transform: translateX(12px);
+}
+
+/* Dropdown select */
+.setting-select {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 24px 4px 8px;
+  border-radius: 6px;
+  border: 0.5px solid var(--bg-input-border);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+
+/* Slider */
+.setting-slider {
+  -webkit-appearance: none;
+  width: 120px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-toggle-off);
+  outline: none;
+}
+
+.setting-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0.5px 4px rgba(0,0,0,0.2), 0 0 0 0.5px rgba(0,0,0,0.06);
+  cursor: pointer;
+}
+
+/* Value badge */
+.setting-value {
+  font-size: 13px;
+  color: var(--text-secondary);
+  min-width: 40px;
+  text-align: right;
+  margin-left: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Dictionary tag */
+.dict-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.dict-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 0.5px solid var(--bg-input-border);
+}
+
+.dict-tag .remove {
+  font-size: 10px;
+  opacity: 0.35;
+  cursor: pointer;
+  margin-left: 2px;
+}
+
+.dict-tag .remove:hover { opacity: 0.7; }
+
+.dict-tag .alias {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+/* Add button inline */
+.add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  border: 0.5px dashed var(--bg-input-border);
+  background: transparent;
+  color: var(--text-accent);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.add-btn:hover {
+  background: var(--bg-input);
+}
+
+/* Hotkey capture */
+.hotkey-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.key-cap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--bg-input);
+  border: 0.5px solid var(--bg-input-border);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.06);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   4. NOTIFICATION TOAST (BONUS)
+   ═══════════════════════════════════════════════════════ */
+
+.notification-stage {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+
+.notification-toast {
+  width: 340px;
+  background: var(--bg-menu);
+  backdrop-filter: blur(30px) saturate(2);
+  border-radius: 14px;
+  box-shadow: var(--window-shadow);
+  padding: 12px 14px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.notification-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #5ac8fa, #af52de);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.notification-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: #fff;
+}
+
+.notification-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.notification-app {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.notification-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 1px;
+}
+
+.notification-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.notification-time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   ANNOTATIONS
+   ═══════════════════════════════════════════════════════ */
+
+.annotation {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--bg-group);
+  border: 0.5px solid var(--bg-group-border);
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.annotation-marker {
+  font-weight: 600;
+  color: var(--text-accent);
+  flex-shrink: 0;
+  font-size: 11px;
+  margin-top: 1px;
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   REDUCED MOTION
+   ═══════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  .capsule {
+    transition: opacity 0.1s ease;
+    transform: none !important;
+  }
+  .capsule.visible { transform: none !important; }
+  .thinking-text { animation: none; background-size: 100% 100%; }
+  .waveform .bar { transition: height 0.3s ease !important; }
+}
+</style>
+</head>
+
+<body>
+<div class="page">
+
+  <!-- ─── SECTION 1: FLOATING CAPSULE ──────────────────── -->
+  <div class="section">
+    <div class="section-label">Floating Capsule — Dynamic Island Style Overlay</div>
+
+    <div class="capsule-stage" id="capsuleStage">
+      <div class="capsule-controls">
+        <button id="ctrlHidden" class="active" onclick="setCapsuleState('hidden')">Hidden</button>
+        <button id="ctrlRecording" onclick="setCapsuleState('recording')">Recording</button>
+        <button id="ctrlProcessing" onclick="setCapsuleState('processing')">Processing</button>
+        <button id="ctrlMode" onclick="toggleCapsuleMode()">Mode: Push-to-Talk</button>
+      </div>
+
+      <div class="capsule" id="capsule">
+        <button class="capsule-btn btn-cancel">✕</button>
+        <div class="waveform" id="waveform"></div>
+        <div class="thinking-container">
+          <span class="thinking-text">Thinking</span>
+          <div class="progress-track">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+        </div>
+        <button class="capsule-btn btn-finish">✓</button>
+      </div>
+    </div>
+
+    <div class="annotation">
+      <span class="annotation-marker">NOTE</span>
+      <span>The capsule always renders dark regardless of system theme — just like iPhone's Dynamic Island. It floats at screen bottom center, above all windows and spaces. In Push-to-Talk mode, mouse events pass through; in Hands-Free mode, cancel/finish buttons are interactive.</span>
+    </div>
+  </div>
+
+
+  <!-- ─── SECTION 2: MENU BAR ──────────────────────────── -->
+  <div class="section">
+    <div class="section-label">Menu Bar Dropdown</div>
+
+    <div class="menubar-stage" id="menubarStage">
+      <div class="fake-menubar">
+        <span style="margin-right:auto; font-weight:600; opacity:0.8;">Finder</span>
+        <span style="opacity:0.4;">File</span>
+        <span style="opacity:0.4;">Edit</span>
+        <span style="opacity:0.4;">View</span>
+
+        <!-- Right side icons -->
+        <div class="menubar-icon" style="opacity:0.5;">
+          <svg viewBox="0 0 16 16"><rect x="1" y="5" width="14" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="15" y="7" width="2" height="4" rx="0.5"/></svg>
+        </div>
+        <div class="menubar-icon" style="opacity:0.5;">
+          <svg viewBox="0 0 16 16"><path d="M8 2a6 6 0 100 12A6 6 0 008 2zm0 1.2a4.8 4.8 0 110 9.6 4.8 4.8 0 010-9.6zM7.4 5v3.4l2.6 1.5.6-1-2.2-1.3V5z"/></svg>
+        </div>
+
+        <!-- Vocal-More icon -->
+        <div class="menubar-icon" id="menubarAppIcon" onclick="toggleMenu()" style="cursor:pointer;">
+          <svg viewBox="0 0 16 16">
+            <rect x="6" y="2" width="4" height="8" rx="2"/>
+            <path d="M4 8a4 4 0 008 0" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            <line x1="8" y1="12" x2="8" y2="14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          </svg>
+        </div>
+
+        <div class="menubar-clock">Tue 3:42 PM</div>
+      </div>
+
+      <!-- Dropdown -->
+      <div class="menu-dropdown visible" id="menuDropdown">
+        <div class="menu-item disabled">
+          <span class="check"></span>
+          <span class="label">Status: Idle</span>
+        </div>
+        <div class="menu-separator"></div>
+
+        <div class="menu-item has-submenu">
+          <span class="check"></span>
+          <span class="label">Mode</span>
+          <span class="submenu-arrow">▶</span>
+          <div class="submenu">
+            <div class="menu-item">
+              <span class="check">✓</span>
+              <span class="label">Walkie-Talkie (Hold Fn)</span>
+            </div>
+            <div class="menu-item">
+              <span class="check"></span>
+              <span class="label">Real-time Long (Toggle Fn)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="menu-item has-submenu">
+          <span class="check"></span>
+          <span class="label">Settings</span>
+          <span class="submenu-arrow">▶</span>
+          <div class="submenu">
+            <div class="menu-item has-submenu">
+              <span class="check"></span>
+              <span class="label">Text Polish</span>
+              <span class="submenu-arrow">▶</span>
+              <div class="submenu">
+                <div class="menu-item">
+                  <span class="check"></span>
+                  <span class="label">Off</span>
+                </div>
+                <div class="menu-separator"></div>
+                <div class="menu-item">
+                  <span class="check">✓</span>
+                  <span class="label">Light</span>
+                </div>
+                <div class="menu-item">
+                  <span class="check"></span>
+                  <span class="label">Concise</span>
+                </div>
+                <div class="menu-item">
+                  <span class="check"></span>
+                  <span class="label">Gentle</span>
+                </div>
+              </div>
+            </div>
+            <div class="menu-item">
+              <span class="check">✓</span>
+              <span class="label">Auto Paste</span>
+            </div>
+            <div class="menu-separator"></div>
+            <div class="menu-item has-submenu">
+              <span class="check"></span>
+              <span class="label">Input Device</span>
+              <span class="submenu-arrow">▶</span>
+              <div class="submenu">
+                <div class="menu-item">
+                  <span class="check">✓</span>
+                  <span class="label">System Default</span>
+                </div>
+                <div class="menu-separator"></div>
+                <div class="menu-item">
+                  <span class="check"></span>
+                  <span class="label">MacBook Pro Microphone</span>
+                </div>
+                <div class="menu-item">
+                  <span class="check"></span>
+                  <span class="label">AirPods Pro</span>
+                </div>
+              </div>
+            </div>
+            <div class="menu-item has-submenu">
+              <span class="check"></span>
+              <span class="label">Hotkey</span>
+              <span class="submenu-arrow">▶</span>
+              <div class="submenu">
+                <div class="menu-item">
+                  <span class="check">✓</span>
+                  <span class="label">Fn Key (Hold / Toggle)</span>
+                </div>
+                <div class="menu-item">
+                  <span class="check">✓</span>
+                  <span class="label">Double Cmd</span>
+                </div>
+                <div class="menu-separator"></div>
+                <div class="menu-item">
+                  <span class="check"></span>
+                  <span class="label">F13 (PrintScreen)</span>
+                </div>
+              </div>
+            </div>
+            <div class="menu-separator"></div>
+            <div class="menu-item">
+              <span class="check"></span>
+              <span class="label">Open Config File</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="menu-item has-submenu">
+          <span class="check"></span>
+          <span class="label">Dictionary</span>
+          <span class="submenu-arrow">▶</span>
+          <div class="submenu">
+            <div class="menu-item">
+              <span class="check"></span>
+              <span class="label">Add Term...</span>
+            </div>
+            <div class="menu-separator"></div>
+            <div class="menu-item">
+              <span class="check"></span>
+              <span class="label">DashScope  (达世科普)</span>
+            </div>
+            <div class="menu-item">
+              <span class="check"></span>
+              <span class="label">Claude  (克劳德)</span>
+            </div>
+            <div class="menu-separator"></div>
+            <div class="menu-item">
+              <span class="check"></span>
+              <span class="label">Open Dictionary File</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="menu-separator"></div>
+        <div class="menu-item">
+          <span class="check"></span>
+          <span class="label">Quit Vocal-More</span>
+          <span class="shortcut">⌘Q</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="annotation">
+      <span class="annotation-marker">NOTE</span>
+      <span>The menu bar dropdown uses native NSMenu styling. In the SwiftUI version, this will be a real NSStatusItem with NSMenu — no custom rendering needed. The icon changes between idle/recording/processing states (template images adapt to light/dark automatically).</span>
+    </div>
+  </div>
+
+
+  <!-- ─── SECTION 3: SETTINGS PANEL ────────────────────── -->
+  <div class="section">
+    <div class="section-label">Settings Panel — macOS System Settings Style</div>
+
+    <div class="settings-window">
+      <div class="window-titlebar">
+        <div class="traffic-lights">
+          <div class="traffic-light tl-close"></div>
+          <div class="traffic-light tl-minimize"></div>
+          <div class="traffic-light tl-maximize"></div>
+        </div>
+        <span class="window-title">Vocal-More Settings</span>
+      </div>
+
+      <div class="settings-body">
+        <!-- Sidebar -->
+        <div class="settings-sidebar">
+          <div class="sidebar-item active" onclick="showSettingsTab(this, 'tab-general')">
+            <div class="sidebar-icon general">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="white"><path d="M8 1a2.5 2.5 0 00-.5 4.95V7H5a2 2 0 00-2 2v.55A2.5 2.5 0 004.5 14a2.5 2.5 0 001.5-4.45V9a.5.5 0 01.5-.5h5a.5.5 0 01.5.5v.55A2.5 2.5 0 0013.5 14a2.5 2.5 0 00-1.5-4.45V9a2 2 0 00-2-2H8.5V5.95A2.5 2.5 0 008 1z"/></svg>
+            </div>
+            General
+          </div>
+          <div class="sidebar-item" onclick="showSettingsTab(this, 'tab-audio')">
+            <div class="sidebar-icon audio">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="white"><path d="M8 1a3 3 0 00-3 3v4a3 3 0 006 0V4a3 3 0 00-3-3zM3.5 7.5a.5.5 0 011 0A3.5 3.5 0 008 11a3.5 3.5 0 003.5-3.5.5.5 0 011 0A4.5 4.5 0 018.5 12v2h2a.5.5 0 010 1h-5a.5.5 0 010-1h2v-2A4.5 4.5 0 013.5 7.5z"/></svg>
+            </div>
+            Audio
+          </div>
+          <div class="sidebar-item" onclick="showSettingsTab(this, 'tab-recognition')">
+            <div class="sidebar-icon asr">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="white"><path d="M2 4.5A2.5 2.5 0 014.5 2h7A2.5 2.5 0 0114 4.5v7a2.5 2.5 0 01-2.5 2.5h-7A2.5 2.5 0 012 11.5v-7zM5 5a.5.5 0 000 1h6a.5.5 0 000-1H5zm0 2.5a.5.5 0 000 1h4a.5.5 0 000-1H5zm0 2.5a.5.5 0 000 1h5a.5.5 0 000-1H5z"/></svg>
+            </div>
+            Recognition
+          </div>
+          <div class="sidebar-item" onclick="showSettingsTab(this, 'tab-polish')">
+            <div class="sidebar-icon llm">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="white"><path d="M8 1l1.8 3.6L14 5.4l-3 2.9.7 4.1L8 10.5 4.3 12.4l.7-4.1-3-2.9 4.2-.8z"/></svg>
+            </div>
+            Polish
+          </div>
+          <div class="sidebar-item" onclick="showSettingsTab(this, 'tab-shortcuts')">
+            <div class="sidebar-icon hotkey">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="white"><path d="M2 5a2 2 0 012-2h8a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3 1a.5.5 0 00-.5.5v1a.5.5 0 001 0v-1A.5.5 0 005 6zm3 0a.5.5 0 00-.5.5v1a.5.5 0 001 0v-1A.5.5 0 008 6zm3 0a.5.5 0 00-.5.5v1a.5.5 0 001 0v-1A.5.5 0 0011 6zM5.5 10h5a.5.5 0 010 1h-5a.5.5 0 010-1z"/></svg>
+            </div>
+            Shortcuts
+          </div>
+          <div class="sidebar-item" onclick="showSettingsTab(this, 'tab-dictionary')">
+            <div class="sidebar-icon dict">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="white"><path d="M3 2a1 1 0 00-1 1v10a1 1 0 001 1h10a1 1 0 001-1V3a1 1 0 00-1-1H3zm1 2h3v3H4V4zm5 0h3v1H9V4zm0 2h3v1H9V6zM4 8h8v1H4V8zm0 2h6v1H4v-1z"/></svg>
+            </div>
+            Dictionary
+          </div>
+        </div>
+
+        <!-- Content Tabs -->
+        <div class="settings-content">
+
+          <!-- General Tab -->
+          <div id="tab-general" class="settings-tab">
+            <div class="settings-group">
+              <div class="settings-group-title">Behavior</div>
+              <div class="settings-group-box">
+                <div class="setting-row">
+                  <div class="setting-label">
+                    Default Mode
+                    <div class="setting-description">Recording mode on launch</div>
+                  </div>
+                  <select class="setting-select">
+                    <option selected>Walkie-Talkie</option>
+                    <option>Real-time Long</option>
+                  </select>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">Auto Paste</div>
+                  <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    Launch at Login
+                    <div class="setting-description">Start Vocal-More when you log in</div>
+                  </div>
+                  <div class="toggle" onclick="this.classList.toggle('on')"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group-title">API</div>
+              <div class="settings-group-box">
+                <div class="setting-row">
+                  <div class="setting-label">DashScope API Key</div>
+                  <span style="font-size:13px; color:var(--text-secondary); font-variant-numeric: tabular-nums;">sk-••••••••7f3a</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Audio Tab -->
+          <div id="tab-audio" class="settings-tab" style="display:none">
+            <div class="settings-group">
+              <div class="settings-group-title">Input</div>
+              <div class="settings-group-box">
+                <div class="setting-row">
+                  <div class="setting-label">Input Device</div>
+                  <select class="setting-select">
+                    <option selected>System Default</option>
+                    <option>MacBook Pro Microphone</option>
+                    <option>AirPods Pro</option>
+                  </select>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">Sample Rate</div>
+                  <select class="setting-select">
+                    <option selected>16 kHz</option>
+                    <option>44.1 kHz</option>
+                    <option>48 kHz</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-title">Processing</div>
+              <div class="settings-group-box">
+                <div class="setting-row">
+                  <div class="setting-label">
+                    Software Gain
+                    <div class="setting-description">Amplify input signal</div>
+                  </div>
+                  <input type="range" class="setting-slider" min="0.5" max="4" step="0.1" value="2.0">
+                  <span class="setting-value">2.0x</span>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    Noise Gate
+                    <div class="setting-description">RMS threshold to suppress background noise</div>
+                  </div>
+                  <input type="range" class="setting-slider" min="0" max="0.05" step="0.001" value="0.005">
+                  <span class="setting-value">0.005</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recognition Tab -->
+          <div id="tab-recognition" class="settings-tab" style="display:none">
+            <div class="settings-group">
+              <div class="settings-group-title">ASR Engine</div>
+              <div class="settings-group-box">
+                <div class="setting-row">
+                  <div class="setting-label">Backend</div>
+                  <select class="setting-select">
+                    <option selected>Realtime WebSocket</option>
+                    <option>Short File Upload</option>
+                  </select>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">Model</div>
+                  <select class="setting-select">
+                    <option selected>Qwen3 ASR Flash</option>
+                  </select>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">Language</div>
+                  <select class="setting-select">
+                    <option selected>Chinese (zh)</option>
+                    <option>English (en)</option>
+                    <option>Auto-detect</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-title">Enhancement</div>
+              <div class="settings-group-box">
+                <div class="setting-row">
+                  <div class="setting-label">
+                    Use Dictionary Corpus
+                    <div class="setting-description">Improve recognition of custom terms</div>
+                  </div>
+                  <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">Batch Mode</div>
+                  <select class="setting-select">
+                    <option selected>Manual</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Polish Tab -->
+          <div id="tab-polish" class="settings-tab" style="display:none">
+            <div class="settings-group">
+              <div class="settings-group-title">Text Polish</div>
+              <div class="settings-group-box">
+                <div class="setting-row">
+                  <div class="setting-label">Enable Text Polish</div>
+                  <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    Polish Mode
+                    <div class="setting-description">Smart only polishes when needed</div>
+                  </div>
+                  <select class="setting-select">
+                    <option selected>Smart</option>
+                    <option>Always</option>
+                  </select>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    Polish Level
+                    <div class="setting-description">Concise removes redundant words and tightens phrasing</div>
+                  </div>
+                  <select class="setting-select">
+                    <option selected>Light</option>
+                    <option>Concise</option>
+                    <option>Gentle</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-title">LLM</div>
+              <div class="settings-group-box">
+                <div class="setting-row">
+                  <div class="setting-label">Model</div>
+                  <select class="setting-select">
+                    <option selected>Qwen 3.5 Plus</option>
+                    <option>Qwen 3.5 Max</option>
+                  </select>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">Temperature</div>
+                  <input type="range" class="setting-slider" min="0" max="1" step="0.1" value="0">
+                  <span class="setting-value">0.0</span>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    Enable Thinking
+                    <div class="setting-description">Chain-of-thought for complex text</div>
+                  </div>
+                  <div class="toggle" onclick="this.classList.toggle('on')"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Shortcuts Tab -->
+          <div id="tab-shortcuts" class="settings-tab" style="display:none">
+            <div class="settings-group">
+              <div class="settings-group-title">Active Hotkeys</div>
+              <div class="settings-group-box">
+                <div class="setting-row">
+                  <div class="setting-label">
+                    Fn Key
+                    <div class="setting-description">Hold (walkie-talkie) or toggle (real-time)</div>
+                  </div>
+                  <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    Double ⌘
+                    <div class="setting-description">Tap Command twice quickly</div>
+                  </div>
+                  <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">F13 (PrintScreen)</div>
+                  <div class="toggle" onclick="this.classList.toggle('on')"></div>
+                </div>
+              </div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-title">Timing</div>
+              <div class="settings-group-box">
+                <div class="setting-row">
+                  <div class="setting-label">
+                    Double-tap Threshold
+                    <div class="setting-description">Maximum interval between taps</div>
+                  </div>
+                  <input type="range" class="setting-slider" min="0.15" max="0.5" step="0.05" value="0.3">
+                  <span class="setting-value">0.3s</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Dictionary Tab -->
+          <div id="tab-dictionary" class="settings-tab" style="display:none">
+            <div class="settings-group">
+              <div class="settings-group-title">Custom Terms</div>
+              <div class="settings-group-box">
+                <div class="dict-tags">
+                  <span class="dict-tag">
+                    DashScope <span class="alias">(达世科普, 大世科普)</span>
+                    <span class="remove">✕</span>
+                  </span>
+                  <span class="dict-tag">
+                    Claude <span class="alias">(克劳德)</span>
+                    <span class="remove">✕</span>
+                  </span>
+                  <span class="dict-tag">
+                    SwiftUI
+                    <span class="remove">✕</span>
+                  </span>
+                  <span class="dict-tag">
+                    Qwen <span class="alias">(千问)</span>
+                    <span class="remove">✕</span>
+                  </span>
+                  <button class="add-btn">+ Add Term</button>
+                </div>
+              </div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-title">Extra Corpus</div>
+              <div class="settings-group-box">
+                <div class="dict-tags">
+                  <span class="dict-tag">ASR<span class="remove">✕</span></span>
+                  <span class="dict-tag">LLM<span class="remove">✕</span></span>
+                  <span class="dict-tag">WebSocket<span class="remove">✕</span></span>
+                  <button class="add-btn">+ Add</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="annotation">
+      <span class="annotation-marker">NOTE</span>
+      <span>Settings panel uses macOS System Settings visual language: sidebar with colored icons, grouped list rows, native toggle switches. In SwiftUI, this maps directly to NavigationSplitView + Form + Section + Toggle/Picker. The window follows system light/dark appearance.</span>
+    </div>
+  </div>
+
+
+  <!-- ─── SECTION 4: NOTIFICATION ──────────────────────── -->
+  <div class="section">
+    <div class="section-label">Notification Toast</div>
+
+    <div class="notification-stage">
+      <div class="notification-toast">
+        <div class="notification-icon">
+          <svg viewBox="0 0 16 16">
+            <rect x="6" y="2" width="4" height="8" rx="2" fill="white"/>
+            <path d="M4 8a4 4 0 008 0" fill="none" stroke="white" stroke-width="1.3" stroke-linecap="round"/>
+            <line x1="8" y1="12" x2="8" y2="14" stroke="white" stroke-width="1.3" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="notification-body">
+          <div class="notification-app">Vocal-More</div>
+          <div class="notification-title">Transcription Complete</div>
+          <div class="notification-text">这段话已经被成功识别并自动复制到剪贴板。</div>
+        </div>
+        <span class="notification-time">now</span>
+      </div>
+    </div>
+
+    <div class="annotation">
+      <span class="annotation-marker">NOTE</span>
+      <span>macOS native UNUserNotificationCenter — no custom rendering needed in SwiftUI. The app icon (blue-purple gradient microphone) appears automatically.</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   CAPSULE INTERACTIVITY
+   ═══════════════════════════════════════════════════════ */
+
+const NUM_BARS = 28;
+const capsule = document.getElementById('capsule');
+const waveform = document.getElementById('waveform');
+const progressFill = document.getElementById('progressFill');
+
+// Generate waveform bars
+for (let i = 0; i < NUM_BARS; i++) {
+  const bar = document.createElement('div');
+  bar.className = 'bar';
+  waveform.appendChild(bar);
+}
+
+const bars = waveform.querySelectorAll('.bar');
+const smoothed = new Float32Array(NUM_BARS);
+let currentState = 'hidden';
+let currentMode = 'pushToTalk';
+let rafId = null;
+let progressTimer = null;
+let progressVal = 0;
+
+// Pre-compute Gaussian bell curve
+const bellFactors = new Float32Array(NUM_BARS);
+const center = (NUM_BARS - 1) / 2;
+for (let i = 0; i < NUM_BARS; i++) {
+  const d = Math.abs(i - center) / center;
+  bellFactors[i] = Math.exp(-3.2 * d * d);
+}
+
+// Simulate varying audio level
+let simPhase = 0;
+function getSimulatedRMS() {
+  simPhase += 0.02;
+  // Layered sine waves for organic speech-like pattern
+  return 0.04 + 0.06 * Math.sin(simPhase * 1.7)
+             + 0.03 * Math.sin(simPhase * 4.3)
+             + 0.02 * Math.sin(simPhase * 7.1)
+             + 0.015 * Math.random();
+}
+
+function renderWaveform() {
+  if (currentState !== 'recording') { rafId = null; return; }
+
+  const rms = getSimulatedRMS();
+  const normalized = Math.min(1.0, rms / 0.12);
+
+  for (let i = 0; i < NUM_BARS; i++) {
+    const rand = 0.65 + Math.random() * 0.35;
+    const target = normalized * bellFactors[i] * rand;
+
+    // Asymmetric smoothing: fast rise, slow decay
+    if (target > smoothed[i]) {
+      smoothed[i] += (target - smoothed[i]) * 0.32;
+    } else {
+      smoothed[i] += (target - smoothed[i]) * 0.07;
+    }
+
+    bars[i].style.height = (3 + smoothed[i] * 17) + 'px';
+  }
+
+  rafId = requestAnimationFrame(renderWaveform);
+}
+
+function setCapsuleState(state) {
+  currentState = state;
+
+  // Update control buttons
+  document.querySelectorAll('.capsule-controls button:not(#ctrlMode)').forEach(btn => btn.classList.remove('active'));
+  document.getElementById('ctrl' + state.charAt(0).toUpperCase() + state.slice(1)).classList.add('active');
+
+  capsule.classList.remove('state-recording', 'state-processing');
+
+  if (state === 'hidden') {
+    capsule.classList.remove('visible');
+    stopProgress();
+    return;
+  }
+
+  capsule.classList.add('visible', 'state-' + state);
+
+  if (state === 'recording') {
+    stopProgress();
+    smoothed.fill(0);
+    bars.forEach(bar => bar.style.height = '3px');
+    if (!rafId) rafId = requestAnimationFrame(renderWaveform);
+  } else if (state === 'processing') {
+    startProgress();
+  }
+}
+
+function toggleCapsuleMode() {
+  const btn = document.getElementById('ctrlMode');
+  if (currentMode === 'pushToTalk') {
+    currentMode = 'handsFree';
+    capsule.classList.remove('pushToTalk');
+    capsule.classList.add('handsFree');
+    btn.textContent = 'Mode: Hands-Free';
+  } else {
+    currentMode = 'pushToTalk';
+    capsule.classList.remove('handsFree');
+    capsule.classList.add('pushToTalk');
+    btn.textContent = 'Mode: Push-to-Talk';
+  }
+}
+
+function startProgress() {
+  stopProgress();
+  progressVal = 0;
+  progressFill.style.width = '0%';
+  progressTimer = setInterval(() => {
+    progressVal += (90 - progressVal) * 0.03;
+    progressFill.style.width = progressVal + '%';
+  }, 50);
+}
+
+function stopProgress() {
+  if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   SETTINGS TAB NAVIGATION
+   ═══════════════════════════════════════════════════════ */
+
+function showSettingsTab(sidebarItem, tabId) {
+  document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+  sidebarItem.classList.add('active');
+
+  document.querySelectorAll('.settings-tab').forEach(el => el.style.display = 'none');
+  document.getElementById(tabId).style.display = 'block';
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   MENU TOGGLE
+   ═══════════════════════════════════════════════════════ */
+
+function toggleMenu() {
+  document.getElementById('menuDropdown').classList.toggle('visible');
+}
+
+/* Slider value display */
+document.querySelectorAll('.setting-slider').forEach(slider => {
+  slider.addEventListener('input', () => {
+    const display = slider.nextElementSibling;
+    if (display && display.classList.contains('setting-value')) {
+      let v = parseFloat(slider.value);
+      if (slider.max == 4) display.textContent = v.toFixed(1) + 'x';
+      else if (slider.max == 0.05) display.textContent = v.toFixed(3);
+      else if (slider.max == 0.5) display.textContent = v.toFixed(2) + 's';
+      else display.textContent = v.toFixed(1);
+    }
+  });
+});
+
+// Initialize capsule mode
+capsule.classList.add('pushToTalk');
+</script>
+
+</body>
+</html>

@@ -1,0 +1,117 @@
+/* MenuBar */
+"Vocal-More" = "Vocal-More";
+"Status: Idle" = "状态：空闲";
+"Status: Recording..." = "状态：录音中…";
+"Status: Processing..." = "状态：处理中…";
+"Settings..." = "设置…";
+"Check for Updates…" = "检查更新…";
+"Quit Vocal-More" = "退出 Vocal-More";
+"Vocal-More Settings" = "Vocal-More 设置";
+
+/* Settings Tabs */
+"General" = "通用";
+"Audio" = "音频";
+"Recognition" = "识别";
+"Polish" = "润色";
+"Shortcuts" = "快捷键";
+"Dictionary" = "词典";
+
+/* General Tab */
+"API" = "API";
+"Saved" = "已保存";
+"Configured" = "已配置";
+"Required for voice recognition" = "语音识别需要此密钥";
+"Get your API key from [DashScope Console](https://dashscope.console.aliyun.com/apiKey)" = "前往 [DashScope 控制台](https://dashscope.console.aliyun.com/apiKey) 获取 API 密钥";
+"Behavior" = "行为";
+"Walkie-Talkie" = "对讲机";
+"Real-time Long" = "实时长录";
+"Default Mode" = "默认模式";
+"Recording mode on launch" = "启动时的录音模式";
+"Auto Paste" = "自动粘贴";
+"Launch at Login" = "登录时启动";
+"Start Vocal-More when you log in" = "登录 Mac 时自动启动 Vocal-More";
+
+/* Audio Tab */
+"Input" = "输入";
+"Input Device" = "输入设备";
+"System Default" = "系统默认";
+"default" = "默认";
+"Processing" = "处理";
+"Software Gain" = "软件增益";
+"Amplify input signal" = "放大输入信号";
+"Noise Gate" = "噪声门限";
+"RMS threshold to suppress background noise" = "低于此阈值的背景噪声将被静音";
+
+/* Recognition Tab */
+"ASR Engine" = "语音识别引擎";
+"Backend" = "后端";
+"Realtime WebSocket" = "实时 WebSocket";
+"Short File Upload" = "短文件上传";
+"Model" = "模型";
+"Language" = "语言";
+"Chinese (zh)" = "中文";
+"English (en)" = "英文";
+"Enhancement" = "增强";
+"Enabled" = "已启用";
+"Dictionary Corpus" = "词典语料";
+"Custom terms from Dictionary tab improve recognition" = "词典中的自定义术语可提升识别准确度";
+
+/* Polish Tab */
+"Text Polish" = "文本润色";
+"Enable Text Polish" = "启用文本润色";
+"Smart" = "智能";
+"Always" = "始终";
+"Polish Mode" = "润色模式";
+"Smart only polishes when needed" = "智能模式仅在需要时润色";
+"Minimal" = "轻微";
+"Balanced" = "适中";
+"Strong" = "强力";
+"Structured" = "结构化";
+"Polish Level" = "润色强度";
+"Choose how strongly the text should be rewritten" = "选择文本改写的力度";
+"Neutral" = "中性";
+"Gentle" = "温和";
+"Direct" = "直接";
+"Tone" = "语气";
+"Choose how soft or direct the phrasing should feel" = "选择表达的委婉或直接程度";
+"Default" = "默认";
+"Technical" = "技术";
+"Bilingual" = "双语";
+"Professional" = "专业";
+"Chat" = "聊天";
+"Persona" = "人格";
+"Choose the writing identity for the rewrite" = "选择改写的表达身份";
+"LLM" = "大模型";
+"Temperature" = "温度";
+"Enable Thinking" = "启用思考";
+"Chain-of-thought for complex text" = "对复杂文本使用思维链推理";
+
+/* Shortcuts Tab */
+"Active Hotkeys" = "启用的快捷键";
+"Fn Key" = "Fn 键";
+"Hold (walkie-talkie) or toggle (real-time)" = "按住（对讲机模式）或切换（实时模式）";
+"Double ⌘" = "双击 ⌘";
+"Tap Command twice quickly" = "快速双击 Command 键";
+"Timing" = "时间";
+"Double-tap Threshold" = "双击间隔";
+"Maximum interval between taps" = "两次按键的最大间隔时间";
+
+/* Dictionary Tab */
+"Custom Terms" = "自定义术语";
+"+ Add Term" = "+ 添加术语";
+"No dictionary entries yet" = "暂无词典条目";
+"Add Dictionary Term" = "添加词典术语";
+"Term (correct spelling)" = "术语（正确拼写）";
+"Aliases (comma-separated, optional)" = "别名（逗号分隔，可选）";
+"Cancel" = "取消";
+"Add" = "添加";
+"Adding..." = "添加中…";
+
+/* Notifications */
+"Error" = "错误";
+"Accessibility Permission Required" = "需要辅助功能权限";
+"Please open System Settings → Privacy & Security → Accessibility, toggle VocalMore OFF then ON again (or remove and re-add it)." = "请打开系统设置 → 隐私与安全性 → 辅助功能，将 VocalMore 关闭再重新打开（或先移除再添加）。";
+"Transcription Complete" = "听写完成";
+
+/* Capsule */
+"Thinking" = "思考中";

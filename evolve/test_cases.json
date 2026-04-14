@@ -1,0 +1,82 @@
+[
+  {
+    "id": 1,
+    "input": "嗯那个就是我想说一下就是这个项目啊它的主要功能就是就是可以把语音转成文字然后然后还可以润色一下",
+    "level": "balanced",
+    "tone": "neutral",
+    "persona": "default",
+    "description": "口语填充词多，重复表达，balanced 应适度清理"
+  },
+  {
+    "id": 2,
+    "input": "我们用的是 react 18 然后 state management 用的 zustand 不是 redux 因为 zustand 比较轻量然后 bundle size 也小",
+    "level": "minimal",
+    "tone": "direct",
+    "persona": "technical",
+    "description": "中英混合技术描述，minimal+technical 应保留术语原样，只做最小整理"
+  },
+  {
+    "id": 3,
+    "input": "不对不对应该是用 post 请求不是 get 因为我们要传 body 对吧然后 content type 要设成 application json",
+    "level": "balanced",
+    "tone": "direct",
+    "persona": "technical",
+    "description": "包含自我更正的技术讨论，应处理更正并保留技术细节"
+  },
+  {
+    "id": 4,
+    "input": "这个 PR 主要改了三个地方第一是把认证从 session 换成 JWT 第二是加了 rate limiting 第三是修了一个 XSS 的漏洞",
+    "level": "structured",
+    "tone": "neutral",
+    "persona": "professional",
+    "description": "有明确结构信号（第一/第二/第三），structured 应整理成列表"
+  },
+  {
+    "id": 5,
+    "input": "哈喽老板那个需求我看了下大概要两三天左右主要是后端接口要改然后前端也得配合调一下",
+    "level": "minimal",
+    "tone": "gentle",
+    "persona": "chat",
+    "description": "聊天场景，minimal+chat 应保留口语感，只做最小清理"
+  },
+  {
+    "id": 6,
+    "input": "嗯我觉得这个方案有几个问题首先是性能可能会有问题因为每次请求都要查数据库其次是如果并发高的话可能会有锁竞争最后就是这个方案扩展性不太好后面加功能会比较麻烦",
+    "level": "strong",
+    "tone": "direct",
+    "persona": "professional",
+    "description": "长句多要点，strong+direct 应大幅精简并凝练表达"
+  },
+  {
+    "id": 7,
+    "input": "帮我看一下为什么 deploy 失败了 error log 里面显示的是 connection refused 端口 5432 我怀疑是 postgres 没起来",
+    "level": "minimal",
+    "tone": "neutral",
+    "persona": "technical",
+    "description": "技术问题描述，含端口号和错误信息，minimal 应几乎不改"
+  },
+  {
+    "id": 8,
+    "input": "各位好跟大家同步一下这个季度的 OKR 进展目前整体完成度大概在百分之七十左右有两个 KR 可能会有风险一个是用户增长另一个是留存率",
+    "level": "balanced",
+    "tone": "gentle",
+    "persona": "professional",
+    "description": "工作汇报场景，balanced+professional 应提升专业度但不过度"
+  },
+  {
+    "id": 9,
+    "input": "你好",
+    "level": "minimal",
+    "tone": "neutral",
+    "persona": "default",
+    "description": "极短文本，should_polish 应跳过 LLM 直接返回"
+  },
+  {
+    "id": 10,
+    "input": "昨天那个 hotfix 你 merge 了吗我看 CI 跑过了但是 staging 上面好像还没更新你看下是不是 CD pipeline 卡住了",
+    "level": "balanced",
+    "tone": "direct",
+    "persona": "bilingual",
+    "description": "中英双语日常技术沟通，bilingual 应处理好中英混排格式"
+  }
+]

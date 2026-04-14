@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 12px;
+}
+
+.capsule {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border-radius: 17px;
+  background: rgba(0, 0, 0, 1);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  box-shadow: 0px 0px 20px rgba(0, 0, 0, 0.15), 0px 25px 30px rgba(0, 0, 0, 0.25);
+  padding: 0 12px;
+  gap: 0;
+  opacity: 0;
+  transform: translateY(10px) scale(0.95);
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              min-height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.capsule-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+}
+
+.streaming-text {
+  display: none;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-bottom: 8px;
+}
+
+.capsule.has-streaming-text.state-processing .streaming-text {
+  display: block;
+}
+
+.capsule.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* Waveform bars */
+.waveform {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+}
+
+.waveform .bar {
+  width: 2px;
+  min-height: 3px;
+  max-height: 18px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 1px;
+  /* No CSS transition — JS rAF handles smooth animation */
+}
+
+/* Buttons for hands-free mode */
+.capsule-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  transition: background 0.15s ease, transform 0.1s ease;
+  -webkit-app-region: no-drag;
+}
+
+.capsule-btn:active {
+  transform: scale(0.9);
+}
+
+.btn-cancel {
+  background: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.8);
+  margin-right: 8px;
+}
+.btn-cancel:hover { background: rgba(255, 59, 48, 0.6); }
+
+.btn-finish {
+  background: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.8);
+  margin-left: 8px;
+}
+.btn-finish:hover { background: rgba(52, 199, 89, 0.6); }
+
+/* Hands-free mode: show buttons */
+.capsule.handsFree .capsule-btn {
+  display: flex;
+}
+
+/* Thinking state */
+.thinking-container {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+}
+
+.thinking-text {
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.4) 0%,
+    rgba(255,255,255,0.9) 40%,
+    rgba(255,255,255,0.9) 60%,
+    rgba(255,255,255,0.4) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.progress-bar-container {
+  width: 40px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 1.5px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 1.5px;
+  transition: width 0.3s ease;
+}
+
+/* Recording state: show waveform, hide thinking */
+.capsule.state-recording .waveform { display: flex; }
+.capsule.state-recording .thinking-container { display: none; }
+
+/* Processing state: hide waveform, show thinking */
+.capsule.state-processing .waveform { display: none; }
+.capsule.state-processing .thinking-container { display: flex; }
+.capsule.state-processing .capsule-btn { display: none; }
+</style>
+</head>
+<body>
+<div class="capsule" id="capsule">
+  <div class="capsule-row">
+    <button class="capsule-btn btn-cancel" id="btnCancel" onclick="onCancel()">✕</button>
+    <div class="waveform" id="waveform"></div>
+    <div class="thinking-container" id="thinking">
+      <span class="thinking-text">Thinking</span>
+      <div class="progress-bar-container">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+    </div>
+    <button class="capsule-btn btn-finish" id="btnFinish" onclick="onFinish()">✓</button>
+  </div>
+  <div class="streaming-text" id="streamingText"></div>
+</div>
+
+<script>
+const NUM_BARS = 10;
+const capsule = document.getElementById('capsule');
+const waveform = document.getElementById('waveform');
+const thinkingText = document.querySelector('.thinking-text');
+
+// Generate waveform bars
+for (let i = 0; i < NUM_BARS; i++) {
+  const bar = document.createElement('div');
+  bar.className = 'bar';
+  waveform.appendChild(bar);
+}
+
+const bars = waveform.querySelectorAll('.bar');
+let currentState = 'hidden';
+let currentMode = 'pushToTalk';
+
+// Smoothed levels per bar
+const smoothedLevels = new Array(NUM_BARS).fill(0);
+
+// Latest RMS from Python (written by updateAudioLevel, read by rAF loop)
+let latestRms = 0;
+let rafId = null;
+
+// Pre-compute bell curve factors (Gaussian)
+const bellFactors = new Array(NUM_BARS);
+const center = (NUM_BARS - 1) / 2;
+for (let i = 0; i < NUM_BARS; i++) {
+  const d = Math.abs(i - center) / center;
+  bellFactors[i] = Math.exp(-3.5 * d * d);
+}
+
+// requestAnimationFrame render loop — 60fps smooth animation
+function renderWaveform() {
+  if (currentState !== 'recording') {
+    rafId = null;
+    return;
+  }
+
+  const normalized = Math.min(1.0, latestRms / 0.12);
+
+  for (let i = 0; i < NUM_BARS; i++) {
+    const randomFactor = 0.7 + Math.random() * 0.3;
+    const targetLevel = normalized * bellFactors[i] * randomFactor;
+
+    // Smooth: rise fast, fall slow
+    if (targetLevel > smoothedLevels[i]) {
+      smoothedLevels[i] += (targetLevel - smoothedLevels[i]) * 0.35;
+    } else {
+      smoothedLevels[i] += (targetLevel - smoothedLevels[i]) * 0.08;
+    }
+
+    bars[i].style.height = (3 + smoothedLevels[i] * 15) + 'px';
+  }
+
+  rafId = requestAnimationFrame(renderWaveform);
+}
+
+function startRaf() {
+  if (!rafId) {
+    rafId = requestAnimationFrame(renderWaveform);
+  }
+}
+
+// Progress bar state
+const progressBar = document.getElementById('progressBar');
+let progressTimer = null;
+let progressValue = 0;
+
+function startProgress() {
+  stopProgress();
+  progressValue = 0;
+  progressBar.style.width = '0%';
+  // Asymptotic: each tick adds a fraction of remaining distance to 90%
+  progressTimer = setInterval(() => {
+    const remaining = 90 - progressValue;
+    progressValue += remaining * 0.35;
+    progressBar.style.width = progressValue + '%';
+  }, 200);
+}
+
+function stopProgress() {
+  if (progressTimer) {
+    clearInterval(progressTimer);
+    progressTimer = null;
+  }
+}
+
+/**
+ * Set capsule mode: "pushToTalk" or "handsFree"
+ */
+function setMode(mode) {
+  currentMode = mode;
+  capsule.classList.remove('pushToTalk', 'handsFree');
+  capsule.classList.add(mode);
+}
+
+/**
+ * Update capsule state: "hidden", "recording", "processing"
+ */
+function updateState(state) {
+  currentState = state;
+
+  // Remove previous state classes
+  capsule.classList.remove('state-recording', 'state-processing');
+
+  if (state === 'hidden') {
+    capsule.classList.remove('visible', 'has-streaming-text');
+    streamingText.textContent = '';
+    stopProgress();
+    return;
+  }
+
+  capsule.classList.add('visible');
+  capsule.classList.add('state-' + state);
+
+  if (state === 'recording') {
+    stopProgress();
+    latestRms = 0;
+    bars.forEach(bar => { bar.style.height = '3px'; });
+    smoothedLevels.fill(0);
+    startRaf();
+  } else if (state === 'processing') {
+    thinkingText.textContent = 'Thinking';
+    capsule.classList.remove('has-streaming-text');
+    streamingText.textContent = '';
+    startProgress();
+  }
+}
+
+/**
+ * Receive audio level from Python. Just store it — rAF loop reads it.
+ */
+function updateAudioLevel(rms) {
+  latestRms = rms;
+}
+
+const streamingText = document.getElementById('streamingText');
+
+/**
+ * Show streaming text below the thinking bar during processing state.
+ */
+function updateStreamingText(text) {
+  if (currentState !== 'processing') return;
+  streamingText.textContent = text;
+  if (text) {
+    capsule.classList.add('has-streaming-text');
+  } else {
+    capsule.classList.remove('has-streaming-text');
+  }
+}
+
+function onCancel() {
+  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.capsule) {
+    window.webkit.messageHandlers.capsule.postMessage({action: 'cancel'});
+  }
+}
+
+function onFinish() {
+  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.capsule) {
+    window.webkit.messageHandlers.capsule.postMessage({action: 'finish'});
+  }
+}
+
+// Initialize with default state
+setMode('pushToTalk');
+updateState('hidden');
+</script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+**/xcuserdata/
+*.xcuserstate
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment
+.env
+.agent/
+.agents/
+.claude/
+.factory/
+.qoder/
+.qwen/
+
+# Brainstorming mockups
+.superpowers/
+
+# uv
+.python-version
+
+# Playwright MCP
+.playwright-mcp/
+
+# Superpowers generated docs
+docs/superpowers/
+
+# Generated icon intermediates
+resources/icons/generated_*.png
+resources/icons/icon_template_full.png
+
+# Temporary screenshots
+audio-tab-final.png
+mic-test-*.png
+
+# Generated evaluation artifacts
+evolve/run.log
+evolve/eval_output.json
+results.tsv

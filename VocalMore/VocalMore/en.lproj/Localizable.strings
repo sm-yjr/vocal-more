@@ -1,0 +1,117 @@
+/* MenuBar */
+"Vocal-More" = "Vocal-More";
+"Status: Idle" = "Status: Idle";
+"Status: Recording..." = "Status: Recording...";
+"Status: Processing..." = "Status: Processing...";
+"Settings..." = "Settings...";
+"Check for Updates…" = "Check for Updates…";
+"Quit Vocal-More" = "Quit Vocal-More";
+"Vocal-More Settings" = "Vocal-More Settings";
+
+/* Settings Tabs */
+"General" = "General";
+"Audio" = "Audio";
+"Recognition" = "Recognition";
+"Polish" = "Polish";
+"Shortcuts" = "Shortcuts";
+"Dictionary" = "Dictionary";
+
+/* General Tab */
+"API" = "API";
+"Saved" = "Saved";
+"Configured" = "Configured";
+"Required for voice recognition" = "Required for voice recognition";
+"Get your API key from [DashScope Console](https://dashscope.console.aliyun.com/apiKey)" = "Get your API key from [DashScope Console](https://dashscope.console.aliyun.com/apiKey)";
+"Behavior" = "Behavior";
+"Walkie-Talkie" = "Walkie-Talkie";
+"Real-time Long" = "Real-time Long";
+"Default Mode" = "Default Mode";
+"Recording mode on launch" = "Recording mode on launch";
+"Auto Paste" = "Auto Paste";
+"Launch at Login" = "Launch at Login";
+"Start Vocal-More when you log in" = "Start Vocal-More when you log in";
+
+/* Audio Tab */
+"Input" = "Input";
+"Input Device" = "Input Device";
+"System Default" = "System Default";
+"default" = "default";
+"Processing" = "Processing";
+"Software Gain" = "Software Gain";
+"Amplify input signal" = "Amplify input signal";
+"Noise Gate" = "Noise Gate";
+"RMS threshold to suppress background noise" = "RMS threshold to suppress background noise";
+
+/* Recognition Tab */
+"ASR Engine" = "ASR Engine";
+"Backend" = "Backend";
+"Realtime WebSocket" = "Realtime WebSocket";
+"Short File Upload" = "Short File Upload";
+"Model" = "Model";
+"Language" = "Language";
+"Chinese (zh)" = "Chinese (zh)";
+"English (en)" = "English (en)";
+"Enhancement" = "Enhancement";
+"Enabled" = "Enabled";
+"Dictionary Corpus" = "Dictionary Corpus";
+"Custom terms from Dictionary tab improve recognition" = "Custom terms from Dictionary tab improve recognition";
+
+/* Polish Tab */
+"Text Polish" = "Text Polish";
+"Enable Text Polish" = "Enable Text Polish";
+"Smart" = "Smart";
+"Always" = "Always";
+"Polish Mode" = "Polish Mode";
+"Smart only polishes when needed" = "Smart only polishes when needed";
+"Minimal" = "Minimal";
+"Balanced" = "Balanced";
+"Strong" = "Strong";
+"Structured" = "Structured";
+"Polish Level" = "Polish Level";
+"Choose how strongly the text should be rewritten" = "Choose how strongly the text should be rewritten";
+"Neutral" = "Neutral";
+"Gentle" = "Gentle";
+"Direct" = "Direct";
+"Tone" = "Tone";
+"Choose how soft or direct the phrasing should feel" = "Choose how soft or direct the phrasing should feel";
+"Default" = "Default";
+"Technical" = "Technical";
+"Bilingual" = "Bilingual";
+"Professional" = "Professional";
+"Chat" = "Chat";
+"Persona" = "Persona";
+"Choose the writing identity for the rewrite" = "Choose the writing identity for the rewrite";
+"LLM" = "LLM";
+"Temperature" = "Temperature";
+"Enable Thinking" = "Enable Thinking";
+"Chain-of-thought for complex text" = "Chain-of-thought for complex text";
+
+/* Shortcuts Tab */
+"Active Hotkeys" = "Active Hotkeys";
+"Fn Key" = "Fn Key";
+"Hold (walkie-talkie) or toggle (real-time)" = "Hold (walkie-talkie) or toggle (real-time)";
+"Double ⌘" = "Double ⌘";
+"Tap Command twice quickly" = "Tap Command twice quickly";
+"Timing" = "Timing";
+"Double-tap Threshold" = "Double-tap Threshold";
+"Maximum interval between taps" = "Maximum interval between taps";
+
+/* Dictionary Tab */
+"Custom Terms" = "Custom Terms";
+"+ Add Term" = "+ Add Term";
+"No dictionary entries yet" = "No dictionary entries yet";
+"Add Dictionary Term" = "Add Dictionary Term";
+"Term (correct spelling)" = "Term (correct spelling)";
+"Aliases (comma-separated, optional)" = "Aliases (comma-separated, optional)";
+"Cancel" = "Cancel";
+"Add" = "Add";
+"Adding..." = "Adding...";
+
+/* Notifications */
+"Error" = "Error";
+"Accessibility Permission Required" = "Accessibility Permission Required";
+"Please open System Settings → Privacy & Security → Accessibility, toggle VocalMore OFF then ON again (or remove and re-add it)." = "Please open System Settings → Privacy & Security → Accessibility, toggle VocalMore OFF then ON again (or remove and re-add it).";
+"Transcription Complete" = "Transcription Complete";
+
+/* Capsule */
+"Thinking" = "Thinking";

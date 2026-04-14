@@ -1,0 +1,52 @@
+# VocalMore TextPolisher 自动优化配置
+# 优化目标：提升润色 prompt 质量 + 策略逻辑（should_polish、level/tone/persona 效果）
+# LLM 润色：qwen3.5-plus | LLM-as-Judge：Claude（人工角色）
+
+artifact: src/vocal_more/core/text_polisher.py
+eval: uv run python evolve/eval_polisher.py > evolve/run.log 2>&1
+
+metrics:
+  primary: pass_rate
+  direction: maximize
+  extract: grep "^pass_rate:" evolve/run.log
+  secondary:
+    - name: avg_latency
+      direction: minimize
+      weight: 0.05
+
+strategy: greedy
+eval_timeout: 120
+
+judge:
+  enabled: true
+  rubric: |
+    逐个评估每个测试用例的润色结果，每个维度给出 GOOD / NEUTRAL / BAD：
+
+    1. 忠实度：润色后是否完整保留了原意？没有添加原文没有的信息？没有遗漏关键信息？
+    2. 设定遵循：是否正确遵循了该用例指定的 level/tone/persona？
+       - minimal 几乎不改 vs strong 大幅精简？
+       - technical 保护术语 vs chat 保留口语感？
+       - direct 表达利落 vs gentle 措辞温和？
+    3. 自然度：输出读起来是否自然流畅？不会有 AI 味（过度格式化、空泛套话、不必要的列表）？
+    4. 边界判断：should_polish 的触发是否合理？短文本/已规范文本是否正确跳过了 LLM？
+
+    每个 BAD 必须引用具体证据（原文片段 vs 输出片段）。
+  input: evolve/eval_output.json
+
+immutable:
+  - evolve/eval_polisher.py
+  - evolve/test_cases.json
+  - src/vocal_more/config.py
+  - src/vocal_more/dictionary.py
+
+simplicity:
+  enabled: true
+  metric: lines
+  bias: 0.0005
+
+exploration:
+  interval: 5
+
+stagnation_limit: 10
+max_iterations: null
+branch_prefix: evolve

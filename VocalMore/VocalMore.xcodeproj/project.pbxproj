@@ -1,0 +1,450 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A1000001 /* VocalMoreApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000001 /* VocalMoreApp.swift */; };
+		A1000002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000002 /* AppDelegate.swift */; };
+		A1000003 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000003 /* AppState.swift */; };
+		A1000004 /* BackendMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000004 /* BackendMessages.swift */; };
+		A1000005 /* JSONRPCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000005 /* JSONRPCClient.swift */; };
+		A1000006 /* PythonBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000006 /* PythonBackend.swift */; };
+		A1000007 /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000007 /* MenuBarController.swift */; };
+		A1000008 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000008 /* SettingsView.swift */; };
+		A1000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000009 /* Assets.xcassets */; };
+		A100000A /* capsule.html in Resources */ = {isa = PBXBuildFile; fileRef = B100000A /* capsule.html */; };
+		A100000B /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100000E /* HotkeyManager.swift */; };
+		A100000C /* FloatingCapsuleController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100000F /* FloatingCapsuleController.swift */; };
+		A100000D /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000010 /* NotificationManager.swift */; };
+		A100000E /* GeneralSettingsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000011 /* GeneralSettingsTab.swift */; };
+		A100000F /* AudioSettingsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000012 /* AudioSettingsTab.swift */; };
+		A1000010 /* RecognitionSettingsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000013 /* RecognitionSettingsTab.swift */; };
+		A1000011 /* PolishSettingsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000014 /* PolishSettingsTab.swift */; };
+		A1000012 /* ShortcutsSettingsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000015 /* ShortcutsSettingsTab.swift */; };
+		A1000013 /* DictionarySettingsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000016 /* DictionarySettingsTab.swift */; };
+		A1000014 /* AddTermSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000017 /* AddTermSheet.swift */; };
+		A1000015 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E1000005 /* Sparkle */; };
+		A1000020 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = V1000001 /* Localizable.strings */; };
+		A1000021 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = V1000002 /* InfoPlist.strings */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B1000001 /* VocalMoreApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VocalMoreApp.swift; sourceTree = "<group>"; };
+		B1000002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		B1000003 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		B1000004 /* BackendMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendMessages.swift; sourceTree = "<group>"; };
+		B1000005 /* JSONRPCClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONRPCClient.swift; sourceTree = "<group>"; };
+		B1000006 /* PythonBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonBackend.swift; sourceTree = "<group>"; };
+		B1000007 /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
+		B1000008 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B1000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B100000A /* capsule.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = capsule.html; sourceTree = "<group>"; };
+		B100000B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B100000C /* VocalMore.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VocalMore.entitlements; sourceTree = "<group>"; };
+		B100000D /* VocalMore.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VocalMore.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B100000E /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
+		B100000F /* FloatingCapsuleController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingCapsuleController.swift; sourceTree = "<group>"; };
+		B1000010 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		B1000011 /* GeneralSettingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsTab.swift; sourceTree = "<group>"; };
+		B1000012 /* AudioSettingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSettingsTab.swift; sourceTree = "<group>"; };
+		B1000013 /* RecognitionSettingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionSettingsTab.swift; sourceTree = "<group>"; };
+		B1000014 /* PolishSettingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolishSettingsTab.swift; sourceTree = "<group>"; };
+		B1000015 /* ShortcutsSettingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsTab.swift; sourceTree = "<group>"; };
+		B1000016 /* DictionarySettingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionarySettingsTab.swift; sourceTree = "<group>"; };
+		B1000017 /* AddTermSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddTermSheet.swift; sourceTree = "<group>"; };
+		B1000020 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		B1000021 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		B1000022 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		B1000023 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C1000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000015 /* Sparkle in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		D1000001 /* Root */ = {
+			isa = PBXGroup;
+			children = (
+				D1000002 /* VocalMore */,
+				D1000009 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		D1000002 /* VocalMore */ = {
+			isa = PBXGroup;
+			children = (
+				B1000001 /* VocalMoreApp.swift */,
+				B1000002 /* AppDelegate.swift */,
+				D1000003 /* Models */,
+				D1000004 /* Backend */,
+				D1000005 /* MenuBar */,
+				D1000006 /* Hotkey */,
+				D1000007 /* Capsule */,
+				D1000010 /* Notification */,
+				D1000008 /* Views */,
+				D100000A /* Resources */,
+				B1000009 /* Assets.xcassets */,
+				V1000001 /* Localizable.strings */,
+				V1000002 /* InfoPlist.strings */,
+				B100000B /* Info.plist */,
+				B100000C /* VocalMore.entitlements */,
+			);
+			path = VocalMore;
+			sourceTree = "<group>";
+		};
+		D1000003 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				B1000003 /* AppState.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		D1000004 /* Backend */ = {
+			isa = PBXGroup;
+			children = (
+				B1000004 /* BackendMessages.swift */,
+				B1000005 /* JSONRPCClient.swift */,
+				B1000006 /* PythonBackend.swift */,
+			);
+			path = Backend;
+			sourceTree = "<group>";
+		};
+		D1000005 /* MenuBar */ = {
+			isa = PBXGroup;
+			children = (
+				B1000007 /* MenuBarController.swift */,
+			);
+			path = MenuBar;
+			sourceTree = "<group>";
+		};
+		D1000006 /* Hotkey */ = {
+			isa = PBXGroup;
+			children = (
+				B100000E /* HotkeyManager.swift */,
+			);
+			path = Hotkey;
+			sourceTree = "<group>";
+		};
+		D1000007 /* Capsule */ = {
+			isa = PBXGroup;
+			children = (
+				B100000F /* FloatingCapsuleController.swift */,
+			);
+			path = Capsule;
+			sourceTree = "<group>";
+		};
+		D1000008 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				B1000008 /* SettingsView.swift */,
+				B1000011 /* GeneralSettingsTab.swift */,
+				B1000012 /* AudioSettingsTab.swift */,
+				B1000013 /* RecognitionSettingsTab.swift */,
+				B1000014 /* PolishSettingsTab.swift */,
+				B1000015 /* ShortcutsSettingsTab.swift */,
+				B1000016 /* DictionarySettingsTab.swift */,
+				B1000017 /* AddTermSheet.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		D1000009 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B100000D /* VocalMore.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		D100000A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				B100000A /* capsule.html */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		D1000010 /* Notification */ = {
+			isa = PBXGroup;
+			children = (
+				B1000010 /* NotificationManager.swift */,
+			);
+			path = Notification;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXVariantGroup section */
+		V1000001 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				B1000020 /* en */,
+				B1000021 /* zh-Hans */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+		V1000002 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				B1000022 /* en */,
+				B1000023 /* zh-Hans */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin PBXNativeTarget section */
+		E1000001 /* VocalMore */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F1000003 /* Build configuration list for PBXNativeTarget "VocalMore" */;
+			buildPhases = (
+				E1000002 /* Sources */,
+				C1000001 /* Frameworks */,
+				E1000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = VocalMore;
+			packageProductDependencies = (
+				E1000005 /* Sparkle */,
+			);
+			productName = VocalMore;
+			productReference = B100000D /* VocalMore.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E1000004 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					E1000001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = F1000001 /* Build configuration list for PBXProject "VocalMore" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+			);
+			mainGroup = D1000001 /* Root */;
+			packageReferences = (
+				E1000006 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
+			productRefGroup = D1000009 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E1000001 /* VocalMore */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		E1000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000009 /* Assets.xcassets in Resources */,
+				A100000A /* capsule.html in Resources */,
+				A1000020 /* Localizable.strings in Resources */,
+				A1000021 /* InfoPlist.strings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		E1000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000001 /* VocalMoreApp.swift in Sources */,
+				A1000002 /* AppDelegate.swift in Sources */,
+				A1000003 /* AppState.swift in Sources */,
+				A1000004 /* BackendMessages.swift in Sources */,
+				A1000005 /* JSONRPCClient.swift in Sources */,
+				A1000006 /* PythonBackend.swift in Sources */,
+				A1000007 /* MenuBarController.swift in Sources */,
+				A1000008 /* SettingsView.swift in Sources */,
+				A100000B /* HotkeyManager.swift in Sources */,
+				A100000C /* FloatingCapsuleController.swift in Sources */,
+				A100000D /* NotificationManager.swift in Sources */,
+				A100000E /* GeneralSettingsTab.swift in Sources */,
+				A100000F /* AudioSettingsTab.swift in Sources */,
+				A1000010 /* RecognitionSettingsTab.swift in Sources */,
+				A1000011 /* PolishSettingsTab.swift in Sources */,
+				A1000012 /* ShortcutsSettingsTab.swift in Sources */,
+				A1000013 /* DictionarySettingsTab.swift in Sources */,
+				A1000014 /* AddTermSheet.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		F1000004 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		F1000005 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		F1000006 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = VocalMore/VocalMore.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 0.3.2;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = VocalMore/Info.plist;
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Vocal-More needs microphone access to record your voice for transcription.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.3.8;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.vocal-more.VocalMore";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		F1000007 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = VocalMore/VocalMore.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 0.3.2;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = VocalMore/Info.plist;
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Vocal-More needs microphone access to record your voice for transcription.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.3.8;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.vocal-more.VocalMore";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		F1000001 /* Build configuration list for PBXProject "VocalMore" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F1000004 /* Debug */,
+				F1000005 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F1000003 /* Build configuration list for PBXNativeTarget "VocalMore" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F1000006 /* Debug */,
+				F1000007 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E1000006 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E1000005 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E1000006 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = E1000004 /* Project object */;
+}
