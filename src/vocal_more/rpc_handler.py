@@ -6,14 +6,12 @@ mirroring the component wiring in app.py.
 
 from typing import Any, Callable, Optional
 
+import dashscope
+
 from .config import (
     ASR_MODEL_CATALOG,
     LLM_MODEL_CATALOG,
-    Config,
-    _validate_custom_key,
-    get_asr_model_info,
     get_config,
-    reload_config,
 )
 from .core.audio_recorder import AudioRecorder
 from .core.recording_store import RecordingStore
@@ -124,40 +122,19 @@ class RPCHandler:
         key = params.get("key", "")
         value = params.get("value")
 
-        # Handle nested keys like "audio.gain"
-        parts = key.split(".")
-        if len(parts) == 2:
-            section, attr = parts
-            sub = getattr(self.config, section, None)
-            if sub is not None and hasattr(sub, attr):
-                setattr(sub, attr, value)
-            else:
-                raise RPCError(-32602, f"Unknown config key: {key}")
-        elif len(parts) == 1:
-            if hasattr(self.config, key):
-                setattr(self.config, key, value)
-            else:
-                raise RPCError(-32602, f"Unknown config key: {key}")
-        else:
-            raise RPCError(-32602, f"Invalid config key: {key}")
+        try:
+            self.config.apply_update(key, value)
+        except ValueError as exc:
+            raise RPCError(-32602, str(exc)) from exc
 
-        # Validate custom_key shape before storing
-        if key == "hotkey.custom_key":
-            self.config.hotkey.custom_key = _validate_custom_key(value)
-
-        # Auto-sync asr.backend when asr.model changes
-        if key == "asr.model":
-            model_info = get_asr_model_info(value)
-            if model_info:
-                self.config.asr.backend = model_info["transport"]
+        if key == "api_key":
+            self._refresh_text_polisher()
+        elif key == "default_mode":
+            self._current_mode = self._modes[self.config.default_mode]
+        elif key.startswith("audio."):
+            self._sync_audio_recorders()
 
         self.config.save()
-
-        # Recreate TextPolisher when API key changes
-        if key == "api_key" and value:
-            self._text_polisher = TextPolisher()
-            for mode in self._modes.values():
-                mode.text_polisher = self._text_polisher
 
         return {"ok": True}
 
@@ -166,13 +143,9 @@ class RPCHandler:
 
     def _handle_set_device(self, params: dict) -> dict:
         device_name = params.get("device")  # None means system default
-        self.config.audio.input_device = device_name
+        self.config.apply_update("audio.input_device", device_name)
         self.config.save()
-
-        # Update recorders in all modes
-        for mode in self._modes.values():
-            if hasattr(mode, "_recorder"):
-                mode._recorder.set_device(device_name)
+        self._sync_audio_recorders()
 
         return {"ok": True}
 
@@ -222,7 +195,7 @@ class RPCHandler:
 
     def _handle_set_active_hotkeys(self, params: dict) -> dict:
         hotkeys = params.get("hotkeys", [])
-        self.config.hotkey.active_hotkeys = hotkeys
+        self.config.apply_update("hotkey.active_hotkeys", hotkeys)
         self.config.save()
         return {"ok": True}
 
@@ -305,6 +278,26 @@ class RPCHandler:
             if m is mode:
                 return name
         return "unknown"
+
+    def _refresh_text_polisher(self) -> None:
+        """Recreate or clear the text polisher after API key changes."""
+        dashscope.api_key = self.config.api_key or None
+        self._text_polisher = TextPolisher() if self.config.api_key else None
+        for mode in self._modes.values():
+            mode.text_polisher = self._text_polisher
+
+    def _sync_audio_recorders(self) -> None:
+        """Push the current audio config into all mode recorders."""
+        for mode in self._modes.values():
+            recorder = getattr(mode, "_recorder", None)
+            if recorder is None:
+                continue
+            recorder.set_device(self.config.audio.input_device)
+            recorder.set_gain(self.config.audio.gain)
+            recorder.set_noise_gate(self.config.audio.noise_gate)
+            recorder.set_highpass_filter(self.config.audio.highpass_filter)
+            recorder.set_highpass_freq(self.config.audio.highpass_freq)
+            recorder.set_soft_limiter(self.config.audio.soft_limiter)
 
 
 class RPCError(Exception):

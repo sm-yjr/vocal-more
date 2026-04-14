@@ -14,3 +14,10 @@ def test_html_settings_has_dedicated_omni_llm_gating_logic():
     assert "function selectedAsrHandlesInlinePolish()" in html
     assert "function toggleLlmControls(enabled)" in html
     assert "renderPolish();" in html
+
+
+def test_html_settings_has_mixed_chinese_english_language_option():
+    """Recognition settings should expose a mixed Chinese/English option."""
+    html = SETTINGS_HTML.read_text(encoding="utf-8")
+
+    assert '<option value="auto">Chinese + English</option>' in html

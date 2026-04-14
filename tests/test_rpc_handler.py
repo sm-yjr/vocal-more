@@ -239,7 +239,55 @@ def test_set_asr_model_syncs_backend(handler):
     assert handler.config.asr.model == "qwen3.5-omni-plus-realtime"
     assert handler.config.asr.backend == "realtime_ws"
 
+    # Switch to omni offline model
+    handler.dispatch("set_config", {"key": "asr.model", "value": "qwen3.5-omni-plus"})
+    assert handler.config.asr.model == "qwen3.5-omni-plus"
+    assert handler.config.asr.backend == "omni_offline"
+
     # Switch back to default realtime model
     handler.dispatch("set_config", {"key": "asr.model", "value": "qwen3-asr-flash-realtime-2026-02-10"})
     assert handler.config.asr.model == "qwen3-asr-flash-realtime-2026-02-10"
     assert handler.config.asr.backend == "realtime_ws"
+
+
+def test_dispatch_set_config_updates_audio_recorders(handler):
+    """Audio config changes should be pushed into existing mode recorders."""
+    result = handler.dispatch("set_config", {"key": "audio.highpass_freq", "value": 380})
+
+    assert result["ok"] is True
+    assert handler.config.audio.highpass_freq == 380
+    handler._walkie_talkie._recorder.set_highpass_freq.assert_called_with(380)
+    handler._realtime_long._recorder.set_highpass_freq.assert_called_with(380)
+
+
+def test_dispatch_set_config_default_mode_switches_current_mode(handler):
+    """Updating default_mode through set_config should switch the active mode."""
+    result = handler.dispatch(
+        "set_config", {"key": "default_mode", "value": "realtime_long"}
+    )
+
+    assert result["ok"] is True
+    init_result = handler.dispatch("initialize", {})
+    assert init_result["current_mode"] == "realtime_long"
+
+
+def test_dispatch_set_config_empty_api_key_clears_polisher(handler):
+    """Clearing api_key should remove the shared text polisher from all modes."""
+    assert handler._text_polisher is not None
+
+    result = handler.dispatch("set_config", {"key": "api_key", "value": ""})
+
+    assert result["ok"] is True
+    assert handler._text_polisher is None
+    assert handler._walkie_talkie.text_polisher is None
+    assert handler._realtime_long.text_polisher is None
+
+
+def test_dispatch_set_active_hotkeys_normalizes_values(handler):
+    """Hotkey updates should be normalized before saving."""
+    result = handler.dispatch(
+        "set_active_hotkeys", {"hotkeys": ["printscreen", "bogus"]}
+    )
+
+    assert result["ok"] is True
+    assert handler.config.hotkey.active_hotkeys == ["f13"]

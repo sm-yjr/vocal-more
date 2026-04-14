@@ -108,7 +108,7 @@ def test_config_new_fields_roundtrip(tmp_path, monkeypatch):
     # Set custom values
     config = Config()
     config.audio.input_device = "MacBook Pro Microphone"
-    config.asr.backend = "short_file"
+    config.apply_update("asr.backend", "short_file")
     config.asr.extra_corpus_terms = ["Vocal More", "DashScope"]
     config.llm.enable_thinking = True
     config.llm.max_tokens = 128
@@ -120,11 +120,119 @@ def test_config_new_fields_roundtrip(tmp_path, monkeypatch):
     loaded = Config.load()
     assert loaded.audio.input_device == "MacBook Pro Microphone"
     assert loaded.asr.backend == "short_file"
+    assert loaded.asr.model == "qwen3-asr-flash"
     assert loaded.asr.extra_corpus_terms == ["Vocal More", "DashScope"]
     assert loaded.llm.enable_thinking is True
     assert loaded.llm.max_tokens == 128
     assert loaded.llm.polish_mode == "always"
     assert loaded.hotkey.active_hotkeys == ["fn"]
+
+
+def test_audio_processing_fields_roundtrip(tmp_path, monkeypatch):
+    """Audio processing toggles should survive save/load."""
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    config = Config()
+    config.audio.highpass_filter = False
+    config.audio.highpass_freq = 350
+    config.audio.soft_limiter = False
+    config.save()
+
+    loaded = Config.load()
+    assert loaded.audio.highpass_filter is False
+    assert loaded.audio.highpass_freq == 350
+    assert loaded.audio.soft_limiter is False
+
+
+def test_omni_offline_backend_roundtrip(tmp_path, monkeypatch):
+    """The derived omni_offline backend should survive persistence."""
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    config = Config()
+    config.apply_update("asr.model", "qwen3.5-omni-plus")
+    config.save()
+
+    loaded = Config.load()
+    assert loaded.asr.model == "qwen3.5-omni-plus"
+    assert loaded.asr.backend == "omni_offline"
+
+
+def test_config_model_wins_over_stale_backend(tmp_path, monkeypatch):
+    """When both are present, model transport should be the final backend."""
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump(
+            {"asr": {"model": "qwen3.5-omni-plus", "backend": "realtime_ws"}},
+            f,
+        )
+
+    loaded = Config.load()
+    assert loaded.asr.model == "qwen3.5-omni-plus"
+    assert loaded.asr.backend == "omni_offline"
+
+
+def test_apply_form_state_normalizes_nested_config():
+    """Form-state application should normalize backend, hotkeys, and audio fields."""
+    from vocal_more.config import Config
+
+    config = Config()
+    config.apply_form_state(
+        {
+            "default_mode": "realtime_long",
+            "audio": {
+                "input_device": "Built-in Mic",
+                "gain": 4.0,
+                "noise_gate": 0.12,
+                "highpass_filter": False,
+                "highpass_freq": 420,
+                "soft_limiter": False,
+            },
+            "asr": {
+                "backend": "realtime_ws",
+                "model": "qwen3.5-omni-plus",
+                "language": "en",
+            },
+            "hotkey": {
+                "active_hotkeys": ["printscreen", "bogus"],
+            },
+        }
+    )
+
+    assert config.default_mode == "realtime_long"
+    assert config.audio.input_device == "Built-in Mic"
+    assert config.audio.gain == 4.0
+    assert config.audio.noise_gate == 0.12
+    assert config.audio.highpass_filter is False
+    assert config.audio.highpass_freq == 420
+    assert config.audio.soft_limiter is False
+    assert config.asr.model == "qwen3.5-omni-plus"
+    assert config.asr.backend == "omni_offline"
+    assert config.asr.language == "en"
+    assert config.hotkey.active_hotkeys == ["f13"]
+
+
+def test_asr_language_mixed_aliases_normalize_to_auto():
+    """Mixed-language aliases should map to automatic language detection."""
+    from vocal_more.config import Config
+
+    config = Config()
+
+    for raw in ("auto", "mixed", "zh_en", "zh-en", "bilingual"):
+        config.apply_update("asr.language", raw)
+        assert config.asr.language == "auto"
 
 
 def test_config_invalid_modes_fall_back(tmp_path, monkeypatch):

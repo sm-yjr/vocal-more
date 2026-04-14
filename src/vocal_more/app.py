@@ -13,10 +13,7 @@ from . import __version__
 from .config import (
     ASR_MODEL_CATALOG,
     LLM_MODEL_CATALOG,
-    _validate_custom_key,
-    get_asr_model_info,
     get_config,
-    get_llm_model_info,
 )
 from .core.audio_recorder import AudioRecorder
 from .core.hotkey_manager import HotkeyManager
@@ -28,6 +25,20 @@ from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
 from .ui.floating_capsule import FloatingCapsule
 from .ui.settings_window import SettingsWindow
+
+MENU_STATE_OFF = 0
+MENU_STATE_ON = 1
+
+MODE_MENU_OPTIONS = [
+    ("walkie_talkie", "Walkie-Talkie (Hold)"),
+    ("realtime_long", "Real-time Long (Toggle)"),
+]
+
+POLISH_LEVEL_OPTIONS = [
+    ("minimal", "Minimal"),
+    ("balanced", "Balanced"),
+    ("strong", "Strong"),
+]
 
 
 class VocalMoreApp(rumps.App):
@@ -148,14 +159,67 @@ class VocalMoreApp(rumps.App):
         self._state_item = rumps.MenuItem("Status: Idle")
         self._state_item.set_callback(None)
 
+        self._quick_settings_item = self._build_quick_settings_item()
+
         self.menu = [
             self._status_item,
             self._state_item,
             None,
+            self._quick_settings_item,
             rumps.MenuItem("Settings...", callback=self._open_settings),
             None,
             rumps.MenuItem("Quit Vocal-More", callback=self._quit_app),
         ]
+        self._refresh_quick_settings_menu()
+
+    def _build_quick_settings_item(self) -> rumps.MenuItem:
+        """Build the status-bar quick settings submenu."""
+        quick_settings = rumps.MenuItem("Quick Settings")
+
+        self._quick_mode_item = rumps.MenuItem("Recording Mode")
+        self._mode_menu_items: dict[str, rumps.MenuItem] = {}
+        for mode_name, title in MODE_MENU_OPTIONS:
+            item = rumps.MenuItem(
+                title,
+                callback=lambda _, value=mode_name: self._on_quick_set_mode(value),
+            )
+            self._mode_menu_items[mode_name] = item
+            self._quick_mode_item.add(item)
+        quick_settings.add(self._quick_mode_item)
+
+        self._quick_asr_model_item = rumps.MenuItem("ASR Model")
+        self._asr_model_menu_items: dict[str, rumps.MenuItem] = {}
+        for entry in ASR_MODEL_CATALOG:
+            if entry.get("separator"):
+                continue
+            item = rumps.MenuItem(
+                entry["display_name"],
+                callback=lambda _, model_id=entry["id"]: self._on_quick_set_asr_model(
+                    model_id
+                ),
+            )
+            self._asr_model_menu_items[entry["id"]] = item
+            self._quick_asr_model_item.add(item)
+        quick_settings.add(self._quick_asr_model_item)
+
+        self._quick_enable_polish_item = rumps.MenuItem(
+            "Enable Polishing",
+            callback=self._on_quick_toggle_polish,
+        )
+        quick_settings.add(self._quick_enable_polish_item)
+
+        self._quick_polish_level_item = rumps.MenuItem("Polish Strength")
+        self._polish_level_menu_items: dict[str, rumps.MenuItem] = {}
+        for level, title in POLISH_LEVEL_OPTIONS:
+            item = rumps.MenuItem(
+                title,
+                callback=lambda _, value=level: self._on_quick_set_polish_level(value),
+            )
+            self._polish_level_menu_items[level] = item
+            self._quick_polish_level_item.add(item)
+        quick_settings.add(self._quick_polish_level_item)
+
+        return quick_settings
 
     def _open_settings(self, _) -> None:
         """Open the settings window."""
@@ -182,206 +246,60 @@ class VocalMoreApp(rumps.App):
 
     def _on_settings_config_change(self, key: str, value: Any) -> None:
         """Handle config change from settings window."""
-        parts = key.split(".")
-
-        if len(parts) == 1:
-            # Top-level config: api_key, enable_polish, auto_paste, default_mode
-            field = parts[0]
-            if field == "api_key":
-                self.config.api_key = value
-                self._refresh_text_polisher()
-            elif field == "enable_polish":
-                self.config.enable_polish = bool(value)
-            elif field == "auto_paste":
-                self.config.auto_paste = bool(value)
-            elif field == "default_mode":
-                self.config.default_mode = value
-                self._select_mode(value)
-            else:
-                print(f"[Settings] Unknown top-level config key: {field}")
-                return
-
-        elif len(parts) == 2:
-            section, field = parts
-            if section == "audio":
-                if field == "gain":
-                    self.config.audio.gain = float(value)
-                    for mode in (self._walkie_talkie, self._realtime_long):
-                        if hasattr(mode, "_recorder"):
-                            mode._recorder.set_gain(self.config.audio.gain)
-                elif field == "noise_gate":
-                    self.config.audio.noise_gate = float(value)
-                    for mode in (self._walkie_talkie, self._realtime_long):
-                        if hasattr(mode, "_recorder"):
-                            mode._recorder.set_noise_gate(self.config.audio.noise_gate)
-                elif field == "highpass_filter":
-                    self.config.audio.highpass_filter = bool(value)
-                    for mode in (self._walkie_talkie, self._realtime_long):
-                        if hasattr(mode, "_recorder"):
-                            mode._recorder.set_highpass_filter(self.config.audio.highpass_filter)
-                elif field == "highpass_freq":
-                    self.config.audio.highpass_freq = int(value)
-                    for mode in (self._walkie_talkie, self._realtime_long):
-                        if hasattr(mode, "_recorder"):
-                            mode._recorder.set_highpass_freq(self.config.audio.highpass_freq)
-                elif field == "soft_limiter":
-                    self.config.audio.soft_limiter = bool(value)
-                    for mode in (self._walkie_talkie, self._realtime_long):
-                        if hasattr(mode, "_recorder"):
-                            mode._recorder.set_soft_limiter(self.config.audio.soft_limiter)
-                else:
-                    print(f"[Settings] Unknown audio config key: {field}")
-                    return
-            elif section == "asr":
-                if field == "model":
-                    self.config.asr.model = value
-                    model_info = get_asr_model_info(value)
-                    if model_info:
-                        self.config.asr.backend = model_info["transport"]
-                elif field == "backend":
-                    self.config.asr.backend = value
-                elif field == "language":
-                    self.config.asr.language = value
-                else:
-                    print(f"[Settings] Unknown asr config key: {field}")
-                    return
-            elif section == "llm":
-                if field == "model":
-                    self.config.llm.model = value
-                    # Auto-disable thinking if model doesn't support it
-                    model_info = get_llm_model_info(value)
-                    if model_info and not model_info.get("supports_thinking"):
-                        self.config.llm.enable_thinking = False
-                elif field == "temperature":
-                    self.config.llm.temperature = float(value)
-                elif field == "enable_thinking":
-                    self.config.llm.enable_thinking = bool(value)
-                elif field == "polish_mode":
-                    self.config.llm.polish_mode = value
-                elif field == "level":
-                    self.config.llm.level = value
-                elif field == "tone":
-                    self.config.llm.tone = value
-                elif field == "persona":
-                    self.config.llm.persona = value
-                elif field == "structured":
-                    self.config.llm.structured = bool(value)
-                else:
-                    print(f"[Settings] Unknown llm config key: {field}")
-                    return
-            elif section == "hotkey":
-                if field == "double_tap_threshold":
-                    self.config.hotkey.double_tap_threshold = float(value)
-                elif field == "custom_key":
-                    self.config.hotkey.custom_key = _validate_custom_key(value)
-                    self._hotkey_manager.set_custom_key(self.config.hotkey.custom_key)
-                else:
-                    print(f"[Settings] Unknown hotkey config key: {field}")
-                    return
-            else:
-                print(f"[Settings] Unknown config section: {section}")
-                return
-        else:
-            print(f"[Settings] Invalid config key: {key}")
+        try:
+            self.config.apply_update(key, value)
+        except ValueError as exc:
+            print(f"[Settings] {exc}")
             return
 
+        if key == "api_key":
+            self._refresh_text_polisher()
+        elif key == "default_mode":
+            self._select_mode(self.config.default_mode)
+        elif key.startswith("audio."):
+            self._sync_audio_recorders()
+        elif key == "hotkey.custom_key":
+            self._hotkey_manager.set_custom_key(self.config.hotkey.custom_key)
+
         self.config.save()
+        self._refresh_quick_settings_menu()
         print(f"[Settings] Config updated: {key} = {value}")
 
     def _on_settings_set_device(self, device: Optional[str]) -> None:
         """Handle device change from settings window."""
-        self.config.audio.input_device = device
+        self.config.apply_update("audio.input_device", device)
         self.config.save()
-        for mode in (self._walkie_talkie, self._realtime_long):
-            if hasattr(mode, "_recorder"):
-                mode._recorder.set_device(device)
+        self._sync_audio_recorders()
         print(f"[Settings] Device set to: {device or 'System Default'}")
 
     def _on_settings_set_asr_model(self, model: str, backend: str) -> None:
         """Handle ASR model changes atomically so reopen shows the saved model."""
-        self.config.asr.model = model
-        self.config.asr.backend = backend
+        self.config.apply_update("asr.model", model)
         self.config.save()
-        print(f"[Settings] ASR model set to: {model} ({backend})")
+        self._refresh_quick_settings_menu()
+        print(f"[Settings] ASR model set to: {self.config.asr.model} ({self.config.asr.backend})")
 
     def _on_settings_sync_form_state(self, form_state: dict) -> None:
         """Persist the full form state when the settings window closes."""
-        self.config.api_key = form_state.get("api_key", self.config.api_key)
-        self.config.default_mode = form_state.get("default_mode", self.config.default_mode)
-        self.config.auto_paste = bool(form_state.get("auto_paste", self.config.auto_paste))
-        self.config.enable_polish = bool(
-            form_state.get("enable_polish", self.config.enable_polish)
-        )
-
-        audio = form_state.get("audio", {})
-        self.config.audio.input_device = audio.get(
-            "input_device", self.config.audio.input_device
-        )
-        self.config.audio.gain = float(audio.get("gain", self.config.audio.gain))
-        self.config.audio.noise_gate = float(
-            audio.get("noise_gate", self.config.audio.noise_gate)
-        )
-        if "highpass_filter" in audio:
-            self.config.audio.highpass_filter = bool(audio["highpass_filter"])
-        if "highpass_freq" in audio:
-            self.config.audio.highpass_freq = int(audio["highpass_freq"])
-        if "soft_limiter" in audio:
-            self.config.audio.soft_limiter = bool(audio["soft_limiter"])
-
-        asr = form_state.get("asr", {})
-        self.config.asr.model = asr.get("model", self.config.asr.model)
-        self.config.asr.backend = asr.get("backend", self.config.asr.backend)
-        self.config.asr.language = asr.get("language", self.config.asr.language)
-
-        llm = form_state.get("llm", {})
-        self.config.llm.model = llm.get("model", self.config.llm.model)
-        self.config.llm.temperature = float(
-            llm.get("temperature", self.config.llm.temperature)
-        )
-        self.config.llm.enable_thinking = bool(
-            llm.get("enable_thinking", self.config.llm.enable_thinking)
-        )
-        self.config.llm.polish_mode = llm.get(
-            "polish_mode", self.config.llm.polish_mode
-        )
-        self.config.llm.level = llm.get("level", self.config.llm.level)
-        self.config.llm.structured = bool(
-            llm.get("structured", self.config.llm.structured)
-        )
-        self.config.llm.tone = llm.get("tone", self.config.llm.tone)
-        self.config.llm.persona = llm.get("persona", self.config.llm.persona)
-
-        hotkey = form_state.get("hotkey", {})
-        active_hotkeys = hotkey.get("active_hotkeys") or self.config.hotkey.active_hotkeys
-        self.config.hotkey.active_hotkeys = active_hotkeys
-        self.config.hotkey.double_tap_threshold = float(
-            hotkey.get("double_tap_threshold", self.config.hotkey.double_tap_threshold)
-        )
-        self.config.hotkey.custom_key = _validate_custom_key(
-            hotkey.get("custom_key")
-        )
+        self.config.apply_form_state(form_state)
 
         self._refresh_text_polisher()
         self._select_mode(self.config.default_mode)
         self._hotkey_manager.set_active_hotkeys(self.config.hotkey.active_hotkeys)
         self._hotkey_manager.set_custom_key(self.config.hotkey.custom_key)
-
-        for mode in (self._walkie_talkie, self._realtime_long):
-            if hasattr(mode, "_recorder"):
-                mode._recorder.set_device(self.config.audio.input_device)
-                mode._recorder.set_gain(self.config.audio.gain)
-                mode._recorder.set_noise_gate(self.config.audio.noise_gate)
+        self._sync_audio_recorders()
 
         self.config.save()
+        self._refresh_quick_settings_menu()
 
     def _on_settings_set_hotkeys(self, hotkeys: list[str]) -> None:
         """Handle active hotkeys change from settings window."""
         if not hotkeys:
             return
-        self.config.hotkey.active_hotkeys = hotkeys
+        self.config.apply_update("hotkey.active_hotkeys", hotkeys)
         self.config.save()
-        self._hotkey_manager.set_active_hotkeys(hotkeys)
-        print(f"[Settings] Active hotkeys: {hotkeys}")
+        self._hotkey_manager.set_active_hotkeys(self.config.hotkey.active_hotkeys)
+        print(f"[Settings] Active hotkeys: {self.config.hotkey.active_hotkeys}")
 
     def _refresh_text_polisher(self) -> None:
         """Recreate text polisher after API key changes and update all modes."""
@@ -444,6 +362,112 @@ class VocalMoreApp(rumps.App):
         except Exception as e:
             print(f"[Settings] Error listing devices: {e}")
             return []
+
+    def _refresh_quick_settings_menu(self) -> None:
+        """Sync quick-menu checkmarks and labels with current config."""
+        if not hasattr(self, "_quick_mode_item"):
+            return
+
+        mode_label = self._mode_display_name(self.config.default_mode)
+        self._quick_mode_item.title = f"Recording Mode: {mode_label}"
+        for mode_name, item in self._mode_menu_items.items():
+            item.state = MENU_STATE_ON if mode_name == self.config.default_mode else MENU_STATE_OFF
+
+        asr_label = self._asr_model_display_name(self.config.asr.model)
+        self._quick_asr_model_item.title = f"ASR Model: {asr_label}"
+        for model_id, item in self._asr_model_menu_items.items():
+            item.state = MENU_STATE_ON if model_id == self.config.asr.model else MENU_STATE_OFF
+
+        self._quick_enable_polish_item.state = (
+            MENU_STATE_ON if self.config.enable_polish else MENU_STATE_OFF
+        )
+
+        level_label = self._polish_level_display_name(self.config.llm.level)
+        self._quick_polish_level_item.title = f"Polish Strength: {level_label}"
+        for level, item in self._polish_level_menu_items.items():
+            item.state = MENU_STATE_ON if level == self.config.llm.level else MENU_STATE_OFF
+
+    def _on_quick_set_mode(self, mode_name: str) -> None:
+        """Switch the default recording mode from the status bar."""
+        if mode_name == self.config.default_mode:
+            return
+
+        if self._current_mode.state != ModeState.IDLE:
+            rumps.notification(
+                "Vocal-More",
+                "Recording In Progress",
+                "Stop the current session before switching recording modes.",
+                icon=self._get_logo_path(),
+            )
+            return
+
+        self.config.apply_update("default_mode", mode_name)
+        self._select_mode(self.config.default_mode)
+        self.config.save()
+        self._refresh_quick_settings_menu()
+        print(f"[Menu] Recording mode set to: {self.config.default_mode}")
+
+    def _on_quick_set_asr_model(self, model_id: str) -> None:
+        """Switch the ASR model from the status bar."""
+        if model_id == self.config.asr.model:
+            return
+
+        self.config.apply_update("asr.model", model_id)
+        self.config.save()
+        self._refresh_quick_settings_menu()
+        print(f"[Menu] ASR model set to: {self.config.asr.model}")
+
+    def _on_quick_toggle_polish(self, _) -> None:
+        """Toggle second-stage polishing from the status bar."""
+        self.config.apply_update("enable_polish", not self.config.enable_polish)
+        self.config.save()
+        self._refresh_quick_settings_menu()
+        print(f"[Menu] Enable polish: {self.config.enable_polish}")
+
+    def _on_quick_set_polish_level(self, level: str) -> None:
+        """Set polish strength from the status bar."""
+        if level == self.config.llm.level:
+            return
+
+        self.config.apply_update("llm.level", level)
+        self.config.save()
+        self._refresh_quick_settings_menu()
+        print(f"[Menu] Polish level set to: {self.config.llm.level}")
+
+    def _mode_display_name(self, mode_name: str) -> str:
+        return next(
+            (title for value, title in MODE_MENU_OPTIONS if value == mode_name),
+            mode_name,
+        )
+
+    def _polish_level_display_name(self, level: str) -> str:
+        return next(
+            (title for value, title in POLISH_LEVEL_OPTIONS if value == level),
+            level,
+        )
+
+    def _asr_model_display_name(self, model_id: str) -> str:
+        return next(
+            (
+                entry["display_name"]
+                for entry in ASR_MODEL_CATALOG
+                if entry.get("id") == model_id
+            ),
+            model_id,
+        )
+
+    def _sync_audio_recorders(self) -> None:
+        """Push the latest audio config into existing recorders."""
+        for mode in (self._walkie_talkie, self._realtime_long):
+            recorder = getattr(mode, "_recorder", None)
+            if recorder is None:
+                continue
+            recorder.set_device(self.config.audio.input_device)
+            recorder.set_gain(self.config.audio.gain)
+            recorder.set_noise_gate(self.config.audio.noise_gate)
+            recorder.set_highpass_filter(self.config.audio.highpass_filter)
+            recorder.set_highpass_freq(self.config.audio.highpass_freq)
+            recorder.set_soft_limiter(self.config.audio.soft_limiter)
 
     def _get_dict_entries(self) -> list[dict]:
         """Get dictionary entries as dicts for the settings UI."""

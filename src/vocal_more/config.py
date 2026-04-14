@@ -3,7 +3,7 @@
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import yaml
 
@@ -11,6 +11,9 @@ VALID_HOTKEYS = (
     "fn", "right_cmd", "double_cmd",
     "f13", "f14", "f15", "f16", "f17", "f18", "f19", "f20",
 )
+VALID_DEFAULT_MODES = ("walkie_talkie", "realtime_long")
+ASRBackend = Literal["realtime_ws", "short_file", "omni_offline"]
+ASRLanguage = Literal["zh", "en", "auto"]
 
 # ---------------------------------------------------------------------------
 # Model catalogs – served to the Swift frontend via the initialize RPC
@@ -85,6 +88,11 @@ ASR_MODEL_CATALOG = [
 
 _LLM_MODEL_IDS = {m["id"] for m in LLM_MODEL_CATALOG}
 _ASR_MODEL_IDS = {m["id"] for m in ASR_MODEL_CATALOG if "id" in m}
+_DEFAULT_ASR_MODEL_BY_BACKEND = {
+    "realtime_ws": "qwen3-asr-flash-realtime-2026-02-10",
+    "short_file": "qwen3-asr-flash",
+    "omni_offline": "qwen3.5-omni-plus",
+}
 
 
 def get_llm_model_info(model_id: str) -> dict | None:
@@ -128,9 +136,9 @@ class AudioConfig:
 class ASRConfig:
     """ASR configuration."""
 
-    backend: Literal["realtime_ws", "short_file"] = "realtime_ws"
+    backend: ASRBackend = "realtime_ws"
     model: str = "qwen3-asr-flash-realtime-2026-02-10"
-    language: str = "zh"
+    language: ASRLanguage = "zh"
     batch_mode: Literal["manual"] = "manual"
     use_dictionary_corpus: bool = True
     extra_corpus_terms: list[str] = field(default_factory=list)
@@ -201,8 +209,8 @@ def _parse_hotkeys(raw: list) -> list[str]:
     return result or ["fn", "double_cmd"]
 
 
-def _parse_asr_backend(raw: str) -> Literal["realtime_ws", "short_file"]:
-    if raw in ("realtime_ws", "short_file"):
+def _parse_asr_backend(raw: str) -> ASRBackend:
+    if raw in ("realtime_ws", "short_file", "omni_offline"):
         return raw
     return "realtime_ws"
 
@@ -211,6 +219,18 @@ def _parse_batch_mode(raw: str) -> Literal["manual"]:
     if raw == "manual":
         return raw
     return "manual"
+
+
+def _parse_asr_language(raw: object) -> ASRLanguage:
+    if not isinstance(raw, str):
+        return "zh"
+
+    normalized = raw.strip().lower()
+    if normalized in ("zh", "en", "auto"):
+        return normalized
+    if normalized in ("mixed", "mix", "zh_en", "zh-en", "bilingual"):
+        return "auto"
+    return "zh"
 
 
 def _parse_polish_mode(raw: str) -> Literal["smart", "always"]:
@@ -233,6 +253,13 @@ def _parse_asr_model(raw: str) -> str:
     return "qwen3-asr-flash-realtime-2026-02-10"
 
 
+def _default_asr_model_for_backend(backend: ASRBackend) -> str:
+    return _DEFAULT_ASR_MODEL_BY_BACKEND.get(
+        backend,
+        "qwen3-asr-flash-realtime-2026-02-10",
+    )
+
+
 def _parse_level(raw: str) -> Literal["minimal", "balanced", "strong"]:
     if raw in ("minimal", "balanced", "strong"):
         return raw
@@ -253,6 +280,18 @@ def _parse_persona(
     if raw in ("default", "technical", "bilingual", "professional", "chat"):
         return raw
     return "default"
+
+
+def _parse_default_mode(raw: object) -> str:
+    if isinstance(raw, str) and raw in VALID_DEFAULT_MODES:
+        return raw
+    return "walkie_talkie"
+
+
+def _parse_extra_corpus_terms(raw: object) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in raw if str(item).strip()]
 
 
 @dataclass
@@ -303,60 +342,179 @@ class Config:
     @classmethod
     def _from_dict(cls, data: dict) -> "Config":
         """Create config from dictionary."""
-        audio_data = data.get("audio", {})
-        asr_data = data.get("asr", {})
-        llm_data = data.get("llm", {})
-        hotkey_data = data.get("hotkey", {})
+        if not isinstance(data, dict):
+            return cls()
 
-        return cls(
-            api_key=data.get("api_key", ""),
-            audio=AudioConfig(
-                sample_rate=audio_data.get("sample_rate", 16000),
-                channels=audio_data.get("channels", 1),
-                blocksize=audio_data.get("blocksize", 1600),
-                input_device=audio_data.get("input_device", None),
-                gain=audio_data.get("gain", 2.0),
-                noise_gate=audio_data.get("noise_gate", 0.0),
-                highpass_filter=bool(audio_data.get("highpass_filter", True)),
-                highpass_freq=int(audio_data.get("highpass_freq", 200)),
-                soft_limiter=bool(audio_data.get("soft_limiter", True)),
-            ),
-            asr=ASRConfig(
-                backend=_parse_asr_backend(asr_data.get("backend", "realtime_ws")),
-                model=_parse_asr_model(asr_data.get("model", "qwen3-asr-flash-realtime-2026-02-10")),
-                language=asr_data.get("language", "zh"),
-                batch_mode=_parse_batch_mode(asr_data.get("batch_mode", "manual")),
-                use_dictionary_corpus=asr_data.get("use_dictionary_corpus", True),
-                extra_corpus_terms=asr_data.get("extra_corpus_terms", []),
-            ),
-            llm=LLMConfig(
-                model=_parse_llm_model(llm_data.get("model", "qwen3.5-plus")),
-                temperature=llm_data.get("temperature", 0.0),
-                enable_thinking=llm_data.get("enable_thinking", False),
-                max_tokens=llm_data.get("max_tokens", 65536),
-                polish_mode=_parse_polish_mode(
-                    llm_data.get("polish_mode", "smart")
-                ),
-                level=_parse_level(llm_data.get("level", "minimal")),
-                structured=bool(llm_data.get("structured", False)),
-                tone=_parse_tone(llm_data.get("tone", "neutral")),
-                persona=_parse_persona(llm_data.get("persona", "default")),
-            ),
-            hotkey=HotkeyConfig(
-                primary_key=hotkey_data.get("primary_key", "fn"),
-                fallback_key=hotkey_data.get("fallback_key", "double_cmd"),
-                double_tap_threshold=hotkey_data.get("double_tap_threshold", 0.3),
-                active_hotkeys=_parse_hotkeys(
-                    hotkey_data.get("active_hotkeys", ["fn", "double_cmd"])
-                ),
-                custom_key=_validate_custom_key(hotkey_data.get("custom_key")),
-            ),
-            enable_polish=data.get("enable_polish", True),
-            auto_paste=data.get("auto_paste", True),
-            default_mode=data.get("default_mode", "walkie_talkie")
-                if data.get("default_mode") in ("walkie_talkie", "realtime_long")
-                else "walkie_talkie",
-        )
+        config = cls()
+
+        for key in ("api_key", "enable_polish", "auto_paste", "default_mode"):
+            if key in data:
+                config.apply_update(key, data[key])
+
+        for section in ("audio", "asr", "llm", "hotkey"):
+            section_data = data.get(section)
+            if not isinstance(section_data, dict):
+                continue
+            for field, value in cls._iter_section_items(section, section_data):
+                try:
+                    config.apply_update(f"{section}.{field}", value)
+                except ValueError:
+                    continue
+
+        return config
+
+    def apply_update(self, key: str, value: Any) -> None:
+        """Apply a single config update with normalization."""
+        parts = key.split(".")
+        if len(parts) == 1:
+            self._apply_top_level_update(parts[0], value)
+            return
+        if len(parts) == 2:
+            self._apply_section_update(parts[0], parts[1], value)
+            return
+        raise ValueError(f"Invalid config key: {key}")
+
+    def apply_form_state(self, form_state: dict[str, Any]) -> None:
+        """Apply the normalized settings form payload to the config."""
+        if not isinstance(form_state, dict):
+            raise ValueError("Form state must be a dict")
+
+        for key in ("api_key", "default_mode", "auto_paste", "enable_polish"):
+            if key in form_state:
+                self.apply_update(key, form_state[key])
+
+        for section in ("audio", "asr", "llm", "hotkey"):
+            section_data = form_state.get(section)
+            if not isinstance(section_data, dict):
+                continue
+            for field, value in self._iter_section_items(section, section_data):
+                self.apply_update(f"{section}.{field}", value)
+
+    @staticmethod
+    def _iter_section_items(section: str, section_data: dict[str, Any]):
+        """Yield section items in a stable order where derived fields win last."""
+        prioritized_fields: list[str] = []
+        if section == "asr":
+            prioritized_fields = ["backend", "model"]
+
+        seen = set()
+        for field in prioritized_fields:
+            if field in section_data:
+                seen.add(field)
+                yield field, section_data[field]
+
+        for field, value in section_data.items():
+            if field in seen:
+                continue
+            yield field, value
+
+    def _apply_top_level_update(self, field: str, value: Any) -> None:
+        if field == "api_key":
+            self.api_key = str(value or "")
+        elif field == "enable_polish":
+            self.enable_polish = bool(value)
+        elif field == "auto_paste":
+            self.auto_paste = bool(value)
+        elif field == "default_mode":
+            self.default_mode = _parse_default_mode(value)
+        else:
+            raise ValueError(f"Unknown config key: {field}")
+
+    def _apply_section_update(self, section: str, field: str, value: Any) -> None:
+        if section == "audio":
+            self._apply_audio_update(field, value)
+        elif section == "asr":
+            self._apply_asr_update(field, value)
+        elif section == "llm":
+            self._apply_llm_update(field, value)
+        elif section == "hotkey":
+            self._apply_hotkey_update(field, value)
+        else:
+            raise ValueError(f"Unknown config section: {section}")
+
+    def _apply_audio_update(self, field: str, value: Any) -> None:
+        if field == "sample_rate":
+            self.audio.sample_rate = int(value)
+        elif field == "channels":
+            self.audio.channels = int(value)
+        elif field == "blocksize":
+            self.audio.blocksize = int(value)
+        elif field == "input_device":
+            self.audio.input_device = str(value) if value else None
+        elif field == "gain":
+            self.audio.gain = float(value)
+        elif field == "noise_gate":
+            self.audio.noise_gate = float(value)
+        elif field == "highpass_filter":
+            self.audio.highpass_filter = bool(value)
+        elif field == "highpass_freq":
+            self.audio.highpass_freq = int(value)
+        elif field == "soft_limiter":
+            self.audio.soft_limiter = bool(value)
+        else:
+            raise ValueError(f"Unknown config key: audio.{field}")
+
+    def _apply_asr_update(self, field: str, value: Any) -> None:
+        if field == "backend":
+            self.asr.backend = _parse_asr_backend(str(value))
+            model_info = get_asr_model_info(self.asr.model)
+            if not model_info or model_info.get("transport") != self.asr.backend:
+                self.asr.model = _default_asr_model_for_backend(self.asr.backend)
+        elif field == "model":
+            self.asr.model = _parse_asr_model(str(value))
+            model_info = get_asr_model_info(self.asr.model)
+            if model_info:
+                self.asr.backend = model_info["transport"]
+        elif field == "language":
+            self.asr.language = _parse_asr_language(value)
+        elif field == "batch_mode":
+            self.asr.batch_mode = _parse_batch_mode(str(value))
+        elif field == "use_dictionary_corpus":
+            self.asr.use_dictionary_corpus = bool(value)
+        elif field == "extra_corpus_terms":
+            self.asr.extra_corpus_terms = _parse_extra_corpus_terms(value)
+        else:
+            raise ValueError(f"Unknown config key: asr.{field}")
+
+    def _apply_llm_update(self, field: str, value: Any) -> None:
+        if field == "model":
+            self.llm.model = _parse_llm_model(str(value))
+        elif field == "temperature":
+            self.llm.temperature = float(value)
+        elif field == "enable_thinking":
+            self.llm.enable_thinking = bool(value)
+        elif field == "max_tokens":
+            self.llm.max_tokens = int(value)
+        elif field == "polish_mode":
+            self.llm.polish_mode = _parse_polish_mode(str(value))
+        elif field == "level":
+            self.llm.level = _parse_level(str(value))
+        elif field == "structured":
+            self.llm.structured = bool(value)
+        elif field == "tone":
+            self.llm.tone = _parse_tone(str(value))
+        elif field == "persona":
+            self.llm.persona = _parse_persona(str(value))
+        else:
+            raise ValueError(f"Unknown config key: llm.{field}")
+
+        model_info = get_llm_model_info(self.llm.model)
+        if model_info and not model_info.get("supports_thinking"):
+            self.llm.enable_thinking = False
+
+    def _apply_hotkey_update(self, field: str, value: Any) -> None:
+        if field == "primary_key":
+            self.hotkey.primary_key = str(value)
+        elif field == "fallback_key":
+            self.hotkey.fallback_key = str(value)
+        elif field == "double_tap_threshold":
+            self.hotkey.double_tap_threshold = float(value)
+        elif field == "active_hotkeys":
+            self.hotkey.active_hotkeys = _parse_hotkeys(value if isinstance(value, list) else [])
+        elif field == "custom_key":
+            self.hotkey.custom_key = _validate_custom_key(value)
+        else:
+            raise ValueError(f"Unknown config key: hotkey.{field}")
 
     def to_dict(self) -> dict:
         """Convert configuration to a dictionary."""
@@ -369,6 +527,9 @@ class Config:
                 "input_device": self.audio.input_device,
                 "gain": self.audio.gain,
                 "noise_gate": self.audio.noise_gate,
+                "highpass_filter": self.audio.highpass_filter,
+                "highpass_freq": self.audio.highpass_freq,
+                "soft_limiter": self.audio.soft_limiter,
             },
             "asr": {
                 "backend": self.asr.backend,
