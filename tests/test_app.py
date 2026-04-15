@@ -181,3 +181,36 @@ def test_quick_settings_actions_update_config_and_menu_state(
     assert app._quick_enable_polish_item.state == 0
     assert app._polish_level_menu_items["balanced"].state == 1
     assert app._mode_menu_items["realtime_long"].state == 1
+
+
+def test_build_menu_localizes_titles_when_ui_language_is_chinese(
+    tmp_path, monkeypatch
+):
+    """Status-bar menu strings should respect the configured UI language."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app.config.apply_update("ui.language", "zh")
+
+    idle_mode = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._walkie_talkie = idle_mode
+    app._realtime_long = idle_mode
+    app._current_mode = idle_mode
+
+    app._build_menu()
+
+    assert [item.title for item in app.menu if item][2] == "快捷设置"
+    assert app._state_item.title == "状态：空闲"
+    assert app._quick_mode_item.title == "录音模式：对讲模式（按住）"
+    assert app._quick_enable_polish_item.title == "启用润色"
+    assert app._settings_menu_item.title == "设置..."
+    assert app._quit_menu_item.title == "退出 Vocal-More"

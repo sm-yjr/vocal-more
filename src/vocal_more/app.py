@@ -20,6 +20,7 @@ from .core.hotkey_manager import HotkeyManager
 from .core.recording_store import RecordingStore
 from .core.text_polisher import TextPolisher
 from .dictionary import get_dictionary, reload_dictionary
+from .localization import t
 from .modes.base_mode import BaseMode, ModeState
 from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
@@ -30,14 +31,14 @@ MENU_STATE_OFF = 0
 MENU_STATE_ON = 1
 
 MODE_MENU_OPTIONS = [
-    ("walkie_talkie", "Walkie-Talkie (Hold)"),
-    ("realtime_long", "Real-time Long (Toggle)"),
+    ("walkie_talkie", "mode_walkie_talkie"),
+    ("realtime_long", "mode_realtime_long"),
 ]
 
 POLISH_LEVEL_OPTIONS = [
-    ("minimal", "Minimal"),
-    ("balanced", "Balanced"),
-    ("strong", "Strong"),
+    ("minimal", "polish_level_minimal"),
+    ("balanced", "polish_level_balanced"),
+    ("strong", "polish_level_strong"),
 ]
 
 
@@ -127,6 +128,7 @@ class VocalMoreApp(rumps.App):
             on_open_external=self._on_settings_open_external,
             recording_store=self._recording_store,
         )
+        self._apply_interface_language(update_frontend=False)
 
         # Build menu
         self._build_menu()
@@ -151,43 +153,95 @@ class VocalMoreApp(rumps.App):
 
     # ── Menu ──────────────────────────────────────────────────
 
+    def _t(self, key: str, **kwargs) -> str:
+        return t(self.config.ui.language, key, **kwargs)
+
+    def _apply_interface_language(self, update_frontend: bool = True) -> None:
+        """Push the current UI language into all visible app surfaces."""
+        capsule = getattr(self, "_capsule", None)
+        if capsule is not None:
+            capsule.set_interface_language(self.config.ui.language)
+
+        settings_window = getattr(self, "_settings_window", None)
+        if settings_window is not None:
+            settings_window.set_interface_language(
+                self.config.ui.language,
+                update_frontend=update_frontend,
+            )
+
+        if hasattr(self, "_quick_settings_item"):
+            self._refresh_menu_localization()
+
+    def _refresh_menu_localization(self) -> None:
+        """Refresh localized menu strings without rebuilding menu objects."""
+        self._state_item.title = self._state_title_for_state(self._current_mode.state)
+        self._quick_settings_item.title = self._t("menu_quick_settings")
+        self._quick_mode_item.title = self._t("menu_recording_mode")
+        self._quick_asr_model_item.title = self._t("menu_asr_model")
+        self._quick_enable_polish_item.title = self._t("menu_enable_polishing")
+        self._quick_polish_level_item.title = self._t("menu_polish_strength")
+        self._settings_menu_item.title = self._t("menu_settings")
+        self._quit_menu_item.title = self._t("menu_quit")
+
+        for mode_name, item in self._mode_menu_items.items():
+            item.title = self._mode_display_name(mode_name)
+        for level, item in self._polish_level_menu_items.items():
+            item.title = self._polish_level_display_name(level)
+
+        self._refresh_quick_settings_menu()
+
+    def _state_title_for_state(self, state: ModeState) -> str:
+        return {
+            ModeState.IDLE: self._t("menu_status_idle"),
+            ModeState.RECORDING: self._t("menu_status_recording"),
+            ModeState.PROCESSING: self._t("menu_status_processing"),
+        }.get(state, self._t("menu_status_unknown"))
+
     def _build_menu(self) -> None:
         """Build a simplified menu bar menu."""
         self._status_item = rumps.MenuItem(f"Vocal-More {__version__}")
         self._status_item.set_callback(None)
 
-        self._state_item = rumps.MenuItem("Status: Idle")
+        self._state_item = rumps.MenuItem(self._state_title_for_state(ModeState.IDLE))
         self._state_item.set_callback(None)
 
         self._quick_settings_item = self._build_quick_settings_item()
+        self._settings_menu_item = rumps.MenuItem(
+            self._t("menu_settings"),
+            callback=self._open_settings,
+        )
+        self._quit_menu_item = rumps.MenuItem(
+            self._t("menu_quit"),
+            callback=self._quit_app,
+        )
 
         self.menu = [
             self._status_item,
             self._state_item,
             None,
             self._quick_settings_item,
-            rumps.MenuItem("Settings...", callback=self._open_settings),
+            self._settings_menu_item,
             None,
-            rumps.MenuItem("Quit Vocal-More", callback=self._quit_app),
+            self._quit_menu_item,
         ]
         self._refresh_quick_settings_menu()
 
     def _build_quick_settings_item(self) -> rumps.MenuItem:
         """Build the status-bar quick settings submenu."""
-        quick_settings = rumps.MenuItem("Quick Settings")
+        quick_settings = rumps.MenuItem(self._t("menu_quick_settings"))
 
-        self._quick_mode_item = rumps.MenuItem("Recording Mode")
+        self._quick_mode_item = rumps.MenuItem(self._t("menu_recording_mode"))
         self._mode_menu_items: dict[str, rumps.MenuItem] = {}
-        for mode_name, title in MODE_MENU_OPTIONS:
+        for mode_name, _ in MODE_MENU_OPTIONS:
             item = rumps.MenuItem(
-                title,
+                self._mode_display_name(mode_name),
                 callback=lambda _, value=mode_name: self._on_quick_set_mode(value),
             )
             self._mode_menu_items[mode_name] = item
             self._quick_mode_item.add(item)
         quick_settings.add(self._quick_mode_item)
 
-        self._quick_asr_model_item = rumps.MenuItem("ASR Model")
+        self._quick_asr_model_item = rumps.MenuItem(self._t("menu_asr_model"))
         self._asr_model_menu_items: dict[str, rumps.MenuItem] = {}
         for entry in ASR_MODEL_CATALOG:
             if entry.get("separator"):
@@ -203,16 +257,16 @@ class VocalMoreApp(rumps.App):
         quick_settings.add(self._quick_asr_model_item)
 
         self._quick_enable_polish_item = rumps.MenuItem(
-            "Enable Polishing",
+            self._t("menu_enable_polishing"),
             callback=self._on_quick_toggle_polish,
         )
         quick_settings.add(self._quick_enable_polish_item)
 
-        self._quick_polish_level_item = rumps.MenuItem("Polish Strength")
+        self._quick_polish_level_item = rumps.MenuItem(self._t("menu_polish_strength"))
         self._polish_level_menu_items: dict[str, rumps.MenuItem] = {}
-        for level, title in POLISH_LEVEL_OPTIONS:
+        for level, _ in POLISH_LEVEL_OPTIONS:
             item = rumps.MenuItem(
-                title,
+                self._polish_level_display_name(level),
                 callback=lambda _, value=level: self._on_quick_set_polish_level(value),
             )
             self._polish_level_menu_items[level] = item
@@ -256,6 +310,8 @@ class VocalMoreApp(rumps.App):
             self._refresh_text_polisher()
         elif key == "default_mode":
             self._select_mode(self.config.default_mode)
+        elif key == "ui.language":
+            self._apply_interface_language()
         elif key.startswith("audio."):
             self._sync_audio_recorders()
         elif key == "hotkey.custom_key":
@@ -288,6 +344,7 @@ class VocalMoreApp(rumps.App):
         self._hotkey_manager.set_active_hotkeys(self.config.hotkey.active_hotkeys)
         self._hotkey_manager.set_custom_key(self.config.hotkey.custom_key)
         self._sync_audio_recorders()
+        self._apply_interface_language()
 
         self.config.save()
         self._refresh_quick_settings_menu()
@@ -369,12 +426,12 @@ class VocalMoreApp(rumps.App):
             return
 
         mode_label = self._mode_display_name(self.config.default_mode)
-        self._quick_mode_item.title = f"Recording Mode: {mode_label}"
+        self._quick_mode_item.title = self._t("menu_recording_mode_title", value=mode_label)
         for mode_name, item in self._mode_menu_items.items():
             item.state = MENU_STATE_ON if mode_name == self.config.default_mode else MENU_STATE_OFF
 
         asr_label = self._asr_model_display_name(self.config.asr.model)
-        self._quick_asr_model_item.title = f"ASR Model: {asr_label}"
+        self._quick_asr_model_item.title = self._t("menu_asr_model_title", value=asr_label)
         for model_id, item in self._asr_model_menu_items.items():
             item.state = MENU_STATE_ON if model_id == self.config.asr.model else MENU_STATE_OFF
 
@@ -383,7 +440,10 @@ class VocalMoreApp(rumps.App):
         )
 
         level_label = self._polish_level_display_name(self.config.llm.level)
-        self._quick_polish_level_item.title = f"Polish Strength: {level_label}"
+        self._quick_polish_level_item.title = self._t(
+            "menu_polish_strength_title",
+            value=level_label,
+        )
         for level, item in self._polish_level_menu_items.items():
             item.state = MENU_STATE_ON if level == self.config.llm.level else MENU_STATE_OFF
 
@@ -395,8 +455,8 @@ class VocalMoreApp(rumps.App):
         if self._current_mode.state != ModeState.IDLE:
             rumps.notification(
                 "Vocal-More",
-                "Recording In Progress",
-                "Stop the current session before switching recording modes.",
+                self._t("notification_recording_in_progress_title"),
+                self._t("notification_recording_in_progress_body"),
                 icon=self._get_logo_path(),
             )
             return
@@ -436,13 +496,21 @@ class VocalMoreApp(rumps.App):
 
     def _mode_display_name(self, mode_name: str) -> str:
         return next(
-            (title for value, title in MODE_MENU_OPTIONS if value == mode_name),
+            (
+                self._t(title_key)
+                for value, title_key in MODE_MENU_OPTIONS
+                if value == mode_name
+            ),
             mode_name,
         )
 
     def _polish_level_display_name(self, level: str) -> str:
         return next(
-            (title for value, title in POLISH_LEVEL_OPTIONS if value == level),
+            (
+                self._t(title_key)
+                for value, title_key in POLISH_LEVEL_OPTIONS
+                if value == level
+            ),
             level,
         )
 
@@ -505,13 +573,7 @@ class VocalMoreApp(rumps.App):
 
     def _on_state_change(self, state: ModeState) -> None:
         """Handle mode state change."""
-        status_text = {
-            ModeState.IDLE: "Status: Idle",
-            ModeState.RECORDING: "Status: Recording...",
-            ModeState.PROCESSING: "Status: Processing...",
-        }.get(state, "Status: Unknown")
-
-        self._state_item.title = status_text
+        self._state_item.title = self._state_title_for_state(state)
 
         # Update icon
         icon_name = {

@@ -7,6 +7,8 @@ from typing import Any, Literal, Optional
 
 import yaml
 
+from .localization import UILanguage, normalize_ui_language
+
 VALID_HOTKEYS = (
     "fn", "right_cmd", "double_cmd",
     "f13", "f14", "f15", "f16", "f17", "f18", "f19", "f20",
@@ -172,6 +174,13 @@ class HotkeyConfig:
     custom_key: Optional[dict] = None  # {"key_code": int, "display_name": str, "is_modifier": bool, "flag_mask": int}
 
 
+@dataclass
+class UIConfig:
+    """UI configuration."""
+
+    language: UILanguage = "en"
+
+
 _CUSTOM_KEY_REQUIRED_FIELDS = {"key_code", "display_name", "is_modifier", "flag_mask"}
 
 
@@ -294,6 +303,10 @@ def _parse_extra_corpus_terms(raw: object) -> list[str]:
     return [str(item) for item in raw if str(item).strip()]
 
 
+def _parse_ui_language(raw: object) -> UILanguage:
+    return normalize_ui_language(raw)
+
+
 @dataclass
 class Config:
     """Main configuration."""
@@ -303,6 +316,7 @@ class Config:
     asr: ASRConfig = field(default_factory=ASRConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
+    ui: UIConfig = field(default_factory=UIConfig)
     enable_polish: bool = True
     auto_paste: bool = True
     default_mode: str = "walkie_talkie"  # "walkie_talkie" or "realtime_long"
@@ -351,7 +365,7 @@ class Config:
             if key in data:
                 config.apply_update(key, data[key])
 
-        for section in ("audio", "asr", "llm", "hotkey"):
+        for section in ("audio", "asr", "llm", "hotkey", "ui"):
             section_data = data.get(section)
             if not isinstance(section_data, dict):
                 continue
@@ -383,7 +397,7 @@ class Config:
             if key in form_state:
                 self.apply_update(key, form_state[key])
 
-        for section in ("audio", "asr", "llm", "hotkey"):
+        for section in ("audio", "asr", "llm", "hotkey", "ui"):
             section_data = form_state.get(section)
             if not isinstance(section_data, dict):
                 continue
@@ -429,6 +443,8 @@ class Config:
             self._apply_llm_update(field, value)
         elif section == "hotkey":
             self._apply_hotkey_update(field, value)
+        elif section == "ui":
+            self._apply_ui_update(field, value)
         else:
             raise ValueError(f"Unknown config section: {section}")
 
@@ -516,6 +532,12 @@ class Config:
         else:
             raise ValueError(f"Unknown config key: hotkey.{field}")
 
+    def _apply_ui_update(self, field: str, value: Any) -> None:
+        if field == "language":
+            self.ui.language = _parse_ui_language(value)
+        else:
+            raise ValueError(f"Unknown config key: ui.{field}")
+
     def to_dict(self) -> dict:
         """Convert configuration to a dictionary."""
         return {
@@ -556,6 +578,9 @@ class Config:
                 "double_tap_threshold": self.hotkey.double_tap_threshold,
                 "active_hotkeys": self.hotkey.active_hotkeys,
                 "custom_key": self.hotkey.custom_key,
+            },
+            "ui": {
+                "language": self.ui.language,
             },
             "enable_polish": self.enable_polish,
             "auto_paste": self.auto_paste,

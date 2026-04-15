@@ -18,6 +18,8 @@ from AppKit import (
 from Foundation import NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer, NSURL
 from WebKit import WKUserContentController, WKWebView, WKWebViewConfiguration
 
+from ..localization import normalize_ui_language
+
 # NSWindow level constants
 NSScreenSaverWindowLevel = 1000
 # NSWindowCollectionBehavior flags
@@ -71,6 +73,7 @@ class FloatingCapsule:
         self._hide_timer: Optional[NSTimer] = None
         self._push_count: int = 0  # for throttled debug logging
         self._html_loaded: bool = False
+        self._interface_language: str = "en"
 
         self._setup()
 
@@ -166,10 +169,19 @@ class FloatingCapsule:
             self._panel.setFrameOrigin_((panel_x, panel_y))
 
         # Single JS call instead of two separate IPC roundtrips
-        self._eval_js(f"setMode('{mode}'); updateState('recording')")
+        self._eval_js(
+            f"setInterfaceLanguage('{self._interface_language}'); "
+            f"setMode('{mode}'); updateState('recording')"
+        )
         self._panel.orderFront_(None)
         self._start_push_timer()
         print(f"[Capsule] show(mode={mode}), html_loaded={self._html_loaded}")
+
+    def set_interface_language(self, language: str) -> None:
+        """Update the capsule language for the next visible state."""
+        self._interface_language = normalize_ui_language(language)
+        if self._panel and self._panel.isVisible():
+            self._eval_js(f"setInterfaceLanguage('{self._interface_language}')")
 
     def hide(self) -> None:
         """Hide the capsule."""

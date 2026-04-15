@@ -191,7 +191,7 @@ body {
     <button class="capsule-btn btn-cancel" id="btnCancel" onclick="onCancel()">✕</button>
     <div class="waveform" id="waveform"></div>
     <div class="thinking-container" id="thinking">
-      <span class="thinking-text">Thinking</span>
+      <span class="thinking-text" id="thinkingLabel">Thinking</span>
       <div class="progress-bar-container">
         <div class="progress-bar" id="progressBar"></div>
       </div>
@@ -205,7 +205,20 @@ body {
 const NUM_BARS = 10;
 const capsule = document.getElementById('capsule');
 const waveform = document.getElementById('waveform');
-const thinkingText = document.querySelector('.thinking-text');
+const thinkingText = document.getElementById('thinkingLabel');
+
+const CAPSULE_TRANSLATIONS = {
+  en: { thinking: 'Thinking' },
+  zh: { thinking: '处理中' },
+};
+
+let interfaceLanguage = 'en';
+
+function setInterfaceLanguage(language) {
+  interfaceLanguage = language === 'zh' ? 'zh' : 'en';
+  document.documentElement.lang = interfaceLanguage === 'zh' ? 'zh-CN' : 'en';
+  thinkingText.textContent = CAPSULE_TRANSLATIONS[interfaceLanguage].thinking;
+}
 
 // Generate waveform bars
 for (let i = 0; i < NUM_BARS; i++) {
@@ -232,6 +245,8 @@ for (let i = 0; i < NUM_BARS; i++) {
   const d = Math.abs(i - center) / center;
   bellFactors[i] = Math.exp(-3.5 * d * d);
 }
+
+setInterfaceLanguage('en');
 
 // requestAnimationFrame render loop — 60fps smooth animation
 function renderWaveform() {

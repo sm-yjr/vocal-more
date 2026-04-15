@@ -38,6 +38,7 @@ def test_config_load(tmp_path, monkeypatch):
     assert config.llm.polish_mode == "smart"
     assert config.hotkey.primary_key == "fn"
     assert config.hotkey.active_hotkeys == ["fn", "double_cmd"]
+    assert config.ui.language == "en"
     assert config.default_mode == "walkie_talkie"
 
 
@@ -95,6 +96,7 @@ def test_config_new_fields_defaults():
     assert config.llm.polish_mode == "smart"
     assert config.llm.structured is False
     assert config.hotkey.active_hotkeys == ["fn", "double_cmd"]
+    assert config.ui.language == "en"
 
 
 def test_config_new_fields_roundtrip(tmp_path, monkeypatch):
@@ -114,6 +116,7 @@ def test_config_new_fields_roundtrip(tmp_path, monkeypatch):
     config.llm.max_tokens = 128
     config.llm.polish_mode = "always"
     config.hotkey.active_hotkeys = ["fn"]
+    config.ui.language = "zh"
     config.save()
 
     # Reload and verify
@@ -126,6 +129,7 @@ def test_config_new_fields_roundtrip(tmp_path, monkeypatch):
     assert loaded.llm.max_tokens == 128
     assert loaded.llm.polish_mode == "always"
     assert loaded.hotkey.active_hotkeys == ["fn"]
+    assert loaded.ui.language == "zh"
 
 
 def test_audio_processing_fields_roundtrip(tmp_path, monkeypatch):
@@ -208,6 +212,9 @@ def test_apply_form_state_normalizes_nested_config():
             "hotkey": {
                 "active_hotkeys": ["printscreen", "bogus"],
             },
+            "ui": {
+                "language": "zh",
+            },
         }
     )
 
@@ -222,6 +229,7 @@ def test_apply_form_state_normalizes_nested_config():
     assert config.asr.backend == "omni_offline"
     assert config.asr.language == "en"
     assert config.hotkey.active_hotkeys == ["f13"]
+    assert config.ui.language == "zh"
 
 
 def test_asr_language_mixed_aliases_normalize_to_auto():
@@ -233,6 +241,22 @@ def test_asr_language_mixed_aliases_normalize_to_auto():
     for raw in ("auto", "mixed", "zh_en", "zh-en", "bilingual"):
         config.apply_update("asr.language", raw)
         assert config.asr.language == "auto"
+
+
+def test_ui_language_normalizes_to_supported_values():
+    """UI language should accept only the supported language codes."""
+    from vocal_more.config import Config
+
+    config = Config()
+
+    config.apply_update("ui.language", "zh")
+    assert config.ui.language == "zh"
+
+    config.apply_update("ui.language", "en")
+    assert config.ui.language == "en"
+
+    config.apply_update("ui.language", "bogus")
+    assert config.ui.language == "en"
 
 
 def test_config_invalid_modes_fall_back(tmp_path, monkeypatch):

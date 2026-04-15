@@ -20,4 +20,14 @@ def test_html_settings_has_mixed_chinese_english_language_option():
     """Recognition settings should expose a mixed Chinese/English option."""
     html = SETTINGS_HTML.read_text(encoding="utf-8")
 
-    assert '<option value="auto">Chinese + English</option>' in html
+    assert 'id="asr_language"' in html
+    assert 'option value="auto" data-i18n="recognition_language_auto"' in html
+
+
+def test_html_settings_has_interface_language_switcher():
+    """Settings should allow switching the interface language."""
+    html = SETTINGS_HTML.read_text(encoding="utf-8")
+
+    assert 'id="ui_language"' in html
+    assert "function setInterfaceLanguage(language)" in html
+    assert "const UI_TRANSLATIONS = {" in html

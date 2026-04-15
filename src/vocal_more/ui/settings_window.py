@@ -31,6 +31,8 @@ from WebKit import (
     WKWebViewConfiguration,
 )
 
+from ..localization import normalize_ui_language, t
+
 # WKUserScriptInjectionTime
 WKUserScriptInjectionTimeAtDocumentStart = 0
 
@@ -167,6 +169,7 @@ class SettingsWindow:
         self._sync_timer: Optional[NSTimer] = None
         self._last_synced_state: Optional[str] = None
         self._js_queue: queue.Queue = queue.Queue()
+        self._interface_language = "en"
 
         self._mic_test_recorder = None
         self._mic_test_pcm: Optional[bytes] = None
@@ -191,7 +194,7 @@ class SettingsWindow:
         self._window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             frame, style_mask, NSBackingStoreBuffered, False
         )
-        self._window.setTitle_("Vocal-More Settings")
+        self._window.setTitle_(t(self._interface_language, "settings_title"))
         self._window.setMinSize_((520, 380))
         self._window.setReleasedWhenClosed_(False)
         self._window.setBackgroundColor_(NSColor.windowBackgroundColor())
@@ -239,6 +242,18 @@ class SettingsWindow:
     def _set_accessory_policy(self) -> None:
         """Hide the app from the dock when settings is dismissed."""
         NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+
+    def set_interface_language(
+        self,
+        language: str,
+        update_frontend: bool = True,
+    ) -> None:
+        """Update the current interface language."""
+        self._interface_language = normalize_ui_language(language)
+        if self._window:
+            self._window.setTitle_(t(self._interface_language, "settings_title"))
+        if update_frontend and self._webview and self.is_visible():
+            self._eval_js(f"setInterfaceLanguage({json.dumps(self._interface_language)})")
 
     def _request_form_state_sync(self) -> None:
         """Pull the current form state from JS as a persistence backstop."""
@@ -350,7 +365,9 @@ class SettingsWindow:
                 self._on_set_device(device if device else None)
             if self._mic_test_recorder:
                 self._cleanup_mic_test()
-                self._eval_js("micTestError('Device changed. Please test again.')")
+                self._eval_js(
+                    f"micTestError({json.dumps(t(self._interface_language, 'settings_device_changed'))})"
+                )
 
         elif action == "setActiveHotkeys":
             hotkeys = body.get("hotkeys", [])
@@ -479,6 +496,10 @@ class SettingsWindow:
         # Bring app to front
         NSApp.setActivationPolicy_(NSApplicationActivationPolicyRegular)
         NSApp.activateIgnoringOtherApps_(True)
+        self.set_interface_language(
+            config.get("ui", {}).get("language", "en"),
+            update_frontend=False,
+        )
 
         config_with_version = dict(config)
         config_with_version["_version"] = version
@@ -544,7 +565,7 @@ class SettingsWindow:
                 pcm_data = self._recording_store.get_pcm_data(rec_id)
                 if pcm_data is None:
                     self._eval_js(
-                        f"retryFailed({json.dumps(rec_id)}, 'Recording file not found')"
+                        f"retryFailed({json.dumps(rec_id)}, {json.dumps(t(self._interface_language, 'settings_recording_not_found'))})"
                     )
                     return
 
@@ -562,7 +583,7 @@ class SettingsWindow:
                 else:
                     self._recording_store.update(rec_id, "failed")
                     self._eval_js(
-                        f"retryFailed({json.dumps(rec_id)}, 'Empty transcription result')"
+                        f"retryFailed({json.dumps(rec_id)}, {json.dumps(t(self._interface_language, 'settings_empty_transcription'))})"
                     )
             except Exception as e:
                 self._recording_store.update(rec_id, "failed")

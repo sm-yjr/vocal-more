@@ -517,25 +517,32 @@ input[type="range"]:disabled {
   <!-- Sidebar -->
   <nav class="sidebar">
     <button class="sidebar-item active" data-tab="general">
-      <span class="icon">&#9881;</span> General
+      <span class="icon">&#9881;</span>
+      <span class="sidebar-label" data-i18n="sidebar_general">General</span>
     </button>
     <button class="sidebar-item" data-tab="audio">
-      <span class="icon">&#127908;</span> Audio
+      <span class="icon">&#127908;</span>
+      <span class="sidebar-label" data-i18n="sidebar_audio">Audio</span>
     </button>
     <button class="sidebar-item" data-tab="recognition">
-      <span class="icon">&#128172;</span> Recognition
+      <span class="icon">&#128172;</span>
+      <span class="sidebar-label" data-i18n="sidebar_recognition">Recognition</span>
     </button>
     <button class="sidebar-item" data-tab="polish">
-      <span class="icon">&#9998;</span> Polish
+      <span class="icon">&#9998;</span>
+      <span class="sidebar-label" data-i18n="sidebar_polish">Polish</span>
     </button>
     <button class="sidebar-item" data-tab="shortcuts">
-      <span class="icon">&#9000;</span> Shortcuts
+      <span class="icon">&#9000;</span>
+      <span class="sidebar-label" data-i18n="sidebar_shortcuts">Shortcuts</span>
     </button>
     <button class="sidebar-item" data-tab="dictionary">
-      <span class="icon">&#128214;</span> Dictionary
+      <span class="icon">&#128214;</span>
+      <span class="sidebar-label" data-i18n="sidebar_dictionary">Dictionary</span>
     </button>
     <button class="sidebar-item" data-tab="history">
-      <span class="icon">&#128197;</span> History
+      <span class="icon">&#128197;</span>
+      <span class="sidebar-label" data-i18n="sidebar_history">History</span>
     </button>
   </nav>
 
@@ -544,14 +551,14 @@ input[type="range"]:disabled {
 
     <!-- ═══ General ═══ -->
     <div id="tab-general" class="tab-panel active">
-      <div class="tab-title">General</div>
+      <div class="tab-title" data-i18n="tab_general">General</div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">API Key</span>
+          <span class="form-label" data-i18n="general_api_key_label">API Key</span>
           <input type="password" id="api_key" placeholder="sk-..." spellcheck="false">
         </div>
-        <div class="form-hint">
+        <div class="form-hint" data-i18n-html="general_api_key_hint_html">
           DashScope API key.
           <a href="#" onclick="openExternal('https://dashscope.console.aliyun.com/apiKey'); return false;"
              style="color:var(--accent);">Get one here</a>
@@ -562,30 +569,40 @@ input[type="range"]:disabled {
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Default Mode</span>
+          <span class="form-label" data-i18n="general_default_mode_label">Default Mode</span>
           <select id="default_mode">
-            <option value="walkie_talkie">Walkie-Talkie (Hold)</option>
-            <option value="realtime_long">Real-time Long (Toggle)</option>
+            <option value="walkie_talkie" data-i18n="mode_walkie_talkie">Walkie-Talkie (Hold)</option>
+            <option value="realtime_long" data-i18n="mode_realtime_long">Real-time Long (Toggle)</option>
           </select>
         </div>
       </div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Auto Paste</span>
+          <span class="form-label" data-i18n="general_interface_language_label">Interface Language</span>
+          <select id="ui_language">
+            <option value="en" data-i18n="general_language_english">English</option>
+            <option value="zh" data-i18n="general_language_chinese">中文</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <div class="form-row">
+          <span class="form-label" data-i18n="general_auto_paste_label">Auto Paste</span>
           <label class="toggle">
             <input type="checkbox" id="auto_paste">
             <span class="toggle-track"></span>
           </label>
         </div>
-        <div class="form-hint">Automatically paste transcribed text via Cmd+V</div>
+        <div class="form-hint" data-i18n="general_auto_paste_hint">Automatically paste transcribed text via Cmd+V</div>
       </div>
 
       <div class="form-separator"></div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label" style="color: var(--text-secondary)">Version</span>
+          <span class="form-label" style="color: var(--text-secondary)" data-i18n="general_version_label">Version</span>
           <span class="readonly-value" id="app_version">—</span>
         </div>
       </div>
@@ -593,20 +610,20 @@ input[type="range"]:disabled {
       <div class="form-group">
         <div class="form-row">
           <span class="form-label"></span>
-          <button class="btn" onclick="sendAction('openConfigFile')">Open Config File</button>
+          <button class="btn" onclick="sendAction('openConfigFile')" data-i18n="general_open_config_file">Open Config File</button>
         </div>
       </div>
     </div>
 
     <!-- ═══ Audio ═══ -->
     <div id="tab-audio" class="tab-panel">
-      <div class="tab-title">Audio</div>
+      <div class="tab-title" data-i18n="tab_audio">Audio</div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Input Device</span>
+          <span class="form-label" data-i18n="audio_input_device_label">Input Device</span>
           <select id="audio_input_device">
-            <option value="">System Default</option>
+            <option value="" data-i18n="audio_system_default">System Default</option>
           </select>
         </div>
       </div>
@@ -615,60 +632,60 @@ input[type="range"]:disabled {
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Software Gain</span>
+          <span class="form-label" data-i18n="audio_software_gain_label">Software Gain</span>
           <div class="slider-group">
             <input type="range" id="audio_gain_db" min="-6" max="30" step="1" value="6">
             <span class="slider-value" id="audio_gain_val">+6 dB (2.0x)</span>
           </div>
         </div>
-        <div class="form-hint">Amplify microphone input. 0 dB = no amplification.</div>
+        <div class="form-hint" data-i18n="audio_software_gain_hint">Amplify microphone input. 0 dB = no amplification.</div>
       </div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Noise Gate</span>
+          <span class="form-label" data-i18n="audio_noise_gate_label">Noise Gate</span>
           <div class="slider-group">
             <input type="range" id="audio_noise_gate" min="0" max="0.05" step="0.001" value="0">
             <span class="slider-value" id="audio_noise_gate_val">Off</span>
           </div>
         </div>
-        <div class="form-hint">Audio below this RMS threshold is silenced. 0 = disabled.</div>
+        <div class="form-hint" data-i18n="audio_noise_gate_hint">Audio below this RMS threshold is silenced. 0 = disabled.</div>
       </div>
 
       <div class="form-separator"></div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">High-Pass Filter</span>
+          <span class="form-label" data-i18n="audio_highpass_filter_label">High-Pass Filter</span>
           <div class="toggle-wrapper">
             <input type="checkbox" id="audio_highpass_filter" checked>
           </div>
         </div>
         <div class="form-row" style="margin-top:8px">
-          <span class="form-label" style="color:var(--text-secondary)">Cutoff Frequency</span>
+          <span class="form-label" style="color:var(--text-secondary)" data-i18n="audio_cutoff_frequency_label">Cutoff Frequency</span>
           <div class="slider-group">
             <input type="range" id="audio_highpass_freq" min="50" max="500" step="10" value="200">
             <span class="slider-value" id="audio_highpass_freq_val">200 Hz</span>
           </div>
         </div>
-        <div class="form-hint">Remove rumble, hum, and plosives below the cutoff frequency.</div>
+        <div class="form-hint" data-i18n="audio_highpass_filter_hint">Remove rumble, hum, and plosives below the cutoff frequency.</div>
       </div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Soft Limiter</span>
+          <span class="form-label" data-i18n="audio_soft_limiter_label">Soft Limiter</span>
           <div class="toggle-wrapper">
             <input type="checkbox" id="audio_soft_limiter" checked>
           </div>
         </div>
-        <div class="form-hint">Smooth compression instead of hard clipping at high gain.</div>
+        <div class="form-hint" data-i18n="audio_soft_limiter_hint">Smooth compression instead of hard clipping at high gain.</div>
       </div>
 
       <div class="form-separator"></div>
 
       <div class="form-group mic-test-section">
         <div class="form-row">
-          <span class="form-label">Test Recording</span>
+          <span class="form-label" data-i18n="audio_test_recording_label">Test Recording</span>
         </div>
         <div id="mic-test-container"></div>
       </div>
@@ -676,32 +693,32 @@ input[type="range"]:disabled {
 
     <!-- ═══ Recognition ═══ -->
     <div id="tab-recognition" class="tab-panel">
-      <div class="tab-title">Recognition</div>
+      <div class="tab-title" data-i18n="tab_recognition">Recognition</div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">ASR Model</span>
+          <span class="form-label" data-i18n="recognition_asr_model_label">ASR Model</span>
           <select id="asr_model"></select>
         </div>
       </div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Backend</span>
+          <span class="form-label" data-i18n="recognition_backend_label">Backend</span>
           <span class="readonly-value" id="asr_backend_display">—</span>
         </div>
-        <div class="form-hint">Determined by the selected model.</div>
+        <div class="form-hint" data-i18n="recognition_backend_hint">Determined by the selected model.</div>
       </div>
 
       <div class="form-separator"></div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Language</span>
+          <span class="form-label" data-i18n="recognition_language_label">Language</span>
           <select id="asr_language">
-            <option value="zh">Chinese</option>
-            <option value="en">English</option>
-            <option value="auto">Chinese + English</option>
+            <option value="zh" data-i18n="recognition_language_chinese">Chinese</option>
+            <option value="en" data-i18n="recognition_language_english">English</option>
+            <option value="auto" data-i18n="recognition_language_auto">Auto</option>
           </select>
         </div>
       </div>
@@ -709,73 +726,73 @@ input[type="range"]:disabled {
 
     <!-- ═══ Polish ═══ -->
     <div id="tab-polish" class="tab-panel">
-      <div class="tab-title">Polish</div>
+      <div class="tab-title" data-i18n="tab_polish">Polish</div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Enable Text Polish</span>
+          <span class="form-label" data-i18n="polish_enable_label">Enable Text Polish</span>
           <label class="toggle">
             <input type="checkbox" id="enable_polish">
             <span class="toggle-track"></span>
           </label>
         </div>
-        <div class="form-hint">Use LLM to clean up transcription results.</div>
+        <div class="form-hint" data-i18n="polish_enable_hint">Use LLM to clean up transcription results.</div>
       </div>
 
       <div class="form-separator"></div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Polish Mode</span>
+          <span class="form-label" data-i18n="polish_mode_label">Polish Mode</span>
           <select id="llm_polish_mode" class="polish-control">
-            <option value="smart">Smart (skip short/clean text)</option>
-            <option value="always">Always</option>
+            <option value="smart" data-i18n="polish_mode_smart">Smart (skip short/clean text)</option>
+            <option value="always" data-i18n="polish_mode_always">Always</option>
           </select>
         </div>
       </div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Level</span>
+          <span class="form-label" data-i18n="polish_level_label">Level</span>
           <select id="llm_level" class="polish-control">
-            <option value="minimal">Minimal</option>
-            <option value="balanced">Balanced</option>
-            <option value="strong">Strong</option>
+            <option value="minimal" data-i18n="polish_level_minimal">Minimal</option>
+            <option value="balanced" data-i18n="polish_level_balanced">Balanced</option>
+            <option value="strong" data-i18n="polish_level_strong">Strong</option>
           </select>
         </div>
       </div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Structured Output</span>
+          <span class="form-label" data-i18n="polish_structured_label">Structured Output</span>
           <label class="toggle polish-control">
             <input type="checkbox" id="llm_structured">
             <span class="toggle-track"></span>
           </label>
         </div>
-        <div class="form-hint">Format with headings, lists, and quotes when content has structure</div>
+        <div class="form-hint" data-i18n="polish_structured_hint">Format with headings, lists, and quotes when content has structure</div>
       </div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Tone</span>
+          <span class="form-label" data-i18n="polish_tone_label">Tone</span>
           <select id="llm_tone" class="polish-control">
-            <option value="neutral">Neutral</option>
-            <option value="gentle">Gentle</option>
-            <option value="direct">Direct</option>
+            <option value="neutral" data-i18n="polish_tone_neutral">Neutral</option>
+            <option value="gentle" data-i18n="polish_tone_gentle">Gentle</option>
+            <option value="direct" data-i18n="polish_tone_direct">Direct</option>
           </select>
         </div>
       </div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Persona</span>
+          <span class="form-label" data-i18n="polish_persona_label">Persona</span>
           <select id="llm_persona" class="polish-control">
-            <option value="default">Default</option>
-            <option value="technical">Technical</option>
-            <option value="bilingual">Bilingual</option>
-            <option value="professional">Professional</option>
-            <option value="chat">Chat</option>
+            <option value="default" data-i18n="polish_persona_default">Default</option>
+            <option value="technical" data-i18n="polish_persona_technical">Technical</option>
+            <option value="bilingual" data-i18n="polish_persona_bilingual">Bilingual</option>
+            <option value="professional" data-i18n="polish_persona_professional">Professional</option>
+            <option value="chat" data-i18n="polish_persona_chat">Chat</option>
           </select>
         </div>
       </div>
@@ -784,14 +801,14 @@ input[type="range"]:disabled {
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">LLM Model</span>
+          <span class="form-label" data-i18n="polish_llm_model_label">LLM Model</span>
           <select id="llm_model" class="llm-control"></select>
         </div>
       </div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Temperature</span>
+          <span class="form-label" data-i18n="polish_temperature_label">Temperature</span>
           <div class="slider-group">
             <input type="range" id="llm_temperature" class="llm-control"
                    min="0" max="1" step="0.1" value="0">
@@ -802,72 +819,72 @@ input[type="range"]:disabled {
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Enable Thinking</span>
+          <span class="form-label" data-i18n="polish_enable_thinking_label">Enable Thinking</span>
           <label class="toggle">
             <input type="checkbox" id="llm_enable_thinking" class="llm-control">
             <span class="toggle-track"></span>
           </label>
         </div>
-        <div class="form-hint" id="thinking_hint">Chain-of-thought reasoning before polishing.</div>
+        <div class="form-hint" id="thinking_hint" data-i18n="polish_thinking_hint_default">Chain-of-thought reasoning before polishing.</div>
       </div>
     </div>
 
     <!-- ═══ Shortcuts ═══ -->
     <div id="tab-shortcuts" class="tab-panel">
-      <div class="tab-title">Shortcuts</div>
+      <div class="tab-title" data-i18n="tab_shortcuts">Shortcuts</div>
 
-      <div class="section-label">Built-in Hotkeys</div>
+      <div class="section-label" data-i18n="shortcuts_built_in_hotkeys">Built-in Hotkeys</div>
       <div class="hotkey-grid" id="hotkey_grid"></div>
 
       <div class="form-separator"></div>
 
-      <div class="section-label">Custom Key</div>
+      <div class="section-label" data-i18n="shortcuts_custom_key">Custom Key</div>
       <div class="form-group">
         <div class="key-capture">
           <span class="key-display" id="custom_key_display">Not set</span>
-          <button class="btn" id="custom_key_record_btn" onclick="startKeyCapture()">Record Key...</button>
-          <button class="btn" id="custom_key_clear_btn" onclick="clearCustomKey()" style="display:none">Clear</button>
+          <button class="btn" id="custom_key_record_btn" onclick="startKeyCapture()" data-i18n="shortcuts_record_key">Record Key...</button>
+          <button class="btn" id="custom_key_clear_btn" onclick="clearCustomKey()" style="display:none" data-i18n="shortcuts_clear">Clear</button>
         </div>
-        <div class="form-hint">Press any key to assign as a custom hotkey.</div>
+        <div class="form-hint" data-i18n="shortcuts_press_any_key_hint">Press any key to assign as a custom hotkey.</div>
       </div>
 
       <div class="form-separator"></div>
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label">Double-tap Threshold</span>
+          <span class="form-label" data-i18n="shortcuts_double_tap_threshold_label">Double-tap Threshold</span>
           <div class="slider-group">
             <input type="range" id="hotkey_double_tap" min="0.15" max="0.5" step="0.05" value="0.3">
             <span class="slider-value" id="hotkey_double_tap_val">0.30s</span>
           </div>
         </div>
-        <div class="form-hint">Maximum interval between two taps for Double Command.</div>
+        <div class="form-hint" data-i18n="shortcuts_double_tap_hint">Maximum interval between two taps for Double Command.</div>
       </div>
     </div>
 
     <!-- ═══ Dictionary ═══ -->
     <div id="tab-dictionary" class="tab-panel">
-      <div class="tab-title">Dictionary</div>
-      <div class="form-hint" style="margin-bottom: 16px;">
+      <div class="tab-title" data-i18n="tab_dictionary">Dictionary</div>
+      <div class="form-hint" style="margin-bottom: 16px;" data-i18n="dictionary_hint">
         Custom terms improve ASR accuracy for proper nouns. Click &times; to remove a term.
       </div>
 
       <div class="dict-tags" id="dict_tags">
-        <span class="empty-state">No terms added yet.</span>
+        <span class="empty-state" data-i18n="dictionary_empty">No terms added yet.</span>
       </div>
 
       <div class="form-separator"></div>
 
       <div class="dict-add-form">
         <div class="field" style="flex:1">
-          <label>Term</label>
-          <input type="text" id="dict_term" placeholder="e.g. DashScope" style="width:100%">
+          <label data-i18n="dictionary_term_label">Term</label>
+          <input type="text" id="dict_term" placeholder="e.g. DashScope" style="width:100%" data-i18n-placeholder="dictionary_term_placeholder">
         </div>
         <div class="field" style="flex:1">
-          <label>Aliases (comma separated)</label>
-          <input type="text" id="dict_aliases" placeholder="e.g. dash scope, dashcope" style="width:100%">
+          <label data-i18n="dictionary_aliases_label">Aliases (comma separated)</label>
+          <input type="text" id="dict_aliases" placeholder="e.g. dash scope, dashcope" style="width:100%" data-i18n-placeholder="dictionary_aliases_placeholder">
         </div>
-        <button class="btn btn-primary" onclick="addDictEntry()">Add</button>
+        <button class="btn btn-primary" onclick="addDictEntry()" data-i18n="dictionary_add_button">Add</button>
       </div>
 
       <div class="form-separator"></div>
@@ -875,14 +892,14 @@ input[type="range"]:disabled {
       <div class="form-group">
         <div class="form-row">
           <span class="form-label"></span>
-          <button class="btn" onclick="sendAction('openDictFile')">Open Dictionary File</button>
+          <button class="btn" onclick="sendAction('openDictFile')" data-i18n="dictionary_open_file">Open Dictionary File</button>
         </div>
       </div>
     </div>
 
     <!-- ═══ History ═══ -->
     <div id="tab-history" class="tab-panel">
-      <div class="tab-title">Recording History</div>
+      <div class="tab-title" data-i18n="tab_history">Recording History</div>
       <div id="history_list"></div>
     </div>
 
@@ -904,6 +921,283 @@ let _syncFormTimer = null;
 let _micTestState = 'idle';
 let _micTestAudio = null;
 let _micTestTimeout = null;
+
+const UI_TRANSLATIONS = {
+  en: {
+    sidebar_general: 'General',
+    sidebar_audio: 'Audio',
+    sidebar_recognition: 'Recognition',
+    sidebar_polish: 'Polish',
+    sidebar_shortcuts: 'Shortcuts',
+    sidebar_dictionary: 'Dictionary',
+    sidebar_history: 'History',
+    tab_general: 'General',
+    tab_audio: 'Audio',
+    tab_recognition: 'Recognition',
+    tab_polish: 'Polish',
+    tab_shortcuts: 'Shortcuts',
+    tab_dictionary: 'Dictionary',
+    tab_history: 'Recording History',
+    general_api_key_label: 'API Key',
+    general_api_key_hint_html: `DashScope API key. <a href="#" onclick="openExternal('https://dashscope.console.aliyun.com/apiKey'); return false;" style="color:var(--accent);">Get one here</a>`,
+    general_default_mode_label: 'Default Mode',
+    general_interface_language_label: 'Interface Language',
+    general_language_english: 'English',
+    general_language_chinese: '中文',
+    general_auto_paste_label: 'Auto Paste',
+    general_auto_paste_hint: 'Automatically paste transcribed text via Cmd+V',
+    general_version_label: 'Version',
+    general_open_config_file: 'Open Config File',
+    mode_walkie_talkie: 'Walkie-Talkie (Hold)',
+    mode_realtime_long: 'Real-time Long (Toggle)',
+    audio_input_device_label: 'Input Device',
+    audio_system_default: 'System Default',
+    audio_device_default_suffix: 'default',
+    audio_software_gain_label: 'Software Gain',
+    audio_software_gain_hint: 'Amplify microphone input. 0 dB = no amplification.',
+    audio_noise_gate_label: 'Noise Gate',
+    audio_noise_gate_hint: 'Audio below this RMS threshold is silenced. 0 = disabled.',
+    audio_off: 'Off',
+    audio_highpass_filter_label: 'High-Pass Filter',
+    audio_cutoff_frequency_label: 'Cutoff Frequency',
+    audio_highpass_filter_hint: 'Remove rumble, hum, and plosives below the cutoff frequency.',
+    audio_soft_limiter_label: 'Soft Limiter',
+    audio_soft_limiter_hint: 'Smooth compression instead of hard clipping at high gain.',
+    audio_test_recording_label: 'Test Recording',
+    recognition_asr_model_label: 'ASR Model',
+    recognition_backend_label: 'Backend',
+    recognition_backend_hint: 'Determined by the selected model.',
+    recognition_language_label: 'Language',
+    recognition_language_chinese: 'Chinese',
+    recognition_language_english: 'English',
+    recognition_language_auto: 'Auto',
+    recognition_backend_realtime_ws: 'Realtime WebSocket',
+    recognition_backend_short_file: 'Short File Upload',
+    recognition_backend_omni_offline: 'Omni Offline',
+    polish_enable_label: 'Enable Text Polish',
+    polish_enable_hint: 'Use LLM to clean up transcription results.',
+    polish_mode_label: 'Polish Mode',
+    polish_mode_smart: 'Smart (skip short/clean text)',
+    polish_mode_always: 'Always',
+    polish_level_label: 'Level',
+    polish_level_minimal: 'Minimal',
+    polish_level_balanced: 'Balanced',
+    polish_level_strong: 'Strong',
+    polish_structured_label: 'Structured Output',
+    polish_structured_hint: 'Format with headings, lists, and quotes when content has structure',
+    polish_tone_label: 'Tone',
+    polish_tone_neutral: 'Neutral',
+    polish_tone_gentle: 'Gentle',
+    polish_tone_direct: 'Direct',
+    polish_persona_label: 'Persona',
+    polish_persona_default: 'Default',
+    polish_persona_technical: 'Technical',
+    polish_persona_bilingual: 'Bilingual',
+    polish_persona_professional: 'Professional',
+    polish_persona_chat: 'Chat',
+    polish_llm_model_label: 'LLM Model',
+    polish_temperature_label: 'Temperature',
+    polish_enable_thinking_label: 'Enable Thinking',
+    polish_thinking_hint_default: 'Chain-of-thought reasoning before polishing.',
+    polish_thinking_hint_locked: 'Omni handles polish inline, so LLM settings are locked.',
+    polish_thinking_hint_unsupported: 'This model does not support thinking.',
+    shortcuts_built_in_hotkeys: 'Built-in Hotkeys',
+    shortcuts_custom_key: 'Custom Key',
+    shortcuts_not_set: 'Not set',
+    shortcuts_record_key: 'Record Key...',
+    shortcuts_cancel: 'Cancel',
+    shortcuts_clear: 'Clear',
+    shortcuts_press_any_key_hint: 'Press any key to assign as a custom hotkey.',
+    shortcuts_double_tap_threshold_label: 'Double-tap Threshold',
+    shortcuts_double_tap_hint: 'Maximum interval between two taps for Double Command.',
+    shortcuts_press_a_key: 'Press a key...',
+    shortcuts_unsupported_key: 'Unsupported key',
+    shortcut_hotkey_fn: 'Fn Key (Hold / Toggle)',
+    shortcut_hotkey_right_cmd: 'Right Command',
+    shortcut_hotkey_double_cmd: 'Double Command',
+    shortcut_hotkey_f13: 'F13 (PrintScreen)',
+    dictionary_hint: 'Custom terms improve ASR accuracy for proper nouns. Click × to remove a term.',
+    dictionary_empty: 'No terms added yet.',
+    dictionary_term_label: 'Term',
+    dictionary_term_placeholder: 'e.g. DashScope',
+    dictionary_aliases_label: 'Aliases (comma separated)',
+    dictionary_aliases_placeholder: 'e.g. dash scope, dashcope',
+    dictionary_add_button: 'Add',
+    dictionary_open_file: 'Open Dictionary File',
+    dictionary_remove: 'Remove',
+    history_empty_html: '<div class="rec-empty"><div class="rec-empty-icon">&#128197;</div><div class="rec-empty-text">No recordings yet<br>Recordings will appear here after you use voice input</div></div>',
+    history_mode_realtime_long: 'Realtime Long',
+    history_mode_walkie_talkie: 'Walkie Talkie',
+    history_status_success: 'Success',
+    history_status_failed: 'Failed',
+    history_status_retrying: 'Retrying...',
+    history_status_pending: 'Pending',
+    history_play: '\u25B6 Play',
+    history_stop: '\u25A0 Stop',
+    history_retry: 'Retry',
+    history_copy: 'Copy',
+    history_transcribing: 'Transcribing...',
+    history_transcription_failed: 'Transcription failed',
+    history_today: 'Today',
+    history_yesterday: 'Yesterday',
+    history_copied: 'Copied!',
+    history_minutes_suffix: 'm',
+    history_seconds_suffix: 's',
+    mic_test_test: 'Test',
+    mic_test_stop: 'Stop',
+    mic_test_loading: 'Loading...',
+    mic_test_retest: 'Re-test',
+  },
+  zh: {
+    sidebar_general: '通用',
+    sidebar_audio: '音频',
+    sidebar_recognition: '识别',
+    sidebar_polish: '润色',
+    sidebar_shortcuts: '快捷键',
+    sidebar_dictionary: '词典',
+    sidebar_history: '历史',
+    tab_general: '通用',
+    tab_audio: '音频',
+    tab_recognition: '识别',
+    tab_polish: '润色',
+    tab_shortcuts: '快捷键',
+    tab_dictionary: '词典',
+    tab_history: '录音历史',
+    general_api_key_label: 'API Key',
+    general_api_key_hint_html: `DashScope API Key。<a href="#" onclick="openExternal('https://dashscope.console.aliyun.com/apiKey'); return false;" style="color:var(--accent);">前往获取</a>`,
+    general_default_mode_label: '默认模式',
+    general_interface_language_label: '界面语言',
+    general_language_english: 'English',
+    general_language_chinese: '中文',
+    general_auto_paste_label: '自动粘贴',
+    general_auto_paste_hint: '识别完成后通过 Cmd+V 自动粘贴文本',
+    general_version_label: '版本',
+    general_open_config_file: '打开配置文件',
+    mode_walkie_talkie: '对讲模式（按住）',
+    mode_realtime_long: '实时长录（切换）',
+    audio_input_device_label: '输入设备',
+    audio_system_default: '系统默认',
+    audio_device_default_suffix: '默认',
+    audio_software_gain_label: '软件增益',
+    audio_software_gain_hint: '放大麦克风输入。0 dB 表示不放大。',
+    audio_noise_gate_label: '噪声门',
+    audio_noise_gate_hint: '低于该 RMS 阈值的音频会被静音。0 表示关闭。',
+    audio_off: '关闭',
+    audio_highpass_filter_label: '高通滤波',
+    audio_cutoff_frequency_label: '截止频率',
+    audio_highpass_filter_hint: '去除截止频率以下的低频噪声、嗡声和喷麦声。',
+    audio_soft_limiter_label: '软限制器',
+    audio_soft_limiter_hint: '在高增益下使用平滑压缩，避免硬削波。',
+    audio_test_recording_label: '测试录音',
+    recognition_asr_model_label: '识别模型',
+    recognition_backend_label: '后端',
+    recognition_backend_hint: '由所选模型决定。',
+    recognition_language_label: '识别语言',
+    recognition_language_chinese: '中文',
+    recognition_language_english: '英文',
+    recognition_language_auto: '自动',
+    recognition_backend_realtime_ws: '实时 WebSocket',
+    recognition_backend_short_file: '短音频上传',
+    recognition_backend_omni_offline: 'Omni 离线',
+    polish_enable_label: '启用文本润色',
+    polish_enable_hint: '使用 LLM 清理和整理识别结果。',
+    polish_mode_label: '润色模式',
+    polish_mode_smart: '智能（跳过短且干净的文本）',
+    polish_mode_always: '始终',
+    polish_level_label: '强度',
+    polish_level_minimal: '轻度',
+    polish_level_balanced: '均衡',
+    polish_level_strong: '强力',
+    polish_structured_label: '结构化输出',
+    polish_structured_hint: '当内容有结构时，用标题、列表和引用进行整理',
+    polish_tone_label: '语气',
+    polish_tone_neutral: '中性',
+    polish_tone_gentle: '温和',
+    polish_tone_direct: '直接',
+    polish_persona_label: '人设',
+    polish_persona_default: '默认',
+    polish_persona_technical: '技术',
+    polish_persona_bilingual: '双语',
+    polish_persona_professional: '专业',
+    polish_persona_chat: '聊天',
+    polish_llm_model_label: 'LLM 模型',
+    polish_temperature_label: '温度',
+    polish_enable_thinking_label: '启用思考',
+    polish_thinking_hint_default: '润色前先进行链路思考。',
+    polish_thinking_hint_locked: 'Omni 会内联完成润色，所以 LLM 设置已锁定。',
+    polish_thinking_hint_unsupported: '当前模型不支持思考。',
+    shortcuts_built_in_hotkeys: '内置热键',
+    shortcuts_custom_key: '自定义按键',
+    shortcuts_not_set: '未设置',
+    shortcuts_record_key: '录制按键...',
+    shortcuts_cancel: '取消',
+    shortcuts_clear: '清除',
+    shortcuts_press_any_key_hint: '按下任意按键即可将其设为自定义热键。',
+    shortcuts_double_tap_threshold_label: '双击阈值',
+    shortcuts_double_tap_hint: '两次按下 Double Command 的最大间隔。',
+    shortcuts_press_a_key: '请按下一个按键...',
+    shortcuts_unsupported_key: '不支持的按键',
+    shortcut_hotkey_fn: 'Fn 键（按住 / 切换）',
+    shortcut_hotkey_right_cmd: '右 Command',
+    shortcut_hotkey_double_cmd: '双击 Command',
+    shortcut_hotkey_f13: 'F13（PrintScreen）',
+    dictionary_hint: '自定义词条可以提升专有名词的识别准确率。点击 × 删除词条。',
+    dictionary_empty: '还没有添加词条。',
+    dictionary_term_label: '词条',
+    dictionary_term_placeholder: '例如 DashScope',
+    dictionary_aliases_label: '别名（逗号分隔）',
+    dictionary_aliases_placeholder: '例如 dash scope, dashcope',
+    dictionary_add_button: '添加',
+    dictionary_open_file: '打开词典文件',
+    dictionary_remove: '删除',
+    history_empty_html: '<div class="rec-empty"><div class="rec-empty-icon">&#128197;</div><div class="rec-empty-text">还没有录音记录<br>开始使用语音输入后，这里会显示历史记录</div></div>',
+    history_mode_realtime_long: '实时长录',
+    history_mode_walkie_talkie: '对讲模式',
+    history_status_success: '成功',
+    history_status_failed: '失败',
+    history_status_retrying: '重试中...',
+    history_status_pending: '等待中',
+    history_play: '\u25B6 播放',
+    history_stop: '\u25A0 停止',
+    history_retry: '重试',
+    history_copy: '复制',
+    history_transcribing: '识别中...',
+    history_transcription_failed: '识别失败',
+    history_today: '今天',
+    history_yesterday: '昨天',
+    history_copied: '已复制',
+    history_minutes_suffix: '分',
+    history_seconds_suffix: '秒',
+    mic_test_test: '测试',
+    mic_test_stop: '停止',
+    mic_test_loading: '加载中...',
+    mic_test_retest: '重新测试',
+  },
+};
+
+function currentLanguage() {
+  return (_config.ui && _config.ui.language) || 'en';
+}
+
+function t(key) {
+  const language = currentLanguage();
+  return (UI_TRANSLATIONS[language] && UI_TRANSLATIONS[language][key])
+    || UI_TRANSLATIONS.en[key]
+    || key;
+}
+
+function applyTranslations() {
+  document.documentElement.lang = currentLanguage() === 'zh' ? 'zh-CN' : 'en';
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => {
+    el.innerHTML = t(el.dataset.i18nHtml);
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  });
+}
 
 const MODIFIER_KEY_MAP = {
   MetaLeft: { key_code: 55, display_name: 'Command', flag_mask: 0x100000 },
@@ -1083,6 +1377,22 @@ function syncFormStateSoon() {
   }, 0);
 }
 
+function renderAll() {
+  applyTranslations();
+  renderGeneral();
+  renderAudio();
+  renderRecognition();
+  renderPolish();
+  renderShortcuts();
+  renderDictionary();
+  renderHistory();
+}
+
+function setInterfaceLanguage(language) {
+  setNestedValue(_config, 'ui.language', language);
+  renderAll();
+}
+
 /* ══════════════════════════════════════════════════════════
    Tab Navigation
    ══════════════════════════════════════════════════════════ */
@@ -1115,15 +1425,8 @@ function loadAll(data) {
   _devices = data.devices || [];
   _dictEntries = data.dictionary || [];
 
-  renderGeneral();
-  renderAudio();
-  renderRecognition();
-  renderPolish();
-  renderShortcuts();
-  renderDictionary();
-
   _recordings = data.recordings || [];
-  renderHistory();
+  renderAll();
 }
 
 /** Called from Python: update a single config value in the UI */
@@ -1131,6 +1434,10 @@ function updateConfig(key, value) {
   setNestedValue(_config, key, value);
   // Re-render affected tab
   const section = key.split('.')[0];
+  if (section === 'ui') {
+    renderAll();
+    return;
+  }
   if (section === 'audio') renderAudio();
   else if (section === 'asr') {
     renderRecognition();
@@ -1160,6 +1467,7 @@ function loadDictionary(entries) {
 function renderGeneral() {
   document.getElementById('api_key').value = _config.api_key || '';
   document.getElementById('default_mode').value = _config.default_mode || 'walkie_talkie';
+  document.getElementById('ui_language').value = (_config.ui && _config.ui.language) || 'en';
   document.getElementById('auto_paste').checked = _config.auto_paste !== false;
   document.getElementById('app_version').textContent = _config._version || '—';
 }
@@ -1189,7 +1497,7 @@ function renderAudio() {
   var ngEl = document.getElementById('audio_noise_gate');
   var ng = audio.noise_gate != null ? audio.noise_gate : 0;
   ngEl.value = ng;
-  document.getElementById('audio_noise_gate_val').textContent = ng > 0 ? parseFloat(ng).toFixed(3) : 'Off';
+  document.getElementById('audio_noise_gate_val').textContent = ng > 0 ? parseFloat(ng).toFixed(3) : t('audio_off');
 
   var hpEl = document.getElementById('audio_highpass_filter');
   hpEl.checked = audio.highpass_filter !== false;
@@ -1208,11 +1516,11 @@ function renderAudio() {
 function renderDeviceSelect() {
   const sel = document.getElementById('audio_input_device');
   const current = (_config.audio || {}).input_device || '';
-  sel.innerHTML = '<option value="">System Default</option>';
+  sel.innerHTML = `<option value="">${t('audio_system_default')}</option>`;
   _devices.forEach(d => {
     const opt = document.createElement('option');
     opt.value = d.name;
-    opt.textContent = d.is_default ? d.name + ' (default)' : d.name;
+    opt.textContent = d.is_default ? `${d.name} (${t('audio_device_default_suffix')})` : d.name;
     opt.selected = d.name === current;
     sel.appendChild(opt);
   });
@@ -1247,7 +1555,15 @@ function updateAsrBackendDisplay(modelId) {
   const model = _asrModels.find(m => m.id === modelId);
   const display = document.getElementById('asr_backend_display');
   if (model) {
-    display.textContent = model.transport === 'realtime_ws' ? 'Realtime WebSocket' : 'Short File Upload';
+    if (model.transport === 'realtime_ws') {
+      display.textContent = t('recognition_backend_realtime_ws');
+    } else if (model.transport === 'short_file') {
+      display.textContent = t('recognition_backend_short_file');
+    } else if (model.transport === 'omni_offline') {
+      display.textContent = t('recognition_backend_omni_offline');
+    } else {
+      display.textContent = '—';
+    }
   } else {
     display.textContent = '—';
   }
@@ -1300,15 +1616,15 @@ function updateThinkingAvailability() {
   if (selectedAsrHandlesInlinePolish()) {
     thinkingEl.disabled = true;
     thinkingEl.checked = false;
-    hintEl.textContent = 'Omni handles polish inline, so LLM settings are locked.';
+    hintEl.textContent = t('polish_thinking_hint_locked');
   } else if (model && !model.supports_thinking) {
     thinkingEl.disabled = true;
     thinkingEl.checked = false;
-    hintEl.textContent = 'This model does not support thinking.';
+    hintEl.textContent = t('polish_thinking_hint_unsupported');
   } else {
     const polishEnabled = document.getElementById('enable_polish').checked;
     thinkingEl.disabled = !polishEnabled;
-    hintEl.textContent = 'Chain-of-thought reasoning before polishing.';
+    hintEl.textContent = t('polish_thinking_hint_default');
   }
 }
 
@@ -1332,10 +1648,10 @@ function renderShortcuts() {
   const active = hotkey.active_hotkeys || ['fn', 'double_cmd'];
 
   const labels = {
-    fn: 'Fn Key (Hold / Toggle)',
-    right_cmd: 'Right Command',
-    double_cmd: 'Double Command',
-    f13: 'F13 (PrintScreen)',
+    fn: t('shortcut_hotkey_fn'),
+    right_cmd: t('shortcut_hotkey_right_cmd'),
+    double_cmd: t('shortcut_hotkey_double_cmd'),
+    f13: t('shortcut_hotkey_f13'),
     f14: 'F14', f15: 'F15', f16: 'F16', f17: 'F17',
     f18: 'F18', f19: 'F19', f20: 'F20'
   };
@@ -1363,12 +1679,15 @@ function renderShortcuts() {
   const customKey = hotkey.custom_key;
   const display = document.getElementById('custom_key_display');
   const clearBtn = document.getElementById('custom_key_clear_btn');
+  const recordBtn = document.getElementById('custom_key_record_btn');
+  recordBtn.textContent = t('shortcuts_record_key');
+  recordBtn.onclick = startKeyCapture;
   if (customKey && customKey.display_name) {
     display.textContent = customKey.display_name;
     display.classList.remove('recording');
     clearBtn.style.display = '';
   } else {
-    display.textContent = 'Not set';
+    display.textContent = t('shortcuts_not_set');
     display.classList.remove('recording');
     clearBtn.style.display = 'none';
   }
@@ -1382,7 +1701,7 @@ function renderShortcuts() {
 function renderDictionary() {
   const container = document.getElementById('dict_tags');
   if (!_dictEntries || _dictEntries.length === 0) {
-    container.innerHTML = '<span class="empty-state">No terms added yet.</span>';
+    container.innerHTML = `<span class="empty-state">${t('dictionary_empty')}</span>`;
     return;
   }
   container.innerHTML = '';
@@ -1405,7 +1724,7 @@ function renderDictionary() {
     tag.appendChild(document.createTextNode(' '));
     const removeButton = document.createElement('button');
     removeButton.className = 'remove';
-    removeButton.title = 'Remove';
+    removeButton.title = t('dictionary_remove');
     removeButton.type = 'button';
     removeButton.textContent = '×';
     removeButton.addEventListener('click', () => {
@@ -1428,6 +1747,10 @@ document.getElementById('api_key').addEventListener('change', function() {
 document.getElementById('default_mode').addEventListener('change', function() {
   setConfig('default_mode', this.value);
 });
+document.getElementById('ui_language').addEventListener('change', function() {
+  setConfig('ui.language', this.value);
+  renderAll();
+});
 document.getElementById('auto_paste').addEventListener('change', function() {
   setConfig('auto_paste', this.checked);
 });
@@ -1446,7 +1769,7 @@ document.getElementById('audio_gain_db').addEventListener('change', function() {
 });
 document.getElementById('audio_noise_gate').addEventListener('input', function() {
   var v = parseFloat(this.value);
-  document.getElementById('audio_noise_gate_val').textContent = v > 0 ? v.toFixed(3) : 'Off';
+  document.getElementById('audio_noise_gate_val').textContent = v > 0 ? v.toFixed(3) : t('audio_off');
 });
 document.getElementById('audio_noise_gate').addEventListener('change', function() {
   setConfig('audio.noise_gate', parseFloat(this.value));
@@ -1540,9 +1863,9 @@ function onHotkeyToggle(key, enabled) {
 function startKeyCapture() {
   _isCapturingKey = true;
   const display = document.getElementById('custom_key_display');
-  display.textContent = 'Press a key...';
+  display.textContent = t('shortcuts_press_a_key');
   display.classList.add('recording');
-  document.getElementById('custom_key_record_btn').textContent = 'Cancel';
+  document.getElementById('custom_key_record_btn').textContent = t('shortcuts_cancel');
   document.getElementById('custom_key_record_btn').onclick = cancelKeyCapture;
 }
 
@@ -1566,9 +1889,9 @@ document.addEventListener('keydown', function(e) {
   const keyData = customHotkeyDefForEvent(e);
   if (!keyData) {
     const display = document.getElementById('custom_key_display');
-    display.textContent = 'Unsupported key';
+    display.textContent = t('shortcuts_unsupported_key');
     display.classList.remove('recording');
-    document.getElementById('custom_key_record_btn').textContent = 'Record Key...';
+    document.getElementById('custom_key_record_btn').textContent = t('shortcuts_record_key');
     document.getElementById('custom_key_record_btn').onclick = startKeyCapture;
     _isCapturingKey = false;
     return;
@@ -1619,7 +1942,7 @@ function loadRecordings(recs) {
 function renderHistory() {
   const container = document.getElementById('history_list');
   if (!_recordings.length) {
-    container.innerHTML = '<div class="rec-empty"><div class="rec-empty-icon">&#128197;</div><div class="rec-empty-text">No recordings yet<br>Recordings will appear here after you use voice input</div></div>';
+    container.innerHTML = t('history_empty_html');
     return;
   }
 
@@ -1639,7 +1962,9 @@ function buildRecItem(r) {
 
   const timeStr = formatRecTime(r.timestamp);
   const durStr = formatDuration(r.duration_seconds);
-  const modeLabel = r.mode === 'realtime_long' ? 'Realtime Long' : 'Walkie Talkie';
+  const modeLabel = r.mode === 'realtime_long'
+    ? t('history_mode_realtime_long')
+    : t('history_mode_walkie_talkie');
 
   const item = document.createElement('div');
   item.className = 'rec-item' + (isRetrying ? ' retrying' : '');
@@ -1661,10 +1986,10 @@ function buildRecItem(r) {
   meta.className = 'rec-meta';
   meta.appendChild(makeBadge(modeLabel, 'rec-badge-mode'));
   meta.appendChild(makeBadge(durStr, 'rec-badge-dur'));
-  if (isSuccess) meta.appendChild(makeBadge('Success', 'rec-badge-success'));
-  else if (isFailed) meta.appendChild(makeBadge('Failed', 'rec-badge-failed'));
-  else if (isRetrying) meta.appendChild(makeBadge('Retrying...', 'rec-badge-retrying'));
-  else if (isPending) meta.appendChild(makeBadge('Pending', 'rec-badge-pending'));
+  if (isSuccess) meta.appendChild(makeBadge(t('history_status_success'), 'rec-badge-success'));
+  else if (isFailed) meta.appendChild(makeBadge(t('history_status_failed'), 'rec-badge-failed'));
+  else if (isRetrying) meta.appendChild(makeBadge(t('history_status_retrying'), 'rec-badge-retrying'));
+  else if (isPending) meta.appendChild(makeBadge(t('history_status_pending'), 'rec-badge-pending'));
   info.appendChild(meta);
 
   header.appendChild(info);
@@ -1673,16 +1998,16 @@ function buildRecItem(r) {
   const actions = document.createElement('div');
   actions.className = 'rec-actions';
 
-  var playBtn = makeRecBtn(isPlaying ? '\u25A0 Stop' : '\u25B6 Play', 'rec-btn-play', isRetrying);
+  var playBtn = makeRecBtn(isPlaying ? t('history_stop') : t('history_play'), 'rec-btn-play', isRetrying);
   playBtn.addEventListener('click', function() { togglePlay(r.id); });
   actions.appendChild(playBtn);
 
-  var retryBtn = makeRecBtn('Retry', 'rec-btn-retry', isRetrying);
+  var retryBtn = makeRecBtn(t('history_retry'), 'rec-btn-retry', isRetrying);
   retryBtn.addEventListener('click', function() { retryRec(r.id); });
   actions.appendChild(retryBtn);
 
   if (isSuccess && r.transcript) {
-    var copyBtn = makeRecBtn('Copy', 'rec-btn-copy', isRetrying);
+    var copyBtn = makeRecBtn(t('history_copy'), 'rec-btn-copy', isRetrying);
     copyBtn.addEventListener('click', function() { copyRec(r.id); });
     actions.appendChild(copyBtn);
   }
@@ -1698,7 +2023,7 @@ function buildRecItem(r) {
   if (isRetrying) {
     var proc = document.createElement('div');
     proc.className = 'rec-processing';
-    proc.innerHTML = '<div class="rec-spinner"></div>Transcribing...';
+    proc.innerHTML = `<div class="rec-spinner"></div>${t('history_transcribing')}`;
     item.appendChild(proc);
   } else if (isSuccess && r.transcript) {
     var tx = document.createElement('div');
@@ -1710,7 +2035,7 @@ function buildRecItem(r) {
     fail.className = 'rec-transcript';
     var span = document.createElement('span');
     span.className = 'rec-transcript-empty';
-    span.textContent = 'Transcription failed';
+    span.textContent = t('history_transcription_failed');
     fail.appendChild(span);
     item.appendChild(fail);
   }
@@ -1740,18 +2065,19 @@ function formatRecTime(ts) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const yesterday = new Date(today.getTime() - 86400000);
   const recDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const locale = currentLanguage() === 'zh' ? ['zh-CN'] : ['en-US'];
 
-  const hm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-  if (recDay.getTime() === today.getTime()) return 'Today ' + hm;
-  if (recDay.getTime() === yesterday.getTime()) return 'Yesterday ' + hm;
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + hm;
+  const hm = d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (recDay.getTime() === today.getTime()) return t('history_today') + ' ' + hm;
+  if (recDay.getTime() === yesterday.getTime()) return t('history_yesterday') + ' ' + hm;
+  return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' }) + ' ' + hm;
 }
 
 function formatDuration(secs) {
-  if (secs < 60) return Math.round(secs) + 's';
+  if (secs < 60) return Math.round(secs) + t('history_seconds_suffix');
   const m = Math.floor(secs / 60);
   const s = Math.round(secs % 60);
-  return m + 'm ' + (s > 0 ? s + 's' : '');
+  return m + t('history_minutes_suffix') + (s > 0 ? ' ' + s + t('history_seconds_suffix') : '');
 }
 
 function retryRec(id) {
@@ -1835,7 +2161,7 @@ function copiedFeedback(id) {
   const btn = el.querySelector('.rec-btn-copy');
   if (btn) {
     const orig = btn.textContent;
-    btn.textContent = 'Copied!';
+    btn.textContent = t('history_copied');
     setTimeout(function() { btn.textContent = orig; }, 1500);
   }
 }
@@ -1868,6 +2194,9 @@ function collectFormState() {
     default_mode: document.getElementById('default_mode')?.value || 'walkie_talkie',
     auto_paste: !!document.getElementById('auto_paste')?.checked,
     enable_polish: !!document.getElementById('enable_polish')?.checked,
+    ui: {
+      language: document.getElementById('ui_language')?.value || 'en',
+    },
     audio: {
       input_device: document.getElementById('audio_input_device')?.value || null,
       gain: dbToGain(parseInt(document.getElementById('audio_gain_db')?.value || '6')),
@@ -1919,7 +2248,7 @@ function renderMicTest() {
 
     var btn = document.createElement('button');
     btn.className = 'mic-test-btn mic-test-btn-stop';
-    btn.textContent = 'Stop';
+    btn.textContent = t('mic_test_stop');
     btn.addEventListener('click', function() {
       if (_micTestTimeout) { clearTimeout(_micTestTimeout); _micTestTimeout = null; }
       postMsg({ action: 'stopMicTest' });
@@ -1931,13 +2260,13 @@ function renderMicTest() {
     playerDiv.id = 'mic-test-player';
     var loading = document.createElement('span');
     loading.className = 'mic-test-duration';
-    loading.textContent = 'Loading...';
+    loading.textContent = t('mic_test_loading');
     playerDiv.appendChild(loading);
     container.appendChild(playerDiv);
 
     var btn = document.createElement('button');
     btn.className = 'mic-test-btn mic-test-btn-start';
-    btn.textContent = 'Re-test';
+    btn.textContent = t('mic_test_retest');
     btn.addEventListener('click', function() {
       _micTestState = 'idle';
       stopMicTestPlayback();
@@ -1950,7 +2279,7 @@ function renderMicTest() {
   } else {
     var btn = document.createElement('button');
     btn.className = 'mic-test-btn mic-test-btn-start';
-    btn.textContent = 'Test';
+    btn.textContent = t('mic_test_test');
     btn.addEventListener('click', function() {
       postMsg({ action: 'startMicTest' });
     });
@@ -2021,7 +2350,7 @@ function micTestError(msg) {
 
   var btn = document.createElement('button');
   btn.className = 'mic-test-btn mic-test-btn-start';
-  btn.textContent = 'Test';
+  btn.textContent = t('mic_test_test');
   btn.addEventListener('click', function() {
     postMsg({ action: 'startMicTest' });
   });
