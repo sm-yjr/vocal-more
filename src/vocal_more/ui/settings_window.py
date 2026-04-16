@@ -310,8 +310,6 @@ class SettingsWindow:
             if self._mic_test_recorder:
                 if key == "audio.gain":
                     self._mic_test_recorder.set_gain(float(value))
-                elif key == "audio.noise_gate":
-                    self._mic_test_recorder.set_noise_gate(float(value))
                 elif key == "audio.highpass_filter":
                     self._mic_test_recorder.set_highpass_filter(bool(value))
                 elif key == "audio.highpass_freq":
@@ -616,7 +614,6 @@ class SettingsWindow:
                 device=config.audio.input_device,
             )
             self._mic_test_recorder.set_gain(config.audio.gain)
-            self._mic_test_recorder.set_noise_gate(config.audio.noise_gate)
             self._mic_test_recorder.set_highpass_filter(config.audio.highpass_filter)
             self._mic_test_recorder.set_highpass_freq(config.audio.highpass_freq)
             self._mic_test_recorder.set_soft_limiter(config.audio.soft_limiter)

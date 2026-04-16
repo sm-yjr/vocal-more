@@ -128,7 +128,6 @@ class AudioConfig:
     blocksize: int = 1600  # 100ms at 16kHz
     input_device: Optional[str] = None  # None = system default; store name not index
     gain: float = 2.0          # Software gain multiplier (1.0 = no gain)
-    noise_gate: float = 0.0    # RMS threshold below which audio is zeroed (0 = disabled)
     highpass_filter: bool = True   # High-pass filter to remove low-frequency rumble
     highpass_freq: int = 200       # High-pass cutoff frequency in Hz
     soft_limiter: bool = True      # tanh soft limiter instead of hard clip
@@ -339,8 +338,11 @@ class Config:
 
         # Load from file if exists
         if config_path.exists():
+            from .compatibility import run_compatibility_check_and_repair
+
+            run_compatibility_check_and_repair("config")
             try:
-                with open(config_path) as f:
+                with open(config_path, encoding="utf-8") as f:
                     data = yaml.safe_load(f) or {}
                     config = cls._from_dict(data)
             except Exception as e:
@@ -459,8 +461,6 @@ class Config:
             self.audio.input_device = str(value) if value else None
         elif field == "gain":
             self.audio.gain = float(value)
-        elif field == "noise_gate":
-            self.audio.noise_gate = float(value)
         elif field == "highpass_filter":
             self.audio.highpass_filter = bool(value)
         elif field == "highpass_freq":
@@ -548,7 +548,6 @@ class Config:
                 "blocksize": self.audio.blocksize,
                 "input_device": self.audio.input_device,
                 "gain": self.audio.gain,
-                "noise_gate": self.audio.noise_gate,
                 "highpass_filter": self.audio.highpass_filter,
                 "highpass_freq": self.audio.highpass_freq,
                 "soft_limiter": self.audio.soft_limiter,
@@ -589,11 +588,22 @@ class Config:
 
     def save(self) -> None:
         """Save configuration to file."""
-        config_dir = self.get_config_dir()
+        self._write_config_data(self.to_dict())
+
+    @classmethod
+    def _write_config_data(cls, data: dict[str, Any]) -> None:
+        """Write normalized configuration data to disk."""
+        config_dir = cls.get_config_dir()
         config_dir.mkdir(parents=True, exist_ok=True)
 
-        with open(self.get_config_path(), "w") as f:
-            yaml.dump(self.to_dict(), f, default_flow_style=False)
+        with open(cls.get_config_path(), "w", encoding="utf-8") as f:
+            yaml.dump(
+                data,
+                f,
+                default_flow_style=False,
+                allow_unicode=True,
+                sort_keys=False,
+            )
 
     def ensure_api_key(self) -> Optional[str]:
         """Ensure API key is available, return error message if not."""

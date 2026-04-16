@@ -333,7 +333,6 @@ class RPCHandler:
                 continue
             recorder.set_device(self.config.audio.input_device)
             recorder.set_gain(self.config.audio.gain)
-            recorder.set_noise_gate(self.config.audio.noise_gate)
             recorder.set_highpass_filter(self.config.audio.highpass_filter)
             recorder.set_highpass_freq(self.config.audio.highpass_freq)
             recorder.set_soft_limiter(self.config.audio.soft_limiter)

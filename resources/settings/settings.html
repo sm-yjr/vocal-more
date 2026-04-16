@@ -719,19 +719,6 @@ input[type="range"]:disabled {
 
       <div class="form-group">
         <div class="form-row">
-          <span class="form-label" data-i18n="audio_noise_gate_label">Noise Gate</span>
-          <div class="slider-group">
-            <input type="range" id="audio_noise_gate" min="0" max="0.05" step="0.001" value="0">
-            <span class="slider-value" id="audio_noise_gate_val">Off</span>
-          </div>
-        </div>
-        <div class="form-hint" data-i18n="audio_noise_gate_hint">Audio below this RMS threshold is silenced. 0 = disabled.</div>
-      </div>
-
-      <div class="form-separator"></div>
-
-      <div class="form-group">
-        <div class="form-row">
           <span class="form-label" data-i18n="audio_highpass_filter_label">High-Pass Filter</span>
           <div class="toggle-wrapper">
             <input type="checkbox" id="audio_highpass_filter" checked>
@@ -997,7 +984,6 @@ let _activeSliderIds = new Set();
 const AUDIO_PRESETS = {
   whisper: {
     gain: 8.0,
-    noise_gate: 0.006,
     highpass_filter: true,
     highpass_freq: 220,
     soft_limiter: true,
@@ -1005,7 +991,6 @@ const AUDIO_PRESETS = {
   },
   normal: {
     gain: 4.0,
-    noise_gate: 0.0,
     highpass_filter: true,
     highpass_freq: 200,
     soft_limiter: true,
@@ -1013,7 +998,6 @@ const AUDIO_PRESETS = {
   },
   noisy: {
     gain: 6.0,
-    noise_gate: 0.012,
     highpass_filter: true,
     highpass_freq: 280,
     soft_limiter: true,
@@ -1054,9 +1038,6 @@ const UI_TRANSLATIONS = {
     audio_device_default_suffix: 'default',
     audio_software_gain_label: 'Software Gain',
     audio_software_gain_hint: 'Amplify microphone input. 0 dB = no amplification.',
-    audio_noise_gate_label: 'Noise Gate',
-    audio_noise_gate_hint: 'Audio below this RMS threshold is silenced. 0 = disabled.',
-    audio_off: 'Off',
     audio_presets_label: 'Presets',
     audio_presets_hint: 'Start with a preset, then fine-tune if needed.',
     audio_preset_whisper: 'Whisper',
@@ -1187,9 +1168,6 @@ const UI_TRANSLATIONS = {
     audio_device_default_suffix: '默认',
     audio_software_gain_label: '软件增益',
     audio_software_gain_hint: '放大麦克风输入。0 dB 表示不放大。',
-    audio_noise_gate_label: '噪声门',
-    audio_noise_gate_hint: '低于该 RMS 阈值的音频会被静音。0 表示关闭。',
-    audio_off: '关闭',
     audio_presets_label: '预设',
     audio_presets_hint: '先选一个场景预设，再按需微调。',
     audio_preset_whisper: '轻声办公',
@@ -1670,7 +1648,6 @@ function formatGainLabel(db) {
 function matchesAudioPreset(audio, preset) {
   if (!audio || !preset) return false;
   return Math.abs((audio.gain ?? 2.0) - preset.gain) < 0.01
-    && Math.abs((audio.noise_gate ?? 0) - preset.noise_gate) < 0.001
     && ((audio.highpass_filter !== false)) === preset.highpass_filter
     && Math.abs((audio.highpass_freq ?? 200) - preset.highpass_freq) <= 1
     && ((audio.soft_limiter !== false)) === preset.soft_limiter;
@@ -1700,7 +1677,6 @@ function applyAudioPreset(presetId) {
   const preset = AUDIO_PRESETS[presetId];
   if (!preset) return;
   setConfig('audio.gain', preset.gain);
-  setConfig('audio.noise_gate', preset.noise_gate);
   setConfig('audio.highpass_filter', preset.highpass_filter);
   setConfig('audio.highpass_freq', preset.highpass_freq);
   setConfig('audio.soft_limiter', preset.soft_limiter);
@@ -1719,15 +1695,6 @@ function renderAudio() {
     gainDbEl.value = db;
   }
   document.getElementById('audio_gain_val').textContent = formatGainLabel(parseInt(gainDbEl.value));
-
-  var ngEl = document.getElementById('audio_noise_gate');
-  var ng = audio.noise_gate != null ? audio.noise_gate : 0;
-  var activeNoiseGate = isSliderActive('audio_noise_gate');
-  if (!activeNoiseGate) {
-    ngEl.value = ng;
-  }
-  var ngValue = parseFloat(ngEl.value);
-  document.getElementById('audio_noise_gate_val').textContent = ngValue > 0 ? ngValue.toFixed(3) : t('audio_off');
 
   var hpEl = document.getElementById('audio_highpass_filter');
   hpEl.checked = audio.highpass_filter !== false;
@@ -2019,12 +1986,6 @@ bindSlider('audio_gain_db', function() {
   document.getElementById('audio_gain_val').textContent = formatGainLabel(parseInt(this.value));
 }, function() {
   setConfig('audio.gain', dbToGain(parseInt(this.value)));
-});
-bindSlider('audio_noise_gate', function() {
-  var v = parseFloat(this.value);
-  document.getElementById('audio_noise_gate_val').textContent = v > 0 ? v.toFixed(3) : t('audio_off');
-}, function() {
-  setConfig('audio.noise_gate', parseFloat(this.value));
 });
 document.getElementById('audio_highpass_filter').addEventListener('change', function() {
   setConfig('audio.highpass_filter', this.checked);
@@ -2533,7 +2494,6 @@ function collectFormState() {
     audio: {
       input_device: document.getElementById('audio_input_device')?.value || null,
       gain: dbToGain(parseInt(document.getElementById('audio_gain_db')?.value || '6')),
-      noise_gate: parseFloat(document.getElementById('audio_noise_gate')?.value || '0'),
       highpass_filter: !!document.getElementById('audio_highpass_filter')?.checked,
       highpass_freq: parseInt(document.getElementById('audio_highpass_freq')?.value || '200'),
       soft_limiter: !!document.getElementById('audio_soft_limiter')?.checked,

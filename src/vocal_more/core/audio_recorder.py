@@ -41,7 +41,6 @@ class AudioRecorder:
         self._on_audio_level = on_audio_level
         self._device_name: Optional[str] = device if device is not None else config.audio.input_device
         self._gain: float = config.audio.gain
-        self._noise_gate: float = config.audio.noise_gate
         self._highpass_filter: bool = config.audio.highpass_filter
         self._soft_limiter: bool = config.audio.soft_limiter
 
@@ -49,11 +48,6 @@ class AudioRecorder:
         self._audio_buffer: list[bytes] = []
         self._is_recording = False
         self._lock = threading.Lock()
-
-        # Noise gate hold: keep gate open for N blocks after voice stops
-        # to bridge natural micro-pauses in speech (~300ms at 100ms/block)
-        self._gate_hold_blocks = 3
-        self._gate_hold_remaining = 0
 
         # High-pass filter state (1st-order IIR)
         # α = 1 / (1 + 2π·fc/fs)
@@ -84,27 +78,14 @@ class AudioRecorder:
         # 2. Compute RMS on filtered signal
         rms = float(np.sqrt(np.mean(filtered ** 2)))
 
-        # 3. Noise gate with hold time
-        if self._noise_gate > 0 and rms < self._noise_gate:
-            if self._gate_hold_remaining > 0:
-                self._gate_hold_remaining -= 1
-                gated = filtered
-            else:
-                gated = np.zeros_like(filtered)
-                rms = 0.0
-        else:
-            if self._noise_gate > 0:
-                self._gate_hold_remaining = self._gate_hold_blocks
-            gated = filtered
-
-        # 4. Gain + limiter
+        # 3. Gain + limiter
         if self._gain != 1.0:
             if self._soft_limiter:
-                processed = np.tanh(gated * self._gain)
+                processed = np.tanh(filtered * self._gain)
             else:
-                processed = np.clip(gated * self._gain, -1.0, 1.0)
+                processed = np.clip(filtered * self._gain, -1.0, 1.0)
         else:
-            processed = gated
+            processed = filtered
 
         # Convert float32 to int16 PCM
         audio_data = (processed * 32767).astype(np.int16).tobytes()
@@ -134,7 +115,6 @@ class AudioRecorder:
                 return
             self._audio_buffer = []
             self._is_recording = True
-            self._gate_hold_remaining = 0
             self._hp_prev_in = 0.0
             self._hp_prev_out = 0.0
 
@@ -222,10 +202,6 @@ class AudioRecorder:
     def set_gain(self, gain: float) -> None:
         """Update software gain for subsequent callbacks immediately."""
         self._gain = gain
-
-    def set_noise_gate(self, noise_gate: float) -> None:
-        """Update noise gate threshold for subsequent callbacks immediately."""
-        self._noise_gate = noise_gate
 
     def set_highpass_filter(self, enabled: bool) -> None:
         self._highpass_filter = enabled

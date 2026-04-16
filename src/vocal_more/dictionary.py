@@ -42,7 +42,11 @@ class Dictionary:
             self.entries = []
             return
 
-        with open(path) as f:
+        from .compatibility import run_compatibility_check_and_repair
+
+        run_compatibility_check_and_repair("dictionary")
+
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
 
         self.entries = []

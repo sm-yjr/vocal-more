@@ -214,6 +214,8 @@ class ASRDebugTrace:
     input_item_id: str = ""
     response_id: str = ""
     response_output_item_id: str = ""
+    service_request_id: str = ""
+    completion_id: str = ""
     server_event_ids: dict[str, str] = field(default_factory=dict)
     events: list[dict] = field(default_factory=list)
     partial_texts: list[str] = field(default_factory=list)
@@ -326,6 +328,55 @@ def _build_trace_timings(trace: ASRDebugTrace) -> dict[str, Optional[float]]:
     return timings
 
 
+def _set_trace_service_request_id(
+    trace: Optional[ASRDebugTrace],
+    request_id: object,
+) -> None:
+    if trace is None or request_id in (None, ""):
+        return
+    trace.service_request_id = str(request_id)
+
+
+def _update_trace_ids_from_openai_stream(
+    trace: Optional[ASRDebugTrace],
+    stream: object,
+) -> None:
+    """Extract server identifiers from an OpenAI-compatible streaming response."""
+    if trace is None:
+        return
+
+    request_id = getattr(stream, "request_id", None)
+    if request_id:
+        _set_trace_service_request_id(trace, request_id)
+        return
+
+    response = getattr(stream, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return
+
+    for header_name in ("x-request-id", "x-dashscope-request-id", "x-acs-request-id"):
+        header_value = headers.get(header_name)
+        if header_value:
+            _set_trace_service_request_id(trace, header_value)
+            return
+
+
+def _update_trace_ids_from_openai_chunk(
+    trace: Optional[ASRDebugTrace],
+    chunk: object,
+) -> None:
+    """Extract stable identifiers from an OpenAI-compatible stream chunk."""
+    if trace is None:
+        return
+
+    _set_trace_service_request_id(trace, getattr(chunk, "_request_id", None))
+
+    completion_id = getattr(chunk, "id", None)
+    if completion_id:
+        trace.completion_id = str(completion_id)
+
+
 def _finalize_trace(trace: ASRDebugTrace, result_source: str) -> None:
     trace.result_source = result_source
     trace.timings_ms = _build_trace_timings(trace)
@@ -346,6 +397,8 @@ def _print_trace_summary(trace: ASRDebugTrace) -> None:
     print(
         "[ASRIds] "
         f"mode={trace.request_mode} model={trace.model} "
+        f"service_request_id={trace.service_request_id or '-'} "
+        f"completion_id={trace.completion_id or '-'} "
         f"session_id={trace.session_id or '-'} "
         f"conversation_id={trace.conversation_id or '-'} "
         f"input_item_id={trace.input_item_id or '-'} "
@@ -359,8 +412,14 @@ def _print_trace_summary(trace: ASRDebugTrace) -> None:
 
 def _format_trace_ids(trace: Optional[ASRDebugTrace]) -> str:
     if trace is None:
-        return "session_id=- input_item_id=- response_id=- transcript_event_id=- response_created_event_id=- response_done_event_id=-"
+        return (
+            "service_request_id=- completion_id=- session_id=- input_item_id=- "
+            "response_id=- transcript_event_id=- response_created_event_id=- "
+            "response_done_event_id=-"
+        )
     return (
+        f"service_request_id={trace.service_request_id or '-'} "
+        f"completion_id={trace.completion_id or '-'} "
         f"session_id={trace.session_id or '-'} "
         f"input_item_id={trace.input_item_id or '-'} "
         f"response_id={trace.response_id or '-'} "
@@ -974,9 +1033,11 @@ class BatchASREngine:
                 stream=True,
                 stream_options={"include_usage": True},
             )
+            _update_trace_ids_from_openai_stream(trace, completion)
 
             result_text = ""
             for chunk in completion:
+                _update_trace_ids_from_openai_chunk(trace, chunk)
                 if chunk.choices:
                     delta = chunk.choices[0].delta
                     if delta and delta.content:

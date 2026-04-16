@@ -199,7 +199,6 @@ def test_apply_form_state_normalizes_nested_config():
             "audio": {
                 "input_device": "Built-in Mic",
                 "gain": 4.0,
-                "noise_gate": 0.12,
                 "highpass_filter": False,
                 "highpass_freq": 420,
                 "soft_limiter": False,
@@ -221,7 +220,6 @@ def test_apply_form_state_normalizes_nested_config():
     assert config.default_mode == "realtime_long"
     assert config.audio.input_device == "Built-in Mic"
     assert config.audio.gain == 4.0
-    assert config.audio.noise_gate == 0.12
     assert config.audio.highpass_filter is False
     assert config.audio.highpass_freq == 420
     assert config.audio.soft_limiter is False
@@ -230,6 +228,62 @@ def test_apply_form_state_normalizes_nested_config():
     assert config.asr.language == "en"
     assert config.hotkey.active_hotkeys == ["f13"]
     assert config.ui.language == "zh"
+
+
+def test_load_auto_cleans_legacy_noise_gate_field(tmp_path, monkeypatch):
+    """Old noise_gate config should disappear as soon as the config is loaded."""
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump(
+            {"audio": {"gain": 4.0, "noise_gate": 0.12, "highpass_freq": 320}},
+            f,
+        )
+
+    loaded = Config.load()
+    assert loaded.audio.gain == 4.0
+    assert loaded.audio.highpass_freq == 320
+    assert "noise_gate" not in loaded.to_dict()["audio"]
+
+    persisted = yaml.safe_load(config_path.read_text())
+    assert "noise_gate" not in persisted["audio"]
+
+
+def test_load_auto_cleans_unknown_and_normalized_fields(tmp_path, monkeypatch):
+    """Loading should normalize the config file in place and drop stale keys."""
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(
+            {
+                "legacy_mode": True,
+                "audio": {"gain": 4.0, "noise_gate": 0.15},
+                "asr": {"model": "qwen3.5-omni-plus", "backend": "realtime_ws"},
+                "hotkey": {"active_hotkeys": ["printscreen", "bogus"]},
+            },
+            f,
+            allow_unicode=True,
+        )
+
+    loaded = Config.load()
+    persisted = yaml.safe_load(config_path.read_text())
+
+    assert loaded.asr.backend == "omni_offline"
+    assert loaded.hotkey.active_hotkeys == ["f13"]
+    assert "legacy_mode" not in persisted
+    assert "noise_gate" not in persisted["audio"]
+    assert persisted["asr"]["backend"] == "omni_offline"
+    assert persisted["hotkey"]["active_hotkeys"] == ["f13"]
+    assert persisted["api_key"] == ""
 
 
 def test_asr_language_mixed_aliases_normalize_to_auto():

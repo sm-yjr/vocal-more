@@ -858,6 +858,66 @@ def test_batch_debug_trace_writes_stage_timings(tmp_path, monkeypatch):
     assert trace["timings_ms"]["total_result_ms"] == trace["timings_ms"]["result_selected_ms"]
 
 
+def test_omni_offline_trace_records_service_request_id(tmp_path, monkeypatch):
+    """Omni offline traces should include the provider request ID and completion ID."""
+    from vocal_more.config import Config, reload_config
+    import openai
+
+    asr_engine = importlib.import_module("vocal_more.core.asr_engine")
+
+    config_path = tmp_path / "config.yaml"
+    debug_dir = tmp_path / "debug"
+    monkeypatch.setenv("VOCAL_MORE_DEBUG_DIR", str(debug_dir))
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump(
+            {
+                "enable_polish": False,
+                "asr": {"model": "qwen3.5-omni-plus", "backend": "omni_offline"},
+            },
+            f,
+        )
+
+    reload_config()
+
+    class FakeStream:
+        def __init__(self):
+            self.response = SimpleNamespace(headers={"x-request-id": "req-omni-123"})
+
+        def __iter__(self):
+            yield SimpleNamespace(
+                id="chatcmpl-abc",
+                choices=[SimpleNamespace(delta=SimpleNamespace(content="你好"))],
+            )
+            yield SimpleNamespace(
+                id="chatcmpl-abc",
+                choices=[SimpleNamespace(delta=SimpleNamespace(content="，世界"))],
+            )
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            return FakeStream()
+
+    class FakeOpenAI:
+        def __init__(self, *args, **kwargs):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr(openai, "OpenAI", FakeOpenAI)
+
+    engine = asr_engine.BatchASREngine()
+    assert engine._transcribe_omni_offline(b"\x01\x00" * 4000) == "你好，世界"
+
+    json_files = sorted(debug_dir.glob("*.json"))
+    trace = json.loads(json_files[0].read_text())
+
+    assert trace["backend"] == "omni_offline"
+    assert trace["service_request_id"] == "req-omni-123"
+    assert trace["completion_id"] == "chatcmpl-abc"
+    assert trace["result_text"] == "你好，世界"
+
+
 def test_batch_omni_falls_back_to_offline_model_when_response_never_starts(
     tmp_path, monkeypatch
 ):

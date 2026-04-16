@@ -76,7 +76,6 @@ def test_settings_form_sync_updates_all_audio_processing_controls(
             "audio": {
                 "input_device": "USB Mic",
                 "gain": 5.0,
-                "noise_gate": 0.2,
                 "highpass_filter": False,
                 "highpass_freq": 410,
                 "soft_limiter": False,
@@ -89,7 +88,6 @@ def test_settings_form_sync_updates_all_audio_processing_controls(
 
     assert app.config.audio.input_device == "USB Mic"
     assert app.config.audio.gain == 5.0
-    assert app.config.audio.noise_gate == 0.2
     assert app.config.audio.highpass_filter is False
     assert app.config.audio.highpass_freq == 410
     assert app.config.audio.soft_limiter is False
@@ -98,7 +96,6 @@ def test_settings_form_sync_updates_all_audio_processing_controls(
     for recorder in (recorder_one, recorder_two):
         recorder.set_device.assert_called_with("USB Mic")
         recorder.set_gain.assert_called_with(5.0)
-        recorder.set_noise_gate.assert_called_with(0.2)
         recorder.set_highpass_filter.assert_called_with(False)
         recorder.set_highpass_freq.assert_called_with(410)
         recorder.set_soft_limiter.assert_called_with(False)

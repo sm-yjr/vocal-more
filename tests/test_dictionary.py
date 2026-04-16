@@ -101,7 +101,7 @@ def test_add_entry_normalizes_html_alias_payloads(tmp_path, monkeypatch):
 
 
 def test_load_sanitizes_malformed_aliases_without_crashing(tmp_path, monkeypatch):
-    """Malformed dictionary alias formats should load safely and still normalize."""
+    """Malformed dictionary alias formats should load safely and auto-rewrite."""
     from vocal_more.config import Config
     from vocal_more.dictionary import Dictionary
 
@@ -123,9 +123,16 @@ def test_load_sanitizes_malformed_aliases_without_crashing(tmp_path, monkeypatch
         )
 
     dictionary = Dictionary()
+    persisted = yaml.safe_load(dict_path.read_text(encoding="utf-8"))
 
     assert [(entry.term, entry.aliases) for entry in dictionary.entries] == [
         ("Vocal More", ["vocal mall", "VM"]),
         ("Claude", ["可劳德", "1"]),
     ]
     assert dictionary.normalize_terms("我在用 vocal mall 和 VM") == "我在用 Vocal More 和 Vocal More"
+    assert persisted == {
+        "entries": [
+            {"term": "Vocal More", "aliases": ["vocal mall", "VM"]},
+            {"term": "Claude", "aliases": ["可劳德", "1"]},
+        ]
+    }
