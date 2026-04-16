@@ -1176,7 +1176,7 @@ const UI_TRANSLATIONS = {
 };
 
 function currentLanguage() {
-  return (_config.ui && _config.ui.language) || 'en';
+  return (_config.ui && _config.ui.language) || 'zh';
 }
 
 function t(key) {
@@ -1466,8 +1466,8 @@ function loadDictionary(entries) {
 
 function renderGeneral() {
   document.getElementById('api_key').value = _config.api_key || '';
-  document.getElementById('default_mode').value = _config.default_mode || 'walkie_talkie';
-  document.getElementById('ui_language').value = (_config.ui && _config.ui.language) || 'en';
+  document.getElementById('default_mode').value = _config.default_mode || 'realtime_long';
+  document.getElementById('ui_language').value = (_config.ui && _config.ui.language) || 'zh';
   document.getElementById('auto_paste').checked = _config.auto_paste !== false;
   document.getElementById('app_version').textContent = _config._version || '—';
 }
@@ -1548,7 +1548,7 @@ function renderRecognition() {
   // Update backend display
   updateAsrBackendDisplay(asr.model);
   // Language
-  document.getElementById('asr_language').value = asr.language || 'zh';
+  document.getElementById('asr_language').value = asr.language || 'auto';
 }
 
 function updateAsrBackendDisplay(modelId) {
@@ -1645,7 +1645,7 @@ function toggleLlmControls(enabled) {
 
 function renderShortcuts() {
   const hotkey = _config.hotkey || {};
-  const active = hotkey.active_hotkeys || ['fn', 'double_cmd'];
+  const active = hotkey.active_hotkeys || ['fn'];
 
   const labels = {
     fn: t('shortcut_hotkey_fn'),
@@ -2191,11 +2191,11 @@ function collectFormState() {
 
   return {
     api_key: document.getElementById('api_key')?.value || '',
-    default_mode: document.getElementById('default_mode')?.value || 'walkie_talkie',
+    default_mode: document.getElementById('default_mode')?.value || 'realtime_long',
     auto_paste: !!document.getElementById('auto_paste')?.checked,
     enable_polish: !!document.getElementById('enable_polish')?.checked,
     ui: {
-      language: document.getElementById('ui_language')?.value || 'en',
+      language: document.getElementById('ui_language')?.value || 'zh',
     },
     audio: {
       input_device: document.getElementById('audio_input_device')?.value || null,
@@ -2208,7 +2208,7 @@ function collectFormState() {
     asr: {
       model: selectedAsrModel,
       backend: asrModelInfo ? asrModelInfo.transport : (_config.asr?.backend || 'realtime_ws'),
-      language: document.getElementById('asr_language')?.value || 'zh',
+      language: document.getElementById('asr_language')?.value || 'auto',
     },
     llm: {
       model: document.getElementById('llm_model')?.value || 'qwen3.5-plus',

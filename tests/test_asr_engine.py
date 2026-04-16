@@ -24,6 +24,7 @@ def test_realtime_ws_batch_uses_manual_commit_and_corpus(tmp_path, monkeypatch):
             {
                 "asr": {
                     "backend": "realtime_ws",
+                    "model": "qwen3-asr-flash-realtime-2026-02-10",
                     "language": "zh",
                     "use_dictionary_corpus": True,
                     "extra_corpus_terms": ["DashScope"],
@@ -246,7 +247,16 @@ def test_realtime_ws_batch_omits_language_for_mixed_mode(tmp_path, monkeypatch):
     monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
 
     with open(config_path, "w") as f:
-        yaml.dump({"asr": {"backend": "realtime_ws", "language": "auto"}}, f)
+        yaml.dump(
+            {
+                "asr": {
+                    "backend": "realtime_ws",
+                    "model": "qwen3-asr-flash-realtime-2026-02-10",
+                    "language": "auto",
+                }
+            },
+            f,
+        )
 
     reload_config()
 
@@ -380,8 +390,8 @@ def test_omni_realtime_uses_transcription_model(tmp_path, monkeypatch):
     assert text == "你好世界"
 
 
-def test_standard_asr_still_uses_transcription_params(tmp_path, monkeypatch):
-    """Default ASR model should use transcription_params, not input_audio_transcription_model."""
+def test_legacy_realtime_asr_uses_transcription_params(tmp_path, monkeypatch):
+    """Legacy realtime ASR should use transcription_params, not Omni transcription hints."""
     from vocal_more.config import Config, reload_config
     import vocal_more.core.asr_engine as asr_engine
 
@@ -392,7 +402,15 @@ def test_standard_asr_still_uses_transcription_params(tmp_path, monkeypatch):
     monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
 
     with open(config_path, "w") as f:
-        yaml.dump({"asr": {"language": "zh"}}, f)
+        yaml.dump(
+            {
+                "asr": {
+                    "model": "qwen3-asr-flash-realtime-2026-02-10",
+                    "language": "zh",
+                }
+            },
+            f,
+        )
 
     with open(dict_path, "w") as f:
         yaml.dump({"entries": []}, f)
@@ -639,6 +657,14 @@ def test_omni_inline_polish_falls_back_to_transcript_when_response_incomplete(
         "wait_for_response_complete",
         lambda self, timeout=30.0: False,
     )
+    monkeypatch.setattr(
+        asr_engine.BatchASREngine,
+        "_recover_failed_omni_response",
+        lambda self, audio_data, model, transcript_text, reason: (
+            transcript_text,
+            "transcript",
+        ),
+    )
 
     engine = asr_engine.BatchASREngine()
     text = engine.transcribe(b"\x01\x00" * 4000)
@@ -783,6 +809,90 @@ def test_batch_debug_trace_writes_stage_timings(tmp_path, monkeypatch):
     assert trace["timings_ms"]["total_result_ms"] == trace["timings_ms"]["result_selected_ms"]
 
 
+def test_batch_omni_falls_back_to_offline_model_when_response_never_starts(
+    tmp_path, monkeypatch
+):
+    """Batch Omni should use the offline sibling model when realtime response stalls."""
+    from vocal_more.config import Config, reload_config
+    asr_engine = importlib.import_module("vocal_more.core.asr_engine")
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump(
+            {
+                "enable_polish": True,
+                "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
+                "llm": {"polish_mode": "always"},
+            },
+            f,
+        )
+
+    reload_config()
+
+    captured = {}
+
+    class FakeConversation:
+        def __init__(self, model, url, callback):
+            captured["callback"] = callback
+
+        def connect(self):
+            return None
+
+        def update_session(self, **kwargs):
+            captured["callback"].on_event({"type": "session.updated"})
+
+        def append_audio(self, _audio):
+            return None
+
+        def commit(self):
+            captured["callback"].on_event(
+                {
+                    "type": "conversation.item.input_audio_transcription.completed",
+                    "transcript": "这个方案已经确认了",
+                }
+            )
+
+        def create_response(self, instructions=None, output_modalities=None):
+            captured["create_response_called"] = True
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
+    monkeypatch.setattr(
+        asr_engine.BatchASRCallback,
+        "wait_for_response_started",
+        lambda self, timeout=30.0: False,
+    )
+
+    offline_calls = []
+
+    original_transcribe = asr_engine.BatchASREngine.transcribe
+
+    def fake_transcribe(self, audio_data, model_override=None, language_override=None):
+        if model_override == "qwen3.5-omni-plus":
+            offline_calls.append(model_override)
+            return "离线兜底结果"
+        return original_transcribe(
+            self,
+            audio_data,
+            model_override=model_override,
+            language_override=language_override,
+        )
+
+    monkeypatch.setattr(asr_engine.BatchASREngine, "transcribe", fake_transcribe)
+
+    engine = asr_engine.BatchASREngine()
+    text = engine.transcribe(b"\x01\x00" * 4000)
+
+    assert captured["create_response_called"] is True
+    assert offline_calls == ["qwen3.5-omni-plus"]
+    assert text == "离线兜底结果"
+
+
 def test_streaming_omni_inline_polish_returns_response_text(tmp_path, monkeypatch):
     """The streaming ASR path should return Omni's final polished response text."""
     from vocal_more.config import Config, reload_config
@@ -879,6 +989,197 @@ def test_streaming_omni_inline_polish_returns_response_text(tmp_path, monkeypatc
     timers[-1].fire()
     assert captured["closed"] is True
     assert text == "这个方案已经确认了，可以开始执行。"
+
+
+def test_streaming_debug_trace_records_full_realtime_protocol(tmp_path, monkeypatch):
+    """Streaming traces should include commit/response lifecycle events from the server."""
+    from vocal_more.config import Config, reload_config
+    asr_engine = importlib.import_module("vocal_more.core.asr_engine")
+
+    config_path = tmp_path / "config.yaml"
+    debug_dir = tmp_path / "debug"
+    monkeypatch.setenv("VOCAL_MORE_DEBUG_DIR", str(debug_dir))
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump(
+            {
+                "enable_polish": True,
+                "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
+                "llm": {"polish_mode": "always"},
+            },
+            f,
+        )
+
+    reload_config()
+
+    class ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+    class FakeTimer:
+        def __init__(self, interval, callback):
+            self.callback = callback
+            self.daemon = False
+
+        def start(self):
+            return None
+
+        def cancel(self):
+            return None
+
+    class FakeConversation:
+        def __init__(self, model, url, callback):
+            self.callback = callback
+
+        def connect(self):
+            self.callback.on_open()
+            self.callback.on_event({"type": "session.created"})
+
+        def update_session(self, **kwargs):
+            self.callback.on_event({"type": "session.updated"})
+
+        def append_audio(self, _audio):
+            return None
+
+        def commit(self):
+            self.callback.on_event({"type": "input_audio_buffer.committed"})
+            self.callback.on_event({"type": "conversation.item.created"})
+            self.callback.on_event(
+                {
+                    "type": "conversation.item.input_audio_transcription.completed",
+                    "transcript": "这个方案已经确认了",
+                }
+            )
+
+        def create_response(self, instructions=None, output_modalities=None):
+            self.callback.on_event({"type": "response.created"})
+            self.callback.on_event({"type": "response.output_item.added"})
+            self.callback.on_event({"type": "response.text.delta", "delta": "这个方案已经确认了。"})
+            self.callback.on_event({"type": "response.text.done"})
+            self.callback.on_event({"type": "response.done"})
+
+        def close(self):
+            self.callback.on_close(1000, "closed")
+
+    monkeypatch.setattr(asr_engine.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(asr_engine.threading, "Timer", FakeTimer)
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
+
+    engine = asr_engine.ASREngine()
+    engine.start()
+    engine.send_audio(b"\x01\x00" * 1600)
+    assert engine.stop(pcm_data=b"\x01\x00" * 4000) == "这个方案已经确认了。"
+
+    json_files = sorted(debug_dir.glob("*.json"))
+    trace = json.loads(json_files[0].read_text())
+    event_types = [event["type"] for event in trace["events"]]
+
+    assert "session.created" in event_types
+    assert "input_audio_buffer.committed" in event_types
+    assert "conversation.item.created" in event_types
+    assert "response.created" in event_types
+    assert "response.output_item.added" in event_types
+    assert "response.text.done" in event_types
+    assert "response.done" in event_types
+
+
+def test_streaming_omni_falls_back_to_offline_model_when_response_never_starts(
+    tmp_path, monkeypatch
+):
+    """Streaming Omni should use the offline sibling model if the response never starts."""
+    from vocal_more.config import Config, reload_config
+    asr_engine = importlib.import_module("vocal_more.core.asr_engine")
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump(
+            {
+                "enable_polish": True,
+                "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
+                "llm": {"polish_mode": "always"},
+            },
+            f,
+        )
+
+    reload_config()
+
+    class ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+    class FakeTimer:
+        def __init__(self, interval, callback):
+            self.callback = callback
+            self.daemon = False
+
+        def start(self):
+            return None
+
+        def cancel(self):
+            return None
+
+    class FakeConversation:
+        def __init__(self, model, url, callback):
+            self.callback = callback
+
+        def connect(self):
+            return None
+
+        def update_session(self, **kwargs):
+            self.callback.on_event({"type": "session.updated"})
+
+        def append_audio(self, _audio):
+            return None
+
+        def commit(self):
+            self.callback.on_event(
+                {
+                    "type": "conversation.item.input_audio_transcription.completed",
+                    "transcript": "这个方案已经确认了",
+                }
+            )
+
+        def create_response(self, instructions=None, output_modalities=None):
+            return None
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(asr_engine.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(asr_engine.threading, "Timer", FakeTimer)
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
+    monkeypatch.setattr(
+        asr_engine.StreamingASRCallback,
+        "wait_for_response_started",
+        lambda self, timeout=30.0: False,
+    )
+
+    engine = asr_engine.ASREngine()
+    offline_calls = []
+
+    def fake_transcribe(audio_data, model_override=None, language_override=None):
+        offline_calls.append(model_override)
+        return "离线兜底结果"
+
+    engine._batch_fallback.transcribe = fake_transcribe
+
+    engine.start()
+    engine.send_audio(b"\x01\x00" * 1600)
+    text = engine.stop(pcm_data=b"\x01\x00" * 4000)
+
+    assert offline_calls == ["qwen3.5-omni-plus"]
+    assert text == "离线兜底结果"
 
 
 def test_streaming_engine_reuses_warm_omni_session_within_ttl(tmp_path, monkeypatch):
@@ -980,6 +1281,94 @@ def test_streaming_engine_reuses_warm_omni_session_within_ttl(tmp_path, monkeypa
 
     timers[-1].fire()
     assert captured["closed"] == 1
+
+
+def test_streaming_engine_reconnects_instead_of_reusing_stale_warm_socket(
+    tmp_path, monkeypatch
+):
+    """Warm reuse should be skipped when the cached socket is no longer connected."""
+    from vocal_more.config import Config, reload_config
+    asr_engine = importlib.import_module("vocal_more.core.asr_engine")
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump(
+            {
+                "enable_polish": False,
+                "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
+            },
+            f,
+        )
+
+    reload_config()
+
+    timers = []
+    captured = {"instances": 0}
+
+    class ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+    class FakeTimer:
+        def __init__(self, interval, callback):
+            self.callback = callback
+            self.daemon = False
+            timers.append(self)
+
+        def start(self):
+            return None
+
+        def cancel(self):
+            return None
+
+    class FakeConversation:
+        def __init__(self, model, url, callback):
+            captured["instances"] += 1
+            self.callback = callback
+            self.ws = SimpleNamespace(sock=SimpleNamespace(connected=True))
+
+        def connect(self):
+            return None
+
+        def update_session(self, **kwargs):
+            self.callback.on_event({"type": "session.updated"})
+
+        def append_audio(self, _audio):
+            return None
+
+        def commit(self):
+            self.callback.on_event(
+                {
+                    "type": "conversation.item.input_audio_transcription.completed",
+                    "transcript": "收到",
+                }
+            )
+
+        def close(self):
+            self.ws.sock.connected = False
+
+    monkeypatch.setattr(asr_engine.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(asr_engine.threading, "Timer", FakeTimer)
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
+
+    engine = asr_engine.ASREngine()
+    engine.start()
+    engine.send_audio(b"\x01\x00" * 1600)
+    assert engine.stop(pcm_data=b"\x01\x00" * 4000) == "收到"
+
+    engine._conversation.ws.sock.connected = False
+
+    engine.start()
+    engine.send_audio(b"\x01\x00" * 1600)
+    assert engine.stop(pcm_data=b"\x01\x00" * 4000) == "收到"
+
+    assert captured["instances"] == 2
 
 
 def test_streaming_debug_trace_marks_warm_reuse(tmp_path, monkeypatch):
@@ -1133,6 +1522,14 @@ def test_omni_inline_polish_falls_back_to_transcript_when_socket_closes_early(
             return None
 
     monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
+    monkeypatch.setattr(
+        asr_engine.BatchASREngine,
+        "_recover_failed_omni_response",
+        lambda self, audio_data, model, transcript_text, reason: (
+            transcript_text,
+            "transcript",
+        ),
+    )
 
     engine = asr_engine.BatchASREngine()
     text = engine.transcribe(b"\x01\x00" * 4000)

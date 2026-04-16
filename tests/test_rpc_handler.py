@@ -48,7 +48,7 @@ def test_dispatch_initialize(handler):
     result = handler.dispatch("initialize", {})
     assert "version" in result
     assert result["state"] == "idle"
-    assert result["current_mode"] == "walkie_talkie"
+    assert result["current_mode"] == "realtime_long"
     assert "config" in result
     assert "audio" in result["config"]
 
@@ -160,12 +160,13 @@ def test_dispatch_set_mode_invalid(handler):
 
 
 def test_dispatch_hotkey_pressed_released(handler):
+    handler.dispatch("set_mode", {"mode": "walkie_talkie"})
     handler.dispatch("hotkey_pressed", {})
-    # After pressing in walkie_talkie mode, state changes to recording
+    # In walkie_talkie mode, pressing starts recording.
     assert handler._notifications[-1] == ("state_changed", {"state": "recording"})
 
     handler.dispatch("hotkey_released", {})
-    # After releasing with too little data, state changes to idle
+    # Releasing with too little data returns to idle.
     assert handler._notifications[-1] == ("state_changed", {"state": "idle"})
 
 
@@ -221,7 +222,7 @@ def test_to_dict_added_to_config(handler):
     d = handler.config.to_dict()
     assert isinstance(d, dict)
     assert d["audio"]["sample_rate"] == 16000
-    assert d["default_mode"] == "walkie_talkie"
+    assert d["default_mode"] == "realtime_long"
 
 
 def test_set_asr_model_syncs_backend(handler):
@@ -244,9 +245,9 @@ def test_set_asr_model_syncs_backend(handler):
     assert handler.config.asr.model == "qwen3.5-omni-plus"
     assert handler.config.asr.backend == "omni_offline"
 
-    # Switch back to default realtime model
-    handler.dispatch("set_config", {"key": "asr.model", "value": "qwen3-asr-flash-realtime-2026-02-10"})
-    assert handler.config.asr.model == "qwen3-asr-flash-realtime-2026-02-10"
+    # Switch back to the default realtime model
+    handler.dispatch("set_config", {"key": "asr.model", "value": "qwen3.5-omni-flash-realtime"})
+    assert handler.config.asr.model == "qwen3.5-omni-flash-realtime"
     assert handler.config.asr.backend == "realtime_ws"
 
 

@@ -41,9 +41,9 @@ api_key: "your-api-key"
 enable_polish: true
 auto_paste: true
 asr:
-  model: "qwen3-asr-flash-realtime-2026-02-10"  # see Models section
+  model: "qwen3.5-omni-flash-realtime"  # see Models section
   # backend is auto-derived from the selected model
-  language: "zh"
+  language: "auto"
   use_dictionary_corpus: true
   extra_corpus_terms:
     - "Vocal More"
@@ -52,11 +52,14 @@ llm:
   model: "qwen3.5-plus"  # or "qwen3.6-plus"
   enable_thinking: false
   temperature: 0.0
-  max_tokens: 256
+  max_tokens: 1024
   polish_mode: "smart"  # "smart" or "always"
 hotkey:
   active_hotkeys: ["fn"]
   custom_key: ""  # record a custom key in Settings > Shortcuts
+ui:
+  language: "zh"
+default_mode: "realtime_long"
 ```
 
 ## Models
@@ -66,7 +69,8 @@ hotkey:
 - **Qwen 3.6 Plus** (`qwen3.6-plus`)
 
 ### Speech Recognition (ASR)
-- **Qwen-3-ASR Realtime** (`qwen3-asr-flash-realtime-2026-02-10`) — Default, real-time streaming
+- **Qwen-3.5 Omni Flash Realtime** (`qwen3.5-omni-flash-realtime`) — Default, low-latency streaming with inline polish
+- **Qwen-3-ASR Realtime** (`qwen3-asr-flash-realtime-2026-02-10`) — Legacy real-time streaming
 - **Qwen-3-ASR Short File** (`qwen3-asr-flash`) — For short recordings
 - **Qwen-3.5 Omni Realtime** (`qwen3.5-omni-plus-realtime`) — Preview, text transcription only
 
@@ -82,11 +86,11 @@ The app will appear in your menu bar. Grant the required permissions:
 
 ## Modes
 
-### Walkie-Talkie Mode (Default)
+### Walkie-Talkie Mode
 - Hold trigger key to record
 - Release to transcribe and paste
 
-### Real-time Long Mode
+### Real-time Long Mode (Default)
 - Press trigger key once to start recording (real-time transcription appears as you speak)
 - Press trigger key again to stop and polish the text
 

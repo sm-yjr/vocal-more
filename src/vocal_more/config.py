@@ -91,7 +91,7 @@ ASR_MODEL_CATALOG = [
 _LLM_MODEL_IDS = {m["id"] for m in LLM_MODEL_CATALOG}
 _ASR_MODEL_IDS = {m["id"] for m in ASR_MODEL_CATALOG if "id" in m}
 _DEFAULT_ASR_MODEL_BY_BACKEND = {
-    "realtime_ws": "qwen3-asr-flash-realtime-2026-02-10",
+    "realtime_ws": "qwen3.5-omni-flash-realtime",
     "short_file": "qwen3-asr-flash",
     "omni_offline": "qwen3.5-omni-plus",
 }
@@ -139,8 +139,8 @@ class ASRConfig:
     """ASR configuration."""
 
     backend: ASRBackend = "realtime_ws"
-    model: str = "qwen3-asr-flash-realtime-2026-02-10"
-    language: ASRLanguage = "zh"
+    model: str = "qwen3.5-omni-flash-realtime"
+    language: ASRLanguage = "auto"
     batch_mode: Literal["manual"] = "manual"
     use_dictionary_corpus: bool = True
     extra_corpus_terms: list[str] = field(default_factory=list)
@@ -153,7 +153,7 @@ class LLMConfig:
     model: str = "qwen3.5-plus"
     temperature: float = 0.0
     enable_thinking: bool = False
-    max_tokens: int = 65536
+    max_tokens: int = 1024
     polish_mode: Literal["smart", "always"] = "smart"
     level: Literal["minimal", "balanced", "strong"] = "minimal"
     structured: bool = False
@@ -170,7 +170,7 @@ class HotkeyConfig:
     primary_key: str = "fn"  # keyCode 63
     fallback_key: str = "double_cmd"
     double_tap_threshold: float = 0.3  # seconds
-    active_hotkeys: list[str] = field(default_factory=lambda: ["fn", "double_cmd"])
+    active_hotkeys: list[str] = field(default_factory=lambda: ["fn"])
     custom_key: Optional[dict] = None  # {"key_code": int, "display_name": str, "is_modifier": bool, "flag_mask": int}
 
 
@@ -178,7 +178,7 @@ class HotkeyConfig:
 class UIConfig:
     """UI configuration."""
 
-    language: UILanguage = "en"
+    language: UILanguage = "zh"
 
 
 _CUSTOM_KEY_REQUIRED_FIELDS = {"key_code", "display_name", "is_modifier", "flag_mask"}
@@ -215,7 +215,7 @@ def _parse_hotkeys(raw: list) -> list[str]:
         if canonical in VALID_HOTKEYS and canonical not in seen:
             seen.add(canonical)
             result.append(canonical)
-    return result or ["fn", "double_cmd"]
+    return result or ["fn"]
 
 
 def _parse_asr_backend(raw: str) -> ASRBackend:
@@ -232,14 +232,14 @@ def _parse_batch_mode(raw: str) -> Literal["manual"]:
 
 def _parse_asr_language(raw: object) -> ASRLanguage:
     if not isinstance(raw, str):
-        return "zh"
+        return "auto"
 
     normalized = raw.strip().lower()
     if normalized in ("zh", "en", "auto"):
         return normalized
     if normalized in ("mixed", "mix", "zh_en", "zh-en", "bilingual"):
         return "auto"
-    return "zh"
+    return "auto"
 
 
 def _parse_polish_mode(raw: str) -> Literal["smart", "always"]:
@@ -259,13 +259,13 @@ def _parse_llm_model(raw: str) -> str:
 def _parse_asr_model(raw: str) -> str:
     if raw and raw in _ASR_MODEL_IDS:
         return raw
-    return "qwen3-asr-flash-realtime-2026-02-10"
+    return "qwen3.5-omni-flash-realtime"
 
 
 def _default_asr_model_for_backend(backend: ASRBackend) -> str:
     return _DEFAULT_ASR_MODEL_BY_BACKEND.get(
         backend,
-        "qwen3-asr-flash-realtime-2026-02-10",
+        "qwen3.5-omni-flash-realtime",
     )
 
 
@@ -294,7 +294,7 @@ def _parse_persona(
 def _parse_default_mode(raw: object) -> str:
     if isinstance(raw, str) and raw in VALID_DEFAULT_MODES:
         return raw
-    return "walkie_talkie"
+    return "realtime_long"
 
 
 def _parse_extra_corpus_terms(raw: object) -> list[str]:
@@ -319,7 +319,7 @@ class Config:
     ui: UIConfig = field(default_factory=UIConfig)
     enable_polish: bool = True
     auto_paste: bool = True
-    default_mode: str = "walkie_talkie"  # "walkie_talkie" or "realtime_long"
+    default_mode: str = "realtime_long"  # "walkie_talkie" or "realtime_long"
 
     @classmethod
     def get_config_dir(cls) -> Path:

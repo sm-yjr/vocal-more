@@ -26,20 +26,20 @@ def test_config_load(tmp_path, monkeypatch):
     assert config.audio.blocksize == 1600
     assert config.audio.input_device is None
     assert config.asr.backend == "realtime_ws"
-    assert config.asr.model == "qwen3-asr-flash-realtime-2026-02-10"
-    assert config.asr.language == "zh"
+    assert config.asr.model == "qwen3.5-omni-flash-realtime"
+    assert config.asr.language == "auto"
     assert config.asr.batch_mode == "manual"
     assert config.asr.use_dictionary_corpus is True
     assert config.asr.extra_corpus_terms == []
     assert config.llm.model == "qwen3.5-plus"
     assert config.llm.temperature == 0.0
     assert config.llm.enable_thinking is False
-    assert config.llm.max_tokens == 65536
+    assert config.llm.max_tokens == 1024
     assert config.llm.polish_mode == "smart"
     assert config.hotkey.primary_key == "fn"
-    assert config.hotkey.active_hotkeys == ["fn", "double_cmd"]
-    assert config.ui.language == "en"
-    assert config.default_mode == "walkie_talkie"
+    assert config.hotkey.active_hotkeys == ["fn"]
+    assert config.ui.language == "zh"
+    assert config.default_mode == "realtime_long"
 
 
 def test_config_get_config_dir():
@@ -87,16 +87,16 @@ def test_config_new_fields_defaults():
     config = Config()
     assert config.audio.input_device is None
     assert config.asr.backend == "realtime_ws"
-    assert config.asr.language == "zh"
+    assert config.asr.language == "auto"
     assert config.asr.batch_mode == "manual"
     assert config.asr.use_dictionary_corpus is True
     assert config.asr.extra_corpus_terms == []
     assert config.llm.enable_thinking is False
-    assert config.llm.max_tokens == 65536
+    assert config.llm.max_tokens == 1024
     assert config.llm.polish_mode == "smart"
     assert config.llm.structured is False
-    assert config.hotkey.active_hotkeys == ["fn", "double_cmd"]
-    assert config.ui.language == "en"
+    assert config.hotkey.active_hotkeys == ["fn"]
+    assert config.ui.language == "zh"
 
 
 def test_config_new_fields_roundtrip(tmp_path, monkeypatch):
@@ -311,7 +311,7 @@ def test_config_active_hotkeys_empty_fallback(tmp_path, monkeypatch):
         yaml.dump(data, f)
 
     loaded = Config.load()
-    assert loaded.hotkey.active_hotkeys == ["fn", "double_cmd"]
+    assert loaded.hotkey.active_hotkeys == ["fn"]
 
 
 def test_config_hotkey_alias_normalization(tmp_path, monkeypatch):
@@ -382,8 +382,8 @@ def test_parse_asr_model_unknown_falls_back():
     """Test _parse_asr_model falls back to default for unknown IDs."""
     from vocal_more.config import _parse_asr_model
 
-    assert _parse_asr_model("bogus") == "qwen3-asr-flash-realtime-2026-02-10"
-    assert _parse_asr_model("") == "qwen3-asr-flash-realtime-2026-02-10"
+    assert _parse_asr_model("bogus") == "qwen3.5-omni-flash-realtime"
+    assert _parse_asr_model("") == "qwen3.5-omni-flash-realtime"
 
 
 def test_get_llm_model_info():

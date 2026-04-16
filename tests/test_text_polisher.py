@@ -153,7 +153,7 @@ def test_polish_non_catalog_model_uses_generation_api(tmp_path, monkeypatch):
 
     assert captured["model"] == "qwen-legacy"
     assert captured["temperature"] == 0.0
-    assert captured["max_tokens"] == 65536
+    assert captured["max_tokens"] == 1024
     assert captured["enable_thinking"] is False
     assert result.polished_text == "整理后的文本。"
 
@@ -202,7 +202,7 @@ def test_qwen36_plus_routes_to_multimodal_api(tmp_path, monkeypatch):
     assert captured["model"] == "qwen3.6-plus"
     assert captured["enable_thinking"] is False
     assert captured["temperature"] == 0.0
-    assert captured["max_tokens"] == 65536
+    assert captured["max_tokens"] == 1024
     assert result.polished_text == "整理后的文本。"
     assert result.used_llm is True
 

@@ -124,6 +124,7 @@ def test_build_menu_adds_quick_settings_and_marks_current_config(
 
     app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
     app.config = Config()
+    app.config.apply_update("ui.language", "en")
     app.config.apply_update("asr.model", "qwen3.5-omni-plus")
     app.config.apply_update("enable_polish", False)
     app.config.apply_update("llm.level", "strong")
@@ -136,11 +137,11 @@ def test_build_menu_adds_quick_settings_and_marks_current_config(
     app._build_menu()
 
     assert [item.title for item in app.menu if item][2] == "Quick Settings"
-    assert app._quick_mode_item.title == "Recording Mode: Walkie-Talkie (Hold)"
+    assert app._quick_mode_item.title == "Recording Mode: Real-time Long (Toggle)"
     assert app._quick_asr_model_item.title == "ASR Model: Pro"
     assert app._quick_enable_polish_item.state == 0
     assert app._quick_polish_level_item.title == "Polish Strength: Strong"
-    assert app._mode_menu_items["walkie_talkie"].state == 1
+    assert app._mode_menu_items["realtime_long"].state == 1
     assert app._asr_model_menu_items["qwen3.5-omni-plus"].state == 1
     assert app._polish_level_menu_items["strong"].state == 1
 
@@ -161,6 +162,8 @@ def test_quick_settings_actions_update_config_and_menu_state(
 
     app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
     app.config = Config()
+    app.config.apply_update("ui.language", "en")
+    app.config.apply_update("default_mode", "walkie_talkie")
     app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.IDLE)
     app._realtime_long = SimpleNamespace(state=app_module.ModeState.IDLE)
     app._current_mode = app._walkie_talkie
@@ -210,7 +213,7 @@ def test_build_menu_localizes_titles_when_ui_language_is_chinese(
 
     assert [item.title for item in app.menu if item][2] == "快捷设置"
     assert app._state_item.title == "状态：空闲"
-    assert app._quick_mode_item.title == "录音模式：对讲模式（按住）"
+    assert app._quick_mode_item.title == "录音模式：实时长录（切换）"
     assert app._quick_enable_polish_item.title == "启用润色"
     assert app._settings_menu_item.title == "设置..."
     assert app._quit_menu_item.title == "退出 Vocal-More"

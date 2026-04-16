@@ -75,3 +75,57 @@ def test_normalize_terms_respects_boundaries(tmp_path, monkeypatch):
     assert normalize_terms("我在用阿里云白练和vocal mall") == "我在用阿里云百炼和Vocal More"
     assert normalize_terms("rapid vmware rollout") == "rapid vmware rollout"
     assert normalize_terms("VM 已经接好") == "Vocal More 已经接好"
+
+
+def test_add_entry_normalizes_html_alias_payloads(tmp_path, monkeypatch):
+    """HTML settings payloads should be normalized into a clean alias list."""
+    from vocal_more.config import Config
+    from vocal_more.dictionary import Dictionary
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+
+    dictionary = Dictionary()
+    dictionary.add_entry("Claude", '["可劳德", "克劳德"]')
+    dictionary.add_entry("Claude", [" 可劳德 ", ["小克"]])
+
+    assert [(entry.term, entry.aliases) for entry in dictionary.entries] == [
+        ("Claude", ["可劳德", "克劳德", "小克"])
+    ]
+
+    saved = yaml.safe_load((tmp_path / "dictionary.yaml").read_text(encoding="utf-8"))
+    assert saved == {
+        "entries": [
+            {"term": "Claude", "aliases": ["可劳德", "克劳德", "小克"]}
+        ]
+    }
+
+
+def test_load_sanitizes_malformed_aliases_without_crashing(tmp_path, monkeypatch):
+    """Malformed dictionary alias formats should load safely and still normalize."""
+    from vocal_more.config import Config
+    from vocal_more.dictionary import Dictionary
+
+    dict_path = tmp_path / "dictionary.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+
+    with open(dict_path, "w") as f:
+        yaml.dump(
+            {
+                "entries": [
+                    {"term": "Vocal More", "aliases": "vocal mall, VM"},
+                    {"term": "Claude", "aliases": [["可劳德"], None, 1, {"bad": "shape"}]},
+                    {"term": "", "aliases": ["ignored"]},
+                    "bad-entry",
+                ]
+            },
+            f,
+            allow_unicode=True,
+        )
+
+    dictionary = Dictionary()
+
+    assert [(entry.term, entry.aliases) for entry in dictionary.entries] == [
+        ("Vocal More", ["vocal mall", "VM"]),
+        ("Claude", ["可劳德", "1"]),
+    ]
+    assert dictionary.normalize_terms("我在用 vocal mall 和 VM") == "我在用 Vocal More 和 Vocal More"

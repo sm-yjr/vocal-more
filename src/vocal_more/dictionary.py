@@ -4,10 +4,11 @@ Maintains a list of proper nouns / specialized terms so the AI polisher
 can correct common ASR mis-recognitions.
 """
 
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 import yaml
 
@@ -44,13 +45,15 @@ class Dictionary:
         with open(path) as f:
             data = yaml.safe_load(f) or {}
 
-        self.entries = [
-            DictEntry(
-                term=e["term"],
-                aliases=e.get("aliases", []),
-            )
-            for e in data.get("entries", [])
-        ]
+        self.entries = []
+        for raw_entry in data.get("entries", []):
+            if not isinstance(raw_entry, dict):
+                continue
+            term = _normalize_term(raw_entry.get("term"))
+            if not term:
+                continue
+            aliases = _merge_aliases([], list(_iter_alias_values(raw_entry.get("aliases", []))), term)
+            self.entries.append(DictEntry(term=term, aliases=aliases))
 
     def save(self) -> None:
         path = self.get_path()
@@ -69,16 +72,20 @@ class Dictionary:
     # -- mutations ------------------------------------------------------------
 
     def add_entry(self, term: str, aliases: Optional[List[str]] = None) -> None:
+        term = _normalize_term(term)
+        if not term:
+            return
+        normalized_aliases = _normalize_aliases(aliases or [])
+
         # Avoid duplicates (case-sensitive on purpose)
         for e in self.entries:
             if e.term == term:
-                if aliases:
-                    existing = set(e.aliases)
-                    e.aliases = list(existing | set(aliases))
+                if normalized_aliases:
+                    e.aliases = _merge_aliases(e.aliases, normalized_aliases, term)
                 self.save()
                 return
 
-        self.entries.append(DictEntry(term=term, aliases=aliases or []))
+        self.entries.append(DictEntry(term=term, aliases=normalized_aliases))
         self.save()
 
     def remove_entry(self, term: str) -> None:
@@ -145,7 +152,7 @@ class Dictionary:
 
         for entry in self.entries:
             for alias in entry.aliases:
-                cleaned_alias = alias.strip()
+                cleaned_alias = _normalize_term(alias)
                 if cleaned_alias and cleaned_alias != entry.term:
                     replacements.append((cleaned_alias, entry.term))
 
@@ -171,6 +178,67 @@ def _build_alias_pattern(alias: str) -> str:
     prefix = r"(?<![A-Za-z0-9])" if _needs_boundary(alias[0]) else ""
     suffix = r"(?![A-Za-z0-9])" if _needs_boundary(alias[-1]) else ""
     return f"{prefix}{re.escape(alias)}{suffix}"
+
+
+def _normalize_term(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _iter_alias_values(raw: object) -> Iterable[object]:
+    if raw is None:
+        return
+
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return
+
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+            if parsed is not None:
+                yield from _iter_alias_values(parsed)
+                return
+
+        for piece in re.split(r"[,，\n]+", text):
+            cleaned = piece.strip()
+            if cleaned:
+                yield cleaned
+        return
+
+    if isinstance(raw, (list, tuple, set)):
+        for item in raw:
+            yield from _iter_alias_values(item)
+        return
+
+    if isinstance(raw, dict):
+        return
+
+    yield raw
+
+
+def _merge_aliases(
+    existing_aliases: Iterable[object],
+    new_aliases: Iterable[object],
+    term: str,
+) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for raw_alias in list(existing_aliases) + list(new_aliases):
+        alias = _normalize_term(raw_alias)
+        if not alias or alias == term or alias in seen:
+            continue
+        seen.add(alias)
+        merged.append(alias)
+    return merged
+
+
+def _normalize_aliases(raw: object) -> list[str]:
+    return _merge_aliases([], list(_iter_alias_values(raw)), "")
 
 
 # -- singleton ----------------------------------------------------------------

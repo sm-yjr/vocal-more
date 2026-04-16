@@ -24,6 +24,7 @@ from dashscope.audio.qwen_omni.omni_realtime import TranscriptionParams
 from ..config import get_asr_model_info, get_config
 from ..dictionary import build_asr_corpus_text, normalize_terms
 from .text_polisher import (
+    TextPolisher,
     build_omni_inline_polish_instructions,
     should_polish_text,
 )
@@ -33,6 +34,8 @@ REALTIME_CHUNK_SIZE = 3200
 SHORT_FILE_MAX_DURATION_SECONDS = 180
 SHORT_FILE_MAX_BYTES = 10 * 1024 * 1024
 INLINE_POLISH_DECISION_TIMEOUT_SECONDS = 0.2
+INLINE_RESPONSE_START_TIMEOUT_SECONDS = 3.0
+INLINE_RESPONSE_TRANSCRIPT_TIMEOUT_SECONDS = 5.0
 WARM_SESSION_TTL_SECONDS = 15.0
 
 
@@ -137,6 +140,33 @@ def _supports_warm_realtime_session(model_info: Optional[dict]) -> bool:
         and model_info.get("transport") == "realtime_ws"
         and model_info.get("input_audio_transcription_model") is not None
     )
+
+
+def _get_omni_offline_fallback_model(model_id: str) -> Optional[str]:
+    if not model_id.endswith("-realtime"):
+        return None
+    fallback_model = model_id.removesuffix("-realtime")
+    fallback_info = get_asr_model_info(fallback_model)
+    if fallback_info and fallback_info.get("transport") == "omni_offline":
+        return fallback_model
+    return None
+
+
+def _conversation_socket_connected(
+    conversation: Optional[OmniRealtimeConversation],
+) -> bool:
+    if conversation is None:
+        return False
+
+    ws = getattr(conversation, "ws", None)
+    if ws is None:
+        return True
+
+    sock = getattr(ws, "sock", None)
+    if sock is None:
+        return False
+
+    return bool(getattr(sock, "connected", False))
 
 
 def _extract_multimodal_text(response) -> str:
@@ -265,6 +295,7 @@ class BatchASRCallback(OmniRealtimeCallback):
         self._session_updated = threading.Event()
         self._transcription_completed = threading.Event()
         self._response_completed = threading.Event()
+        self._response_started = threading.Event()
         self._started_at = time.perf_counter()
         self._debug_trace: Optional[ASRDebugTrace] = None
         self._response_text = ""
@@ -296,6 +327,7 @@ class BatchASRCallback(OmniRealtimeCallback):
         print(f"[ASRCallback] Connection closed: code={code}, msg={msg}")
         self._session_finished.set()
         self._session_updated.set()
+        self._response_started.set()
         self._response_completed.set()
         self._record_event("socket.close", code=code, msg=msg)
         if self._on_complete:
@@ -339,11 +371,16 @@ class BatchASRCallback(OmniRealtimeCallback):
             elif event_type == "response.text.delta":
                 delta = response.get("delta", "")
                 if delta:
+                    self._response_started.set()
                     with self._lock:
                         self._response_text += delta
                     self._record_event(event_type, delta=delta)
 
+            elif event_type == "response.created":
+                self._response_started.set()
+
             elif event_type == "response.done":
+                self._response_started.set()
                 self._response_done_received = True
                 self._response_completed.set()
                 self._record_event(event_type)
@@ -388,6 +425,9 @@ class BatchASRCallback(OmniRealtimeCallback):
     def wait_for_response_complete(self, timeout: float = 30.0) -> bool:
         return self._response_completed.wait(timeout=timeout)
 
+    def wait_for_response_started(self, timeout: float = 30.0) -> bool:
+        return self._response_started.wait(timeout=timeout)
+
     def get_response_text(self) -> str:
         with self._lock:
             return self._response_text
@@ -403,6 +443,7 @@ class BatchASRCallback(OmniRealtimeCallback):
         self._transcription_completed.clear()
         self._response_text = ""
         self._response_done_received = False
+        self._response_started.clear()
         self._response_completed.clear()
         self._started_at = time.perf_counter()
 
@@ -502,6 +543,41 @@ class BatchASREngine:
             and wav_size <= SHORT_FILE_MAX_BYTES
         )
 
+    def _recover_failed_omni_response(
+        self,
+        audio_data: bytes,
+        model: str,
+        transcript_text: str,
+        reason: str,
+    ) -> tuple[str, str]:
+        fallback_model = _get_omni_offline_fallback_model(model)
+        if fallback_model and audio_data:
+            print(
+                "[BatchASR] Omni realtime response "
+                f"{reason}, falling back to {fallback_model}"
+            )
+            try:
+                return (
+                    self.transcribe(audio_data, model_override=fallback_model),
+                    "omni_offline_fallback",
+                )
+            except Exception as exc:
+                print(f"[BatchASR] Omni offline fallback failed: {exc}")
+
+        if transcript_text and self.config.enable_polish:
+            print(
+                "[BatchASR] Omni realtime response "
+                f"{reason}, falling back to second-stage text polish"
+            )
+            try:
+                polished = TextPolisher().polish(transcript_text)
+                source = "polisher_fallback" if polished.used_llm else "transcript"
+                return polished.polished_text.strip(), source
+            except Exception as exc:
+                print(f"[BatchASR] Text polish fallback failed: {exc}")
+
+        return transcript_text, "transcript" if transcript_text else "empty"
+
     def _transcribe_realtime_ws(
         self,
         audio_data: bytes,
@@ -526,6 +602,7 @@ class BatchASREngine:
         result_text = ""
         result_source = "empty"
         response_requested = False
+        fallback_reason = ""
 
         def on_error(msg: str):
             nonlocal error_msg
@@ -582,22 +659,37 @@ class BatchASREngine:
             transcript_text = callback.get_full_text().strip()
             result_text = transcript_text
             if should_request_response:
-                response_completed = callback.wait_for_response_complete(timeout=30.0)
-                response_text = callback.get_response_text().strip()
-                if (
-                    response_completed
-                    and callback.did_receive_response_done()
-                    and response_text
-                ):
-                    result_text = response_text
-                    result_source = "response"
+                response_started = callback.wait_for_response_started(
+                    timeout=INLINE_RESPONSE_START_TIMEOUT_SECONDS
+                )
+                if response_started:
+                    response_completed = callback.wait_for_response_complete(timeout=30.0)
+                    response_text = callback.get_response_text().strip()
+                    if (
+                        response_completed
+                        and callback.did_receive_response_done()
+                        and response_text
+                    ):
+                        result_text = response_text
+                        result_source = "response"
+                    else:
+                        fallback_reason = "response_incomplete"
                 else:
-                    if not callback.wait_for_transcription_complete(timeout=30.0):
+                    fallback_reason = "response_not_started"
+
+                if fallback_reason:
+                    if not callback.wait_for_transcription_complete(
+                        timeout=INLINE_RESPONSE_TRANSCRIPT_TIMEOUT_SECONDS
+                    ):
                         print("[BatchASR] Timeout waiting for transcription completion")
                         trace.recognition_timed_out = True
                     transcript_text = callback.get_full_text().strip()
-                    result_text = transcript_text
-                    result_source = "transcript" if transcript_text else "empty"
+                    result_text, result_source = self._recover_failed_omni_response(
+                        audio_data,
+                        model,
+                        transcript_text,
+                        fallback_reason,
+                    )
             else:
                 if not callback.wait_for_transcription_complete(timeout=30.0):
                     print("[BatchASR] Timeout waiting for transcription completion")
@@ -608,6 +700,7 @@ class BatchASREngine:
 
             trace.result_text = result_text
             trace.response_requested = response_requested
+            trace.fallback_reason = fallback_reason
             callback.mark_client_event("client.result.selected", source=result_source)
             print(f"[BatchASR] Final result: '{result_text}'")
 
@@ -820,6 +913,7 @@ class StreamingASRCallback(OmniRealtimeCallback):
         self._transcription_completed = threading.Event()
         self._complete_event = threading.Event()
         self._response_completed = threading.Event()
+        self._response_started = threading.Event()
         self._response_text = ""
         self._response_done_received = False
         self._started_at = time.perf_counter()
@@ -852,6 +946,7 @@ class StreamingASRCallback(OmniRealtimeCallback):
         self._complete_event.set()
         self._session_updated.set()
         self._transcription_completed.set()
+        self._response_started.set()
         self._response_completed.set()
         self._record_event("socket.close", code=code, msg=msg)
         if self._on_complete:
@@ -860,11 +955,11 @@ class StreamingASRCallback(OmniRealtimeCallback):
     def on_event(self, response):
         try:
             event_type = response.get("type", "")
+            self._record_event(event_type)
 
             if event_type == "session.updated":
                 print("[StreamingASR] Session updated, ready")
                 self._session_updated.set()
-                self._record_event(event_type)
 
             elif event_type == "conversation.item.input_audio_transcription.text":
                 text = response.get("text", "") or response.get("stash", "")
@@ -891,6 +986,7 @@ class StreamingASRCallback(OmniRealtimeCallback):
             elif event_type == "response.text.delta":
                 delta = response.get("delta", "")
                 if delta:
+                    self._response_started.set()
                     with self._lock:
                         self._response_text += delta
                         response_text = self._response_text
@@ -898,7 +994,11 @@ class StreamingASRCallback(OmniRealtimeCallback):
                     if self._on_partial:
                         self._on_partial(ASRResult(text=response_text, is_final=False))
 
+            elif event_type == "response.created":
+                self._response_started.set()
+
             elif event_type == "response.done":
+                self._response_started.set()
                 self._response_done_received = True
                 self._response_completed.set()
                 self._record_event(event_type)
@@ -941,6 +1041,9 @@ class StreamingASRCallback(OmniRealtimeCallback):
     def wait_for_response_complete(self, timeout: float = 30.0) -> bool:
         return self._response_completed.wait(timeout=timeout)
 
+    def wait_for_response_started(self, timeout: float = 30.0) -> bool:
+        return self._response_started.wait(timeout=timeout)
+
     def get_response_text(self) -> str:
         with self._lock:
             return self._response_text
@@ -956,6 +1059,7 @@ class StreamingASRCallback(OmniRealtimeCallback):
         self._session_updated.clear()
         self._transcription_completed.clear()
         self._complete_event.clear()
+        self._response_started.clear()
         self._response_completed.clear()
         self._started_at = time.perf_counter()
 
@@ -1085,6 +1189,7 @@ class ASREngine:
             _supports_warm_realtime_session(model_info)
             and self._conversation is not None
             and self._conversation_model_id == self._session_model_id
+            and _conversation_socket_connected(self._conversation)
         )
 
     def start(self) -> None:
@@ -1280,6 +1385,7 @@ class ASREngine:
         response_result = ""
         response_requested = False
         result_source = "empty"
+        response_fallback_reason = ""
 
         if self._conversation:
             try:
@@ -1304,19 +1410,50 @@ class ASREngine:
                     print(f"[StreamingASR] Inline polish response failed: {response_error}")
 
             if should_request_response and self._callback:
-                response_completed = self._callback.wait_for_response_complete(timeout=timeout)
-                response_result = self._callback.get_response_text().strip()
-                if not (
-                    response_completed and self._callback.did_receive_response_done()
-                ):
-                    response_result = ""
+                response_started = self._callback.wait_for_response_started(
+                    timeout=min(timeout, INLINE_RESPONSE_START_TIMEOUT_SECONDS)
+                )
+                if response_started:
+                    response_completed = self._callback.wait_for_response_complete(
+                        timeout=timeout
+                    )
+                    response_result = self._callback.get_response_text().strip()
+                    if not (
+                        response_completed and self._callback.did_receive_response_done()
+                    ):
+                        response_result = ""
+                        response_fallback_reason = "response_incomplete"
+                    else:
+                        result_source = "response"
                 else:
-                    result_source = "response"
+                    response_fallback_reason = "response_not_started"
 
             if self._callback and not response_result:
-                self._callback.wait_for_transcription_complete(timeout=timeout)
+                transcript_timeout = timeout
+                if response_fallback_reason:
+                    transcript_timeout = min(
+                        timeout,
+                        INLINE_RESPONSE_TRANSCRIPT_TIMEOUT_SECONDS,
+                    )
+                self._callback.wait_for_transcription_complete(timeout=transcript_timeout)
                 transcript_result = self._callback.get_full_text().strip()
                 result_source = "transcript" if transcript_result else "empty"
+
+                if response_fallback_reason:
+                    if self._callback:
+                        self._callback.mark_client_event(
+                            "client.fallback.started",
+                            reason=response_fallback_reason,
+                        )
+                    (
+                        transcript_result,
+                        result_source,
+                    ) = self._batch_fallback._recover_failed_omni_response(
+                        pcm_data or b"",
+                        self._session_model_id,
+                        transcript_result,
+                        response_fallback_reason,
+                    )
 
             if not is_omni:
                 try:
@@ -1326,7 +1463,10 @@ class ASREngine:
                 except Exception:
                     pass
 
-            if _supports_warm_realtime_session(model_info):
+            if (
+                _supports_warm_realtime_session(model_info)
+                and not response_fallback_reason
+            ):
                 self._schedule_warm_close()
             else:
                 stale = self._drop_conversation()
@@ -1356,6 +1496,7 @@ class ASREngine:
                 pcm_data,
                 result_source=result_source if result.strip() else "empty",
                 response_requested=response_requested,
+                fallback_reason=response_fallback_reason,
             )
 
         return result
