@@ -34,6 +34,7 @@ class TestSave:
         assert rec["asr_model"] == "qwen-omni-turbo"
         assert rec["status"] == "pending"
         assert rec["transcript"] is None
+        assert rec["error"] is None
         assert rec["duration_seconds"] == pytest.approx(2.0, abs=0.2)
 
         wav_path = Path(store._dir) / rec["filename"]
@@ -73,6 +74,21 @@ class TestUpdate:
         rec = store.list_recordings()[0]
         assert rec["status"] == "failed"
         assert rec["transcript"] is None
+        assert rec["error"] is None
+
+    def test_update_persists_error_and_clears_on_success(self, store):
+        rec_id = store.save(_make_pcm(), "walkie_talkie", "m")
+        store.update(rec_id, "failed", error="boom")
+
+        rec = store.list_recordings()[0]
+        assert rec["status"] == "failed"
+        assert rec["error"] == "boom"
+
+        store.update(rec_id, "success", "hello world", error=None)
+        rec = store.list_recordings()[0]
+        assert rec["status"] == "success"
+        assert rec["transcript"] == "hello world"
+        assert rec["error"] is None
 
     def test_update_nonexistent_id_is_noop(self, store):
         store.save(_make_pcm(), "walkie_talkie", "m")
@@ -157,12 +173,42 @@ class TestPersistence:
     def test_reloads_from_disk(self, tmp_path):
         store1 = RecordingStore(recordings_dir=str(tmp_path / "recs"))
         rec_id = store1.save(_make_pcm(), "walkie_talkie", "m")
-        store1.update(rec_id, "success", "test text")
+        store1.update(rec_id, "failed", error="temporary failure")
+        store1.update(rec_id, "success", "test text", error=None)
 
         store2 = RecordingStore(recordings_dir=str(tmp_path / "recs"))
         recs = store2.list_recordings()
         assert len(recs) == 1
         assert recs[0]["transcript"] == "test text"
+        assert recs[0]["error"] is None
+
+    def test_reloads_legacy_entries_without_error_field(self, tmp_path):
+        recs_dir = tmp_path / "recs"
+        recs_dir.mkdir(parents=True)
+        legacy_entry = [{
+            "id": "legacy-1",
+            "filename": "legacy-1.wav",
+            "timestamp": "2026-04-16T12:00:00",
+            "duration_seconds": 1.2,
+            "mode": "walkie_talkie",
+            "asr_model": "model-a",
+            "language": "zh",
+            "status": "failed",
+            "transcript": None,
+        }]
+        (recs_dir / "recordings.json").write_text(
+            json.dumps(legacy_entry),
+            encoding="utf-8",
+        )
+        with wave.open(str(recs_dir / "legacy-1.wav"), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(_make_pcm(0.1))
+
+        store = RecordingStore(recordings_dir=str(recs_dir))
+        rec = store.list_recordings()[0]
+        assert rec["error"] is None
 
     def test_handles_corrupt_index(self, tmp_path):
         recs_dir = tmp_path / "recs"

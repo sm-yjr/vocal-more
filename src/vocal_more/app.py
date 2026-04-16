@@ -61,7 +61,7 @@ class VocalMoreApp(rumps.App):
         if error:
             rumps.notification(
                 "Vocal-More",
-                "Configuration Error",
+                self._t("notification_configuration_error_title"),
                 error,
                 icon=self._get_logo_path(),
             )
@@ -86,6 +86,7 @@ class VocalMoreApp(rumps.App):
             on_result=self._on_result,
             on_partial_result=self._on_partial_result,
             on_error=self._on_error,
+            on_processing_stage=self._on_processing_stage,
             text_polisher=self._text_polisher,
             on_audio_level=self._on_audio_level,
             recording_store=self._recording_store,
@@ -96,6 +97,7 @@ class VocalMoreApp(rumps.App):
             on_result=self._on_result,
             on_partial_result=self._on_partial_result,
             on_error=self._on_error,
+            on_processing_stage=self._on_processing_stage,
             text_polisher=self._text_polisher,
             on_audio_level=self._on_audio_level,
             recording_store=self._recording_store,
@@ -596,10 +598,17 @@ class VocalMoreApp(rumps.App):
             ModeState.PROCESSING: "processing",
         }.get(state, "hidden")
         self._capsule.update_state(capsule_state)
+        if state == ModeState.PROCESSING:
+            self._capsule.set_processing_stage("transcribing")
 
     def _on_audio_level(self, rms: float) -> None:
         """Handle real-time audio level from recorder."""
         self._capsule.update_audio_level(rms)
+
+    def _on_processing_stage(self, stage: str) -> None:
+        """Handle processing stage updates for the floating capsule."""
+        if self._capsule:
+            self._capsule.set_processing_stage(stage)
 
     def _on_capsule_cancel(self) -> None:
         """Handle cancel button from floating capsule."""
@@ -618,7 +627,7 @@ class VocalMoreApp(rumps.App):
         try:
             rumps.notification(
                 "Vocal-More",
-                "Transcription Complete",
+                self._t("notification_transcription_complete_title"),
                 display_text,
                 icon=self._get_logo_path(),
             )
@@ -635,7 +644,7 @@ class VocalMoreApp(rumps.App):
         try:
             rumps.notification(
                 "Vocal-More",
-                "Error",
+                self._t("notification_error_title"),
                 error,
                 icon=self._get_logo_path(),
             )
@@ -649,9 +658,8 @@ class VocalMoreApp(rumps.App):
         if not self._hotkey_manager.start():
             rumps.notification(
                 "Vocal-More",
-                "Permissions Required",
-                "Please grant Accessibility permissions in System Settings → "
-                "Privacy & Security → Accessibility",
+                self._t("notification_permissions_required_title"),
+                self._t("notification_permissions_required_body"),
                 icon=self._get_logo_path(),
             )
         super().run()

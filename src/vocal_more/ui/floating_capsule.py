@@ -222,6 +222,15 @@ class FloatingCapsule:
         with self._rms_lock:
             self._latest_rms = rms
 
+    def set_processing_stage(self, stage: str) -> None:
+        """Update the capsule's processing phase label."""
+        escaped = stage.replace("\\", "\\\\").replace("'", "\\'")
+        js = f"setProcessingStage('{escaped}')"
+        timer = NSTimer.timerWithTimeInterval_repeats_block_(
+            0, False, lambda _: self._eval_js(js)
+        )
+        NSRunLoop.mainRunLoop().addTimer_forMode_(timer, NSRunLoopCommonModes)
+
     def update_streaming_text(self, text: str) -> None:
         """Show streaming text below waveform/thinking. Safe to call from any thread."""
         escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")

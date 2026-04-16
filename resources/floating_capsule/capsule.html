@@ -208,16 +208,28 @@ const waveform = document.getElementById('waveform');
 const thinkingText = document.getElementById('thinkingLabel');
 
 const CAPSULE_TRANSLATIONS = {
-  en: { thinking: 'Thinking' },
-  zh: { thinking: '处理中' },
+  en: {
+    transcribing: 'Transcribing',
+    polishing: 'Polishing',
+  },
+  zh: {
+    transcribing: '识别中',
+    polishing: '润色中',
+  },
 };
 
 let interfaceLanguage = 'en';
+let currentProcessingStage = 'transcribing';
+
+function processingStageLabel(stage) {
+  const translations = CAPSULE_TRANSLATIONS[interfaceLanguage] || CAPSULE_TRANSLATIONS.en;
+  return translations[stage] || translations.transcribing;
+}
 
 function setInterfaceLanguage(language) {
   interfaceLanguage = language === 'zh' ? 'zh' : 'en';
   document.documentElement.lang = interfaceLanguage === 'zh' ? 'zh-CN' : 'en';
-  thinkingText.textContent = CAPSULE_TRANSLATIONS[interfaceLanguage].thinking;
+  thinkingText.textContent = processingStageLabel(currentProcessingStage);
 }
 
 // Generate waveform bars
@@ -325,6 +337,8 @@ function updateState(state) {
   if (state === 'hidden') {
     capsule.classList.remove('visible', 'has-streaming-text');
     streamingText.textContent = '';
+    currentProcessingStage = 'transcribing';
+    thinkingText.textContent = processingStageLabel(currentProcessingStage);
     stopProgress();
     return;
   }
@@ -339,11 +353,16 @@ function updateState(state) {
     smoothedLevels.fill(0);
     startRaf();
   } else if (state === 'processing') {
-    thinkingText.textContent = 'Thinking';
+    setProcessingStage(currentProcessingStage);
     capsule.classList.remove('has-streaming-text');
     streamingText.textContent = '';
     startProgress();
   }
+}
+
+function setProcessingStage(stage) {
+  currentProcessingStage = stage || 'transcribing';
+  thinkingText.textContent = processingStageLabel(currentProcessingStage);
 }
 
 /**

@@ -60,7 +60,7 @@ def test_serve_initialize_roundtrip():
     assert resp["jsonrpc"] == "2.0"
     assert resp["id"] == 1
     assert "result" in resp
-    assert resp["result"]["version"] == "0.1.0"
+    assert resp["result"]["version"] == "0.2.0"
     assert resp["result"]["state"] == "idle"
 
 

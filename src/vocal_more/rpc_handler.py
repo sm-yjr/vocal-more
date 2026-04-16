@@ -17,11 +17,12 @@ from .core.audio_recorder import AudioRecorder
 from .core.recording_store import RecordingStore
 from .core.text_polisher import TextPolisher
 from .dictionary import get_dictionary, reload_dictionary
+from .localization import t
 from .modes.base_mode import BaseMode, ModeState
 from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 
 class RPCHandler:
@@ -48,6 +49,7 @@ class RPCHandler:
             on_result=self._on_result,
             on_partial_result=self._on_partial_result,
             on_error=self._on_error,
+            on_processing_stage=self._on_processing_stage,
             text_polisher=self._text_polisher,
             on_audio_level=self._on_audio_level,
             recording_store=self._recording_store,
@@ -58,6 +60,7 @@ class RPCHandler:
             on_result=self._on_result,
             on_partial_result=self._on_partial_result,
             on_error=self._on_error,
+            on_processing_stage=self._on_processing_stage,
             text_polisher=self._text_polisher,
             on_audio_level=self._on_audio_level,
             recording_store=self._recording_store,
@@ -87,6 +90,9 @@ class RPCHandler:
 
     def _on_error(self, error: str) -> None:
         self._send_notification("error", {"message": error})
+
+    def _on_processing_stage(self, stage: str) -> None:
+        self._send_notification("processing_stage", {"stage": stage})
 
     def _on_audio_level(self, rms: float) -> None:
         self._send_notification("audio_level", {"rms": rms})
@@ -224,8 +230,10 @@ class RPCHandler:
             try:
                 pcm_data = self._recording_store.get_pcm_data(rec_id)
                 if pcm_data is None:
+                    error_message = t(self.config.ui.language, "settings_recording_not_found")
+                    self._recording_store.update(rec_id, "failed", error=error_message)
                     self._send_notification(
-                        "retry_failed", {"id": rec_id, "error": "Recording file not found"}
+                        "retry_failed", {"id": rec_id, "error": error_message}
                     )
                     return
 
@@ -236,18 +244,19 @@ class RPCHandler:
                 )
 
                 if transcript and transcript.strip():
-                    self._recording_store.update(rec_id, "success", transcript)
+                    self._recording_store.update(rec_id, "success", transcript, error=None)
                     self._send_notification(
                         "retry_completed", {"id": rec_id, "transcript": transcript}
                     )
                 else:
-                    self._recording_store.update(rec_id, "failed")
+                    error_message = t(self.config.ui.language, "settings_empty_transcription")
+                    self._recording_store.update(rec_id, "failed", error=error_message)
                     self._send_notification(
                         "retry_failed",
-                        {"id": rec_id, "error": "Empty transcription result"},
+                        {"id": rec_id, "error": error_message},
                     )
             except Exception as e:
-                self._recording_store.update(rec_id, "failed")
+                self._recording_store.update(rec_id, "failed", error=str(e))
                 self._send_notification(
                     "retry_failed", {"id": rec_id, "error": str(e)}
                 )

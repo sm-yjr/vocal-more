@@ -217,6 +217,12 @@ def test_notification_on_state_change(handler):
     assert any(m == "state_changed" for m, _ in handler._notifications)
 
 
+def test_notification_on_processing_stage(handler):
+    """Processing stage updates should be exposed to the frontend."""
+    handler._on_processing_stage("polishing")
+    assert handler._notifications[-1] == ("processing_stage", {"stage": "polishing"})
+
+
 def test_to_dict_added_to_config(handler):
     """Verify Config.to_dict() works and roundtrips correctly."""
     d = handler.config.to_dict()

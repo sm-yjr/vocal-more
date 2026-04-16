@@ -564,8 +564,13 @@ class SettingsWindow:
             try:
                 pcm_data = self._recording_store.get_pcm_data(rec_id)
                 if pcm_data is None:
+                    error_message = t(
+                        self._interface_language,
+                        "settings_recording_not_found",
+                    )
+                    self._recording_store.update(rec_id, "failed", error=error_message)
                     self._eval_js(
-                        f"retryFailed({json.dumps(rec_id)}, {json.dumps(t(self._interface_language, 'settings_recording_not_found'))})"
+                        f"retryFailed({json.dumps(rec_id)}, {json.dumps(error_message)})"
                     )
                     return
 
@@ -576,17 +581,21 @@ class SettingsWindow:
                 )
 
                 if transcript and transcript.strip():
-                    self._recording_store.update(rec_id, "success", transcript)
+                    self._recording_store.update(rec_id, "success", transcript, error=None)
                     self._eval_js(
                         f"retryCompleted({json.dumps(rec_id)}, {json.dumps(transcript)})"
                     )
                 else:
-                    self._recording_store.update(rec_id, "failed")
+                    error_message = t(
+                        self._interface_language,
+                        "settings_empty_transcription",
+                    )
+                    self._recording_store.update(rec_id, "failed", error=error_message)
                     self._eval_js(
-                        f"retryFailed({json.dumps(rec_id)}, {json.dumps(t(self._interface_language, 'settings_empty_transcription'))})"
+                        f"retryFailed({json.dumps(rec_id)}, {json.dumps(error_message)})"
                     )
             except Exception as e:
-                self._recording_store.update(rec_id, "failed")
+                self._recording_store.update(rec_id, "failed", error=str(e))
                 self._eval_js(
                     f"retryFailed({json.dumps(rec_id)}, {json.dumps(str(e))})"
                 )

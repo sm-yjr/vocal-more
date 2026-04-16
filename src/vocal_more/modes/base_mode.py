@@ -22,6 +22,7 @@ class BaseMode(ABC):
         on_result: Optional[Callable[[str], None]] = None,
         on_partial_result: Optional[Callable[[str], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
+        on_processing_stage: Optional[Callable[[str], None]] = None,
         on_audio_level: Optional[Callable[[float], None]] = None,
     ):
         """Initialize the base mode.
@@ -31,12 +32,14 @@ class BaseMode(ABC):
             on_result: Callback for final result text
             on_partial_result: Callback for partial/interim result text
             on_error: Callback for errors
+            on_processing_stage: Callback for processing phase labels
             on_audio_level: Callback for real-time audio RMS level
         """
         self.on_state_change = on_state_change
         self.on_result = on_result
         self.on_partial_result = on_partial_result
         self.on_error = on_error
+        self.on_processing_stage = on_processing_stage
         self.on_audio_level = on_audio_level
 
         self._state = ModeState.IDLE
@@ -51,6 +54,11 @@ class BaseMode(ABC):
         self._state = state
         if self.on_state_change:
             self.on_state_change(state)
+
+    def _set_processing_stage(self, stage: str) -> None:
+        """Update the current processing phase label."""
+        if self.on_processing_stage:
+            self.on_processing_stage(stage)
 
     @abstractmethod
     def on_hotkey_pressed(self) -> None:

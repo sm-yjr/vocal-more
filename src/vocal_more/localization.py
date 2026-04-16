@@ -22,10 +22,23 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "menu_polish_strength_title": "Polish Strength: {value}",
         "menu_settings": "Settings...",
         "menu_quit": "Quit Vocal-More",
+        "notification_configuration_error_title": "Configuration Error",
+        "notification_transcription_complete_title": "Transcription Complete",
+        "notification_error_title": "Error",
+        "notification_permissions_required_title": "Permissions Required",
+        "notification_permissions_required_body": (
+            "Please grant Accessibility permissions in System Settings → "
+            "Privacy & Security → Accessibility"
+        ),
         "notification_recording_in_progress_title": "Recording In Progress",
         "notification_recording_in_progress_body": (
             "Stop the current session before switching recording modes."
         ),
+        "mode_microphone_unavailable": "Could not start microphone: {details}",
+        "mode_recording_too_short": "Recording too short. Hold the hotkey a bit longer.",
+        "mode_asr_error": "ASR error: {details}",
+        "mode_polish_error": "Polish error: {details}",
+        "mode_processing_error": "Processing error: {details}",
         "mode_walkie_talkie": "Walkie-Talkie (Hold)",
         "mode_realtime_long": "Real-time Long (Toggle)",
         "polish_level_minimal": "Minimal",
@@ -51,8 +64,20 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "menu_polish_strength_title": "润色强度：{value}",
         "menu_settings": "设置...",
         "menu_quit": "退出 Vocal-More",
+        "notification_configuration_error_title": "配置错误",
+        "notification_transcription_complete_title": "识别完成",
+        "notification_error_title": "错误",
+        "notification_permissions_required_title": "需要权限",
+        "notification_permissions_required_body": (
+            "请在 系统设置 → 隐私与安全性 → 辅助功能 中授予辅助功能权限"
+        ),
         "notification_recording_in_progress_title": "正在录音",
         "notification_recording_in_progress_body": "请先停止当前录音，再切换录音模式。",
+        "mode_microphone_unavailable": "无法启动麦克风：{details}",
+        "mode_recording_too_short": "录音太短了，请稍微多按一会儿热键。",
+        "mode_asr_error": "识别错误：{details}",
+        "mode_polish_error": "润色错误：{details}",
+        "mode_processing_error": "处理错误：{details}",
         "mode_walkie_talkie": "对讲模式（按住）",
         "mode_realtime_long": "实时长录（切换）",
         "polish_level_minimal": "轻度",
@@ -81,4 +106,3 @@ def t(language: object, key: str, **kwargs) -> str:
     if kwargs:
         return template.format(**kwargs)
     return template
-

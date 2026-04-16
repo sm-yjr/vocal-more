@@ -14,6 +14,7 @@ CHANNELS = 1
 SAMPLE_WIDTH = 2
 MAX_RECORDINGS = 10
 RETRY_ASR_MODEL = "qwen3.5-omni-plus"
+_MISSING = object()
 
 
 class RecordingStore:
@@ -37,7 +38,15 @@ class RecordingStore:
             return []
         try:
             data = json.loads(self._index_path.read_text(encoding="utf-8"))
-            return data if isinstance(data, list) else []
+            if not isinstance(data, list):
+                return []
+            normalized = []
+            for entry in data:
+                if isinstance(entry, dict):
+                    entry.setdefault("transcript", None)
+                    entry.setdefault("error", None)
+                    normalized.append(entry)
+            return normalized
         except (json.JSONDecodeError, OSError):
             backup = self._index_path.with_suffix(".json.bak")
             try:
@@ -104,6 +113,7 @@ class RecordingStore:
             "language": language,
             "status": "pending",
             "transcript": None,
+            "error": None,
         }
 
         with self._lock:
@@ -115,15 +125,24 @@ class RecordingStore:
         return rec_id
 
     def update(
-        self, recording_id: str, status: str, transcript: Optional[str] = None
+        self,
+        recording_id: str,
+        status: str,
+        transcript: Optional[str] = _MISSING,
+        *,
+        error: Optional[str] = _MISSING,
     ) -> None:
         """Update status and transcript for a recording."""
         with self._lock:
             for rec in self._recordings:
                 if rec["id"] == recording_id:
                     rec["status"] = status
-                    if transcript is not None:
+                    if transcript is not _MISSING:
                         rec["transcript"] = transcript
+                    if error is not _MISSING:
+                        rec["error"] = error
+                    elif status == "success":
+                        rec["error"] = None
                     break
             self._save_index()
 

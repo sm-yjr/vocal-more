@@ -386,7 +386,62 @@ input[type="range"]:disabled {
   margin-bottom: 10px;
 }
 
+/* ── Audio presets ────────────────────────────────────── */
+.audio-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.audio-preset-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.audio-preset-btn:hover {
+  border-color: rgba(255,255,255,0.24);
+  color: var(--text-primary);
+}
+.audio-preset-btn.active {
+  background: rgba(0,122,255,0.16);
+  border-color: rgba(0,122,255,0.4);
+  color: #fff;
+}
+
 /* ── Recording History ───────────────────────────────── */
+.rec-delete-banner {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius);
+}
+.rec-delete-banner.visible { display: flex; }
+.rec-delete-copy {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.rec-undo-btn {
+  background: rgba(0,122,255,0.16);
+  border: 1px solid rgba(0,122,255,0.4);
+  border-radius: 999px;
+  color: #fff;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.rec-undo-btn:hover { background: rgba(10,132,255,0.24); }
 .rec-list { display: flex; flex-direction: column; gap: 8px; }
 .rec-item {
   background: var(--bg-secondary);
@@ -406,6 +461,14 @@ input[type="range"]:disabled {
   font-size: 11px; padding: 2px 7px; border-radius: 4px; font-weight: 500;
 }
 .rec-badge-mode { background: rgba(255,255,255,0.08); color: var(--text-secondary); }
+.rec-badge-model {
+  background: rgba(0,122,255,0.12);
+  color: rgba(255,255,255,0.88);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .rec-badge-dur { background: rgba(255,255,255,0.08); color: var(--text-secondary); }
 .rec-badge-success { background: rgba(52,199,89,0.15); color: var(--green); }
 .rec-badge-failed { background: rgba(255,59,48,0.15); color: var(--red); }
@@ -431,6 +494,11 @@ input[type="range"]:disabled {
   padding: 8px 10px; background: rgba(255,255,255,0.03);
   border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.05);
   max-height: 80px; overflow-y: auto;
+}
+.rec-transcript-error {
+  background: rgba(255,59,48,0.06);
+  border-color: rgba(255,59,48,0.12);
+  color: rgba(255,255,255,0.78);
 }
 .rec-transcript-empty { font-style: italic; color: var(--text-tertiary); }
 .rec-processing {
@@ -632,6 +700,14 @@ input[type="range"]:disabled {
 
       <div class="form-group">
         <div class="form-row">
+          <span class="form-label" data-i18n="audio_presets_label">Presets</span>
+        </div>
+        <div class="audio-presets" id="audio_presets"></div>
+        <div class="form-hint" data-i18n="audio_presets_hint">Start with a preset, then fine-tune if needed.</div>
+      </div>
+
+      <div class="form-group">
+        <div class="form-row">
           <span class="form-label" data-i18n="audio_software_gain_label">Software Gain</span>
           <div class="slider-group">
             <input type="range" id="audio_gain_db" min="-6" max="30" step="1" value="6">
@@ -740,16 +816,6 @@ input[type="range"]:disabled {
       </div>
 
       <div class="form-separator"></div>
-
-      <div class="form-group">
-        <div class="form-row">
-          <span class="form-label" data-i18n="polish_mode_label">Polish Mode</span>
-          <select id="llm_polish_mode" class="polish-control">
-            <option value="smart" data-i18n="polish_mode_smart">Smart (skip short/clean text)</option>
-            <option value="always" data-i18n="polish_mode_always">Always</option>
-          </select>
-        </div>
-      </div>
 
       <div class="form-group">
         <div class="form-row">
@@ -900,6 +966,7 @@ input[type="range"]:disabled {
     <!-- ═══ History ═══ -->
     <div id="tab-history" class="tab-panel">
       <div class="tab-title" data-i18n="tab_history">Recording History</div>
+      <div id="history_delete_banner" class="rec-delete-banner"></div>
       <div id="history_list"></div>
     </div>
 
@@ -923,6 +990,35 @@ let _micTestAudio = null;
 let _micTestTimeout = null;
 let _apiKeyValue = '';
 let _apiKeyRevealed = false;
+let _pendingDelete = null;
+let _lastDeviceRefreshAt = 0;
+
+const AUDIO_PRESETS = {
+  whisper: {
+    gain: 8.0,
+    noise_gate: 0.006,
+    highpass_filter: true,
+    highpass_freq: 220,
+    soft_limiter: true,
+    labelKey: 'audio_preset_whisper',
+  },
+  normal: {
+    gain: 4.0,
+    noise_gate: 0.0,
+    highpass_filter: true,
+    highpass_freq: 200,
+    soft_limiter: true,
+    labelKey: 'audio_preset_normal',
+  },
+  noisy: {
+    gain: 6.0,
+    noise_gate: 0.012,
+    highpass_filter: true,
+    highpass_freq: 280,
+    soft_limiter: true,
+    labelKey: 'audio_preset_noisy',
+  },
+};
 
 const UI_TRANSLATIONS = {
   en: {
@@ -960,6 +1056,11 @@ const UI_TRANSLATIONS = {
     audio_noise_gate_label: 'Noise Gate',
     audio_noise_gate_hint: 'Audio below this RMS threshold is silenced. 0 = disabled.',
     audio_off: 'Off',
+    audio_presets_label: 'Presets',
+    audio_presets_hint: 'Start with a preset, then fine-tune if needed.',
+    audio_preset_whisper: 'Whisper',
+    audio_preset_normal: 'Normal',
+    audio_preset_noisy: 'Noisy Room',
     audio_highpass_filter_label: 'High-Pass Filter',
     audio_cutoff_frequency_label: 'Cutoff Frequency',
     audio_highpass_filter_hint: 'Remove rumble, hum, and plosives below the cutoff frequency.',
@@ -1030,6 +1131,7 @@ const UI_TRANSLATIONS = {
     history_empty_html: '<div class="rec-empty"><div class="rec-empty-icon">&#128197;</div><div class="rec-empty-text">No recordings yet<br>Recordings will appear here after you use voice input</div></div>',
     history_mode_realtime_long: 'Realtime Long',
     history_mode_walkie_talkie: 'Walkie Talkie',
+    history_model_label: 'Model',
     history_status_success: 'Success',
     history_status_failed: 'Failed',
     history_status_retrying: 'Retrying...',
@@ -1040,6 +1142,8 @@ const UI_TRANSLATIONS = {
     history_copy: 'Copy',
     history_transcribing: 'Transcribing...',
     history_transcription_failed: 'Transcription failed',
+    history_deleted_pending: 'Recording removed. Undo within 5 seconds.',
+    history_undo: 'Undo',
     history_today: 'Today',
     history_yesterday: 'Yesterday',
     history_copied: 'Copied!',
@@ -1085,6 +1189,11 @@ const UI_TRANSLATIONS = {
     audio_noise_gate_label: '噪声门',
     audio_noise_gate_hint: '低于该 RMS 阈值的音频会被静音。0 表示关闭。',
     audio_off: '关闭',
+    audio_presets_label: '预设',
+    audio_presets_hint: '先选一个场景预设，再按需微调。',
+    audio_preset_whisper: '轻声办公',
+    audio_preset_normal: '普通说话',
+    audio_preset_noisy: '嘈杂环境',
     audio_highpass_filter_label: '高通滤波',
     audio_cutoff_frequency_label: '截止频率',
     audio_highpass_filter_hint: '去除截止频率以下的低频噪声、嗡声和喷麦声。',
@@ -1155,6 +1264,7 @@ const UI_TRANSLATIONS = {
     history_empty_html: '<div class="rec-empty"><div class="rec-empty-icon">&#128197;</div><div class="rec-empty-text">还没有录音记录<br>开始使用语音输入后，这里会显示历史记录</div></div>',
     history_mode_realtime_long: '实时长录',
     history_mode_walkie_talkie: '对讲模式',
+    history_model_label: '模型',
     history_status_success: '成功',
     history_status_failed: '失败',
     history_status_retrying: '重试中...',
@@ -1165,6 +1275,8 @@ const UI_TRANSLATIONS = {
     history_copy: '复制',
     history_transcribing: '识别中...',
     history_transcription_failed: '识别失败',
+    history_deleted_pending: '录音已移除，可在 5 秒内撤销。',
+    history_undo: '撤销',
     history_today: '今天',
     history_yesterday: '昨天',
     history_copied: '已复制',
@@ -1366,6 +1478,15 @@ function openExternal(url) {
   postMsg({ action: 'openExternal', url: url });
 }
 
+function requestDeviceRefresh() {
+  const now = Date.now();
+  if (now - _lastDeviceRefreshAt < 500) {
+    return;
+  }
+  _lastDeviceRefreshAt = now;
+  postMsg({ action: 'refreshDevices' });
+}
+
 function customHotkeyDefForEvent(e) {
   if (MODIFIER_KEY_MAP[e.code]) {
     const def = MODIFIER_KEY_MAP[e.code];
@@ -1509,6 +1630,46 @@ function formatGainLabel(db) {
   return sign + db + ' dB (' + gain.toFixed(1) + 'x)';
 }
 
+function matchesAudioPreset(audio, preset) {
+  if (!audio || !preset) return false;
+  return Math.abs((audio.gain ?? 2.0) - preset.gain) < 0.01
+    && Math.abs((audio.noise_gate ?? 0) - preset.noise_gate) < 0.001
+    && ((audio.highpass_filter !== false)) === preset.highpass_filter
+    && Math.abs((audio.highpass_freq ?? 200) - preset.highpass_freq) <= 1
+    && ((audio.soft_limiter !== false)) === preset.soft_limiter;
+}
+
+function renderAudioPresets(audio) {
+  const container = document.getElementById('audio_presets');
+  if (!container) return;
+
+  container.innerHTML = '';
+  Object.entries(AUDIO_PRESETS).forEach(([presetId, preset]) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'audio-preset-btn';
+    if (matchesAudioPreset(audio, preset)) {
+      btn.classList.add('active');
+    }
+    btn.textContent = t(preset.labelKey);
+    btn.addEventListener('click', function() {
+      applyAudioPreset(presetId);
+    });
+    container.appendChild(btn);
+  });
+}
+
+function applyAudioPreset(presetId) {
+  const preset = AUDIO_PRESETS[presetId];
+  if (!preset) return;
+  setConfig('audio.gain', preset.gain);
+  setConfig('audio.noise_gate', preset.noise_gate);
+  setConfig('audio.highpass_filter', preset.highpass_filter);
+  setConfig('audio.highpass_freq', preset.highpass_freq);
+  setConfig('audio.soft_limiter', preset.soft_limiter);
+  renderAudio();
+}
+
 function renderAudio() {
   var audio = _config.audio || {};
   renderDeviceSelect();
@@ -1535,6 +1696,7 @@ function renderAudio() {
   var slEl = document.getElementById('audio_soft_limiter');
   slEl.checked = audio.soft_limiter !== false;
 
+  renderAudioPresets(audio);
   renderMicTest();
 }
 
@@ -1606,7 +1768,6 @@ function renderPolish() {
   const enabled = _config.enable_polish !== false;
   document.getElementById('enable_polish').checked = enabled;
 
-  document.getElementById('llm_polish_mode').value = llm.polish_mode || 'smart';
   document.getElementById('llm_level').value = llm.level || 'minimal';
   document.getElementById('llm_structured').checked = !!llm.structured;
   document.getElementById('llm_tone').value = llm.tone || 'neutral';
@@ -1792,6 +1953,12 @@ document.getElementById('auto_paste').addEventListener('change', function() {
 });
 
 // ── Audio ──
+document.getElementById('audio_input_device').addEventListener('mousedown', function() {
+  requestDeviceRefresh();
+});
+document.getElementById('audio_input_device').addEventListener('focus', function() {
+  requestDeviceRefresh();
+});
 document.getElementById('audio_input_device').addEventListener('change', function() {
   postMsg({ action: 'setDevice', device: this.value || null });
   setNestedValue(_config, 'audio.input_device', this.value || null);
@@ -1839,9 +2006,6 @@ document.getElementById('asr_language').addEventListener('change', function() {
 document.getElementById('enable_polish').addEventListener('change', function() {
   setConfig('enable_polish', this.checked);
   togglePolishControls(this.checked);
-});
-document.getElementById('llm_polish_mode').addEventListener('change', function() {
-  setConfig('llm.polish_mode', this.value);
 });
 document.getElementById('llm_level').addEventListener('change', function() {
   setConfig('llm.level', this.value);
@@ -1971,7 +2135,8 @@ function requestRecordings() {
 }
 
 function loadRecordings(recs) {
-  _recordings = recs || [];
+  const pendingId = _pendingDelete?.rec?.id;
+  _recordings = (recs || []).filter(function(r) { return r.id !== pendingId; });
   renderHistory();
 }
 
@@ -1979,6 +2144,7 @@ function renderHistory() {
   const container = document.getElementById('history_list');
   if (!_recordings.length) {
     container.innerHTML = t('history_empty_html');
+    renderDeleteBanner();
     return;
   }
 
@@ -1987,6 +2153,55 @@ function renderHistory() {
   list.className = 'rec-list';
   _recordings.forEach(function(r) { list.appendChild(buildRecItem(r)); });
   container.appendChild(list);
+  renderDeleteBanner();
+}
+
+function resolveAsrModelName(modelId) {
+  const model = _asrModels.find(function(entry) { return entry.id === modelId; });
+  return model ? model.display_name : (modelId || t('history_model_label'));
+}
+
+function renderDeleteBanner() {
+  const banner = document.getElementById('history_delete_banner');
+  if (!banner) return;
+
+  if (!_pendingDelete) {
+    banner.classList.remove('visible');
+    banner.innerHTML = '';
+    return;
+  }
+
+  banner.classList.add('visible');
+  banner.innerHTML = '';
+
+  const copy = document.createElement('div');
+  copy.className = 'rec-delete-copy';
+  copy.textContent = t('history_deleted_pending');
+  banner.appendChild(copy);
+
+  const undoBtn = document.createElement('button');
+  undoBtn.type = 'button';
+  undoBtn.className = 'rec-undo-btn';
+  undoBtn.textContent = t('history_undo');
+  undoBtn.addEventListener('click', undoDeleteRec);
+  banner.appendChild(undoBtn);
+}
+
+function commitPendingDelete() {
+  if (!_pendingDelete) return;
+  clearTimeout(_pendingDelete.timer);
+  const pending = _pendingDelete;
+  _pendingDelete = null;
+  renderDeleteBanner();
+  postMsg({ action: 'deleteRecording', id: pending.rec.id });
+}
+
+function undoDeleteRec() {
+  if (!_pendingDelete) return;
+  clearTimeout(_pendingDelete.timer);
+  _recordings.splice(_pendingDelete.index, 0, _pendingDelete.rec);
+  _pendingDelete = null;
+  renderHistory();
 }
 
 function buildRecItem(r) {
@@ -2021,6 +2236,7 @@ function buildRecItem(r) {
   const meta = document.createElement('div');
   meta.className = 'rec-meta';
   meta.appendChild(makeBadge(modeLabel, 'rec-badge-mode'));
+  meta.appendChild(makeBadge(resolveAsrModelName(r.asr_model), 'rec-badge-model'));
   meta.appendChild(makeBadge(durStr, 'rec-badge-dur'));
   if (isSuccess) meta.appendChild(makeBadge(t('history_status_success'), 'rec-badge-success'));
   else if (isFailed) meta.appendChild(makeBadge(t('history_status_failed'), 'rec-badge-failed'));
@@ -2068,10 +2284,10 @@ function buildRecItem(r) {
     item.appendChild(tx);
   } else if (isFailed) {
     var fail = document.createElement('div');
-    fail.className = 'rec-transcript';
+    fail.className = 'rec-transcript rec-transcript-error';
     var span = document.createElement('span');
-    span.className = 'rec-transcript-empty';
-    span.textContent = t('history_transcription_failed');
+    span.className = r.error ? '' : 'rec-transcript-empty';
+    span.textContent = r.error || t('history_transcription_failed');
     fail.appendChild(span);
     item.appendChild(fail);
   }
@@ -2118,15 +2334,33 @@ function formatDuration(secs) {
 
 function retryRec(id) {
   var rec = _recordings.find(function(r) { return r.id === id; });
-  if (rec) { rec.status = 'retrying'; renderHistory(); }
+  if (rec) {
+    rec.status = 'retrying';
+    rec.error = null;
+    renderHistory();
+  }
   postMsg({ action: 'retryTranscription', id: id });
 }
 
 function deleteRec(id) {
+  commitPendingDelete();
   stopPlayback();
+  const index = _recordings.findIndex(function(r) { return r.id === id; });
+  if (index === -1) return;
+  const rec = _recordings[index];
   _recordings = _recordings.filter(function(r) { return r.id !== id; });
+  _pendingDelete = {
+    rec: rec,
+    index: index,
+    timer: setTimeout(function() {
+      const pending = _pendingDelete;
+      if (!pending || pending.rec.id !== id) return;
+      _pendingDelete = null;
+      renderDeleteBanner();
+      postMsg({ action: 'deleteRecording', id: id });
+    }, 5000),
+  };
   renderHistory();
-  postMsg({ action: 'deleteRecording', id: id });
 }
 
 function copyRec(id) {
@@ -2164,20 +2398,37 @@ function stopPlayback() {
 
 function retryStarted(id) {
   const rec = _recordings.find(r => r.id === id);
-  if (rec) { rec.status = 'retrying'; renderHistory(); }
+  if (rec) {
+    rec.status = 'retrying';
+    rec.error = null;
+    renderHistory();
+  }
 }
 
 function retryCompleted(id, transcript) {
   const rec = _recordings.find(r => r.id === id);
-  if (rec) { rec.status = 'success'; rec.transcript = transcript; renderHistory(); }
+  if (rec) {
+    rec.status = 'success';
+    rec.transcript = transcript;
+    rec.error = null;
+    renderHistory();
+  }
 }
 
 function retryFailed(id, error) {
   const rec = _recordings.find(r => r.id === id);
-  if (rec) { rec.status = 'failed'; renderHistory(); }
+  if (rec) {
+    rec.status = 'failed';
+    rec.error = error || null;
+    renderHistory();
+  }
 }
 
 function recordingDeleted(id) {
+  if (_pendingDelete && _pendingDelete.rec.id === id) {
+    clearTimeout(_pendingDelete.timer);
+    _pendingDelete = null;
+  }
   _recordings = _recordings.filter(r => r.id !== id);
   renderHistory();
 }
@@ -2250,7 +2501,6 @@ function collectFormState() {
       model: document.getElementById('llm_model')?.value || 'qwen3.5-plus',
       temperature: parseFloat(document.getElementById('llm_temperature')?.value || '0.0'),
       enable_thinking: !!document.getElementById('llm_enable_thinking')?.checked,
-      polish_mode: document.getElementById('llm_polish_mode')?.value || 'smart',
       level: document.getElementById('llm_level')?.value || 'minimal',
       structured: !!document.getElementById('llm_structured')?.checked,
       tone: document.getElementById('llm_tone')?.value || 'neutral',

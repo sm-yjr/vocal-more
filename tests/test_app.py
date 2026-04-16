@@ -250,3 +250,49 @@ def test_build_menu_localizes_titles_when_ui_language_is_chinese(
     assert app._quick_enable_polish_item.title == "启用润色"
     assert app._settings_menu_item.title == "设置..."
     assert app._quit_menu_item.title == "退出 Vocal-More"
+
+
+def test_processing_state_updates_capsule_stage(tmp_path, monkeypatch):
+    """Entering processing should reset the capsule to the transcribing phase."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._state_item = SimpleNamespace(title="")
+    app._capsule = MagicMock()
+    app._get_icon_path = lambda _name: None
+
+    app._on_state_change(app_module.ModeState.PROCESSING)
+
+    assert app._state_item.title == "状态：处理中..."
+    app._capsule.update_state.assert_called_once_with("processing")
+    app._capsule.set_processing_stage.assert_called_once_with("transcribing")
+
+
+def test_processing_stage_callback_forwards_to_capsule(tmp_path, monkeypatch):
+    """Mode stage updates should be reflected by the floating capsule."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._capsule = MagicMock()
+
+    app._on_processing_stage("polishing")
+
+    app._capsule.set_processing_stage.assert_called_once_with("polishing")
