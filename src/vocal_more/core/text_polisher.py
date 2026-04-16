@@ -177,6 +177,7 @@ class TextPolisher:
         return should_polish_text(self.config.llm, original_text, normalized_text)
 
     def _call_generation(self, messages: list[dict], stream: bool = False):
+        dashscope.api_key = self.config.api_key or None
         info = get_llm_model_info(self.config.llm.model)
         api_name = info.get("api") if info else "generation"
         print(

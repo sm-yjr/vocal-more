@@ -282,6 +282,8 @@ def test_dispatch_set_config_empty_api_key_clears_polisher(handler):
     assert handler._text_polisher is None
     assert handler._walkie_talkie.text_polisher is None
     assert handler._realtime_long.text_polisher is None
+    handler._walkie_talkie._asr.refresh_api_key.assert_called_once()
+    handler._realtime_long._asr.refresh_api_key.assert_called_once()
 
 
 def test_dispatch_set_active_hotkeys_normalizes_values(handler):

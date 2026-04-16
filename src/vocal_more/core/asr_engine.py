@@ -39,6 +39,11 @@ INLINE_RESPONSE_TRANSCRIPT_TIMEOUT_SECONDS = 5.0
 WARM_SESSION_TTL_SECONDS = 15.0
 
 
+def _apply_dashscope_api_key(config=None) -> None:
+    config = config or get_config()
+    dashscope.api_key = config.api_key or None
+
+
 def _get_corpus_text() -> Optional[str]:
     config = get_config()
     if not config.asr.use_dictionary_corpus:
@@ -453,8 +458,7 @@ class BatchASREngine:
 
     def __init__(self):
         self.config = get_config()
-        if self.config.api_key:
-            dashscope.api_key = self.config.api_key
+        _apply_dashscope_api_key(self.config)
 
     def transcribe(self, audio_data: bytes, model_override: Optional[str] = None, language_override: Optional[str] = None) -> str:
         """Transcribe complete audio data.
@@ -462,6 +466,7 @@ class BatchASREngine:
         Routing is based on the selected model's catalog ``transport`` field
         rather than a separate backend string.
         """
+        _apply_dashscope_api_key(self.config)
         model = model_override or self.config.asr.model
         model_info = get_asr_model_info(model)
         transport = model_info["transport"] if model_info else self.config.asr.backend
@@ -1095,8 +1100,7 @@ class ASREngine:
         self._active_trace: Optional[ASRDebugTrace] = None
         self._trace_warm_reused = False
 
-        if self.config.api_key:
-            dashscope.api_key = self.config.api_key
+        _apply_dashscope_api_key(self.config)
 
     def _update_trace_audio_stats(
         self,
@@ -1197,6 +1201,7 @@ class ASREngine:
         if self._is_running:
             return
 
+        _apply_dashscope_api_key(self.config)
         self._session_model_id = self.config.asr.model
         model_info = get_asr_model_info(self._session_model_id)
         transport = model_info["transport"] if model_info else self.config.asr.backend
@@ -1238,6 +1243,16 @@ class ASREngine:
 
         # Connect + update session in background thread to avoid blocking hotkey
         threading.Thread(target=self._connect, daemon=True).start()
+
+    def refresh_api_key(self) -> None:
+        """Apply the latest API key and drop any idle warm session."""
+        _apply_dashscope_api_key(self.config)
+        if self._is_running:
+            return
+
+        self._cancel_warm_close()
+        stale = self._drop_conversation()
+        self._close_conversation(stale)
 
     def _connect(self) -> None:
         """Connect WebSocket with retry, then flush buffered chunks."""

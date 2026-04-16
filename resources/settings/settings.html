@@ -556,7 +556,7 @@ input[type="range"]:disabled {
       <div class="form-group">
         <div class="form-row">
           <span class="form-label" data-i18n="general_api_key_label">API Key</span>
-          <input type="password" id="api_key" placeholder="sk-..." spellcheck="false">
+          <input type="text" id="api_key" placeholder="sk-..." spellcheck="false" autocomplete="off" autocapitalize="off">
         </div>
         <div class="form-hint" data-i18n-html="general_api_key_hint_html">
           DashScope API key.
@@ -921,6 +921,8 @@ let _syncFormTimer = null;
 let _micTestState = 'idle';
 let _micTestAudio = null;
 let _micTestTimeout = null;
+let _apiKeyValue = '';
+let _apiKeyRevealed = false;
 
 const UI_TRANSLATIONS = {
   en: {
@@ -1177,6 +1179,28 @@ const UI_TRANSLATIONS = {
 
 function currentLanguage() {
   return (_config.ui && _config.ui.language) || 'zh';
+}
+
+function maskApiKey(value) {
+  const text = String(value || '');
+  if (!text) return '';
+
+  const prefix = text.length > 12 ? 6 : Math.min(4, Math.max(2, text.length - 2));
+  const suffix = text.length > 12 ? 4 : Math.min(2, Math.max(1, text.length - prefix));
+  const hidden = text.length - prefix - suffix;
+  if (hidden <= 0) return text;
+  return text.slice(0, prefix) + '•'.repeat(hidden) + text.slice(-suffix);
+}
+
+function setApiKeyValue(value) {
+  _apiKeyValue = String(value || '');
+  setNestedValue(_config, 'api_key', _apiKeyValue);
+}
+
+function renderApiKey() {
+  const el = document.getElementById('api_key');
+  if (!el) return;
+  el.value = _apiKeyRevealed ? _apiKeyValue : maskApiKey(_apiKeyValue);
 }
 
 function t(key) {
@@ -1465,7 +1489,8 @@ function loadDictionary(entries) {
    ══════════════════════════════════════════════════════════ */
 
 function renderGeneral() {
-  document.getElementById('api_key').value = _config.api_key || '';
+  setApiKeyValue(_config.api_key || '');
+  renderApiKey();
   document.getElementById('default_mode').value = _config.default_mode || 'realtime_long';
   document.getElementById('ui_language').value = (_config.ui && _config.ui.language) || 'zh';
   document.getElementById('auto_paste').checked = _config.auto_paste !== false;
@@ -1741,8 +1766,19 @@ function renderDictionary() {
    ══════════════════════════════════════════════════════════ */
 
 // ── General ──
-document.getElementById('api_key').addEventListener('change', function() {
-  setConfig('api_key', this.value);
+document.getElementById('api_key').addEventListener('focus', function() {
+  _apiKeyRevealed = true;
+  renderApiKey();
+  this.select();
+});
+document.getElementById('api_key').addEventListener('input', function() {
+  setApiKeyValue(this.value);
+  syncFormStateSoon();
+});
+document.getElementById('api_key').addEventListener('blur', function() {
+  _apiKeyRevealed = false;
+  setConfig('api_key', _apiKeyValue);
+  renderApiKey();
 });
 document.getElementById('default_mode').addEventListener('change', function() {
   setConfig('default_mode', this.value);
@@ -2190,7 +2226,7 @@ function collectFormState() {
   const asrModelInfo = _asrModels.find(m => m.id === selectedAsrModel);
 
   return {
-    api_key: document.getElementById('api_key')?.value || '',
+    api_key: _apiKeyValue || '',
     default_mode: document.getElementById('default_mode')?.value || 'realtime_long',
     auto_paste: !!document.getElementById('auto_paste')?.checked,
     enable_polish: !!document.getElementById('enable_polish')?.checked,

@@ -3,6 +3,7 @@
 import importlib
 import json
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import yaml
 
@@ -458,6 +459,31 @@ def test_legacy_realtime_asr_uses_transcription_params(tmp_path, monkeypatch):
     assert "input_audio_transcription_model" not in captured["update_kwargs"]
     assert captured["update_kwargs"]["transcription_params"].language == "zh"
     assert text == "hello"
+
+
+def test_refresh_api_key_drops_idle_warm_session(monkeypatch):
+    """Refreshing credentials should tear down any idle warm realtime session."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    engine = asr_engine.ASREngine()
+    conversation = MagicMock()
+    timer = MagicMock()
+
+    engine.config.api_key = "updated-key"
+    engine._conversation = conversation
+    engine._conversation_model_id = engine.config.asr.model
+    engine._session_ready = True
+    engine._warm_close_timer = timer
+    engine._is_running = False
+
+    engine.refresh_api_key()
+
+    assert asr_engine.dashscope.api_key == "updated-key"
+    timer.cancel.assert_called_once()
+    conversation.close.assert_called_once()
+    assert engine._conversation is None
+    assert engine._conversation_model_id is None
+    assert engine._session_ready is False
 
 
 def test_omni_inline_polish_uses_response_text_output(tmp_path, monkeypatch):

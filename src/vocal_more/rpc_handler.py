@@ -285,6 +285,9 @@ class RPCHandler:
         self._text_polisher = TextPolisher() if self.config.api_key else None
         for mode in self._modes.values():
             mode.text_polisher = self._text_polisher
+            asr = getattr(mode, "_asr", None)
+            if asr is not None and hasattr(asr, "refresh_api_key"):
+                asr.refresh_api_key()
 
     def _sync_audio_recorders(self) -> None:
         """Push the current audio config into all mode recorders."""

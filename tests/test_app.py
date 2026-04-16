@@ -4,7 +4,7 @@ import importlib
 import sys
 import types
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 
 def _install_rumps_stub(monkeypatch) -> None:
@@ -106,6 +106,39 @@ def test_settings_form_sync_updates_all_audio_processing_controls(
     app._hotkey_manager.set_active_hotkeys.assert_called_with(["f13"])
     app._select_mode.assert_called_with("realtime_long")
     app._refresh_text_polisher.assert_called_once()
+
+
+def test_refresh_text_polisher_updates_mode_asr_runtime(
+    tmp_path, monkeypatch
+):
+    """API key refresh should update text polishers and invalidate idle ASR sessions."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app.config.api_key = "updated-key"
+
+    asr_one = MagicMock()
+    asr_two = MagicMock()
+    app._walkie_talkie = SimpleNamespace(_asr=asr_one, text_polisher=None)
+    app._realtime_long = SimpleNamespace(_asr=asr_two, text_polisher=None)
+
+    with patch.object(app_module, "TextPolisher", return_value=object()) as polisher_cls:
+        app._refresh_text_polisher()
+
+    polisher_cls.assert_called_once()
+    assert app._walkie_talkie.text_polisher is app._text_polisher
+    assert app._realtime_long.text_polisher is app._text_polisher
+    asr_one.refresh_api_key.assert_called_once()
+    asr_two.refresh_api_key.assert_called_once()
 
 
 def test_build_menu_adds_quick_settings_and_marks_current_config(

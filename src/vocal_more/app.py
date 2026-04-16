@@ -364,6 +364,9 @@ class VocalMoreApp(rumps.App):
         self._text_polisher = TextPolisher() if self.config.api_key else None
         for mode in (self._walkie_talkie, self._realtime_long):
             mode.text_polisher = self._text_polisher
+            asr = getattr(mode, "_asr", None)
+            if asr is not None and hasattr(asr, "refresh_api_key"):
+                asr.refresh_api_key()
 
     def _on_settings_add_dict(self, term: str, aliases: list[str]) -> None:
         """Handle dictionary entry addition from settings window."""
