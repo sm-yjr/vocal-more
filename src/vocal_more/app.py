@@ -24,6 +24,7 @@ from .localization import t
 from .modes.base_mode import BaseMode, ModeState
 from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
+from .runtime_config import flatten_config_keys, should_refresh_asr_runtime
 from .ui.floating_capsule import FloatingCapsule
 from .ui.settings_window import SettingsWindow
 
@@ -308,17 +309,7 @@ class VocalMoreApp(rumps.App):
             print(f"[Settings] {exc}")
             return
 
-        if key == "api_key":
-            self._refresh_text_polisher()
-        elif key == "default_mode":
-            self._select_mode(self.config.default_mode)
-        elif key == "ui.language":
-            self._apply_interface_language()
-        elif key.startswith("audio."):
-            self._sync_audio_recorders()
-        elif key == "hotkey.custom_key":
-            self._hotkey_manager.set_custom_key(self.config.hotkey.custom_key)
-
+        self._apply_runtime_config_keys({key})
         self.config.save()
         self._refresh_quick_settings_menu()
         print(f"[Settings] Config updated: {key} = {value}")
@@ -326,13 +317,14 @@ class VocalMoreApp(rumps.App):
     def _on_settings_set_device(self, device: Optional[str]) -> None:
         """Handle device change from settings window."""
         self.config.apply_update("audio.input_device", device)
+        self._apply_runtime_config_keys({"audio.input_device"})
         self.config.save()
-        self._sync_audio_recorders()
         print(f"[Settings] Device set to: {device or 'System Default'}")
 
     def _on_settings_set_asr_model(self, model: str, backend: str) -> None:
         """Handle ASR model changes atomically so reopen shows the saved model."""
         self.config.apply_update("asr.model", model)
+        self._apply_runtime_config_keys({"asr.model"})
         self.config.save()
         self._refresh_quick_settings_menu()
         print(f"[Settings] ASR model set to: {self.config.asr.model} ({self.config.asr.backend})")
@@ -340,14 +332,7 @@ class VocalMoreApp(rumps.App):
     def _on_settings_sync_form_state(self, form_state: dict) -> None:
         """Persist the full form state when the settings window closes."""
         self.config.apply_form_state(form_state)
-
-        self._refresh_text_polisher()
-        self._select_mode(self.config.default_mode)
-        self._hotkey_manager.set_active_hotkeys(self.config.hotkey.active_hotkeys)
-        self._hotkey_manager.set_custom_key(self.config.hotkey.custom_key)
-        self._sync_audio_recorders()
-        self._apply_interface_language()
-
+        self._apply_runtime_config_keys(flatten_config_keys(form_state))
         self.config.save()
         self._refresh_quick_settings_menu()
 
@@ -356,8 +341,8 @@ class VocalMoreApp(rumps.App):
         if not hotkeys:
             return
         self.config.apply_update("hotkey.active_hotkeys", hotkeys)
+        self._apply_runtime_config_keys({"hotkey.active_hotkeys"})
         self.config.save()
-        self._hotkey_manager.set_active_hotkeys(self.config.hotkey.active_hotkeys)
         print(f"[Settings] Active hotkeys: {self.config.hotkey.active_hotkeys}")
 
     def _refresh_text_polisher(self) -> None:
@@ -369,6 +354,32 @@ class VocalMoreApp(rumps.App):
             asr = getattr(mode, "_asr", None)
             if asr is not None and hasattr(asr, "refresh_api_key"):
                 asr.refresh_api_key()
+
+    def _apply_runtime_config_keys(self, changed_keys: set[str]) -> None:
+        """Apply runtime side effects for config changes without restarting the app."""
+        if not changed_keys:
+            return
+
+        if "api_key" in changed_keys:
+            self._refresh_text_polisher()
+
+        if any(key.startswith("audio.") for key in changed_keys):
+            self._sync_audio_recorders()
+
+        if "hotkey.active_hotkeys" in changed_keys:
+            self._hotkey_manager.set_active_hotkeys(self.config.hotkey.active_hotkeys)
+
+        if "hotkey.custom_key" in changed_keys:
+            self._hotkey_manager.set_custom_key(self.config.hotkey.custom_key)
+
+        if "ui.language" in changed_keys:
+            self._apply_interface_language()
+
+        if "default_mode" in changed_keys:
+            self._select_default_mode_when_safe()
+
+        if should_refresh_asr_runtime(changed_keys):
+            self._refresh_mode_asr_runtime()
 
     def _on_settings_add_dict(self, term: str, aliases: list[str]) -> None:
         """Handle dictionary entry addition from settings window."""
@@ -416,6 +427,20 @@ class VocalMoreApp(rumps.App):
             self._current_mode = self._walkie_talkie
         elif mode_name == "realtime_long":
             self._current_mode = self._realtime_long
+
+    def _select_default_mode_when_safe(self) -> None:
+        """Apply the configured default mode without interrupting active recording."""
+        current_mode = getattr(self, "_current_mode", None)
+        if current_mode is not None and current_mode.state != ModeState.IDLE:
+            return
+        self._select_mode(self.config.default_mode)
+
+    def _refresh_mode_asr_runtime(self) -> None:
+        """Invalidate any idle ASR runtime state affected by config changes."""
+        for mode in (self._walkie_talkie, self._realtime_long):
+            asr = getattr(mode, "_asr", None)
+            if asr is not None and hasattr(asr, "refresh_runtime_config"):
+                asr.refresh_runtime_config(drop_idle_session=True)
 
     def _list_devices(self) -> list[dict]:
         """List available audio input devices."""
@@ -467,7 +492,7 @@ class VocalMoreApp(rumps.App):
             return
 
         self.config.apply_update("default_mode", mode_name)
-        self._select_mode(self.config.default_mode)
+        self._apply_runtime_config_keys({"default_mode"})
         self.config.save()
         self._refresh_quick_settings_menu()
         print(f"[Menu] Recording mode set to: {self.config.default_mode}")
@@ -478,6 +503,7 @@ class VocalMoreApp(rumps.App):
             return
 
         self.config.apply_update("asr.model", model_id)
+        self._apply_runtime_config_keys({"asr.model"})
         self.config.save()
         self._refresh_quick_settings_menu()
         print(f"[Menu] ASR model set to: {self.config.asr.model}")
@@ -485,6 +511,7 @@ class VocalMoreApp(rumps.App):
     def _on_quick_toggle_polish(self, _) -> None:
         """Toggle second-stage polishing from the status bar."""
         self.config.apply_update("enable_polish", not self.config.enable_polish)
+        self._apply_runtime_config_keys({"enable_polish"})
         self.config.save()
         self._refresh_quick_settings_menu()
         print(f"[Menu] Enable polish: {self.config.enable_polish}")
@@ -495,6 +522,7 @@ class VocalMoreApp(rumps.App):
             return
 
         self.config.apply_update("llm.level", level)
+        self._apply_runtime_config_keys({"llm.level"})
         self.config.save()
         self._refresh_quick_settings_menu()
         print(f"[Menu] Polish level set to: {self.config.llm.level}")
@@ -600,6 +628,8 @@ class VocalMoreApp(rumps.App):
         self._capsule.update_state(capsule_state)
         if state == ModeState.PROCESSING:
             self._capsule.set_processing_stage("transcribing")
+        elif state == ModeState.IDLE:
+            self._select_default_mode_when_safe()
 
     def _on_audio_level(self, rms: float) -> None:
         """Handle real-time audio level from recorder."""

@@ -486,6 +486,29 @@ def test_refresh_api_key_drops_idle_warm_session(monkeypatch):
     assert engine._session_ready is False
 
 
+def test_refresh_runtime_config_drops_idle_warm_session(monkeypatch):
+    """Session-sensitive config refresh should tear down any idle warm realtime session."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    engine = asr_engine.ASREngine()
+    conversation = MagicMock()
+    timer = MagicMock()
+
+    engine._conversation = conversation
+    engine._conversation_model_id = engine.config.asr.model
+    engine._session_ready = True
+    engine._warm_close_timer = timer
+    engine._is_running = False
+
+    engine.refresh_runtime_config(drop_idle_session=True)
+
+    timer.cancel.assert_called_once()
+    conversation.close.assert_called_once()
+    assert engine._conversation is None
+    assert engine._conversation_model_id is None
+    assert engine._session_ready is False
+
+
 def test_omni_inline_polish_uses_response_text_output(tmp_path, monkeypatch):
     """Omni inline polish should create a text response instead of returning raw transcription."""
     from vocal_more.config import Config, reload_config
@@ -1064,30 +1087,91 @@ def test_streaming_debug_trace_records_full_realtime_protocol(tmp_path, monkeypa
 
         def connect(self):
             self.callback.on_open()
-            self.callback.on_event({"type": "session.created"})
+            self.callback.on_event(
+                {
+                    "type": "session.created",
+                    "event_id": "evt-session-created",
+                    "session": {"id": "sess-123"},
+                }
+            )
 
         def update_session(self, **kwargs):
-            self.callback.on_event({"type": "session.updated"})
+            self.callback.on_event(
+                {
+                    "type": "session.updated",
+                    "event_id": "evt-session-updated",
+                    "session": {"id": "sess-123"},
+                }
+            )
 
         def append_audio(self, _audio):
             return None
 
         def commit(self):
-            self.callback.on_event({"type": "input_audio_buffer.committed"})
-            self.callback.on_event({"type": "conversation.item.created"})
+            self.callback.on_event(
+                {
+                    "type": "input_audio_buffer.committed",
+                    "event_id": "evt-committed",
+                }
+            )
+            self.callback.on_event(
+                {
+                    "type": "conversation.item.created",
+                    "event_id": "evt-item-created",
+                    "item": {"id": "item-user-123"},
+                }
+            )
             self.callback.on_event(
                 {
                     "type": "conversation.item.input_audio_transcription.completed",
+                    "event_id": "evt-transcript-done",
+                    "item_id": "item-user-123",
                     "transcript": "这个方案已经确认了",
                 }
             )
 
         def create_response(self, instructions=None, output_modalities=None):
-            self.callback.on_event({"type": "response.created"})
-            self.callback.on_event({"type": "response.output_item.added"})
-            self.callback.on_event({"type": "response.text.delta", "delta": "这个方案已经确认了。"})
-            self.callback.on_event({"type": "response.text.done"})
-            self.callback.on_event({"type": "response.done"})
+            response = {
+                "id": "resp-456",
+                "conversation_id": "conv-789",
+                "output": [{"id": "item-assistant-456"}],
+            }
+            self.callback.on_event(
+                {
+                    "type": "response.created",
+                    "event_id": "evt-response-created",
+                    "response": response,
+                }
+            )
+            self.callback.on_event(
+                {
+                    "type": "response.output_item.added",
+                    "event_id": "evt-output-added",
+                    "response": response,
+                }
+            )
+            self.callback.on_event(
+                {
+                    "type": "response.text.delta",
+                    "event_id": "evt-response-delta",
+                    "response": response,
+                    "delta": "这个方案已经确认了。",
+                }
+            )
+            self.callback.on_event(
+                {
+                    "type": "response.text.done",
+                    "event_id": "evt-response-text-done",
+                    "response": response,
+                }
+            )
+            self.callback.on_event(
+                {
+                    "type": "response.done",
+                    "event_id": "evt-response-done",
+                    "response": response,
+                }
+            )
 
         def close(self):
             self.callback.on_close(1000, "closed")
@@ -1112,6 +1196,14 @@ def test_streaming_debug_trace_records_full_realtime_protocol(tmp_path, monkeypa
     assert "response.output_item.added" in event_types
     assert "response.text.done" in event_types
     assert "response.done" in event_types
+    assert trace["session_id"] == "sess-123"
+    assert trace["conversation_id"] == "conv-789"
+    assert trace["input_item_id"] == "item-user-123"
+    assert trace["response_id"] == "resp-456"
+    assert trace["response_output_item_id"] == "item-assistant-456"
+    assert trace["server_event_ids"]["conversation.item.input_audio_transcription.completed"] == "evt-transcript-done"
+    assert trace["server_event_ids"]["response.created"] == "evt-response-created"
+    assert trace["server_event_ids"]["response.done"] == "evt-response-done"
 
 
 def test_streaming_omni_falls_back_to_offline_model_when_response_never_starts(

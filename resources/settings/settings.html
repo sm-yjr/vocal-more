@@ -992,6 +992,7 @@ let _apiKeyValue = '';
 let _apiKeyRevealed = false;
 let _pendingDelete = null;
 let _lastDeviceRefreshAt = 0;
+let _activeSliderIds = new Set();
 
 const AUDIO_PRESETS = {
   whisper: {
@@ -1522,6 +1523,42 @@ function syncFormStateSoon() {
   }, 0);
 }
 
+function beginSliderInteraction(id) {
+  _activeSliderIds.add(id);
+}
+
+function endSliderInteraction(id) {
+  _activeSliderIds.delete(id);
+}
+
+function isSliderActive(id) {
+  return _activeSliderIds.has(id);
+}
+
+function bindSlider(id, onInput, onChange) {
+  const el = document.getElementById(id);
+  if (!el) return;
+
+  const end = function() {
+    endSliderInteraction(id);
+  };
+
+  el.addEventListener('pointerdown', function() {
+    beginSliderInteraction(id);
+  });
+  el.addEventListener('input', function() {
+    beginSliderInteraction(id);
+    if (onInput) onInput.call(this);
+  });
+  el.addEventListener('change', function() {
+    if (onChange) onChange.call(this);
+    end();
+  });
+  el.addEventListener('blur', end);
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+}
+
 function renderAll() {
   applyTranslations();
   renderGeneral();
@@ -1677,21 +1714,30 @@ function renderAudio() {
   var gain = audio.gain != null ? audio.gain : 2.0;
   var db = Math.round(gainToDb(gain));
   var gainDbEl = document.getElementById('audio_gain_db');
-  gainDbEl.value = db;
-  document.getElementById('audio_gain_val').textContent = formatGainLabel(db);
+  var activeGain = isSliderActive('audio_gain_db');
+  if (!activeGain) {
+    gainDbEl.value = db;
+  }
+  document.getElementById('audio_gain_val').textContent = formatGainLabel(parseInt(gainDbEl.value));
 
   var ngEl = document.getElementById('audio_noise_gate');
   var ng = audio.noise_gate != null ? audio.noise_gate : 0;
-  ngEl.value = ng;
-  document.getElementById('audio_noise_gate_val').textContent = ng > 0 ? parseFloat(ng).toFixed(3) : t('audio_off');
+  var activeNoiseGate = isSliderActive('audio_noise_gate');
+  if (!activeNoiseGate) {
+    ngEl.value = ng;
+  }
+  var ngValue = parseFloat(ngEl.value);
+  document.getElementById('audio_noise_gate_val').textContent = ngValue > 0 ? ngValue.toFixed(3) : t('audio_off');
 
   var hpEl = document.getElementById('audio_highpass_filter');
   hpEl.checked = audio.highpass_filter !== false;
 
   var hpFreqEl = document.getElementById('audio_highpass_freq');
   var hpFreq = audio.highpass_freq != null ? audio.highpass_freq : 200;
-  hpFreqEl.value = hpFreq;
-  document.getElementById('audio_highpass_freq_val').textContent = hpFreq + ' Hz';
+  if (!isSliderActive('audio_highpass_freq')) {
+    hpFreqEl.value = hpFreq;
+  }
+  document.getElementById('audio_highpass_freq_val').textContent = hpFreqEl.value + ' Hz';
 
   var slEl = document.getElementById('audio_soft_limiter');
   slEl.checked = audio.soft_limiter !== false;
@@ -1784,8 +1830,11 @@ function renderPolish() {
     sel.appendChild(opt);
   });
 
-  document.getElementById('llm_temperature').value = llm.temperature != null ? llm.temperature : 0;
-  document.getElementById('llm_temperature_val').textContent = parseFloat(llm.temperature != null ? llm.temperature : 0).toFixed(1);
+  const temperatureEl = document.getElementById('llm_temperature');
+  if (!isSliderActive('llm_temperature')) {
+    temperatureEl.value = llm.temperature != null ? llm.temperature : 0;
+  }
+  document.getElementById('llm_temperature_val').textContent = parseFloat(temperatureEl.value).toFixed(1);
   document.getElementById('llm_enable_thinking').checked = !!llm.enable_thinking;
 
   // Update thinking availability
@@ -1880,7 +1929,9 @@ function renderShortcuts() {
 
   // Double-tap threshold
   const dtEl = document.getElementById('hotkey_double_tap');
-  dtEl.value = hotkey.double_tap_threshold != null ? hotkey.double_tap_threshold : 0.3;
+  if (!isSliderActive('hotkey_double_tap')) {
+    dtEl.value = hotkey.double_tap_threshold != null ? hotkey.double_tap_threshold : 0.3;
+  }
   document.getElementById('hotkey_double_tap_val').textContent = parseFloat(dtEl.value).toFixed(2) + 's';
 }
 
@@ -1964,26 +2015,23 @@ document.getElementById('audio_input_device').addEventListener('change', functio
   setNestedValue(_config, 'audio.input_device', this.value || null);
   syncFormStateSoon();
 });
-document.getElementById('audio_gain_db').addEventListener('input', function() {
+bindSlider('audio_gain_db', function() {
   document.getElementById('audio_gain_val').textContent = formatGainLabel(parseInt(this.value));
-});
-document.getElementById('audio_gain_db').addEventListener('change', function() {
+}, function() {
   setConfig('audio.gain', dbToGain(parseInt(this.value)));
 });
-document.getElementById('audio_noise_gate').addEventListener('input', function() {
+bindSlider('audio_noise_gate', function() {
   var v = parseFloat(this.value);
   document.getElementById('audio_noise_gate_val').textContent = v > 0 ? v.toFixed(3) : t('audio_off');
-});
-document.getElementById('audio_noise_gate').addEventListener('change', function() {
+}, function() {
   setConfig('audio.noise_gate', parseFloat(this.value));
 });
 document.getElementById('audio_highpass_filter').addEventListener('change', function() {
   setConfig('audio.highpass_filter', this.checked);
 });
-document.getElementById('audio_highpass_freq').addEventListener('input', function() {
+bindSlider('audio_highpass_freq', function() {
   document.getElementById('audio_highpass_freq_val').textContent = this.value + ' Hz';
-});
-document.getElementById('audio_highpass_freq').addEventListener('change', function() {
+}, function() {
   setConfig('audio.highpass_freq', parseInt(this.value));
 });
 document.getElementById('audio_soft_limiter').addEventListener('change', function() {
@@ -2023,10 +2071,9 @@ document.getElementById('llm_model').addEventListener('change', function() {
   setConfig('llm.model', this.value);
   updateThinkingAvailability();
 });
-document.getElementById('llm_temperature').addEventListener('input', function() {
+bindSlider('llm_temperature', function() {
   document.getElementById('llm_temperature_val').textContent = parseFloat(this.value).toFixed(1);
-});
-document.getElementById('llm_temperature').addEventListener('change', function() {
+}, function() {
   setConfig('llm.temperature', parseFloat(this.value));
 });
 document.getElementById('llm_enable_thinking').addEventListener('change', function() {
@@ -2034,10 +2081,9 @@ document.getElementById('llm_enable_thinking').addEventListener('change', functi
 });
 
 // ── Shortcuts ──
-document.getElementById('hotkey_double_tap').addEventListener('input', function() {
+bindSlider('hotkey_double_tap', function() {
   document.getElementById('hotkey_double_tap_val').textContent = parseFloat(this.value).toFixed(2) + 's';
-});
-document.getElementById('hotkey_double_tap').addEventListener('change', function() {
+}, function() {
   setConfig('hotkey.double_tap_threshold', parseFloat(this.value));
 });
 

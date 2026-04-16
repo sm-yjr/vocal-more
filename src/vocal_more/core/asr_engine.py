@@ -209,6 +209,12 @@ class ASRDebugTrace:
     audio_bytes: int
     audio_duration_ms: float
     corpus_text: Optional[str]
+    session_id: str = ""
+    conversation_id: str = ""
+    input_item_id: str = ""
+    response_id: str = ""
+    response_output_item_id: str = ""
+    server_event_ids: dict[str, str] = field(default_factory=dict)
     events: list[dict] = field(default_factory=list)
     partial_texts: list[str] = field(default_factory=list)
     final_transcripts: list[str] = field(default_factory=list)
@@ -228,6 +234,75 @@ def _event_time_ms(trace: ASRDebugTrace, event_type: str) -> Optional[float]:
         if event.get("type") == event_type:
             return event.get("t_ms")
     return None
+
+
+def _event_id_for(trace: ASRDebugTrace, event_type: str) -> str:
+    return trace.server_event_ids.get(event_type, "")
+
+
+def _update_trace_ids_from_response(
+    trace: Optional[ASRDebugTrace],
+    event_type: str,
+    response: dict,
+) -> dict:
+    """Extract server-side identifiers from a realtime event."""
+    payload: dict = {}
+    if trace is None:
+        return payload
+
+    event_id = response.get("event_id")
+    if event_id:
+        payload["event_id"] = event_id
+        trace.server_event_ids.setdefault(event_type, str(event_id))
+
+    session = response.get("session")
+    if isinstance(session, dict):
+        session_id = session.get("id")
+        if session_id:
+            trace.session_id = str(session_id)
+            payload.setdefault("session_id", trace.session_id)
+
+    response_obj = response.get("response")
+    if isinstance(response_obj, dict):
+        response_id = response_obj.get("id")
+        if response_id:
+            trace.response_id = str(response_id)
+            payload.setdefault("response_id", trace.response_id)
+
+        conversation_id = response_obj.get("conversation_id")
+        if conversation_id:
+            trace.conversation_id = str(conversation_id)
+            payload.setdefault("conversation_id", trace.conversation_id)
+
+        output_items = response_obj.get("output")
+        if isinstance(output_items, list):
+            for item in output_items:
+                if isinstance(item, dict) and item.get("id"):
+                    trace.response_output_item_id = str(item["id"])
+                    payload.setdefault(
+                        "response_output_item_id",
+                        trace.response_output_item_id,
+                    )
+                    break
+
+    if event_type == "conversation.item.created":
+        item = response.get("item")
+        if isinstance(item, dict):
+            item_id = item.get("id")
+            if item_id:
+                trace.input_item_id = str(item_id)
+                payload.setdefault("input_item_id", trace.input_item_id)
+
+    item_id = response.get("item_id")
+    if item_id:
+        trace.input_item_id = str(item_id)
+        payload.setdefault("input_item_id", trace.input_item_id)
+
+    output_index = response.get("output_index")
+    if output_index is not None:
+        payload["output_index"] = output_index
+
+    return payload
 
 
 def _build_trace_timings(trace: ASRDebugTrace) -> dict[str, Optional[float]]:
@@ -267,6 +342,31 @@ def _print_trace_summary(trace: ASRDebugTrace) -> None:
         f"source={trace.result_source or 'unknown'} warm={trace.warm_session_reused} "
         f"total_ms={total} ready_ms={ready} transcript_ms={transcript} "
         f"response_ms={response_done}"
+    )
+    print(
+        "[ASRIds] "
+        f"mode={trace.request_mode} model={trace.model} "
+        f"session_id={trace.session_id or '-'} "
+        f"conversation_id={trace.conversation_id or '-'} "
+        f"input_item_id={trace.input_item_id or '-'} "
+        f"response_id={trace.response_id or '-'} "
+        f"response_output_item_id={trace.response_output_item_id or '-'} "
+        f"transcript_event_id={_event_id_for(trace, 'conversation.item.input_audio_transcription.completed') or '-'} "
+        f"response_created_event_id={_event_id_for(trace, 'response.created') or '-'} "
+        f"response_done_event_id={_event_id_for(trace, 'response.done') or '-'}"
+    )
+
+
+def _format_trace_ids(trace: Optional[ASRDebugTrace]) -> str:
+    if trace is None:
+        return "session_id=- input_item_id=- response_id=- transcript_event_id=- response_created_event_id=- response_done_event_id=-"
+    return (
+        f"session_id={trace.session_id or '-'} "
+        f"input_item_id={trace.input_item_id or '-'} "
+        f"response_id={trace.response_id or '-'} "
+        f"transcript_event_id={_event_id_for(trace, 'conversation.item.input_audio_transcription.completed') or '-'} "
+        f"response_created_event_id={_event_id_for(trace, 'response.created') or '-'} "
+        f"response_done_event_id={_event_id_for(trace, 'response.done') or '-'}"
     )
 
 
@@ -342,12 +442,16 @@ class BatchASRCallback(OmniRealtimeCallback):
         try:
             event_type = response.get("type", "")
             print(f"[ASRCallback] Event: {event_type}")
-            self._record_event(event_type)
+            metadata = _update_trace_ids_from_response(
+                self._debug_trace,
+                event_type,
+                response,
+            )
+            self._record_event(event_type, **metadata)
 
             if event_type == "session.created":
                 session_id = response.get("session", {}).get("id", "unknown")
                 print(f"[ASRCallback] Session created: {session_id}")
-                self._record_event(event_type, session_id=session_id)
 
             elif event_type == "session.updated":
                 print("[ASRCallback] Session updated, ready to receive audio")
@@ -357,7 +461,7 @@ class BatchASRCallback(OmniRealtimeCallback):
                 text = response.get("text", "") or response.get("stash", "")
                 if text and self._debug_trace is not None:
                     self._debug_trace.partial_texts.append(text)
-                    self._record_event(event_type, text=text)
+                    self._record_event(event_type, **metadata, text=text)
                 if text and self._on_text:
                     self._on_text(text)
 
@@ -369,7 +473,7 @@ class BatchASRCallback(OmniRealtimeCallback):
                 self._transcription_completed.set()
                 if transcript and self._debug_trace is not None:
                     self._debug_trace.final_transcripts.append(transcript)
-                    self._record_event(event_type, transcript=transcript)
+                    self._record_event(event_type, **metadata, transcript=transcript)
                 if self._on_final:
                     self._on_final(transcript)
 
@@ -379,7 +483,7 @@ class BatchASRCallback(OmniRealtimeCallback):
                     self._response_started.set()
                     with self._lock:
                         self._response_text += delta
-                    self._record_event(event_type, delta=delta)
+                    self._record_event(event_type, **metadata, delta=delta)
 
             elif event_type == "response.created":
                 self._response_started.set()
@@ -400,12 +504,13 @@ class BatchASRCallback(OmniRealtimeCallback):
                     if self._debug_trace is not None:
                         self._debug_trace.final_transcripts.append(transcript)
                 self._session_finished.set()
+                self._record_event(event_type, **metadata, transcript=transcript)
 
             elif event_type == "error":
                 error_msg = response.get("error", {}).get("message", str(response))
                 print(f"[ASRCallback] Error: {error_msg}")
                 self._transcription_completed.set()
-                self._record_event(event_type, error=error_msg)
+                self._record_event(event_type, **metadata, error=error_msg)
                 if self._on_error:
                     self._on_error(error_msg)
 
@@ -554,12 +659,14 @@ class BatchASREngine:
         model: str,
         transcript_text: str,
         reason: str,
+        trace: Optional[ASRDebugTrace] = None,
     ) -> tuple[str, str]:
         fallback_model = _get_omni_offline_fallback_model(model)
         if fallback_model and audio_data:
             print(
                 "[BatchASR] Omni realtime response "
-                f"{reason}, falling back to {fallback_model}"
+                f"{reason}, falling back to {fallback_model} "
+                f"({_format_trace_ids(trace)})"
             )
             try:
                 return (
@@ -572,7 +679,8 @@ class BatchASREngine:
         if transcript_text and self.config.enable_polish:
             print(
                 "[BatchASR] Omni realtime response "
-                f"{reason}, falling back to second-stage text polish"
+                f"{reason}, falling back to second-stage text polish "
+                f"({_format_trace_ids(trace)})"
             )
             try:
                 polished = TextPolisher().polish(transcript_text)
@@ -694,6 +802,7 @@ class BatchASREngine:
                         model,
                         transcript_text,
                         fallback_reason,
+                        trace=trace,
                     )
             else:
                 if not callback.wait_for_transcription_complete(timeout=30.0):
@@ -960,9 +1069,18 @@ class StreamingASRCallback(OmniRealtimeCallback):
     def on_event(self, response):
         try:
             event_type = response.get("type", "")
-            self._record_event(event_type)
+            metadata = _update_trace_ids_from_response(
+                self._debug_trace,
+                event_type,
+                response,
+            )
+            self._record_event(event_type, **metadata)
 
-            if event_type == "session.updated":
+            if event_type == "session.created":
+                session_id = response.get("session", {}).get("id", "unknown")
+                print(f"[StreamingASR] Session created: {session_id}")
+
+            elif event_type == "session.updated":
                 print("[StreamingASR] Session updated, ready")
                 self._session_updated.set()
 
@@ -972,7 +1090,7 @@ class StreamingASRCallback(OmniRealtimeCallback):
                     self._on_partial(ASRResult(text=text, is_final=False))
                 if text and self._debug_trace is not None:
                     self._debug_trace.partial_texts.append(text)
-                    self._record_event(event_type, text=text)
+                    self._record_event(event_type, **metadata, text=text)
 
             elif event_type == "conversation.item.input_audio_transcription.completed":
                 transcript = response.get("transcript", "")
@@ -982,7 +1100,7 @@ class StreamingASRCallback(OmniRealtimeCallback):
                 self._transcription_completed.set()
                 if transcript and self._debug_trace is not None:
                     self._debug_trace.final_transcripts.append(transcript)
-                    self._record_event(event_type, transcript=transcript)
+                    self._record_event(event_type, **metadata, transcript=transcript)
                 if self._on_partial:
                     self._on_partial(ASRResult(text=accumulated, is_final=False))
                 if self._on_final:
@@ -995,7 +1113,7 @@ class StreamingASRCallback(OmniRealtimeCallback):
                     with self._lock:
                         self._response_text += delta
                         response_text = self._response_text
-                    self._record_event(event_type, delta=delta)
+                    self._record_event(event_type, **metadata, delta=delta)
                     if self._on_partial:
                         self._on_partial(ASRResult(text=response_text, is_final=False))
 
@@ -1017,12 +1135,12 @@ class StreamingASRCallback(OmniRealtimeCallback):
                     if self._debug_trace is not None:
                         self._debug_trace.final_transcripts.append(transcript)
                 self._complete_event.set()
-                self._record_event(event_type, transcript=transcript)
+                self._record_event(event_type, **metadata, transcript=transcript)
 
             elif event_type == "error":
                 error_msg = response.get("error", {}).get("message", str(response))
                 self._transcription_completed.set()
-                self._record_event(event_type, error=error_msg)
+                self._record_event(event_type, **metadata, error=error_msg)
                 if self._on_error:
                     self._on_error(error_msg)
 
@@ -1244,15 +1362,19 @@ class ASREngine:
         # Connect + update session in background thread to avoid blocking hotkey
         threading.Thread(target=self._connect, daemon=True).start()
 
-    def refresh_api_key(self) -> None:
-        """Apply the latest API key and drop any idle warm session."""
+    def refresh_runtime_config(self, drop_idle_session: bool = False) -> None:
+        """Apply current config and optionally drop any idle warm session."""
         _apply_dashscope_api_key(self.config)
-        if self._is_running:
+        if not drop_idle_session or self._is_running:
             return
 
         self._cancel_warm_close()
         stale = self._drop_conversation()
         self._close_conversation(stale)
+
+    def refresh_api_key(self) -> None:
+        """Apply the latest API key and drop any idle warm session."""
+        self.refresh_runtime_config(drop_idle_session=True)
 
     def _connect(self) -> None:
         """Connect WebSocket with retry, then flush buffered chunks."""
@@ -1468,6 +1590,7 @@ class ASREngine:
                         self._session_model_id,
                         transcript_result,
                         response_fallback_reason,
+                        trace=self._active_trace,
                     )
 
             if not is_omni:

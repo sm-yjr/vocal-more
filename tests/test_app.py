@@ -141,6 +141,116 @@ def test_refresh_text_polisher_updates_mode_asr_runtime(
     asr_two.refresh_api_key.assert_called_once()
 
 
+def test_settings_form_sync_refreshes_runtime_sensitive_config_without_restart(
+    tmp_path, monkeypatch
+):
+    """ASR/LLM/general settings should take effect in the running app immediately."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+
+    walkie_asr = MagicMock()
+    realtime_asr = MagicMock()
+    recorder_one = MagicMock()
+    recorder_two = MagicMock()
+    app._walkie_talkie = SimpleNamespace(
+        _asr=walkie_asr,
+        _recorder=recorder_one,
+        text_polisher=None,
+        state=app_module.ModeState.IDLE,
+    )
+    app._realtime_long = SimpleNamespace(
+        _asr=realtime_asr,
+        _recorder=recorder_two,
+        text_polisher=None,
+        state=app_module.ModeState.IDLE,
+    )
+    app._current_mode = app._realtime_long
+    app._hotkey_manager = MagicMock()
+    app._refresh_text_polisher = MagicMock()
+    app._apply_interface_language = MagicMock()
+    app._refresh_quick_settings_menu = MagicMock()
+
+    app._on_settings_sync_form_state(
+        {
+            "api_key": "updated-key",
+            "default_mode": "walkie_talkie",
+            "enable_polish": False,
+            "ui": {"language": "en"},
+            "audio": {"gain": 3.0},
+            "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "en"},
+            "llm": {"level": "strong"},
+            "hotkey": {
+                "active_hotkeys": ["f13"],
+                "custom_key": {
+                    "key_code": 105,
+                    "display_name": "F13",
+                    "is_modifier": False,
+                    "flag_mask": 0,
+                },
+            },
+        }
+    )
+
+    assert app._current_mode is app._walkie_talkie
+    app._refresh_text_polisher.assert_called_once()
+    app._apply_interface_language.assert_called_once()
+    app._hotkey_manager.set_active_hotkeys.assert_called_once_with(["f13"])
+    app._hotkey_manager.set_custom_key.assert_called_once_with(
+        {
+            "key_code": 105,
+            "display_name": "F13",
+            "is_modifier": False,
+            "flag_mask": 0,
+        }
+    )
+    recorder_one.set_gain.assert_called_with(3.0)
+    recorder_two.set_gain.assert_called_with(3.0)
+    walkie_asr.refresh_runtime_config.assert_called_once_with(drop_idle_session=True)
+    realtime_asr.refresh_runtime_config.assert_called_once_with(drop_idle_session=True)
+
+
+def test_default_mode_change_waits_until_idle_before_switching_runtime_mode(
+    tmp_path, monkeypatch
+):
+    """Changing default_mode should not replace the active mode mid-recording."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._realtime_long = SimpleNamespace(state=app_module.ModeState.RECORDING)
+    app._current_mode = app._realtime_long
+    app._refresh_quick_settings_menu = MagicMock()
+    app._apply_runtime_config_keys = app_module.VocalMoreApp._apply_runtime_config_keys.__get__(app, app_module.VocalMoreApp)
+
+    app._on_settings_config_change("default_mode", "walkie_talkie")
+
+    assert app._current_mode is app._realtime_long
+
+    app._realtime_long.state = app_module.ModeState.IDLE
+    app._select_default_mode_when_safe()
+
+    assert app._current_mode is app._walkie_talkie
+
+
 def test_build_menu_adds_quick_settings_and_marks_current_config(
     tmp_path, monkeypatch
 ):

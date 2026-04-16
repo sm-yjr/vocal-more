@@ -267,6 +267,32 @@ def test_dispatch_set_config_updates_audio_recorders(handler):
     handler._realtime_long._recorder.set_highpass_freq.assert_called_with(380)
 
 
+def test_dispatch_set_config_refreshes_idle_asr_runtime_for_asr_and_llm_changes(handler):
+    """Session-sensitive config changes should invalidate idle ASR runtime state."""
+    result = handler.dispatch("set_config", {"key": "asr.language", "value": "en"})
+
+    assert result["ok"] is True
+    handler._walkie_talkie._asr.refresh_runtime_config.assert_called_once_with(
+        drop_idle_session=True
+    )
+    handler._realtime_long._asr.refresh_runtime_config.assert_called_once_with(
+        drop_idle_session=True
+    )
+
+    handler._walkie_talkie._asr.refresh_runtime_config.reset_mock()
+    handler._realtime_long._asr.refresh_runtime_config.reset_mock()
+
+    result = handler.dispatch("set_config", {"key": "llm.level", "value": "strong"})
+
+    assert result["ok"] is True
+    handler._walkie_talkie._asr.refresh_runtime_config.assert_called_once_with(
+        drop_idle_session=True
+    )
+    handler._realtime_long._asr.refresh_runtime_config.assert_called_once_with(
+        drop_idle_session=True
+    )
+
+
 def test_dispatch_set_config_default_mode_switches_current_mode(handler):
     """Updating default_mode through set_config should switch the active mode."""
     result = handler.dispatch(
@@ -276,6 +302,24 @@ def test_dispatch_set_config_default_mode_switches_current_mode(handler):
     assert result["ok"] is True
     init_result = handler.dispatch("initialize", {})
     assert init_result["current_mode"] == "realtime_long"
+
+
+def test_dispatch_set_config_default_mode_waits_until_idle(handler):
+    """Changing default_mode should not interrupt an in-flight recording mode."""
+    handler._current_mode = handler._walkie_talkie
+    handler._walkie_talkie._state = handler._walkie_talkie.state.__class__.RECORDING
+
+    result = handler.dispatch(
+        "set_config", {"key": "default_mode", "value": "realtime_long"}
+    )
+
+    assert result["ok"] is True
+    assert handler._current_mode is handler._walkie_talkie
+
+    handler._walkie_talkie._state = handler._walkie_talkie.state.__class__.IDLE
+    handler._select_default_mode_when_safe()
+
+    assert handler._current_mode is handler._realtime_long
 
 
 def test_dispatch_set_config_empty_api_key_clears_polisher(handler):

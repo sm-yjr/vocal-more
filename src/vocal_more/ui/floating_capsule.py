@@ -19,6 +19,7 @@ from Foundation import NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer, NSURL
 from WebKit import WKUserContentController, WKWebView, WKWebViewConfiguration
 
 from ..localization import normalize_ui_language
+from .webview_bridge import objc_to_python
 
 # NSWindow level constants
 NSScreenSaverWindowLevel = 1000
@@ -26,7 +27,6 @@ NSScreenSaverWindowLevel = 1000
 NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
 NSWindowCollectionBehaviorFullScreenAuxiliary = 1 << 8
 NSWindowCollectionBehaviorStationary = 1 << 4
-
 
 class _MessageHandler(NSObject):
     """WKScriptMessageHandler to receive messages from JS."""
@@ -39,7 +39,7 @@ class _MessageHandler(NSObject):
         return self
 
     def userContentController_didReceiveScriptMessage_(self, controller, message):
-        body = message.body()
+        body = objc_to_python(message.body())
         if isinstance(body, dict):
             action = body.get("action")
             if action == "cancel" and "cancel" in self._callbacks:

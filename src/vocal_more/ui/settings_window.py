@@ -32,6 +32,7 @@ from WebKit import (
 )
 
 from ..localization import normalize_ui_language, t
+from .webview_bridge import objc_to_python
 
 # WKUserScriptInjectionTime
 WKUserScriptInjectionTimeAtDocumentStart = 0
@@ -49,35 +50,6 @@ def _handler_bases():
         return {"protocols": [_WKScriptMessageHandler]}
     return {}
 
-
-def _objc_to_python(obj):
-    # WebKit delivers JS objects as NSDictionary and JS arrays as NSArray.
-    # Neither is a dict/list subclass, so shallow dict(body) leaves nested
-    # ObjC collections that later crash yaml.dump with "Cannot pickle
-    # Objective-C objects". Recursively rebuild as native Python types.
-    if obj is None:
-        return None
-    if isinstance(obj, bool):
-        return bool(obj)
-    if isinstance(obj, int):
-        return int(obj)
-    if isinstance(obj, float):
-        return float(obj)
-    if isinstance(obj, str):
-        return str(obj)
-    if isinstance(obj, bytes):
-        return bytes(obj)
-    if hasattr(obj, "items"):
-        try:
-            return {str(k): _objc_to_python(v) for k, v in obj.items()}
-        except Exception:
-            pass
-    try:
-        return [_objc_to_python(v) for v in obj]
-    except TypeError:
-        return obj
-
-
 class _SettingsMessageHandler(NSObject, **_handler_bases()):
     """WKScriptMessageHandler to receive messages from settings JS."""
 
@@ -90,7 +62,7 @@ class _SettingsMessageHandler(NSObject, **_handler_bases()):
 
     def userContentController_didReceiveScriptMessage_(self, controller, message):
         try:
-            body = _objc_to_python(message.body())
+            body = objc_to_python(message.body())
             if isinstance(body, dict) and self._callback:
                 self._callback(body)
         except Exception:
