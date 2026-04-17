@@ -1,10 +1,13 @@
 """Compatibility checks and repairs for persisted user data."""
 
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 import yaml
+
+from .yaml_compat import safe_load_compat
 
 
 @dataclass
@@ -16,6 +19,20 @@ class CompatibilityRepairResult:
     changed: bool = False
     details: list[str] = field(default_factory=list)
     error: str = ""
+    backup_path: str = ""
+
+
+def _backup_yaml_file(path: Path, reason: str) -> Path | None:
+    """Preserve the original persisted file before rewriting or overwriting it."""
+    if not path.exists():
+        return None
+
+    backup_path = path.with_name(f"{path.name}.{reason}.bak")
+    if backup_path.exists():
+        return backup_path
+
+    shutil.copy2(path, backup_path)
+    return backup_path
 
 
 def _repair_yaml_file(
@@ -31,17 +48,39 @@ def _repair_yaml_file(
 
     try:
         with open(path, encoding="utf-8") as f:
-            raw_data = yaml.safe_load(f) or {}
+            raw_data = safe_load_compat(f) or {}
     except Exception as exc:
+        backup_path = _backup_yaml_file(path, f"{target}-load-failed")
+        if backup_path is not None:
+            result.backup_path = str(backup_path)
+            result.details.append("backup_created")
+            print(f"[Compatibility] Preserved unreadable {target} file at {backup_path}")
         result.error = str(exc)
         print(f"[Compatibility] Failed to load {target} file {path}: {exc}")
         return result
 
-    normalized_data = normalize_data(raw_data)
+    try:
+        normalized_data = normalize_data(raw_data)
+    except Exception as exc:
+        backup_path = _backup_yaml_file(path, f"{target}-normalize-failed")
+        if backup_path is not None:
+            result.backup_path = str(backup_path)
+            result.details.append("backup_created")
+            print(
+                f"[Compatibility] Preserved unnormalized {target} file at {backup_path}"
+            )
+        result.error = str(exc)
+        print(f"[Compatibility] Failed to normalize {target} file {path}: {exc}")
+        return result
+
     if raw_data == normalized_data:
         return result
 
     try:
+        backup_path = _backup_yaml_file(path, f"{target}-pre-repair")
+        if backup_path is not None:
+            result.backup_path = str(backup_path)
+            result.details.append("backup_created")
         write_data(normalized_data)
     except Exception as exc:
         result.error = str(exc)

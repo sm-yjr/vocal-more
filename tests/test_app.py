@@ -58,6 +58,7 @@ def test_settings_form_sync_updates_all_audio_processing_controls(
 
     app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
     app.config = Config()
+    app.config.apply_update("ui.language", "en")
 
     recorder_one = MagicMock()
     recorder_two = MagicMock()
@@ -232,6 +233,7 @@ def test_default_mode_change_waits_until_idle_before_switching_runtime_mode(
 
     app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
     app.config = Config()
+    app.config.apply_update("ui.language", "en")
     app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.IDLE)
     app._realtime_long = SimpleNamespace(state=app_module.ModeState.RECORDING)
     app._current_mode = app._realtime_long
@@ -276,11 +278,14 @@ def test_build_menu_adds_quick_settings_and_marks_current_config(
 
     app._build_menu()
 
-    assert [item.title for item in app.menu if item][2] == "Quick Settings"
-    assert app._quick_mode_item.title == "Recording Mode: Real-time Long (Toggle)"
-    assert app._quick_asr_model_item.title == "ASR Model: Pro"
+    titles = [item.title for item in app.menu if item]
+    assert "Environment: Pending" in titles
+    assert "Recording Mode: Real-time Long (Toggle)" in titles
+    assert "ASR Model: Pro" in titles
+    assert "Enable Polishing" in titles
+    assert "Polish Strength: Strong" in titles
+    assert "Export Diagnostics…" in titles
     assert app._quick_enable_polish_item.state == 0
-    assert app._quick_polish_level_item.title == "Polish Strength: Strong"
     assert app._mode_menu_items["realtime_long"].state == 1
     assert app._asr_model_menu_items["qwen3.5-omni-plus"].state == 1
     assert app._polish_level_menu_items["strong"].state == 1
@@ -351,12 +356,59 @@ def test_build_menu_localizes_titles_when_ui_language_is_chinese(
 
     app._build_menu()
 
-    assert [item.title for item in app.menu if item][2] == "快捷设置"
+    titles = [item.title for item in app.menu if item]
+    assert "环境：待检查" in titles
+    assert "录音模式：实时长录（切换）" in titles
+    assert "识别模型：Lite Fast" in titles
+    assert "启用润色" in titles
+    assert "润色强度：轻度" in titles
+    assert "导出诊断包…" in titles
     assert app._state_item.title == "状态：空闲"
-    assert app._quick_mode_item.title == "录音模式：实时长录（切换）"
     assert app._quick_enable_polish_item.title == "启用润色"
-    assert app._settings_menu_item.title == "设置..."
+    assert app._settings_menu_item.title == "更多设置..."
     assert app._quit_menu_item.title == "退出 Vocal-More"
+
+
+def test_refresh_environment_status_updates_menu_titles(
+    tmp_path, monkeypatch
+):
+    """Environment submenu should reflect the latest runtime checks."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app.config.apply_update("ui.language", "en")
+    app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._realtime_long = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._current_mode = app._realtime_long
+    app._hotkey_listener_ready = False
+
+    monkeypatch.setattr(
+        app_module,
+        "run_environment_checks",
+        lambda config, hotkey_listener_ready=None: [
+            SimpleNamespace(key="api_key", status="ok"),
+            SimpleNamespace(key="accessibility", status="error"),
+            SimpleNamespace(key="input_device", status="ok"),
+            SimpleNamespace(key="hotkey_listener", status="error"),
+        ],
+    )
+
+    app._build_menu()
+    app._refresh_environment_status()
+
+    assert app._environment_item.title == "Environment: Needs Attention"
+    assert app._environment_check_items["api_key"].title == "API Key: Configured"
+    assert app._environment_check_items["accessibility"].title == "Accessibility: Missing"
+    assert app._environment_check_items["hotkey_listener"].title == "Hotkey Listener: Failed"
 
 
 def test_processing_state_updates_capsule_stage(tmp_path, monkeypatch):

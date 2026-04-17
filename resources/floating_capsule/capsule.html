@@ -82,9 +82,9 @@ body {
 
 .waveform .bar {
   width: 2px;
-  min-height: 3px;
-  max-height: 18px;
-  height: 3px;
+  min-height: 2px;
+  max-height: 20px;
+  height: 2px;
   background: rgba(255, 255, 255, 0.9);
   border-radius: 1px;
   /* No CSS transition — JS rAF handles smooth animation */
@@ -242,6 +242,12 @@ for (let i = 0; i < NUM_BARS; i++) {
 const bars = waveform.querySelectorAll('.bar');
 let currentState = 'hidden';
 let currentMode = 'pushToTalk';
+const WAVEFORM_BASE_HEIGHT = 2;
+const WAVEFORM_HEIGHT_RANGE = 18;
+const WAVEFORM_NOISE_FLOOR = 0.006;
+const WAVEFORM_INPUT_RANGE = 0.07;
+const WAVEFORM_ATTACK = 0.42;
+const WAVEFORM_RELEASE = 0.14;
 
 // Smoothed levels per bar
 const smoothedLevels = new Array(NUM_BARS).fill(0);
@@ -260,6 +266,13 @@ for (let i = 0; i < NUM_BARS; i++) {
 
 setInterfaceLanguage('en');
 
+function waveformDisplayLevel(rms) {
+  const gated = Math.max(0, rms - WAVEFORM_NOISE_FLOOR);
+  const normalized = Math.min(1.0, gated / WAVEFORM_INPUT_RANGE);
+  // Keep whisper-level input visible, but let stronger syllables open up much more.
+  return Math.min(1.0, normalized * (0.55 + normalized * 0.7));
+}
+
 // requestAnimationFrame render loop — 60fps smooth animation
 function renderWaveform() {
   if (currentState !== 'recording') {
@@ -267,20 +280,26 @@ function renderWaveform() {
     return;
   }
 
-  const normalized = Math.min(1.0, latestRms / 0.12);
+  const displayLevel = waveformDisplayLevel(latestRms);
 
   for (let i = 0; i < NUM_BARS; i++) {
-    const randomFactor = 0.7 + Math.random() * 0.3;
-    const targetLevel = normalized * bellFactors[i] * randomFactor;
+    const contourFactor = 0.82 + bellFactors[i] * 0.36;
+    const randomFactor = 0.62 + Math.random() * (0.18 + displayLevel * 0.4);
+    const targetLevel = Math.min(
+      1.0,
+      displayLevel * bellFactors[i] * contourFactor * randomFactor
+    );
 
     // Smooth: rise fast, fall slow
     if (targetLevel > smoothedLevels[i]) {
-      smoothedLevels[i] += (targetLevel - smoothedLevels[i]) * 0.35;
+      smoothedLevels[i] += (targetLevel - smoothedLevels[i]) * WAVEFORM_ATTACK;
     } else {
-      smoothedLevels[i] += (targetLevel - smoothedLevels[i]) * 0.08;
+      smoothedLevels[i] += (targetLevel - smoothedLevels[i]) * WAVEFORM_RELEASE;
     }
 
-    bars[i].style.height = (3 + smoothedLevels[i] * 15) + 'px';
+    bars[i].style.height = (
+      WAVEFORM_BASE_HEIGHT + smoothedLevels[i] * WAVEFORM_HEIGHT_RANGE
+    ) + 'px';
   }
 
   rafId = requestAnimationFrame(renderWaveform);
@@ -349,7 +368,7 @@ function updateState(state) {
   if (state === 'recording') {
     stopProgress();
     latestRms = 0;
-    bars.forEach(bar => { bar.style.height = '3px'; });
+    bars.forEach(bar => { bar.style.height = WAVEFORM_BASE_HEIGHT + 'px'; });
     smoothedLevels.fill(0);
     startRaf();
   } else if (state === 'processing') {

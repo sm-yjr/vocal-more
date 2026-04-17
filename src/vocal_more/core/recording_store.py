@@ -174,6 +174,10 @@ class RecordingStore:
                     return rec.get("language", "zh")
         return "zh"
 
+    def get_recording_path(self, recording_id: str) -> Optional[Path]:
+        """Return the WAV path for a recording if it exists in the index."""
+        return self._find_wav(recording_id)
+
     def delete(self, recording_id: str) -> bool:
         """Delete a recording's WAV file and index entry."""
         with self._lock:

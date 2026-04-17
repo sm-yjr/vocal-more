@@ -19,7 +19,9 @@ from .core.audio_recorder import AudioRecorder
 from .core.hotkey_manager import HotkeyManager
 from .core.recording_store import RecordingStore
 from .core.text_polisher import TextPolisher
+from .diagnostics import ensure_runtime_debug_dir_env, export_support_bundle
 from .dictionary import get_dictionary, reload_dictionary
+from .environment_check import run_environment_checks
 from .localization import t
 from .modes.base_mode import BaseMode, ModeState
 from .modes.realtime_long import RealtimeLongMode
@@ -56,16 +58,8 @@ class VocalMoreApp(rumps.App):
         )
 
         self.config = get_config()
-
-        # Check API key
-        error = self.config.ensure_api_key()
-        if error:
-            rumps.notification(
-                "Vocal-More",
-                self._t("notification_configuration_error_title"),
-                error,
-                icon=self._get_logo_path(),
-            )
+        self._hotkey_listener_ready: Optional[bool] = None
+        self._environment_checks = []
 
         # Initialize components
         self._text_polisher: Optional[TextPolisher] = None
@@ -135,6 +129,7 @@ class VocalMoreApp(rumps.App):
 
         # Build menu
         self._build_menu()
+        self._refresh_environment_status()
 
     # ── Resource paths ────────────────────────────────────────
 
@@ -172,18 +167,19 @@ class VocalMoreApp(rumps.App):
                 update_frontend=update_frontend,
             )
 
-        if hasattr(self, "_quick_settings_item"):
+        if hasattr(self, "_quick_mode_item"):
             self._refresh_menu_localization()
 
     def _refresh_menu_localization(self) -> None:
         """Refresh localized menu strings without rebuilding menu objects."""
         self._state_item.title = self._state_title_for_state(self._current_mode.state)
-        self._quick_settings_item.title = self._t("menu_quick_settings")
+        self._environment_item.title = self._t("menu_environment")
+        self._export_diagnostics_item.title = self._t("menu_export_diagnostics")
         self._quick_mode_item.title = self._t("menu_recording_mode")
         self._quick_asr_model_item.title = self._t("menu_asr_model")
         self._quick_enable_polish_item.title = self._t("menu_enable_polishing")
         self._quick_polish_level_item.title = self._t("menu_polish_strength")
-        self._settings_menu_item.title = self._t("menu_settings")
+        self._settings_menu_item.title = self._t("menu_more_settings")
         self._quit_menu_item.title = self._t("menu_quit")
 
         for mode_name, item in self._mode_menu_items.items():
@@ -192,6 +188,7 @@ class VocalMoreApp(rumps.App):
             item.title = self._polish_level_display_name(level)
 
         self._refresh_quick_settings_menu()
+        self._refresh_environment_menu()
 
     def _state_title_for_state(self, state: ModeState) -> str:
         return {
@@ -208,9 +205,14 @@ class VocalMoreApp(rumps.App):
         self._state_item = rumps.MenuItem(self._state_title_for_state(ModeState.IDLE))
         self._state_item.set_callback(None)
 
-        self._quick_settings_item = self._build_quick_settings_item()
+        self._environment_item = self._build_environment_item()
+        quick_items = self._build_quick_settings_items()
+        self._export_diagnostics_item = rumps.MenuItem(
+            self._t("menu_export_diagnostics"),
+            callback=self._export_diagnostics,
+        )
         self._settings_menu_item = rumps.MenuItem(
-            self._t("menu_settings"),
+            self._t("menu_more_settings"),
             callback=self._open_settings,
         )
         self._quit_menu_item = rumps.MenuItem(
@@ -221,18 +223,20 @@ class VocalMoreApp(rumps.App):
         self.menu = [
             self._status_item,
             self._state_item,
+            self._environment_item,
             None,
-            self._quick_settings_item,
+            *quick_items,
+            None,
+            self._export_diagnostics_item,
             self._settings_menu_item,
             None,
             self._quit_menu_item,
         ]
         self._refresh_quick_settings_menu()
+        self._refresh_environment_menu()
 
-    def _build_quick_settings_item(self) -> rumps.MenuItem:
-        """Build the status-bar quick settings submenu."""
-        quick_settings = rumps.MenuItem(self._t("menu_quick_settings"))
-
+    def _build_quick_settings_items(self) -> list[rumps.MenuItem]:
+        """Build the primary menu items for common settings."""
         self._quick_mode_item = rumps.MenuItem(self._t("menu_recording_mode"))
         self._mode_menu_items: dict[str, rumps.MenuItem] = {}
         for mode_name, _ in MODE_MENU_OPTIONS:
@@ -242,7 +246,6 @@ class VocalMoreApp(rumps.App):
             )
             self._mode_menu_items[mode_name] = item
             self._quick_mode_item.add(item)
-        quick_settings.add(self._quick_mode_item)
 
         self._quick_asr_model_item = rumps.MenuItem(self._t("menu_asr_model"))
         self._asr_model_menu_items: dict[str, rumps.MenuItem] = {}
@@ -257,13 +260,11 @@ class VocalMoreApp(rumps.App):
             )
             self._asr_model_menu_items[entry["id"]] = item
             self._quick_asr_model_item.add(item)
-        quick_settings.add(self._quick_asr_model_item)
 
         self._quick_enable_polish_item = rumps.MenuItem(
             self._t("menu_enable_polishing"),
             callback=self._on_quick_toggle_polish,
         )
-        quick_settings.add(self._quick_enable_polish_item)
 
         self._quick_polish_level_item = rumps.MenuItem(self._t("menu_polish_strength"))
         self._polish_level_menu_items: dict[str, rumps.MenuItem] = {}
@@ -274,9 +275,28 @@ class VocalMoreApp(rumps.App):
             )
             self._polish_level_menu_items[level] = item
             self._quick_polish_level_item.add(item)
-        quick_settings.add(self._quick_polish_level_item)
+        return [
+            self._quick_mode_item,
+            self._quick_asr_model_item,
+            self._quick_enable_polish_item,
+            self._quick_polish_level_item,
+        ]
 
-        return quick_settings
+    def _build_environment_item(self) -> rumps.MenuItem:
+        """Build the environment check submenu."""
+        environment = rumps.MenuItem(self._t("menu_environment"))
+        self._environment_check_items: dict[str, rumps.MenuItem] = {}
+        for key in ("api_key", "accessibility", "input_device", "hotkey_listener"):
+            item = rumps.MenuItem("")
+            item.set_callback(None)
+            self._environment_check_items[key] = item
+            environment.add(item)
+        self._environment_refresh_item = rumps.MenuItem(
+            self._t("menu_run_environment_check"),
+            callback=self._rerun_environment_check,
+        )
+        environment.add(self._environment_refresh_item)
+        return environment
 
     def _open_settings(self, _) -> None:
         """Open the settings window."""
@@ -381,6 +401,9 @@ class VocalMoreApp(rumps.App):
         if should_refresh_asr_runtime(changed_keys):
             self._refresh_mode_asr_runtime()
 
+        if "api_key" in changed_keys or any(key.startswith("audio.") for key in changed_keys):
+            self._refresh_environment_status()
+
     def _on_settings_add_dict(self, term: str, aliases: list[str]) -> None:
         """Handle dictionary entry addition from settings window."""
         get_dictionary().add_entry(term, aliases)
@@ -398,6 +421,7 @@ class VocalMoreApp(rumps.App):
         """Handle device refresh request from settings window."""
         devices = self._list_devices()
         self._settings_window.update_devices(devices)
+        self._refresh_environment_status()
 
     def _on_settings_open_config(self) -> None:
         """Open config file in default editor."""
@@ -476,6 +500,107 @@ class VocalMoreApp(rumps.App):
         )
         for level, item in self._polish_level_menu_items.items():
             item.state = MENU_STATE_ON if level == self.config.llm.level else MENU_STATE_OFF
+
+    def _environment_check_label(self, key: str) -> str:
+        return self._t(f"environment_check_{key}")
+
+    def _environment_check_value(self, key: str, status: str) -> str:
+        if status == "unknown":
+            return self._t("environment_status_unknown")
+        return self._t(f"environment_value_{key}_{status}")
+
+    def _refresh_environment_status(self, show_notification: bool = False) -> None:
+        """Re-run environment checks and update the menu."""
+        self._environment_checks = run_environment_checks(
+            self.config,
+            hotkey_listener_ready=getattr(self, "_hotkey_listener_ready", None),
+        )
+        self._refresh_environment_menu()
+
+        if not show_notification:
+            return
+
+        problems = [
+            self._environment_check_label(check.key)
+            for check in self._environment_checks
+            if check.status == "error"
+        ]
+        if not problems:
+            return
+        try:
+            rumps.notification(
+                "Vocal-More",
+                self._t("notification_environment_attention_title"),
+                self._t(
+                    "notification_environment_attention_body",
+                    items="、".join(problems),
+                ),
+                icon=self._get_logo_path(),
+            )
+        except RuntimeError:
+            print(f"[Environment] Issues: {', '.join(problems)}")
+
+    def _refresh_environment_menu(self) -> None:
+        """Sync the environment submenu with the latest check results."""
+        if not hasattr(self, "_environment_item"):
+            return
+
+        checks = list(getattr(self, "_environment_checks", []))
+
+        if any(check.status == "error" for check in checks):
+            summary = self._t("environment_status_error")
+        elif checks and all(check.status == "ok" for check in checks):
+            summary = self._t("environment_status_ok")
+        else:
+            summary = self._t("environment_status_unknown")
+
+        self._environment_item.title = self._t("menu_environment_title", value=summary)
+        self._environment_refresh_item.title = self._t("menu_run_environment_check")
+
+        for check in checks:
+            item = self._environment_check_items.get(check.key)
+            if item is None:
+                continue
+            item.title = self._t(
+                "environment_check_title",
+                name=self._environment_check_label(check.key),
+                value=self._environment_check_value(check.key, check.status),
+            )
+            item.state = MENU_STATE_ON if check.status == "ok" else MENU_STATE_OFF
+
+    def _rerun_environment_check(self, _) -> None:
+        """Refresh menu-visible environment checks on demand."""
+        self._refresh_environment_status(show_notification=True)
+
+    def _export_diagnostics(self, _) -> None:
+        """Export a support bundle with recent traces and environment state."""
+        try:
+            bundle_path = export_support_bundle(
+                config=self.config,
+                recording_store=self._recording_store,
+                environment_checks=self._environment_checks,
+                app_version=__version__,
+            )
+            subprocess.run(["open", "-R", str(bundle_path)], check=False)
+            rumps.notification(
+                "Vocal-More",
+                self._t("notification_diagnostics_exported_title"),
+                self._t(
+                    "notification_diagnostics_exported_body",
+                    path=str(bundle_path),
+                ),
+                icon=self._get_logo_path(),
+            )
+        except Exception as exc:
+            try:
+                rumps.notification(
+                    "Vocal-More",
+                    self._t("notification_diagnostics_export_failed_title"),
+                    str(exc),
+                    icon=self._get_logo_path(),
+                )
+            except RuntimeError:
+                print(f"[Diagnostics] Export failed: {exc}")
 
     def _on_quick_set_mode(self, mode_name: str) -> None:
         """Switch the default recording mode from the status bar."""
@@ -684,19 +809,15 @@ class VocalMoreApp(rumps.App):
 
     def run(self) -> None:
         """Run the application."""
-        if not self._hotkey_manager.start():
-            rumps.notification(
-                "Vocal-More",
-                self._t("notification_permissions_required_title"),
-                self._t("notification_permissions_required_body"),
-                icon=self._get_logo_path(),
-            )
+        self._hotkey_listener_ready = self._hotkey_manager.start()
+        self._refresh_environment_status(show_notification=True)
         super().run()
 
 
 def main() -> None:
     """Main entry point."""
     _ensure_no_proxy("dashscope.aliyuncs.com")
+    ensure_runtime_debug_dir_env()
     app = VocalMoreApp()
     app.run()
 

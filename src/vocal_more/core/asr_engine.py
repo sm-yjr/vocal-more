@@ -26,14 +26,12 @@ from ..dictionary import build_asr_corpus_text, normalize_terms
 from .text_polisher import (
     TextPolisher,
     build_omni_inline_polish_instructions,
-    should_polish_text,
 )
 
 REALTIME_CHUNK_SIZE = 3200
 # The current public docs list qwen3-asr-flash as supporting audio up to 3 minutes / 10 MB.
 SHORT_FILE_MAX_DURATION_SECONDS = 180
 SHORT_FILE_MAX_BYTES = 10 * 1024 * 1024
-INLINE_POLISH_DECISION_TIMEOUT_SECONDS = 0.2
 INLINE_RESPONSE_START_TIMEOUT_SECONDS = 3.0
 INLINE_RESPONSE_TRANSCRIPT_TIMEOUT_SECONDS = 5.0
 WARM_SESSION_TTL_SECONDS = 15.0
@@ -110,32 +108,17 @@ def _should_request_inline_polish(model_info: Optional[dict], transcript: str) -
     config = get_config()
     if not (config.enable_polish and model_info and model_info.get("handles_inline_polish")):
         return False
-    normalized = normalize_terms(transcript)
-    return should_polish_text(config.llm, transcript, normalized)
+    return bool(normalize_terms(transcript).strip())
 
 
 def _should_start_inline_response_now(
     model_info: Optional[dict],
-    callback,
-    decision_timeout: float = INLINE_POLISH_DECISION_TIMEOUT_SECONDS,
+    _callback,
 ) -> bool:
-    """Decide whether to issue response.create immediately after commit.
-
-    In smart mode, give transcript completion a brief chance to arrive so
-    obviously tiny utterances can still skip polishing without blocking the
-    whole tail on a full transcription wait.
-    """
+    """Decide whether to issue response.create immediately after commit."""
     config = get_config()
     if not (config.enable_polish and model_info and model_info.get("handles_inline_polish")):
         return False
-
-    if config.llm.polish_mode != "smart":
-        return True
-
-    if callback.wait_for_transcription_complete(timeout=decision_timeout):
-        transcript = callback.get_full_text().strip()
-        if transcript:
-            return _should_request_inline_polish(model_info, transcript)
     return True
 
 

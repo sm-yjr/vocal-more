@@ -130,19 +130,9 @@ def should_polish_text(
     original_text: str,
     normalized_text: str,
 ) -> bool:
-    """Decide whether the text needs polish based on config and text length."""
-    llm_config = llm_config or get_config().llm
-    if llm_config.polish_mode == "always":
-        return True
-
-    text = normalized_text.strip()
-    if len(text) < 2:
-        return False
-
-    if len(text) <= 4:
-        return False
-
-    return True
+    """Decide whether the text needs second-stage polish when enabled."""
+    _ = llm_config or get_config().llm
+    return bool(normalized_text.strip())
 
 
 

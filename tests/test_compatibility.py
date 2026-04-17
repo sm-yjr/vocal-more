@@ -53,3 +53,9 @@ def test_run_compatibility_check_and_repair_updates_config_and_dictionary(
             {"term": "Claude", "aliases": ["可劳德", "1"]},
         ]
     }
+    assert repaired["config"].backup_path.endswith("config.yaml.config-pre-repair.bak")
+    assert repaired["dictionary"].backup_path.endswith(
+        "dictionary.yaml.dictionary-pre-repair.bak"
+    )
+    assert (tmp_path / "config.yaml.config-pre-repair.bak").exists()
+    assert (tmp_path / "dictionary.yaml.dictionary-pre-repair.bak").exists()

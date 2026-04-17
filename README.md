@@ -53,7 +53,6 @@ llm:
   enable_thinking: false
   temperature: 0.0
   max_tokens: 1024
-  polish_mode: "smart"  # "smart" or "always"
 hotkey:
   active_hotkeys: ["fn"]
   custom_key: ""  # record a custom key in Settings > Shortcuts

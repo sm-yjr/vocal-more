@@ -35,7 +35,6 @@ def test_config_load(tmp_path, monkeypatch):
     assert config.llm.temperature == 0.0
     assert config.llm.enable_thinking is False
     assert config.llm.max_tokens == 1024
-    assert config.llm.polish_mode == "smart"
     assert config.hotkey.primary_key == "fn"
     assert config.hotkey.active_hotkeys == ["fn"]
     assert config.ui.language == "zh"
@@ -93,7 +92,6 @@ def test_config_new_fields_defaults():
     assert config.asr.extra_corpus_terms == []
     assert config.llm.enable_thinking is False
     assert config.llm.max_tokens == 1024
-    assert config.llm.polish_mode == "smart"
     assert config.llm.structured is False
     assert config.hotkey.active_hotkeys == ["fn"]
     assert config.ui.language == "zh"
@@ -114,7 +112,6 @@ def test_config_new_fields_roundtrip(tmp_path, monkeypatch):
     config.asr.extra_corpus_terms = ["Vocal More", "DashScope"]
     config.llm.enable_thinking = True
     config.llm.max_tokens = 128
-    config.llm.polish_mode = "always"
     config.hotkey.active_hotkeys = ["fn"]
     config.ui.language = "zh"
     config.save()
@@ -127,7 +124,6 @@ def test_config_new_fields_roundtrip(tmp_path, monkeypatch):
     assert loaded.asr.extra_corpus_terms == ["Vocal More", "DashScope"]
     assert loaded.llm.enable_thinking is True
     assert loaded.llm.max_tokens == 128
-    assert loaded.llm.polish_mode == "always"
     assert loaded.hotkey.active_hotkeys == ["fn"]
     assert loaded.ui.language == "zh"
 
@@ -323,7 +319,6 @@ def test_config_invalid_modes_fall_back(tmp_path, monkeypatch):
 
     data = {
         "asr": {"backend": "bogus", "batch_mode": "auto"},
-        "llm": {"polish_mode": "fancy"},
     }
     with open(config_path, "w") as f:
         yaml.dump(data, f)
@@ -331,7 +326,90 @@ def test_config_invalid_modes_fall_back(tmp_path, monkeypatch):
     loaded = Config.load()
     assert loaded.asr.backend == "realtime_ws"
     assert loaded.asr.batch_mode == "manual"
-    assert loaded.llm.polish_mode == "smart"
+
+
+def test_legacy_polish_mode_field_is_ignored_and_removed(tmp_path, monkeypatch):
+    """Legacy llm.polish_mode should be dropped automatically on load."""
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump({"llm": {"polish_mode": "always", "level": "strong"}}, f)
+
+    loaded = Config.load()
+    persisted = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+    assert loaded.llm.level == "strong"
+    assert "polish_mode" not in loaded.to_dict()["llm"]
+    assert "polish_mode" not in persisted["llm"]
+
+
+def test_load_handles_legacy_python_string_tags_and_rewrites_clean_yaml(
+    tmp_path, monkeypatch
+):
+    """Legacy PyYAML python tags should load safely and be rewritten as plain YAML."""
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    config_path.write_text(
+        "\n".join(
+            [
+                "hotkey:",
+                "  custom_key:",
+                "    key_code: 105",
+                "    display_name: !!python/object/apply:builtins.str ['F13']",
+                "    is_modifier: false",
+                "    flag_mask: 0",
+                "  active_hotkeys:",
+                "  - fn",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = Config.load()
+    persisted = config_path.read_text(encoding="utf-8")
+
+    assert loaded.hotkey.custom_key == {
+        "key_code": 105,
+        "display_name": "F13",
+        "is_modifier": False,
+        "flag_mask": 0,
+    }
+    assert "!!python/object/apply:builtins.str" not in persisted
+
+
+def test_unreadable_config_is_backed_up_before_fallback_save(tmp_path, monkeypatch):
+    """A load failure should preserve the raw config before later saves overwrite it."""
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    backup_path = tmp_path / "config.yaml.config-load-failed.bak"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+
+    broken_text = "hotkey:\n  custom_key: !totally-broken value\n"
+    config_path.write_text(broken_text, encoding="utf-8")
+
+    loaded = Config.load()
+
+    assert loaded.hotkey.active_hotkeys == ["fn"]
+    assert backup_path.exists()
+    assert backup_path.read_text(encoding="utf-8") == broken_text
+
+    loaded.apply_update("ui.language", "zh")
+    loaded.save()
+
+    assert backup_path.read_text(encoding="utf-8") == broken_text
+    persisted = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert persisted["ui"]["language"] == "zh"
 
 
 def test_config_active_hotkeys_filters_invalid(tmp_path, monkeypatch):

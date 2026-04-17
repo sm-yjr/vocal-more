@@ -27,8 +27,8 @@ def _mock_multimodal_response(text: str):
     )
 
 
-def test_polish_skips_llm_for_short_text(tmp_path, monkeypatch):
-    """Short utterances (<=4 chars) should bypass the LLM in smart mode."""
+def test_polish_uses_llm_for_short_text_when_enabled(tmp_path, monkeypatch):
+    """With only an on/off switch, short utterances should still use the LLM."""
     from vocal_more.config import Config, reload_config
     from vocal_more.core.text_polisher import TextPolisher
 
@@ -46,12 +46,12 @@ def test_polish_skips_llm_for_short_text(tmp_path, monkeypatch):
     def fake_mm_call(**_kwargs):
         nonlocal called
         called = True
-        return _mock_multimodal_response("should not be used")
+        return _mock_multimodal_response("好的。")
 
     def fake_gen_call(**_kwargs):
         nonlocal called
         called = True
-        return _mock_generation_response("should not be used")
+        return _mock_generation_response("好的。")
 
     monkeypatch.setattr("vocal_more.core.text_polisher.MultiModalConversation.call", fake_mm_call)
     monkeypatch.setattr("vocal_more.core.text_polisher.Generation.call", fake_gen_call)
@@ -59,9 +59,9 @@ def test_polish_skips_llm_for_short_text(tmp_path, monkeypatch):
     polisher = TextPolisher()
     result = polisher.polish("好的")
 
-    assert called is False
-    assert result.polished_text == "好的"
-    assert result.used_llm is False
+    assert called is True
+    assert result.polished_text == "好的。"
+    assert result.used_llm is True
 
 
 def test_polish_uses_llm_with_no_thinking(tmp_path, monkeypatch):
@@ -83,7 +83,6 @@ def test_polish_uses_llm_with_no_thinking(tmp_path, monkeypatch):
                     "enable_thinking": False,
                     "temperature": 0.0,
                     "max_tokens": 65536,
-                    "polish_mode": "smart",
                 }
             },
             f,
@@ -136,7 +135,7 @@ def test_polish_non_catalog_model_uses_generation_api(tmp_path, monkeypatch):
     )
 
     with open(config_path, "w") as f:
-        yaml.dump({"llm": {"model": "qwen-legacy", "polish_mode": "always"}}, f)
+        yaml.dump({"llm": {"model": "qwen-legacy"}}, f)
 
     reload_config()
 
@@ -168,9 +167,7 @@ def test_qwen36_plus_routes_to_multimodal_api(tmp_path, monkeypatch):
     monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
 
     with open(config_path, "w") as f:
-        yaml.dump(
-            {"llm": {"model": "qwen3.6-plus", "polish_mode": "always"}}, f
-        )
+        yaml.dump({"llm": {"model": "qwen3.6-plus"}}, f)
 
     reload_config()
 
@@ -217,7 +214,7 @@ def test_polish_logs_selected_model(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
 
     with open(config_path, "w") as f:
-        yaml.dump({"llm": {"model": "qwen3.6-plus", "polish_mode": "always"}}, f)
+        yaml.dump({"llm": {"model": "qwen3.6-plus"}}, f)
 
     reload_config()
 

@@ -13,6 +13,7 @@ from typing import Iterable, List, Optional
 import yaml
 
 from .config import Config, get_config
+from .yaml_compat import safe_load_compat
 
 
 @dataclass
@@ -47,7 +48,7 @@ class Dictionary:
         run_compatibility_check_and_repair("dictionary")
 
         with open(path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+            data = safe_load_compat(f) or {}
 
         self.entries = []
         for raw_entry in data.get("entries", []):

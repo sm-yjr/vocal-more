@@ -8,6 +8,7 @@ from typing import Any, Literal, Optional
 import yaml
 
 from .localization import UILanguage, normalize_ui_language
+from .yaml_compat import safe_load_compat
 
 VALID_HOTKEYS = (
     "fn", "right_cmd", "double_cmd",
@@ -153,7 +154,6 @@ class LLMConfig:
     temperature: float = 0.0
     enable_thinking: bool = False
     max_tokens: int = 1024
-    polish_mode: Literal["smart", "always"] = "smart"
     level: Literal["minimal", "balanced", "strong"] = "minimal"
     structured: bool = False
     tone: Literal["neutral", "gentle", "direct"] = "neutral"
@@ -239,12 +239,6 @@ def _parse_asr_language(raw: object) -> ASRLanguage:
     if normalized in ("mixed", "mix", "zh_en", "zh-en", "bilingual"):
         return "auto"
     return "auto"
-
-
-def _parse_polish_mode(raw: str) -> Literal["smart", "always"]:
-    if raw in ("smart", "always"):
-        return raw
-    return "smart"
 
 
 def _parse_llm_model(raw: str) -> str:
@@ -338,14 +332,17 @@ class Config:
 
         # Load from file if exists
         if config_path.exists():
-            from .compatibility import run_compatibility_check_and_repair
+            from .compatibility import _backup_yaml_file, run_compatibility_check_and_repair
 
             run_compatibility_check_and_repair("config")
             try:
                 with open(config_path, encoding="utf-8") as f:
-                    data = yaml.safe_load(f) or {}
+                    data = safe_load_compat(f) or {}
                     config = cls._from_dict(data)
             except Exception as e:
+                backup_path = _backup_yaml_file(config_path, "config-load-failed")
+                if backup_path is not None:
+                    print(f"[Config] Preserved unreadable config backup at {backup_path}")
                 print(f"[Config] Failed to load {config_path}, using defaults: {e}")
 
         # Override with environment variable if set
@@ -502,7 +499,7 @@ class Config:
         elif field == "max_tokens":
             self.llm.max_tokens = int(value)
         elif field == "polish_mode":
-            self.llm.polish_mode = _parse_polish_mode(str(value))
+            return
         elif field == "level":
             self.llm.level = _parse_level(str(value))
         elif field == "structured":
@@ -565,7 +562,6 @@ class Config:
                 "temperature": self.llm.temperature,
                 "enable_thinking": self.llm.enable_thinking,
                 "max_tokens": self.llm.max_tokens,
-                "polish_mode": self.llm.polish_mode,
                 "level": self.llm.level,
                 "structured": self.llm.structured,
                 "tone": self.llm.tone,

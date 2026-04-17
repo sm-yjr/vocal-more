@@ -524,7 +524,6 @@ def test_omni_inline_polish_uses_response_text_output(tmp_path, monkeypatch):
                 "enable_polish": True,
                 "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
                 "llm": {
-                    "polish_mode": "always",
                     "level": "balanced",
                     "tone": "direct",
                     "persona": "professional",
@@ -586,8 +585,8 @@ def test_omni_inline_polish_uses_response_text_output(tmp_path, monkeypatch):
     assert text == "这个方案已经确认了，可以开始执行。"
 
 
-def test_omni_smart_mode_skips_inline_polish_for_short_text(tmp_path, monkeypatch):
-    """Short texts in smart mode should return transcription directly without response generation."""
+def test_omni_inline_polish_handles_short_text_when_enabled(tmp_path, monkeypatch):
+    """With polish enabled, Omni should still request a final response for short text."""
     from vocal_more.config import Config, reload_config
     asr_engine = importlib.import_module("vocal_more.core.asr_engine")
 
@@ -600,7 +599,6 @@ def test_omni_smart_mode_skips_inline_polish_for_short_text(tmp_path, monkeypatc
             {
                 "enable_polish": True,
                 "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
-                "llm": {"polish_mode": "smart"},
             },
             f,
         )
@@ -634,6 +632,8 @@ def test_omni_smart_mode_skips_inline_polish_for_short_text(tmp_path, monkeypatc
 
         def create_response(self, instructions=None, output_modalities=None):
             captured["create_response_called"] = True
+            captured["callback"].on_event({"type": "response.text.delta", "delta": "好的。"})
+            captured["callback"].on_event({"type": "response.done"})
 
         def close(self):
             return None
@@ -644,8 +644,8 @@ def test_omni_smart_mode_skips_inline_polish_for_short_text(tmp_path, monkeypatc
     text = engine.transcribe(b"\x01\x00" * 4000)
 
     assert captured["update_kwargs"]["instructions"]
-    assert captured["create_response_called"] is False
-    assert text == "好的"
+    assert captured["create_response_called"] is True
+    assert text == "好的。"
 
 
 def test_omni_inline_polish_falls_back_to_transcript_when_response_incomplete(
@@ -664,7 +664,6 @@ def test_omni_inline_polish_falls_back_to_transcript_when_response_incomplete(
             {
                 "enable_polish": True,
                 "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
-                "llm": {"polish_mode": "always"},
             },
             f,
         )
@@ -735,7 +734,6 @@ def test_omni_batch_requests_response_immediately_after_commit(tmp_path, monkeyp
             {
                 "enable_polish": True,
                 "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
-                "llm": {"polish_mode": "always"},
             },
             f,
         )
@@ -799,7 +797,6 @@ def test_batch_debug_trace_writes_stage_timings(tmp_path, monkeypatch):
             {
                 "enable_polish": True,
                 "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
-                "llm": {"polish_mode": "always"},
             },
             f,
         )
@@ -934,7 +931,6 @@ def test_batch_omni_falls_back_to_offline_model_when_response_never_starts(
             {
                 "enable_polish": True,
                 "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
-                "llm": {"polish_mode": "always"},
             },
             f,
         )
@@ -1016,7 +1012,7 @@ def test_streaming_omni_inline_polish_returns_response_text(tmp_path, monkeypatc
             {
                 "enable_polish": True,
                 "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
-                "llm": {"polish_mode": "always", "level": "balanced"},
+                "llm": {"level": "balanced"},
             },
             f,
         )
@@ -1116,7 +1112,6 @@ def test_streaming_debug_trace_records_full_realtime_protocol(tmp_path, monkeypa
             {
                 "enable_polish": True,
                 "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
-                "llm": {"polish_mode": "always"},
             },
             f,
         )
@@ -1282,7 +1277,6 @@ def test_streaming_omni_falls_back_to_offline_model_when_response_never_starts(
             {
                 "enable_polish": True,
                 "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
-                "llm": {"polish_mode": "always"},
             },
             f,
         )
@@ -1662,7 +1656,6 @@ def test_omni_inline_polish_falls_back_to_transcript_when_socket_closes_early(
             {
                 "enable_polish": True,
                 "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
-                "llm": {"polish_mode": "always"},
             },
             f,
         )
@@ -1731,7 +1724,6 @@ def test_streaming_engine_uses_session_model_snapshot_for_finish_path(
             {
                 "enable_polish": True,
                 "asr": {"model": "qwen3-asr-flash-realtime-2026-02-10", "language": "zh"},
-                "llm": {"polish_mode": "always"},
             },
             f,
         )
@@ -1810,7 +1802,6 @@ def test_streaming_engine_emits_partial_updates_during_recording_and_inline_resp
             {
                 "enable_polish": True,
                 "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"},
-                "llm": {"polish_mode": "always"},
             },
             f,
         )
