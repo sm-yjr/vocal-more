@@ -1,159 +1,31 @@
 """Compatibility checks and repairs for persisted user data."""
 
-import shutil
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Callable
+from __future__ import annotations
 
-import yaml
+from typing import Callable
 
-from .yaml_compat import safe_load_compat
-
-
-@dataclass
-class CompatibilityRepairResult:
-    """Summary of a compatibility repair pass."""
-
-    target: str
-    path: Path
-    changed: bool = False
-    details: list[str] = field(default_factory=list)
-    error: str = ""
-    backup_path: str = ""
+from .config import Config
+from .infrastructure.compatibility_repair import (
+    CompatibilityRepairResult,
+    backup_yaml_file,
+    repair_config_file as _repair_config_file,
+    repair_dictionary_file as _repair_dictionary_file,
+)
 
 
-def _backup_yaml_file(path: Path, reason: str) -> Path | None:
-    """Preserve the original persisted file before rewriting or overwriting it."""
-    if not path.exists():
-        return None
-
-    backup_path = path.with_name(f"{path.name}.{reason}.bak")
-    if backup_path.exists():
-        return backup_path
-
-    shutil.copy2(path, backup_path)
-    return backup_path
-
-
-def _repair_yaml_file(
-    *,
-    target: str,
-    path: Path,
-    normalize_data: Callable[[Any], dict[str, Any]],
-    write_data: Callable[[dict[str, Any]], None],
-) -> CompatibilityRepairResult:
-    result = CompatibilityRepairResult(target=target, path=path)
-    if not path.exists():
-        return result
-
-    try:
-        with open(path, encoding="utf-8") as f:
-            raw_data = safe_load_compat(f) or {}
-    except Exception as exc:
-        backup_path = _backup_yaml_file(path, f"{target}-load-failed")
-        if backup_path is not None:
-            result.backup_path = str(backup_path)
-            result.details.append("backup_created")
-            print(f"[Compatibility] Preserved unreadable {target} file at {backup_path}")
-        result.error = str(exc)
-        print(f"[Compatibility] Failed to load {target} file {path}: {exc}")
-        return result
-
-    try:
-        normalized_data = normalize_data(raw_data)
-    except Exception as exc:
-        backup_path = _backup_yaml_file(path, f"{target}-normalize-failed")
-        if backup_path is not None:
-            result.backup_path = str(backup_path)
-            result.details.append("backup_created")
-            print(
-                f"[Compatibility] Preserved unnormalized {target} file at {backup_path}"
-            )
-        result.error = str(exc)
-        print(f"[Compatibility] Failed to normalize {target} file {path}: {exc}")
-        return result
-
-    if raw_data == normalized_data:
-        return result
-
-    try:
-        backup_path = _backup_yaml_file(path, f"{target}-pre-repair")
-        if backup_path is not None:
-            result.backup_path = str(backup_path)
-            result.details.append("backup_created")
-        write_data(normalized_data)
-    except Exception as exc:
-        result.error = str(exc)
-        print(f"[Compatibility] Failed to rewrite {target} file {path}: {exc}")
-        return result
-
-    result.changed = True
-    result.details.append("normalized")
-    print(f"[Compatibility] Repaired {target} file {path}")
-    return result
+def _backup_yaml_file(path, reason):
+    """Backward-compatible alias for config recovery code."""
+    return backup_yaml_file(path, reason)
 
 
 def repair_config_file() -> CompatibilityRepairResult:
     """Normalize the persisted config file in place."""
-    from .config import Config
-
-    return _repair_yaml_file(
-        target="config",
-        path=Config.get_config_path(),
-        normalize_data=lambda raw_data: Config._from_dict(raw_data).to_dict(),
-        write_data=Config._write_config_data,
-    )
+    return _repair_config_file(Config.get_config_path(), config_cls=Config)
 
 
 def repair_dictionary_file() -> CompatibilityRepairResult:
     """Normalize the persisted dictionary file in place."""
-    from .config import Config
-    from .dictionary import _iter_alias_values, _merge_aliases, _normalize_term
-
-    def normalize_dictionary(raw_data: Any) -> dict[str, Any]:
-        entries: list[dict[str, Any]] = []
-        if isinstance(raw_data, dict):
-            raw_entries = raw_data.get("entries", [])
-        else:
-            raw_entries = []
-
-        if isinstance(raw_entries, list):
-            for raw_entry in raw_entries:
-                if not isinstance(raw_entry, dict):
-                    continue
-                term = _normalize_term(raw_entry.get("term"))
-                if not term:
-                    continue
-                aliases = _merge_aliases(
-                    [],
-                    list(_iter_alias_values(raw_entry.get("aliases", []))),
-                    term,
-                )
-                entry: dict[str, Any] = {"term": term}
-                if aliases:
-                    entry["aliases"] = aliases
-                entries.append(entry)
-
-        return {"entries": entries}
-
-    def write_dictionary(data: dict[str, Any]) -> None:
-        path = Config.get_config_dir() / "dictionary.yaml"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            yaml.dump(
-                data,
-                f,
-                default_flow_style=False,
-                allow_unicode=True,
-                sort_keys=False,
-            )
-
-    return _repair_yaml_file(
-        target="dictionary",
-        path=Config.get_config_dir() / "dictionary.yaml",
-        normalize_data=normalize_dictionary,
-        write_data=write_dictionary,
-    )
+    return _repair_dictionary_file(Config.get_config_dir() / "dictionary.yaml")
 
 
 COMPATIBILITY_REPAIR_TOOLS: dict[str, Callable[[], CompatibilityRepairResult]] = {

@@ -97,6 +97,41 @@ def test_config_new_fields_defaults():
     assert config.ui.language == "zh"
 
 
+def test_config_repository_round_trips_app_config(tmp_path):
+    """The repository should persist the pure app config without the legacy facade."""
+    from vocal_more.domain.config_models import AppConfig
+    from vocal_more.infrastructure.config_repository import ConfigRepository
+
+    repo = ConfigRepository(base_dir=tmp_path)
+    config = AppConfig()
+    config.apply_update("audio.gain", 4.0)
+    config.apply_update("asr.model", "qwen3.5-omni-plus")
+    config.apply_update("llm.structured", True)
+    config.apply_update("hotkey.active_hotkeys", ["fn", "f13"])
+
+    repo.save(config)
+    loaded = repo.load()
+
+    assert loaded == config
+
+
+def test_config_repository_backs_up_unreadable_yaml_before_fallback(tmp_path):
+    """Unreadable config should be preserved before the repository falls back."""
+    from vocal_more.infrastructure.config_repository import ConfigRepository
+
+    repo = ConfigRepository(base_dir=tmp_path)
+    repo.config_path.write_text(
+        "hotkey:\n  custom_key: !totally-broken value\n",
+        encoding="utf-8",
+    )
+
+    loaded = repo.load()
+    backups = sorted(tmp_path.glob("config.yaml.*.bak"))
+
+    assert loaded.to_dict()["api_key"] == ""
+    assert [path.name for path in backups] == ["config.yaml.config-load-failed.bak"]
+
+
 def test_config_new_fields_roundtrip(tmp_path, monkeypatch):
     """Test YAML serialization/deserialization of new fields."""
     from vocal_more.config import Config
