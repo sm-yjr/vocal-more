@@ -280,8 +280,8 @@ def level_label(level: str) -> str:
     return LEVEL_INSTRUCTIONS[level][:10]
 
 
-def test_minimal_prompt_treats_spoken_noise_cleanup_as_baseline(tmp_path, monkeypatch):
-    """Minimal polish should still remove spoken filler/disfluency by default."""
+def test_minimal_prompt_preserves_spoken_texture_by_default(tmp_path, monkeypatch):
+    """Minimal polish should stay close to the original spoken phrasing."""
     from vocal_more.config import Config, LLMConfig, reload_config
     from vocal_more.core.text_polisher import build_polish_system_prompt
 
@@ -297,19 +297,16 @@ def test_minimal_prompt_treats_spoken_noise_cleanup_as_baseline(tmp_path, monkey
     prompt = build_polish_system_prompt(LLMConfig(level="minimal"))
 
     assert "口语转文本基线" in prompt
-    assert "语气词" in prompt
-    assert "思考填充" in prompt
-    assert "自我修正" in prompt
-    assert "前后矛盾" in prompt
-    assert "即使是 minimal" in prompt
+    assert "尽量保留原句、原词和口语感" in prompt
+    assert "不要主动删除语气词" in prompt
+    assert "即使是 minimal" not in prompt
 
 
-def test_stronger_levels_explicitly_build_on_minimal_baseline():
-    """Balanced/strong should extend the same spoken-text cleanup baseline."""
+def test_stronger_levels_do_more_cleanup_than_minimal():
+    """Balanced/strong should handle filler cleanup more aggressively than minimal."""
     from vocal_more.core.text_polisher import LEVEL_INSTRUCTIONS
 
-    assert "语气词" in LEVEL_INSTRUCTIONS["minimal"]
-    assert "思考填充" in LEVEL_INSTRUCTIONS["minimal"]
-    assert "自我修正" in LEVEL_INSTRUCTIONS["minimal"]
+    assert "不要主动删除语气词" in LEVEL_INSTRUCTIONS["minimal"]
     assert "在 minimal 基线之上" in LEVEL_INSTRUCTIONS["balanced"]
+    assert "口头填充词" in LEVEL_INSTRUCTIONS["balanced"]
     assert "在 balanced 基线之上" in LEVEL_INSTRUCTIONS["strong"]

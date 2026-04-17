@@ -35,7 +35,7 @@ REALTIME_CHUNK_SIZE = 3200
 SHORT_FILE_MAX_DURATION_SECONDS = 180
 SHORT_FILE_MAX_BYTES = 10 * 1024 * 1024
 OMNI_OFFLINE_CHUNK_DURATION_SECONDS = 180
-OMNI_REALTIME_BATCH_DIRECT_OFFLINE_THRESHOLD_SECONDS = 120.0
+OMNI_REALTIME_DIRECT_OFFLINE_THRESHOLD_SECONDS = 240.0
 OMNI_OFFLINE_SILENCE_SEARCH_SECONDS = 12.0
 OMNI_OFFLINE_SILENCE_WINDOW_SECONDS = 0.25
 OMNI_OFFLINE_SILENCE_RMS_THRESHOLD = 0.015
@@ -218,6 +218,19 @@ def _adaptive_response_complete_timeout(
     extra_minutes = _long_audio_minutes(duration_seconds)
     timeout = max(base_timeout, 30.0 + extra_minutes * 4.0)
     return min(MAX_ADAPTIVE_RESPONSE_COMPLETE_TIMEOUT_SECONDS, timeout)
+
+
+def _get_direct_offline_fallback_model(
+    model_id: str,
+    duration_seconds: float,
+) -> Optional[str]:
+    fallback_model = _get_omni_offline_fallback_model(model_id)
+    if (
+        fallback_model
+        and duration_seconds >= OMNI_REALTIME_DIRECT_OFFLINE_THRESHOLD_SECONDS
+    ):
+        return fallback_model
+    return None
 
 
 def _prefer_longer_text(current: str, candidate: Optional[str]) -> str:
@@ -1049,12 +1062,11 @@ class BatchASREngine:
         audio_duration_seconds = self._audio_duration_seconds(audio_data)
 
         if allow_chunking and transport == "realtime_ws":
-            fallback_model = _get_omni_offline_fallback_model(model)
-            if (
-                fallback_model
-                and audio_duration_seconds
-                >= OMNI_REALTIME_BATCH_DIRECT_OFFLINE_THRESHOLD_SECONDS
-            ):
+            fallback_model = _get_direct_offline_fallback_model(
+                model,
+                audio_duration_seconds,
+            )
+            if fallback_model:
                 print(
                     "[BatchASR] Long batch audio "
                     f"({audio_duration_seconds:.1f}s) bypassing realtime_ws for {model}; "
@@ -2148,6 +2160,10 @@ class ASREngine:
             self.config.audio.sample_rate,
             self.config.audio.channels,
         )
+        direct_offline_model = _get_direct_offline_fallback_model(
+            self._session_model_id,
+            audio_duration_seconds,
+        )
         response_start_timeout = min(
             max(timeout, INLINE_RESPONSE_START_TIMEOUT_SECONDS),
             _adaptive_response_start_timeout(audio_duration_seconds),
@@ -2156,6 +2172,30 @@ class ASREngine:
             audio_duration_seconds,
             base_timeout=timeout,
         )
+
+        if pcm_data and is_omni and direct_offline_model:
+            print(
+                "[StreamingASR] Long recording "
+                f"({audio_duration_seconds:.1f}s) bypassing realtime response for "
+                f"{self._session_model_id}; using {direct_offline_model} directly"
+            )
+            if self._callback:
+                self._callback.mark_client_event(
+                    "client.fallback.started",
+                    reason="long_audio_direct_offline",
+                )
+            self._cancel_warm_close()
+            stale = self._drop_conversation()
+            self._close_conversation(stale)
+            self._finish_active_trace(
+                pcm_data,
+                result_source="batch_fallback",
+                fallback_reason="long_audio_direct_offline",
+            )
+            return self._batch_fallback.transcribe(
+                pcm_data,
+                model_override=direct_offline_model,
+            )
 
         if self._conversation:
             try:

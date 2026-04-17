@@ -390,7 +390,7 @@ def test_long_realtime_batch_audio_bypasses_realtime_and_uses_offline_chunking(
     monkeypatch.setattr(engine, "_transcribe_realtime_ws", fake_realtime)
     monkeypatch.setattr(engine, "_transcribe_chunked_audio", fake_chunked)
 
-    total_seconds = asr_engine.OMNI_OFFLINE_CHUNK_DURATION_SECONDS + 30
+    total_seconds = int(asr_engine.OMNI_REALTIME_DIRECT_OFFLINE_THRESHOLD_SECONDS + 30)
     audio_data = b"\x01\x00" * (16000 * total_seconds)
     text = engine.transcribe(audio_data, language_override="en")
 
@@ -432,9 +432,7 @@ def test_short_realtime_batch_audio_still_uses_realtime_path(tmp_path, monkeypat
     monkeypatch.setattr(engine, "_transcribe_omni_offline", fake_offline)
     monkeypatch.setattr(engine, "_transcribe_chunked_audio", fake_offline)
 
-    short_seconds = int(
-        asr_engine.OMNI_REALTIME_BATCH_DIRECT_OFFLINE_THRESHOLD_SECONDS - 10
-    )
+    short_seconds = 210
     audio_data = b"\x01\x00" * (16000 * short_seconds)
     text = engine.transcribe(audio_data, language_override="zh")
 
@@ -514,9 +512,7 @@ def test_batch_realtime_uses_adaptive_response_start_timeout_for_long_audio(
     )
 
     engine = asr_engine.BatchASREngine()
-    long_audio_seconds = int(
-        asr_engine.OMNI_REALTIME_BATCH_DIRECT_OFFLINE_THRESHOLD_SECONDS - 10
-    )
+    long_audio_seconds = 210
     long_audio = b"\x01\x00" * (16000 * long_audio_seconds)
     text = engine.transcribe(long_audio)
 
@@ -526,6 +522,90 @@ def test_batch_realtime_uses_adaptive_response_start_timeout_for_long_audio(
         > asr_engine.INLINE_RESPONSE_START_TIMEOUT_SECONDS
     )
     assert text == "长音频 transcript"
+
+
+def test_streaming_long_audio_bypasses_realtime_and_uses_offline_batch(
+    tmp_path, monkeypatch
+):
+    """Realtime-long stop should bypass realtime response waits for very long audio."""
+    from vocal_more.config import Config, reload_config
+    asr_engine = importlib.import_module("vocal_more.core.asr_engine")
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump({"asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"}}, f)
+
+    reload_config()
+
+    captured = {"commit_called": False, "create_response_called": False, "closed": False}
+
+    class ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            if self._target:
+                self._target()
+
+    class FakeConversation:
+        def __init__(self, model, url, callback):
+            captured["callback"] = callback
+
+        def connect(self):
+            return None
+
+        def update_session(self, **kwargs):
+            captured["callback"].on_event({"type": "session.updated"})
+
+        def append_audio(self, _audio):
+            return None
+
+        def commit(self):
+            captured["commit_called"] = True
+
+        def create_response(self, instructions=None, output_modalities=None):
+            captured["create_response_called"] = True
+
+        def close(self):
+            captured["closed"] = True
+
+    monkeypatch.setattr(asr_engine.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
+
+    engine = asr_engine.ASREngine()
+    offline_calls = []
+
+    def fake_transcribe(audio_data, model_override=None, language_override=None):
+        offline_calls.append(
+            {
+                "audio_size": len(audio_data),
+                "model_override": model_override,
+                "language_override": language_override,
+            }
+        )
+        return "long offline result"
+
+    engine._batch_fallback.transcribe = fake_transcribe
+
+    engine.start()
+    long_audio_seconds = 270
+    pcm_data = b"\x01\x00" * (16000 * long_audio_seconds)
+    text = engine.stop(pcm_data=pcm_data)
+
+    assert text == "long offline result"
+    assert captured["commit_called"] is False
+    assert captured["create_response_called"] is False
+    assert captured["closed"] is True
+    assert offline_calls == [
+        {
+            "audio_size": len(pcm_data),
+            "model_override": "qwen3.5-omni-plus",
+            "language_override": None,
+        }
+    ]
 
 
 def test_omni_offline_long_audio_is_chunked_and_joined(tmp_path, monkeypatch):
