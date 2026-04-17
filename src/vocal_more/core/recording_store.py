@@ -12,7 +12,7 @@ from typing import Optional
 SAMPLE_RATE = 16000
 CHANNELS = 1
 SAMPLE_WIDTH = 2
-MAX_RECORDINGS = 10
+MAX_RECORDINGS = 30
 RETRY_ASR_MODEL = "qwen3.5-omni-plus"
 _MISSING = object()
 
