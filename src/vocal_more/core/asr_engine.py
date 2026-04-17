@@ -35,12 +35,16 @@ REALTIME_CHUNK_SIZE = 3200
 SHORT_FILE_MAX_DURATION_SECONDS = 180
 SHORT_FILE_MAX_BYTES = 10 * 1024 * 1024
 OMNI_OFFLINE_CHUNK_DURATION_SECONDS = 180
+OMNI_REALTIME_BATCH_DIRECT_OFFLINE_THRESHOLD_SECONDS = 120.0
 OMNI_OFFLINE_SILENCE_SEARCH_SECONDS = 12.0
 OMNI_OFFLINE_SILENCE_WINDOW_SECONDS = 0.25
 OMNI_OFFLINE_SILENCE_RMS_THRESHOLD = 0.015
 INLINE_RESPONSE_START_TIMEOUT_SECONDS = 3.0
 INLINE_RESPONSE_TRANSCRIPT_TIMEOUT_SECONDS = 5.0
+INLINE_RESPONSE_LATE_START_GRACE_SECONDS = 1.0
 WARM_SESSION_TTL_SECONDS = 15.0
+MAX_ADAPTIVE_RESPONSE_START_TIMEOUT_SECONDS = 20.0
+MAX_ADAPTIVE_RESPONSE_COMPLETE_TIMEOUT_SECONDS = 90.0
 
 
 def _apply_dashscope_api_key(config=None) -> None:
@@ -187,6 +191,82 @@ def _debug_dir() -> Optional[Path]:
     return path
 
 
+def _pcm_duration_seconds(audio_data: Optional[bytes], sample_rate: int, channels: int) -> float:
+    if not audio_data:
+        return 0.0
+    bytes_per_second = sample_rate * max(1, channels) * 2
+    if bytes_per_second <= 0:
+        return 0.0
+    return len(audio_data) / bytes_per_second
+
+
+def _long_audio_minutes(duration_seconds: float) -> float:
+    return max(0.0, duration_seconds - 60.0) / 60.0
+
+
+def _adaptive_response_start_timeout(duration_seconds: float) -> float:
+    extra_minutes = _long_audio_minutes(duration_seconds)
+    timeout = INLINE_RESPONSE_START_TIMEOUT_SECONDS + extra_minutes * 1.5
+    return min(MAX_ADAPTIVE_RESPONSE_START_TIMEOUT_SECONDS, timeout)
+
+
+def _adaptive_response_complete_timeout(
+    duration_seconds: float,
+    *,
+    base_timeout: float = 30.0,
+) -> float:
+    extra_minutes = _long_audio_minutes(duration_seconds)
+    timeout = max(base_timeout, 30.0 + extra_minutes * 4.0)
+    return min(MAX_ADAPTIVE_RESPONSE_COMPLETE_TIMEOUT_SECONDS, timeout)
+
+
+def _prefer_longer_text(current: str, candidate: Optional[str]) -> str:
+    candidate_text = (candidate or "").strip()
+    current_text = (current or "").strip()
+    if not candidate_text:
+        return current_text
+    if not current_text or len(candidate_text) >= len(current_text):
+        return candidate_text
+    return current_text
+
+
+def _extract_text_from_content_part(part: Optional[dict]) -> str:
+    if not isinstance(part, dict):
+        return ""
+    for field_name in ("text", "transcript"):
+        value = part.get(field_name)
+        if value:
+            return str(value).strip()
+    return ""
+
+
+def _extract_text_from_realtime_item(item: Optional[dict]) -> str:
+    if not isinstance(item, dict):
+        return ""
+
+    texts: list[str] = []
+    for content_part in item.get("content") or []:
+        if isinstance(content_part, str):
+            content_text = content_part.strip()
+        else:
+            content_text = _extract_text_from_content_part(content_part)
+        if content_text:
+            texts.append(content_text)
+    return "".join(texts).strip()
+
+
+def _extract_text_from_realtime_response(response_obj: Optional[dict]) -> str:
+    if not isinstance(response_obj, dict):
+        return ""
+
+    texts: list[str] = []
+    for item in response_obj.get("output") or []:
+        item_text = _extract_text_from_realtime_item(item)
+        if item_text:
+            texts.append(item_text)
+    return "".join(texts).strip()
+
+
 def _join_transcript_segments(segments: list[str]) -> str:
     """Combine chunk transcripts without collapsing natural punctuation boundaries."""
     normalized = [segment.strip() for segment in segments if segment and segment.strip()]
@@ -277,6 +357,11 @@ def _update_trace_ids_from_response(
             trace.session_id = str(session_id)
             payload.setdefault("session_id", trace.session_id)
 
+    top_level_response_id = response.get("response_id")
+    if top_level_response_id:
+        trace.response_id = str(top_level_response_id)
+        payload.setdefault("response_id", trace.response_id)
+
     response_obj = response.get("response")
     if isinstance(response_obj, dict):
         response_id = response_obj.get("id")
@@ -309,9 +394,27 @@ def _update_trace_ids_from_response(
                 payload.setdefault("input_item_id", trace.input_item_id)
 
     item_id = response.get("item_id")
-    if item_id:
+    if item_id and (
+        event_type.startswith("conversation.item.")
+        or event_type.startswith("input_audio_buffer.")
+    ):
         trace.input_item_id = str(item_id)
         payload.setdefault("input_item_id", trace.input_item_id)
+    elif item_id and event_type.startswith("response."):
+        trace.response_output_item_id = str(item_id)
+        payload.setdefault(
+            "response_output_item_id",
+            trace.response_output_item_id,
+        )
+
+    if event_type.startswith("response.output_item."):
+        item = response.get("item")
+        if isinstance(item, dict) and item.get("id"):
+            trace.response_output_item_id = str(item["id"])
+            payload.setdefault(
+                "response_output_item_id",
+                trace.response_output_item_id,
+            )
 
     output_index = response.get("output_index")
     if output_index is not None:
@@ -321,6 +424,8 @@ def _update_trace_ids_from_response(
 
 
 def _build_trace_timings(trace: ASRDebugTrace) -> dict[str, Optional[float]]:
+    response_done_ms = _event_time_ms(trace, "response.done")
+    response_output_item_done_ms = _event_time_ms(trace, "response.output_item.done")
     timings = {
         "socket_open_ms": _event_time_ms(trace, "socket.open"),
         "session_ready_ms": _event_time_ms(trace, "session.updated"),
@@ -333,10 +438,13 @@ def _build_trace_timings(trace: ASRDebugTrace) -> dict[str, Optional[float]]:
         "commit_ms": _event_time_ms(trace, "client.commit"),
         "response_requested_ms": _event_time_ms(trace, "client.response.requested"),
         "response_first_delta_ms": _event_time_ms(trace, "response.text.delta"),
-        "response_done_ms": _event_time_ms(trace, "response.done"),
+        "response_text_done_ms": _event_time_ms(trace, "response.text.done"),
+        "response_output_item_done_ms": response_output_item_done_ms,
+        "response_done_ms": response_done_ms,
         "result_selected_ms": _event_time_ms(trace, "client.result.selected"),
         "socket_close_ms": _event_time_ms(trace, "socket.close"),
     }
+    timings["response_complete_ms"] = response_done_ms or response_output_item_done_ms
     timings["total_result_ms"] = timings["result_selected_ms"]
     return timings
 
@@ -399,7 +507,7 @@ def _print_trace_summary(trace: ASRDebugTrace) -> None:
     total = trace.timings_ms.get("total_result_ms")
     ready = trace.timings_ms.get("session_ready_ms")
     transcript = trace.timings_ms.get("transcription_complete_ms")
-    response_done = trace.timings_ms.get("response_done_ms")
+    response_done = trace.timings_ms.get("response_complete_ms")
     print(
         "[ASRTiming] "
         f"mode={trace.request_mode} backend={trace.backend} model={trace.model} "
@@ -419,6 +527,8 @@ def _print_trace_summary(trace: ASRDebugTrace) -> None:
         f"response_output_item_id={trace.response_output_item_id or '-'} "
         f"transcript_event_id={_event_id_for(trace, 'conversation.item.input_audio_transcription.completed') or '-'} "
         f"response_created_event_id={_event_id_for(trace, 'response.created') or '-'} "
+        f"response_text_done_event_id={_event_id_for(trace, 'response.text.done') or '-'} "
+        f"response_output_item_done_event_id={_event_id_for(trace, 'response.output_item.done') or '-'} "
         f"response_done_event_id={_event_id_for(trace, 'response.done') or '-'}"
     )
 
@@ -438,8 +548,35 @@ def _format_trace_ids(trace: Optional[ASRDebugTrace]) -> str:
         f"response_id={trace.response_id or '-'} "
         f"transcript_event_id={_event_id_for(trace, 'conversation.item.input_audio_transcription.completed') or '-'} "
         f"response_created_event_id={_event_id_for(trace, 'response.created') or '-'} "
+        f"response_text_done_event_id={_event_id_for(trace, 'response.text.done') or '-'} "
+        f"response_output_item_done_event_id={_event_id_for(trace, 'response.output_item.done') or '-'} "
         f"response_done_event_id={_event_id_for(trace, 'response.done') or '-'}"
     )
+
+
+def _get_completed_response_result(callback) -> tuple[str, str]:
+    response_text = callback.get_response_text().strip()
+    response_source = callback.get_response_result_source()
+    if response_text and response_source:
+        return response_text, response_source
+    return "", ""
+
+
+def _try_finalize_late_response(callback, response_complete_timeout: float) -> tuple[str, str, bool]:
+    late_started = callback.wait_for_response_started(
+        timeout=INLINE_RESPONSE_LATE_START_GRACE_SECONDS
+    )
+    if not late_started:
+        return "", "", False
+
+    late_completed = callback.wait_for_response_complete(timeout=response_complete_timeout)
+    if not late_completed:
+        return "", "", True
+
+    response_text, response_source = _get_completed_response_result(callback)
+    if response_text and response_source:
+        return response_text, response_source, True
+    return "", "", True
 
 
 @dataclass
@@ -477,6 +614,11 @@ class BatchASRCallback(OmniRealtimeCallback):
         self._debug_trace: Optional[ASRDebugTrace] = None
         self._response_text = ""
         self._response_done_received = False
+        self._response_done_status = ""
+        self._response_text_done_received = False
+        self._response_content_part_done_received = False
+        self._response_output_item_done_received = False
+        self._response_output_item_status = ""
 
     def set_debug_trace(self, trace: ASRDebugTrace) -> None:
         self._debug_trace = trace
@@ -557,14 +699,65 @@ class BatchASRCallback(OmniRealtimeCallback):
                         self._response_text += delta
                     self._record_event(event_type, **metadata, delta=delta)
 
+            elif event_type == "response.text.done":
+                text = response.get("text", "")
+                self._response_started.set()
+                self._response_text_done_received = True
+                with self._lock:
+                    self._response_text = _prefer_longer_text(
+                        self._response_text,
+                        text,
+                    )
+                self._record_event(event_type, **metadata, text=text)
+
+            elif event_type == "response.content_part.done":
+                part = response.get("part")
+                part_text = _extract_text_from_content_part(part)
+                self._response_started.set()
+                self._response_content_part_done_received = True
+                with self._lock:
+                    self._response_text = _prefer_longer_text(
+                        self._response_text,
+                        part_text,
+                    )
+                if part_text:
+                    self._record_event(event_type, **metadata, text=part_text)
+
+            elif event_type == "response.output_item.done":
+                item = response.get("item")
+                item_text = _extract_text_from_realtime_item(item)
+                status = ""
+                if isinstance(item, dict):
+                    status = str(item.get("status", "") or "")
+                self._response_started.set()
+                self._response_output_item_done_received = True
+                self._response_output_item_status = status
+                with self._lock:
+                    self._response_text = _prefer_longer_text(
+                        self._response_text,
+                        item_text,
+                    )
+                self._response_completed.set()
+                self._record_event(event_type, **metadata, status=status, text=item_text)
+
             elif event_type == "response.created":
                 self._response_started.set()
 
             elif event_type == "response.done":
                 self._response_started.set()
                 self._response_done_received = True
+                response_obj = response.get("response")
+                response_status = ""
+                if isinstance(response_obj, dict):
+                    response_status = str(response_obj.get("status", "") or "")
+                self._response_done_status = response_status
+                with self._lock:
+                    self._response_text = _prefer_longer_text(
+                        self._response_text,
+                        _extract_text_from_realtime_response(response_obj),
+                    )
                 self._response_completed.set()
-                self._record_event(event_type)
+                self._record_event(event_type, status=response_status)
 
             elif event_type == "session.finished":
                 transcript = response.get("transcript", "")
@@ -617,6 +810,32 @@ class BatchASRCallback(OmniRealtimeCallback):
     def did_receive_response_done(self) -> bool:
         return self._response_done_received
 
+    def did_receive_response_text_done(self) -> bool:
+        return self._response_text_done_received
+
+    def did_receive_response_output_item_done(self) -> bool:
+        return self._response_output_item_done_received
+
+    def get_response_output_item_status(self) -> str:
+        return self._response_output_item_status
+
+    def get_response_done_status(self) -> str:
+        return self._response_done_status
+
+    def get_response_result_source(self) -> str:
+        response_text = self.get_response_text().strip()
+        if not response_text:
+            return ""
+        if self._response_done_received and self._response_done_status in ("", "completed"):
+            return "response"
+        if (
+            self._response_text_done_received
+            and self._response_output_item_done_received
+            and self._response_output_item_status in ("", "completed")
+        ):
+            return "response_output_item_done"
+        return ""
+
     def reset(self):
         with self._lock:
             self._full_text = ""
@@ -625,6 +844,11 @@ class BatchASRCallback(OmniRealtimeCallback):
         self._transcription_completed.clear()
         self._response_text = ""
         self._response_done_received = False
+        self._response_done_status = ""
+        self._response_text_done_received = False
+        self._response_content_part_done_received = False
+        self._response_output_item_done_received = False
+        self._response_output_item_status = ""
         self._response_started.clear()
         self._response_completed.clear()
         self._started_at = time.perf_counter()
@@ -642,6 +866,10 @@ class BatchASREngine:
 
     def _audio_bytes_per_second(self) -> int:
         return self.config.audio.sample_rate * self._frame_bytes()
+
+    def _audio_duration_seconds(self, audio_data: bytes) -> float:
+        bytes_per_second = self._audio_bytes_per_second()
+        return (len(audio_data) / bytes_per_second) if bytes_per_second else 0.0
 
     def _analysis_window_frames(self) -> int:
         return max(1, int(self.config.audio.sample_rate * OMNI_OFFLINE_SILENCE_WINDOW_SECONDS))
@@ -818,6 +1046,26 @@ class BatchASREngine:
         model = model_override or self.config.asr.model
         model_info = get_asr_model_info(model)
         transport = model_info["transport"] if model_info else self.config.asr.backend
+        audio_duration_seconds = self._audio_duration_seconds(audio_data)
+
+        if allow_chunking and transport == "realtime_ws":
+            fallback_model = _get_omni_offline_fallback_model(model)
+            if (
+                fallback_model
+                and audio_duration_seconds
+                >= OMNI_REALTIME_BATCH_DIRECT_OFFLINE_THRESHOLD_SECONDS
+            ):
+                print(
+                    "[BatchASR] Long batch audio "
+                    f"({audio_duration_seconds:.1f}s) bypassing realtime_ws for {model}; "
+                    f"using {fallback_model} directly"
+                )
+                return self.transcribe(
+                    audio_data,
+                    model_override=fallback_model,
+                    language_override=language_override,
+                    allow_chunking=True,
+                )
 
         if transport == "short_file":
             if self._supports_short_file(audio_data):
@@ -967,6 +1215,15 @@ class BatchASREngine:
         result_source = "empty"
         response_requested = False
         fallback_reason = ""
+        audio_duration_seconds = _pcm_duration_seconds(
+            audio_data,
+            self.config.audio.sample_rate,
+            self.config.audio.channels,
+        )
+        response_start_timeout = _adaptive_response_start_timeout(audio_duration_seconds)
+        response_complete_timeout = _adaptive_response_complete_timeout(
+            audio_duration_seconds
+        )
 
         def on_error(msg: str):
             nonlocal error_msg
@@ -1024,18 +1281,18 @@ class BatchASREngine:
             result_text = transcript_text
             if should_request_response:
                 response_started = callback.wait_for_response_started(
-                    timeout=INLINE_RESPONSE_START_TIMEOUT_SECONDS
+                    timeout=response_start_timeout
                 )
                 if response_started:
-                    response_completed = callback.wait_for_response_complete(timeout=30.0)
-                    response_text = callback.get_response_text().strip()
-                    if (
-                        response_completed
-                        and callback.did_receive_response_done()
-                        and response_text
-                    ):
+                    response_completed = callback.wait_for_response_complete(
+                        timeout=response_complete_timeout
+                    )
+                    response_text, response_source = _get_completed_response_result(
+                        callback
+                    )
+                    if response_completed and response_text and response_source:
                         result_text = response_text
-                        result_source = "response"
+                        result_source = response_source
                     else:
                         fallback_reason = "response_incomplete"
                 else:
@@ -1048,13 +1305,27 @@ class BatchASREngine:
                         print("[BatchASR] Timeout waiting for transcription completion")
                         trace.recognition_timed_out = True
                     transcript_text = callback.get_full_text().strip()
-                    result_text, result_source = self._recover_failed_omni_response(
-                        audio_data,
-                        model,
-                        transcript_text,
-                        fallback_reason,
-                        trace=trace,
-                    )
+                    if fallback_reason == "response_not_started":
+                        late_response_text, late_response_source, late_started = (
+                            _try_finalize_late_response(
+                                callback,
+                                response_complete_timeout,
+                            )
+                        )
+                        if late_response_text and late_response_source:
+                            fallback_reason = ""
+                            result_text = late_response_text
+                            result_source = late_response_source
+                        elif late_started:
+                            fallback_reason = "response_incomplete"
+                    if fallback_reason:
+                        result_text, result_source = self._recover_failed_omni_response(
+                            audio_data,
+                            model,
+                            transcript_text,
+                            fallback_reason,
+                            trace=trace,
+                        )
             else:
                 if not callback.wait_for_transcription_complete(timeout=30.0):
                     print("[BatchASR] Timeout waiting for transcription completion")
@@ -1283,6 +1554,11 @@ class StreamingASRCallback(OmniRealtimeCallback):
         self._response_started = threading.Event()
         self._response_text = ""
         self._response_done_received = False
+        self._response_done_status = ""
+        self._response_text_done_received = False
+        self._response_content_part_done_received = False
+        self._response_output_item_done_received = False
+        self._response_output_item_status = ""
         self._started_at = time.perf_counter()
         self._debug_trace: Optional[ASRDebugTrace] = None
 
@@ -1370,14 +1646,74 @@ class StreamingASRCallback(OmniRealtimeCallback):
                     if self._on_partial:
                         self._on_partial(ASRResult(text=response_text, is_final=False))
 
+            elif event_type == "response.text.done":
+                text = response.get("text", "")
+                self._response_started.set()
+                self._response_text_done_received = True
+                with self._lock:
+                    self._response_text = _prefer_longer_text(
+                        self._response_text,
+                        text,
+                    )
+                    response_text = self._response_text
+                self._record_event(event_type, **metadata, text=text)
+                if self._on_partial and response_text:
+                    self._on_partial(ASRResult(text=response_text, is_final=False))
+
+            elif event_type == "response.content_part.done":
+                part = response.get("part")
+                part_text = _extract_text_from_content_part(part)
+                self._response_started.set()
+                self._response_content_part_done_received = True
+                with self._lock:
+                    self._response_text = _prefer_longer_text(
+                        self._response_text,
+                        part_text,
+                    )
+                    response_text = self._response_text
+                if part_text:
+                    self._record_event(event_type, **metadata, text=part_text)
+                    if self._on_partial and response_text:
+                        self._on_partial(ASRResult(text=response_text, is_final=False))
+
+            elif event_type == "response.output_item.done":
+                item = response.get("item")
+                item_text = _extract_text_from_realtime_item(item)
+                status = ""
+                if isinstance(item, dict):
+                    status = str(item.get("status", "") or "")
+                self._response_started.set()
+                self._response_output_item_done_received = True
+                self._response_output_item_status = status
+                with self._lock:
+                    self._response_text = _prefer_longer_text(
+                        self._response_text,
+                        item_text,
+                    )
+                    response_text = self._response_text
+                self._response_completed.set()
+                self._record_event(event_type, **metadata, status=status, text=item_text)
+                if self._on_partial and response_text:
+                    self._on_partial(ASRResult(text=response_text, is_final=False))
+
             elif event_type == "response.created":
                 self._response_started.set()
 
             elif event_type == "response.done":
                 self._response_started.set()
                 self._response_done_received = True
+                response_obj = response.get("response")
+                response_status = ""
+                if isinstance(response_obj, dict):
+                    response_status = str(response_obj.get("status", "") or "")
+                self._response_done_status = response_status
+                with self._lock:
+                    self._response_text = _prefer_longer_text(
+                        self._response_text,
+                        _extract_text_from_realtime_response(response_obj),
+                    )
                 self._response_completed.set()
-                self._record_event(event_type)
+                self._record_event(event_type, status=response_status)
 
             elif event_type == "session.finished":
                 transcript = response.get("transcript", "")
@@ -1427,11 +1763,42 @@ class StreamingASRCallback(OmniRealtimeCallback):
     def did_receive_response_done(self) -> bool:
         return self._response_done_received
 
+    def did_receive_response_text_done(self) -> bool:
+        return self._response_text_done_received
+
+    def did_receive_response_output_item_done(self) -> bool:
+        return self._response_output_item_done_received
+
+    def get_response_output_item_status(self) -> str:
+        return self._response_output_item_status
+
+    def get_response_done_status(self) -> str:
+        return self._response_done_status
+
+    def get_response_result_source(self) -> str:
+        response_text = self.get_response_text().strip()
+        if not response_text:
+            return ""
+        if self._response_done_received and self._response_done_status in ("", "completed"):
+            return "response"
+        if (
+            self._response_text_done_received
+            and self._response_output_item_done_received
+            and self._response_output_item_status in ("", "completed")
+        ):
+            return "response_output_item_done"
+        return ""
+
     def reset(self):
         with self._lock:
             self._full_text = ""
             self._response_text = ""
             self._response_done_received = False
+            self._response_done_status = ""
+            self._response_text_done_received = False
+            self._response_content_part_done_received = False
+            self._response_output_item_done_received = False
+            self._response_output_item_status = ""
         self._session_updated.clear()
         self._transcription_completed.clear()
         self._complete_event.clear()
@@ -1776,6 +2143,19 @@ class ASREngine:
         response_requested = False
         result_source = "empty"
         response_fallback_reason = ""
+        audio_duration_seconds = _pcm_duration_seconds(
+            pcm_data,
+            self.config.audio.sample_rate,
+            self.config.audio.channels,
+        )
+        response_start_timeout = min(
+            max(timeout, INLINE_RESPONSE_START_TIMEOUT_SECONDS),
+            _adaptive_response_start_timeout(audio_duration_seconds),
+        )
+        response_complete_timeout = _adaptive_response_complete_timeout(
+            audio_duration_seconds,
+            base_timeout=timeout,
+        )
 
         if self._conversation:
             try:
@@ -1801,20 +2181,20 @@ class ASREngine:
 
             if should_request_response and self._callback:
                 response_started = self._callback.wait_for_response_started(
-                    timeout=min(timeout, INLINE_RESPONSE_START_TIMEOUT_SECONDS)
+                    timeout=response_start_timeout
                 )
                 if response_started:
                     response_completed = self._callback.wait_for_response_complete(
-                        timeout=timeout
+                        timeout=response_complete_timeout
                     )
-                    response_result = self._callback.get_response_text().strip()
-                    if not (
-                        response_completed and self._callback.did_receive_response_done()
-                    ):
+                    response_result, response_source = _get_completed_response_result(
+                        self._callback
+                    )
+                    if not (response_completed and response_result and response_source):
                         response_result = ""
                         response_fallback_reason = "response_incomplete"
                     else:
-                        result_source = "response"
+                        result_source = response_source
                 else:
                     response_fallback_reason = "response_not_started"
 
@@ -1828,6 +2208,21 @@ class ASREngine:
                 self._callback.wait_for_transcription_complete(timeout=transcript_timeout)
                 transcript_result = self._callback.get_full_text().strip()
                 result_source = "transcript" if transcript_result else "empty"
+
+                if response_fallback_reason:
+                    if response_fallback_reason == "response_not_started":
+                        late_response_text, late_response_source, late_started = (
+                            _try_finalize_late_response(
+                                self._callback,
+                                response_complete_timeout,
+                            )
+                        )
+                        if late_response_text and late_response_source:
+                            response_result = late_response_text
+                            result_source = late_response_source
+                            response_fallback_reason = ""
+                        elif late_started:
+                            response_fallback_reason = "response_incomplete"
 
                 if response_fallback_reason:
                     if self._callback:
