@@ -9,10 +9,10 @@ from typing import Any, Callable, Optional
 import dashscope
 
 from .application.runtime_facade import RuntimeFacade
+from .bootstrap import build_rpc_handler_dependencies
 from .config import (
     ASR_MODEL_CATALOG,
     LLM_MODEL_CATALOG,
-    get_config,
 )
 from .core.audio_recorder import AudioRecorder
 from .core.recording_store import RecordingStore
@@ -32,52 +32,31 @@ class RPCHandler:
     def __init__(
         self,
         send_notification: Callable[[str, dict], None],
+        dependencies=None,
     ):
         self._send_notification = send_notification
-        self.config = get_config()
-
-        # Initialize recording store
-        self._recording_store = RecordingStore()
-
-        # Initialize text polisher
-        self._text_polisher: Optional[TextPolisher] = None
-        if self.config.api_key:
-            self._text_polisher = TextPolisher()
-
-        # Initialize modes with callbacks
-        self._walkie_talkie = WalkieTalkieMode(
-            on_state_change=self._on_state_change,
-            on_result=self._on_result,
-            on_partial_result=self._on_partial_result,
-            on_error=self._on_error,
-            on_processing_stage=self._on_processing_stage,
-            text_polisher=self._text_polisher,
-            on_audio_level=self._on_audio_level,
-            recording_store=self._recording_store,
+        dependencies = dependencies or build_rpc_handler_dependencies(
+            self,
+            send_notification=send_notification,
+            text_polisher_factory=TextPolisher,
+            recording_store_factory=RecordingStore,
+            walkie_talkie_factory=WalkieTalkieMode,
+            realtime_long_factory=RealtimeLongMode,
         )
+        self._apply_dependencies(dependencies)
 
-        self._realtime_long = RealtimeLongMode(
-            on_state_change=self._on_state_change,
-            on_result=self._on_result,
-            on_partial_result=self._on_partial_result,
-            on_error=self._on_error,
-            on_processing_stage=self._on_processing_stage,
-            text_polisher=self._text_polisher,
-            on_audio_level=self._on_audio_level,
-            recording_store=self._recording_store,
-        )
-
-        self._modes: dict[str, BaseMode] = {
+    def _apply_dependencies(self, dependencies) -> None:
+        self.config = dependencies.config
+        self._recording_store = dependencies.recording_store
+        self._text_polisher = dependencies.text_polisher
+        self._walkie_talkie = dependencies.walkie_talkie
+        self._realtime_long = dependencies.realtime_long
+        self._modes = {
             "walkie_talkie": self._walkie_talkie,
             "realtime_long": self._realtime_long,
         }
-
-        self._current_mode: BaseMode = (
-            self._realtime_long
-            if self.config.default_mode == "realtime_long"
-            else self._walkie_talkie
-        )
-        self._runtime = self._build_runtime_facade()
+        self._current_mode = dependencies.current_mode
+        self._runtime = dependencies.runtime
 
     # -- Notification callbacks -----------------------------------------------
 
@@ -323,6 +302,10 @@ class RPCHandler:
         if runtime is None:
             self._runtime = self._build_runtime_facade()
         return self._runtime
+
+    @property
+    def runtime(self) -> RuntimeFacade:
+        return self._get_runtime()
 
 
 class RPCError(Exception):

@@ -11,10 +11,10 @@ from AppKit import NSApp, NSApplicationActivationPolicyAccessory
 
 from . import __version__
 from .application.runtime_facade import RuntimeFacade
+from .bootstrap import build_menu_app_dependencies
 from .config import (
     ASR_MODEL_CATALOG,
     LLM_MODEL_CATALOG,
-    get_config,
 )
 from .core.audio_recorder import AudioRecorder
 from .core.hotkey_manager import HotkeyManager
@@ -48,7 +48,7 @@ POLISH_LEVEL_OPTIONS = [
 class VocalMoreApp(rumps.App):
     """Menu bar application for Vocal-More."""
 
-    def __init__(self):
+    def __init__(self, dependencies=None):
         """Initialize the application."""
         super().__init__(
             "Vocal-More",
@@ -57,81 +57,36 @@ class VocalMoreApp(rumps.App):
             quit_button=None,
         )
 
-        self.config = get_config()
-        self._hotkey_listener_ready: Optional[bool] = None
-        self._environment_checks = []
-
-        # Initialize components
-        self._text_polisher: Optional[TextPolisher] = None
-        if self.config.api_key:
-            self._text_polisher = TextPolisher()
-
-        # Initialize floating capsule UI
-        self._capsule = FloatingCapsule(
-            on_cancel=self._on_capsule_cancel,
-            on_finish=self._on_capsule_finish,
+        dependencies = dependencies or build_menu_app_dependencies(
+            self,
+            text_polisher_factory=TextPolisher,
+            capsule_factory=FloatingCapsule,
+            recording_store_factory=RecordingStore,
+            walkie_talkie_factory=WalkieTalkieMode,
+            realtime_long_factory=RealtimeLongMode,
+            hotkey_manager_factory=HotkeyManager,
+            settings_window_factory=SettingsWindow,
         )
-
-        # Initialize recording store
-        self._recording_store = RecordingStore()
-
-        # Initialize modes
-        self._walkie_talkie = WalkieTalkieMode(
-            on_state_change=self._on_state_change,
-            on_result=self._on_result,
-            on_partial_result=self._on_partial_result,
-            on_error=self._on_error,
-            on_processing_stage=self._on_processing_stage,
-            text_polisher=self._text_polisher,
-            on_audio_level=self._on_audio_level,
-            recording_store=self._recording_store,
-        )
-
-        self._realtime_long = RealtimeLongMode(
-            on_state_change=self._on_state_change,
-            on_result=self._on_result,
-            on_partial_result=self._on_partial_result,
-            on_error=self._on_error,
-            on_processing_stage=self._on_processing_stage,
-            text_polisher=self._text_polisher,
-            on_audio_level=self._on_audio_level,
-            recording_store=self._recording_store,
-        )
-
-        self._current_mode: BaseMode = (
-            self._realtime_long if self.config.default_mode == "realtime_long"
-            else self._walkie_talkie
-        )
-
-        # Initialize hotkey manager
-        self._hotkey_manager = HotkeyManager(
-            on_fn_pressed=self._on_fn_pressed,
-            on_fn_released=self._on_fn_released,
-            on_double_cmd=self._on_double_cmd,
-        )
-
-        self._runtime = self._build_runtime_facade()
-
-        # Initialize settings window
-        self._settings_window = SettingsWindow(
-            on_set_config=self._on_settings_config_change,
-            on_set_asr_model=self._on_settings_set_asr_model,
-            on_sync_form_state=self._on_settings_sync_form_state,
-            on_set_device=self._on_settings_set_device,
-            on_set_active_hotkeys=self._on_settings_set_hotkeys,
-            on_add_dict_entry=self._on_settings_add_dict,
-            on_remove_dict_entry=self._on_settings_remove_dict,
-            on_refresh_devices=self._on_settings_refresh_devices,
-            on_open_config_file=self._on_settings_open_config,
-            on_open_dict_file=self._on_settings_open_dict,
-            on_open_external=self._on_settings_open_external,
-            recording_store=self._recording_store,
-        )
+        self._apply_dependencies(dependencies)
         self._apply_interface_language(update_frontend=False)
 
         # Build menu
         self._build_menu()
         self._refresh_environment_status()
+
+    def _apply_dependencies(self, dependencies) -> None:
+        self.config = dependencies.config
+        self._hotkey_listener_ready = dependencies.hotkey_listener_ready
+        self._environment_checks = dependencies.environment_checks
+        self._text_polisher = dependencies.text_polisher
+        self._capsule = dependencies.capsule
+        self._recording_store = dependencies.recording_store
+        self._walkie_talkie = dependencies.walkie_talkie
+        self._realtime_long = dependencies.realtime_long
+        self._current_mode = dependencies.current_mode
+        self._hotkey_manager = dependencies.hotkey_manager
+        self._runtime = dependencies.runtime
+        self._settings_window = dependencies.settings_window
 
     # ── Resource paths ────────────────────────────────────────
 
@@ -673,6 +628,10 @@ class VocalMoreApp(rumps.App):
             self._runtime = self._build_runtime_facade()
         return self._runtime
 
+    @property
+    def runtime(self) -> RuntimeFacade:
+        return self._get_runtime()
+
     def _get_dict_entries(self) -> list[dict]:
         """Get dictionary entries as dicts for the settings UI."""
         dictionary = get_dictionary()
@@ -795,9 +754,11 @@ class VocalMoreApp(rumps.App):
 
 def main() -> None:
     """Main entry point."""
+    from .bootstrap import build_menu_app
+
     _ensure_no_proxy("dashscope.aliyuncs.com")
     ensure_runtime_debug_dir_env()
-    app = VocalMoreApp()
+    app = build_menu_app(app_factory=VocalMoreApp)
     app.run()
 
 

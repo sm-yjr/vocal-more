@@ -112,3 +112,43 @@ def test_serve_stdout_isolation():
         if line:
             parsed = json.loads(line)  # Should not raise
             assert "jsonrpc" in parsed
+
+
+def test_serve_main_builds_handler_via_bootstrap(monkeypatch):
+    """serve.main should create its RPC handler through bootstrap."""
+    import importlib
+    import io
+
+    serve_module = importlib.import_module("vocal_more.serve")
+    serve_module = importlib.reload(serve_module)
+
+    built = {}
+
+    class FakeHandler:
+        def dispatch(self, method, params):
+            return {"ok": True}
+
+    monkeypatch.setattr(
+        serve_module,
+        "build_rpc_handler",
+        lambda *, send_notification, handler_factory: built.setdefault("handler", FakeHandler()),
+    )
+    monkeypatch.setattr(serve_module, "_send", lambda msg: built.setdefault("sent", []).append(msg))
+    monkeypatch.setattr(
+        serve_module,
+        "sys",
+        type(
+            "FakeSys",
+            (),
+            {
+                "stdin": io.StringIO(
+                    '{"jsonrpc":"2.0","method":"initialize","params":{},"id":1}\n'
+                ),
+            },
+        ),
+    )
+
+    serve_module.main()
+
+    assert "handler" in built
+    assert built["sent"][0]["result"] == {"ok": True}
