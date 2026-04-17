@@ -1,5 +1,7 @@
 """ASR engine module using DashScope Qwen ASR models."""
 
+import math
+from array import array
 import base64
 from datetime import datetime
 import json
@@ -32,6 +34,10 @@ REALTIME_CHUNK_SIZE = 3200
 # The current public docs list qwen3-asr-flash as supporting audio up to 3 minutes / 10 MB.
 SHORT_FILE_MAX_DURATION_SECONDS = 180
 SHORT_FILE_MAX_BYTES = 10 * 1024 * 1024
+OMNI_OFFLINE_CHUNK_DURATION_SECONDS = 180
+OMNI_OFFLINE_SILENCE_SEARCH_SECONDS = 12.0
+OMNI_OFFLINE_SILENCE_WINDOW_SECONDS = 0.25
+OMNI_OFFLINE_SILENCE_RMS_THRESHOLD = 0.015
 INLINE_RESPONSE_START_TIMEOUT_SECONDS = 3.0
 INLINE_RESPONSE_TRANSCRIPT_TIMEOUT_SECONDS = 5.0
 WARM_SESSION_TTL_SECONDS = 15.0
@@ -179,6 +185,30 @@ def _debug_dir() -> Optional[Path]:
     path = Path(os.path.expanduser(raw))
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _join_transcript_segments(segments: list[str]) -> str:
+    """Combine chunk transcripts without collapsing natural punctuation boundaries."""
+    normalized = [segment.strip() for segment in segments if segment and segment.strip()]
+    if not normalized:
+        return ""
+
+    result = normalized[0]
+    trailing_punctuation = "。！？!?\n"
+    leading_punctuation = "，。！？、；：,.!?;:"
+
+    for segment in normalized[1:]:
+        if not result:
+            result = segment
+            continue
+        if result.endswith(tuple(trailing_punctuation)):
+            result += segment
+        elif segment[:1] in leading_punctuation:
+            result += segment
+        else:
+            result += "\n" + segment
+
+    return result
 
 
 @dataclass
@@ -607,7 +637,178 @@ class BatchASREngine:
         self.config = get_config()
         _apply_dashscope_api_key(self.config)
 
-    def transcribe(self, audio_data: bytes, model_override: Optional[str] = None, language_override: Optional[str] = None) -> str:
+    def _frame_bytes(self) -> int:
+        return max(1, self.config.audio.channels * 2)
+
+    def _audio_bytes_per_second(self) -> int:
+        return self.config.audio.sample_rate * self._frame_bytes()
+
+    def _analysis_window_frames(self) -> int:
+        return max(1, int(self.config.audio.sample_rate * OMNI_OFFLINE_SILENCE_WINDOW_SECONDS))
+
+    def _silence_search_frames(self) -> int:
+        return max(1, int(self.config.audio.sample_rate * OMNI_OFFLINE_SILENCE_SEARCH_SECONDS))
+
+    def _window_rms(
+        self,
+        samples: memoryview,
+        *,
+        frame_start: int,
+        frame_end: int,
+    ) -> float:
+        channel_count = max(1, self.config.audio.channels)
+        sample_start = frame_start * channel_count
+        sample_end = frame_end * channel_count
+        if sample_end <= sample_start:
+            return float("inf")
+
+        energy_sum = 0.0
+        for sample in samples[sample_start:sample_end]:
+            energy_sum += float(sample) * float(sample)
+
+        return math.sqrt(energy_sum / (sample_end - sample_start)) / 32767.0
+
+    def _find_silence_aware_chunk_end(
+        self,
+        samples: memoryview,
+        *,
+        start_frame: int,
+        target_end_frame: int,
+        total_frames: int,
+    ) -> int:
+        analysis_window_frames = self._analysis_window_frames()
+        if target_end_frame >= total_frames:
+            return total_frames
+        if target_end_frame - start_frame <= analysis_window_frames:
+            return target_end_frame
+
+        search_start_frame = max(
+            start_frame + analysis_window_frames,
+            target_end_frame - self._silence_search_frames(),
+        )
+        best_end_frame = target_end_frame
+        best_rms = float("inf")
+
+        for candidate_end in range(
+            target_end_frame,
+            search_start_frame - 1,
+            -analysis_window_frames,
+        ):
+            candidate_start = max(start_frame, candidate_end - analysis_window_frames)
+            rms = self._window_rms(
+                samples,
+                frame_start=candidate_start,
+                frame_end=candidate_end,
+            )
+            if rms < best_rms:
+                best_rms = rms
+                best_end_frame = candidate_end
+            if rms <= OMNI_OFFLINE_SILENCE_RMS_THRESHOLD:
+                return candidate_end
+
+        return best_end_frame
+
+    def _split_audio_for_batch(
+        self,
+        audio_data: bytes,
+        *,
+        max_duration_seconds: int = OMNI_OFFLINE_CHUNK_DURATION_SECONDS,
+    ) -> list[bytes]:
+        bytes_per_second = self._audio_bytes_per_second()
+        if bytes_per_second <= 0:
+            return [audio_data]
+
+        frame_bytes = self._frame_bytes()
+        chunk_bytes = max(bytes_per_second * max_duration_seconds, frame_bytes)
+        chunk_bytes -= chunk_bytes % frame_bytes
+        total_frames = len(audio_data) // frame_bytes
+        max_chunk_frames = max(1, chunk_bytes // frame_bytes)
+        if chunk_bytes <= 0 or total_frames <= max_chunk_frames:
+            return [audio_data]
+
+        try:
+            sample_buffer = array("h")
+            sample_buffer.frombytes(audio_data)
+            samples = memoryview(sample_buffer)
+        except Exception:
+            return [
+                audio_data[offset:offset + chunk_bytes]
+                for offset in range(0, len(audio_data), chunk_bytes)
+            ]
+
+        chunks: list[bytes] = []
+        start_frame = 0
+        while start_frame < total_frames:
+            remaining_frames = total_frames - start_frame
+            if remaining_frames <= max_chunk_frames:
+                end_frame = total_frames
+            else:
+                target_end_frame = start_frame + max_chunk_frames
+                end_frame = self._find_silence_aware_chunk_end(
+                    samples,
+                    start_frame=start_frame,
+                    target_end_frame=target_end_frame,
+                    total_frames=total_frames,
+                )
+                if end_frame <= start_frame:
+                    end_frame = target_end_frame
+
+            start_byte = start_frame * frame_bytes
+            end_byte = end_frame * frame_bytes
+            chunks.append(audio_data[start_byte:end_byte])
+            start_frame = end_frame
+
+        return chunks
+
+    def _transcribe_chunked_audio(
+        self,
+        audio_data: bytes,
+        *,
+        model: str,
+        language_override: Optional[str],
+    ) -> str:
+        chunks = self._split_audio_for_batch(audio_data)
+        if len(chunks) <= 1:
+            return self._transcribe_omni_offline(audio_data, model_override=model)
+
+        print(
+            f"[BatchASR] Long audio detected for {model}; "
+            f"splitting into {len(chunks)} chunks for retry-safe transcription"
+        )
+
+        transcripts: list[str] = []
+        bytes_per_second = self._audio_bytes_per_second()
+        for index, chunk in enumerate(chunks, start=1):
+            duration_seconds = (len(chunk) / bytes_per_second) if bytes_per_second else 0.0
+            print(
+                f"[BatchASR] Transcribing chunk {index}/{len(chunks)} "
+                f"({duration_seconds:.1f}s, {len(chunk)} bytes)"
+            )
+            try:
+                chunk_text = self.transcribe(
+                    chunk,
+                    model_override=model,
+                    language_override=language_override,
+                    allow_chunking=False,
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Chunk {index}/{len(chunks)} transcription failed: {exc}"
+                ) from exc
+
+            if chunk_text.strip():
+                transcripts.append(chunk_text.strip())
+
+        return _join_transcript_segments(transcripts)
+
+    def transcribe(
+        self,
+        audio_data: bytes,
+        model_override: Optional[str] = None,
+        language_override: Optional[str] = None,
+        *,
+        allow_chunking: bool = True,
+    ) -> str:
         """Transcribe complete audio data.
 
         Routing is based on the selected model's catalog ``transport`` field
@@ -629,6 +830,14 @@ class BatchASREngine:
             print("[BatchASR] short_file backend skipped, falling back to realtime_ws")
 
         if transport == "omni_offline":
+            if allow_chunking:
+                chunks = self._split_audio_for_batch(audio_data)
+                if len(chunks) > 1:
+                    return self._transcribe_chunked_audio(
+                        audio_data,
+                        model=model,
+                        language_override=language_override,
+                    )
             return self._transcribe_omni_offline(audio_data, model_override=model)
 
         return self._transcribe_realtime_ws(

@@ -5,7 +5,13 @@ import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
 import yaml
+
+
+def _make_pcm_segment(duration_sec: float, sample_value: int = 0) -> bytes:
+    sample_count = int(16000 * duration_sec)
+    return int(sample_value).to_bytes(2, "little", signed=True) * sample_count
 
 
 def test_realtime_ws_batch_uses_manual_commit_and_corpus(tmp_path, monkeypatch):
@@ -324,6 +330,103 @@ def test_short_file_backend_falls_back_when_audio_exceeds_limits(
     monkeypatch.setattr(engine, "_transcribe_short_file", lambda _audio, **kw: "short")
 
     assert engine.transcribe(b"\x01\x00" * 5000000) == "fallback"
+
+
+def test_omni_offline_long_audio_is_chunked_and_joined(tmp_path, monkeypatch):
+    """Long offline audio should be retried chunk-by-chunk and stitched back together."""
+    from vocal_more.config import Config, reload_config
+    import vocal_more.core.asr_engine as asr_engine
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump({"asr": {"model": "qwen3.5-omni-plus"}}, f)
+
+    reload_config()
+
+    engine = asr_engine.BatchASREngine()
+    calls = []
+    chunk_results = iter(["第一段。", "第二段。", "第三段。"])
+
+    def fake_offline(audio_data, model_override=None):
+        calls.append((len(audio_data), model_override))
+        return next(chunk_results)
+
+    monkeypatch.setattr(engine, "_transcribe_omni_offline", fake_offline)
+
+    total_seconds = asr_engine.OMNI_OFFLINE_CHUNK_DURATION_SECONDS * 2 + 30
+    audio_data = b"\x01\x00" * (16000 * total_seconds)
+    text = engine.transcribe(audio_data)
+
+    assert text == "第一段。第二段。第三段。"
+    assert len(calls) == 3
+    assert all(model == "qwen3.5-omni-plus" for _, model in calls)
+    assert max(size for size, _ in calls) <= 16000 * 2 * asr_engine.OMNI_OFFLINE_CHUNK_DURATION_SECONDS
+
+
+def test_omni_offline_chunking_prefers_silence_before_hard_boundary(tmp_path, monkeypatch):
+    """Chunking should cut at a nearby quiet window instead of the exact duration limit."""
+    from vocal_more.config import Config, reload_config
+    import vocal_more.core.asr_engine as asr_engine
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump({"asr": {"model": "qwen3.5-omni-plus"}}, f)
+
+    reload_config()
+
+    engine = asr_engine.BatchASREngine()
+    audio_data = b"".join(
+        [
+            _make_pcm_segment(172, 9000),
+            _make_pcm_segment(4, 0),
+            _make_pcm_segment(20, 9000),
+        ]
+    )
+
+    chunks = engine._split_audio_for_batch(audio_data)
+
+    assert len(chunks) == 2
+    first_chunk_seconds = len(chunks[0]) / (16000 * 2)
+    assert 175.5 <= first_chunk_seconds <= 176.5
+    assert first_chunk_seconds < asr_engine.OMNI_OFFLINE_CHUNK_DURATION_SECONDS
+
+
+def test_omni_offline_chunk_failure_reports_chunk_index(tmp_path, monkeypatch):
+    """Chunked retry errors should identify which chunk failed."""
+    from vocal_more.config import Config, reload_config
+    import vocal_more.core.asr_engine as asr_engine
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump({"asr": {"model": "qwen3.5-omni-plus"}}, f)
+
+    reload_config()
+
+    engine = asr_engine.BatchASREngine()
+    call_count = {"value": 0}
+
+    def fake_offline(audio_data, model_override=None):
+        call_count["value"] += 1
+        if call_count["value"] == 2:
+            raise RuntimeError("request too large")
+        return "ok"
+
+    monkeypatch.setattr(engine, "_transcribe_omni_offline", fake_offline)
+
+    total_seconds = asr_engine.OMNI_OFFLINE_CHUNK_DURATION_SECONDS * 2 + 5
+    audio_data = b"\x01\x00" * (16000 * total_seconds)
+
+    with pytest.raises(RuntimeError, match=r"Chunk 2/3 transcription failed: request too large"):
+        engine.transcribe(audio_data)
 
 
 def test_omni_realtime_uses_transcription_model(tmp_path, monkeypatch):
