@@ -60,6 +60,22 @@ class BaseMode(ABC):
         if self.on_processing_stage:
             self.on_processing_stage(stage)
 
+    def _emit_workflow_result(self, result) -> None:
+        """Forward shared workflow output to mode callbacks."""
+        for warning in getattr(result, "warnings", []):
+            if self.on_error:
+                self.on_error(warning)
+
+        error_message = getattr(result, "error_message", None)
+        if error_message:
+            if self.on_error:
+                self.on_error(error_message)
+            return
+
+        final_text = getattr(result, "final_text", "")
+        if final_text and self.on_result:
+            self.on_result(final_text)
+
     @abstractmethod
     def on_hotkey_pressed(self) -> None:
         """Handle hotkey press event."""

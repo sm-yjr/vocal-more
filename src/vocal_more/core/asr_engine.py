@@ -1,7 +1,5 @@
 """ASR engine module using DashScope Qwen ASR models."""
 
-import math
-from array import array
 import base64
 from datetime import datetime
 import json
@@ -11,7 +9,7 @@ import tempfile
 import threading
 import time
 import wave
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Callable, Optional
 
 import dashscope
@@ -25,6 +23,43 @@ from dashscope.audio.qwen_omni.omni_realtime import TranscriptionParams
 
 from ..config import get_asr_model_info, get_config
 from ..dictionary import build_asr_corpus_text, normalize_terms
+from ..infrastructure.asr.batch_engine import (
+    analysis_window_frames as _batch_analysis_window_frames,
+    audio_bytes_per_second as _batch_audio_bytes_per_second,
+    audio_duration_seconds as _batch_audio_duration_seconds,
+    find_silence_aware_chunk_end as _batch_find_silence_aware_chunk_end,
+    frame_bytes as _batch_frame_bytes,
+    silence_search_frames as _batch_silence_search_frames,
+    split_audio_for_batch as _batch_split_audio_for_batch,
+    window_rms as _batch_window_rms,
+)
+from ..infrastructure.asr.response_parsing import (
+    extract_realtime_response_text as _extract_text_from_realtime_response,
+    extract_text_from_content_part as _extract_text_from_content_part,
+    extract_text_from_realtime_item as _extract_text_from_realtime_item,
+    prefer_longer_text as _prefer_longer_text,
+)
+from ..infrastructure.asr.session_policy import (
+    conversation_socket_connected as _conversation_socket_connected,
+    should_reuse_warm_session,
+    supports_warm_realtime_session as _supports_warm_realtime_session,
+)
+from ..infrastructure.asr.streaming_engine import (
+    adaptive_response_complete_timeout as _streaming_adaptive_response_complete_timeout,
+    adaptive_response_start_timeout as _streaming_adaptive_response_start_timeout,
+)
+from ..infrastructure.asr.trace import (
+    ASRDebugTrace,
+    build_trace_timings as _build_trace_timings,
+    event_id_for as _event_id_for,
+    event_time_ms as _event_time_ms,
+    finalize_trace as _finalize_trace,
+    print_trace_summary as _print_trace_summary,
+    set_trace_service_request_id as _set_trace_service_request_id,
+    update_trace_ids_from_openai_chunk as _update_trace_ids_from_openai_chunk,
+    update_trace_ids_from_openai_stream as _update_trace_ids_from_openai_stream,
+    update_trace_ids_from_response as _update_trace_ids_from_response,
+)
 from .text_polisher import (
     TextPolisher,
     build_omni_inline_polish_instructions,
@@ -132,14 +167,6 @@ def _should_start_inline_response_now(
     return True
 
 
-def _supports_warm_realtime_session(model_info: Optional[dict]) -> bool:
-    return bool(
-        model_info
-        and model_info.get("transport") == "realtime_ws"
-        and model_info.get("input_audio_transcription_model") is not None
-    )
-
-
 def _get_omni_offline_fallback_model(model_id: str) -> Optional[str]:
     if not model_id.endswith("-realtime"):
         return None
@@ -148,23 +175,6 @@ def _get_omni_offline_fallback_model(model_id: str) -> Optional[str]:
     if fallback_info and fallback_info.get("transport") == "omni_offline":
         return fallback_model
     return None
-
-
-def _conversation_socket_connected(
-    conversation: Optional[OmniRealtimeConversation],
-) -> bool:
-    if conversation is None:
-        return False
-
-    ws = getattr(conversation, "ws", None)
-    if ws is None:
-        return True
-
-    sock = getattr(ws, "sock", None)
-    if sock is None:
-        return False
-
-    return bool(getattr(sock, "connected", False))
 
 
 def _extract_multimodal_text(response) -> str:
@@ -200,14 +210,12 @@ def _pcm_duration_seconds(audio_data: Optional[bytes], sample_rate: int, channel
     return len(audio_data) / bytes_per_second
 
 
-def _long_audio_minutes(duration_seconds: float) -> float:
-    return max(0.0, duration_seconds - 60.0) / 60.0
-
-
 def _adaptive_response_start_timeout(duration_seconds: float) -> float:
-    extra_minutes = _long_audio_minutes(duration_seconds)
-    timeout = INLINE_RESPONSE_START_TIMEOUT_SECONDS + extra_minutes * 1.5
-    return min(MAX_ADAPTIVE_RESPONSE_START_TIMEOUT_SECONDS, timeout)
+    return _streaming_adaptive_response_start_timeout(
+        duration_seconds,
+        start_timeout_seconds=INLINE_RESPONSE_START_TIMEOUT_SECONDS,
+        max_timeout_seconds=MAX_ADAPTIVE_RESPONSE_START_TIMEOUT_SECONDS,
+    )
 
 
 def _adaptive_response_complete_timeout(
@@ -215,9 +223,11 @@ def _adaptive_response_complete_timeout(
     *,
     base_timeout: float = 30.0,
 ) -> float:
-    extra_minutes = _long_audio_minutes(duration_seconds)
-    timeout = max(base_timeout, 30.0 + extra_minutes * 4.0)
-    return min(MAX_ADAPTIVE_RESPONSE_COMPLETE_TIMEOUT_SECONDS, timeout)
+    return _streaming_adaptive_response_complete_timeout(
+        duration_seconds,
+        base_timeout=base_timeout,
+        max_timeout_seconds=MAX_ADAPTIVE_RESPONSE_COMPLETE_TIMEOUT_SECONDS,
+    )
 
 
 def _get_direct_offline_fallback_model(
@@ -231,53 +241,6 @@ def _get_direct_offline_fallback_model(
     ):
         return fallback_model
     return None
-
-
-def _prefer_longer_text(current: str, candidate: Optional[str]) -> str:
-    candidate_text = (candidate or "").strip()
-    current_text = (current or "").strip()
-    if not candidate_text:
-        return current_text
-    if not current_text or len(candidate_text) >= len(current_text):
-        return candidate_text
-    return current_text
-
-
-def _extract_text_from_content_part(part: Optional[dict]) -> str:
-    if not isinstance(part, dict):
-        return ""
-    for field_name in ("text", "transcript"):
-        value = part.get(field_name)
-        if value:
-            return str(value).strip()
-    return ""
-
-
-def _extract_text_from_realtime_item(item: Optional[dict]) -> str:
-    if not isinstance(item, dict):
-        return ""
-
-    texts: list[str] = []
-    for content_part in item.get("content") or []:
-        if isinstance(content_part, str):
-            content_text = content_part.strip()
-        else:
-            content_text = _extract_text_from_content_part(content_part)
-        if content_text:
-            texts.append(content_text)
-    return "".join(texts).strip()
-
-
-def _extract_text_from_realtime_response(response_obj: Optional[dict]) -> str:
-    if not isinstance(response_obj, dict):
-        return ""
-
-    texts: list[str] = []
-    for item in response_obj.get("output") or []:
-        item_text = _extract_text_from_realtime_item(item)
-        if item_text:
-            texts.append(item_text)
-    return "".join(texts).strip()
 
 
 def _join_transcript_segments(segments: list[str]) -> str:
@@ -302,248 +265,6 @@ def _join_transcript_segments(segments: list[str]) -> str:
             result += "\n" + segment
 
     return result
-
-
-@dataclass
-class ASRDebugTrace:
-    """Debug trace for a single batch transcription."""
-
-    backend: str
-    request_mode: str
-    model: str
-    sample_rate: int
-    audio_bytes: int
-    audio_duration_ms: float
-    corpus_text: Optional[str]
-    session_id: str = ""
-    conversation_id: str = ""
-    input_item_id: str = ""
-    response_id: str = ""
-    response_output_item_id: str = ""
-    service_request_id: str = ""
-    completion_id: str = ""
-    server_event_ids: dict[str, str] = field(default_factory=dict)
-    events: list[dict] = field(default_factory=list)
-    partial_texts: list[str] = field(default_factory=list)
-    final_transcripts: list[str] = field(default_factory=list)
-    result_text: str = ""
-    result_source: str = ""
-    timings_ms: dict[str, Optional[float]] = field(default_factory=dict)
-    response_requested: bool = False
-    warm_session_reused: bool = False
-    fallback_reason: str = ""
-    recognition_timed_out: bool = False
-    cleanup_timed_out: bool = False
-    error: str = ""
-
-
-def _event_time_ms(trace: ASRDebugTrace, event_type: str) -> Optional[float]:
-    for event in trace.events:
-        if event.get("type") == event_type:
-            return event.get("t_ms")
-    return None
-
-
-def _event_id_for(trace: ASRDebugTrace, event_type: str) -> str:
-    return trace.server_event_ids.get(event_type, "")
-
-
-def _update_trace_ids_from_response(
-    trace: Optional[ASRDebugTrace],
-    event_type: str,
-    response: dict,
-) -> dict:
-    """Extract server-side identifiers from a realtime event."""
-    payload: dict = {}
-    if trace is None:
-        return payload
-
-    event_id = response.get("event_id")
-    if event_id:
-        payload["event_id"] = event_id
-        trace.server_event_ids.setdefault(event_type, str(event_id))
-
-    session = response.get("session")
-    if isinstance(session, dict):
-        session_id = session.get("id")
-        if session_id:
-            trace.session_id = str(session_id)
-            payload.setdefault("session_id", trace.session_id)
-
-    top_level_response_id = response.get("response_id")
-    if top_level_response_id:
-        trace.response_id = str(top_level_response_id)
-        payload.setdefault("response_id", trace.response_id)
-
-    response_obj = response.get("response")
-    if isinstance(response_obj, dict):
-        response_id = response_obj.get("id")
-        if response_id:
-            trace.response_id = str(response_id)
-            payload.setdefault("response_id", trace.response_id)
-
-        conversation_id = response_obj.get("conversation_id")
-        if conversation_id:
-            trace.conversation_id = str(conversation_id)
-            payload.setdefault("conversation_id", trace.conversation_id)
-
-        output_items = response_obj.get("output")
-        if isinstance(output_items, list):
-            for item in output_items:
-                if isinstance(item, dict) and item.get("id"):
-                    trace.response_output_item_id = str(item["id"])
-                    payload.setdefault(
-                        "response_output_item_id",
-                        trace.response_output_item_id,
-                    )
-                    break
-
-    if event_type == "conversation.item.created":
-        item = response.get("item")
-        if isinstance(item, dict):
-            item_id = item.get("id")
-            if item_id:
-                trace.input_item_id = str(item_id)
-                payload.setdefault("input_item_id", trace.input_item_id)
-
-    item_id = response.get("item_id")
-    if item_id and (
-        event_type.startswith("conversation.item.")
-        or event_type.startswith("input_audio_buffer.")
-    ):
-        trace.input_item_id = str(item_id)
-        payload.setdefault("input_item_id", trace.input_item_id)
-    elif item_id and event_type.startswith("response."):
-        trace.response_output_item_id = str(item_id)
-        payload.setdefault(
-            "response_output_item_id",
-            trace.response_output_item_id,
-        )
-
-    if event_type.startswith("response.output_item."):
-        item = response.get("item")
-        if isinstance(item, dict) and item.get("id"):
-            trace.response_output_item_id = str(item["id"])
-            payload.setdefault(
-                "response_output_item_id",
-                trace.response_output_item_id,
-            )
-
-    output_index = response.get("output_index")
-    if output_index is not None:
-        payload["output_index"] = output_index
-
-    return payload
-
-
-def _build_trace_timings(trace: ASRDebugTrace) -> dict[str, Optional[float]]:
-    response_done_ms = _event_time_ms(trace, "response.done")
-    response_output_item_done_ms = _event_time_ms(trace, "response.output_item.done")
-    timings = {
-        "socket_open_ms": _event_time_ms(trace, "socket.open"),
-        "session_ready_ms": _event_time_ms(trace, "session.updated"),
-        "first_partial_ms": _event_time_ms(
-            trace, "conversation.item.input_audio_transcription.text"
-        ),
-        "transcription_complete_ms": _event_time_ms(
-            trace, "conversation.item.input_audio_transcription.completed"
-        ),
-        "commit_ms": _event_time_ms(trace, "client.commit"),
-        "response_requested_ms": _event_time_ms(trace, "client.response.requested"),
-        "response_first_delta_ms": _event_time_ms(trace, "response.text.delta"),
-        "response_text_done_ms": _event_time_ms(trace, "response.text.done"),
-        "response_output_item_done_ms": response_output_item_done_ms,
-        "response_done_ms": response_done_ms,
-        "result_selected_ms": _event_time_ms(trace, "client.result.selected"),
-        "socket_close_ms": _event_time_ms(trace, "socket.close"),
-    }
-    timings["response_complete_ms"] = response_done_ms or response_output_item_done_ms
-    timings["total_result_ms"] = timings["result_selected_ms"]
-    return timings
-
-
-def _set_trace_service_request_id(
-    trace: Optional[ASRDebugTrace],
-    request_id: object,
-) -> None:
-    if trace is None or request_id in (None, ""):
-        return
-    trace.service_request_id = str(request_id)
-
-
-def _update_trace_ids_from_openai_stream(
-    trace: Optional[ASRDebugTrace],
-    stream: object,
-) -> None:
-    """Extract server identifiers from an OpenAI-compatible streaming response."""
-    if trace is None:
-        return
-
-    request_id = getattr(stream, "request_id", None)
-    if request_id:
-        _set_trace_service_request_id(trace, request_id)
-        return
-
-    response = getattr(stream, "response", None)
-    headers = getattr(response, "headers", None)
-    if headers is None:
-        return
-
-    for header_name in ("x-request-id", "x-dashscope-request-id", "x-acs-request-id"):
-        header_value = headers.get(header_name)
-        if header_value:
-            _set_trace_service_request_id(trace, header_value)
-            return
-
-
-def _update_trace_ids_from_openai_chunk(
-    trace: Optional[ASRDebugTrace],
-    chunk: object,
-) -> None:
-    """Extract stable identifiers from an OpenAI-compatible stream chunk."""
-    if trace is None:
-        return
-
-    _set_trace_service_request_id(trace, getattr(chunk, "_request_id", None))
-
-    completion_id = getattr(chunk, "id", None)
-    if completion_id:
-        trace.completion_id = str(completion_id)
-
-
-def _finalize_trace(trace: ASRDebugTrace, result_source: str) -> None:
-    trace.result_source = result_source
-    trace.timings_ms = _build_trace_timings(trace)
-
-
-def _print_trace_summary(trace: ASRDebugTrace) -> None:
-    total = trace.timings_ms.get("total_result_ms")
-    ready = trace.timings_ms.get("session_ready_ms")
-    transcript = trace.timings_ms.get("transcription_complete_ms")
-    response_done = trace.timings_ms.get("response_complete_ms")
-    print(
-        "[ASRTiming] "
-        f"mode={trace.request_mode} backend={trace.backend} model={trace.model} "
-        f"source={trace.result_source or 'unknown'} warm={trace.warm_session_reused} "
-        f"total_ms={total} ready_ms={ready} transcript_ms={transcript} "
-        f"response_ms={response_done}"
-    )
-    print(
-        "[ASRIds] "
-        f"mode={trace.request_mode} model={trace.model} "
-        f"service_request_id={trace.service_request_id or '-'} "
-        f"completion_id={trace.completion_id or '-'} "
-        f"session_id={trace.session_id or '-'} "
-        f"conversation_id={trace.conversation_id or '-'} "
-        f"input_item_id={trace.input_item_id or '-'} "
-        f"response_id={trace.response_id or '-'} "
-        f"response_output_item_id={trace.response_output_item_id or '-'} "
-        f"transcript_event_id={_event_id_for(trace, 'conversation.item.input_audio_transcription.completed') or '-'} "
-        f"response_created_event_id={_event_id_for(trace, 'response.created') or '-'} "
-        f"response_text_done_event_id={_event_id_for(trace, 'response.text.done') or '-'} "
-        f"response_output_item_done_event_id={_event_id_for(trace, 'response.output_item.done') or '-'} "
-        f"response_done_event_id={_event_id_for(trace, 'response.done') or '-'}"
-    )
 
 
 def _format_trace_ids(trace: Optional[ASRDebugTrace]) -> str:
@@ -875,20 +596,32 @@ class BatchASREngine:
         _apply_dashscope_api_key(self.config)
 
     def _frame_bytes(self) -> int:
-        return max(1, self.config.audio.channels * 2)
+        return _batch_frame_bytes(self.config.audio.channels)
 
     def _audio_bytes_per_second(self) -> int:
-        return self.config.audio.sample_rate * self._frame_bytes()
+        return _batch_audio_bytes_per_second(
+            self.config.audio.sample_rate,
+            self.config.audio.channels,
+        )
 
     def _audio_duration_seconds(self, audio_data: bytes) -> float:
-        bytes_per_second = self._audio_bytes_per_second()
-        return (len(audio_data) / bytes_per_second) if bytes_per_second else 0.0
+        return _batch_audio_duration_seconds(
+            audio_data,
+            self.config.audio.sample_rate,
+            self.config.audio.channels,
+        )
 
     def _analysis_window_frames(self) -> int:
-        return max(1, int(self.config.audio.sample_rate * OMNI_OFFLINE_SILENCE_WINDOW_SECONDS))
+        return _batch_analysis_window_frames(
+            self.config.audio.sample_rate,
+            OMNI_OFFLINE_SILENCE_WINDOW_SECONDS,
+        )
 
     def _silence_search_frames(self) -> int:
-        return max(1, int(self.config.audio.sample_rate * OMNI_OFFLINE_SILENCE_SEARCH_SECONDS))
+        return _batch_silence_search_frames(
+            self.config.audio.sample_rate,
+            OMNI_OFFLINE_SILENCE_SEARCH_SECONDS,
+        )
 
     def _window_rms(
         self,
@@ -897,17 +630,12 @@ class BatchASREngine:
         frame_start: int,
         frame_end: int,
     ) -> float:
-        channel_count = max(1, self.config.audio.channels)
-        sample_start = frame_start * channel_count
-        sample_end = frame_end * channel_count
-        if sample_end <= sample_start:
-            return float("inf")
-
-        energy_sum = 0.0
-        for sample in samples[sample_start:sample_end]:
-            energy_sum += float(sample) * float(sample)
-
-        return math.sqrt(energy_sum / (sample_end - sample_start)) / 32767.0
+        return _batch_window_rms(
+            samples,
+            channels=self.config.audio.channels,
+            frame_start=frame_start,
+            frame_end=frame_end,
+        )
 
     def _find_silence_aware_chunk_end(
         self,
@@ -917,37 +645,17 @@ class BatchASREngine:
         target_end_frame: int,
         total_frames: int,
     ) -> int:
-        analysis_window_frames = self._analysis_window_frames()
-        if target_end_frame >= total_frames:
-            return total_frames
-        if target_end_frame - start_frame <= analysis_window_frames:
-            return target_end_frame
-
-        search_start_frame = max(
-            start_frame + analysis_window_frames,
-            target_end_frame - self._silence_search_frames(),
+        return _batch_find_silence_aware_chunk_end(
+            samples,
+            sample_rate=self.config.audio.sample_rate,
+            channels=self.config.audio.channels,
+            silence_window_seconds=OMNI_OFFLINE_SILENCE_WINDOW_SECONDS,
+            silence_search_seconds=OMNI_OFFLINE_SILENCE_SEARCH_SECONDS,
+            silence_rms_threshold=OMNI_OFFLINE_SILENCE_RMS_THRESHOLD,
+            start_frame=start_frame,
+            target_end_frame=target_end_frame,
+            total_frames=total_frames,
         )
-        best_end_frame = target_end_frame
-        best_rms = float("inf")
-
-        for candidate_end in range(
-            target_end_frame,
-            search_start_frame - 1,
-            -analysis_window_frames,
-        ):
-            candidate_start = max(start_frame, candidate_end - analysis_window_frames)
-            rms = self._window_rms(
-                samples,
-                frame_start=candidate_start,
-                frame_end=candidate_end,
-            )
-            if rms < best_rms:
-                best_rms = rms
-                best_end_frame = candidate_end
-            if rms <= OMNI_OFFLINE_SILENCE_RMS_THRESHOLD:
-                return candidate_end
-
-        return best_end_frame
 
     def _split_audio_for_batch(
         self,
@@ -955,51 +663,15 @@ class BatchASREngine:
         *,
         max_duration_seconds: int = OMNI_OFFLINE_CHUNK_DURATION_SECONDS,
     ) -> list[bytes]:
-        bytes_per_second = self._audio_bytes_per_second()
-        if bytes_per_second <= 0:
-            return [audio_data]
-
-        frame_bytes = self._frame_bytes()
-        chunk_bytes = max(bytes_per_second * max_duration_seconds, frame_bytes)
-        chunk_bytes -= chunk_bytes % frame_bytes
-        total_frames = len(audio_data) // frame_bytes
-        max_chunk_frames = max(1, chunk_bytes // frame_bytes)
-        if chunk_bytes <= 0 or total_frames <= max_chunk_frames:
-            return [audio_data]
-
-        try:
-            sample_buffer = array("h")
-            sample_buffer.frombytes(audio_data)
-            samples = memoryview(sample_buffer)
-        except Exception:
-            return [
-                audio_data[offset:offset + chunk_bytes]
-                for offset in range(0, len(audio_data), chunk_bytes)
-            ]
-
-        chunks: list[bytes] = []
-        start_frame = 0
-        while start_frame < total_frames:
-            remaining_frames = total_frames - start_frame
-            if remaining_frames <= max_chunk_frames:
-                end_frame = total_frames
-            else:
-                target_end_frame = start_frame + max_chunk_frames
-                end_frame = self._find_silence_aware_chunk_end(
-                    samples,
-                    start_frame=start_frame,
-                    target_end_frame=target_end_frame,
-                    total_frames=total_frames,
-                )
-                if end_frame <= start_frame:
-                    end_frame = target_end_frame
-
-            start_byte = start_frame * frame_bytes
-            end_byte = end_frame * frame_bytes
-            chunks.append(audio_data[start_byte:end_byte])
-            start_frame = end_frame
-
-        return chunks
+        return _batch_split_audio_for_batch(
+            audio_data,
+            sample_rate=self.config.audio.sample_rate,
+            channels=self.config.audio.channels,
+            max_duration_seconds=max_duration_seconds,
+            silence_window_seconds=OMNI_OFFLINE_SILENCE_WINDOW_SECONDS,
+            silence_search_seconds=OMNI_OFFLINE_SILENCE_SEARCH_SECONDS,
+            silence_rms_threshold=OMNI_OFFLINE_SILENCE_RMS_THRESHOLD,
+        )
 
     def _transcribe_chunked_audio(
         self,
@@ -1234,7 +906,8 @@ class BatchASREngine:
         )
         response_start_timeout = _adaptive_response_start_timeout(audio_duration_seconds)
         response_complete_timeout = _adaptive_response_complete_timeout(
-            audio_duration_seconds
+            audio_duration_seconds,
+            base_timeout=30.0,
         )
 
         def on_error(msg: str):
@@ -1939,11 +1612,13 @@ class ASREngine:
         timer.start()
 
     def _can_reuse_warm_session(self, model_info: Optional[dict]) -> bool:
-        return bool(
-            _supports_warm_realtime_session(model_info)
-            and self._conversation is not None
-            and self._conversation_model_id == self._session_model_id
-            and _conversation_socket_connected(self._conversation)
+        return should_reuse_warm_session(
+            supports_warm_session=_supports_warm_realtime_session(model_info),
+            is_connected=_conversation_socket_connected(self._conversation),
+            matches_model=(
+                self._conversation is not None
+                and self._conversation_model_id == self._session_model_id
+            ),
         )
 
     def start(self) -> None:

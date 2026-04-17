@@ -1,8 +1,10 @@
 """Real-time long recording mode: toggle recording with Fn key."""
 
 import threading
+from types import SimpleNamespace
 from typing import Callable, Optional
 
+from ..application.dictation_workflow import DictationWorkflow
 from ..config import asr_model_handles_inline_polish, get_config
 from ..core.audio_recorder import AudioRecorder
 from ..core.asr_engine import ASREngine
@@ -55,6 +57,13 @@ class RealtimeLongMode(BaseMode):
             on_audio_chunk=self._on_audio_chunk,
         )
         self._keyboard = KeyboardSimulator()
+        self._workflow = DictationWorkflow(
+            config=self.config,
+            asr_engine=self._asr,
+            keyboard=self._keyboard,
+            recording_store=self._recording_store,
+            normalize_text=normalize_terms,
+        )
 
         self._processing_thread: Optional[threading.Thread] = None
         self._recording_asr_model = self.config.asr.model
@@ -140,64 +149,31 @@ class RealtimeLongMode(BaseMode):
 
     def _finish_transcription(self, pcm_data: bytes) -> None:
         """Commit ASR, get result, polish, paste."""
-        recording_id = None
-        if self._recording_store:
-            try:
-                recording_id = self._recording_store.save(
-                    pcm_data, "realtime_long", self._recording_asr_model,
-                    language=self.config.asr.language,
-                )
-            except Exception as e:
-                print(f"[RealtimeLong] Failed to save recording: {e}")
-
         try:
-            self._set_processing_stage("transcribing")
-            raw_text = self._asr.stop(pcm_data=pcm_data)
-            print(f"[RealtimeLong] ASR result: '{raw_text}'")
-
-            if not raw_text.strip():
-                print("[RealtimeLong] Empty transcription result")
-                error_message = t(self.config.ui.language, "settings_empty_transcription")
-                if recording_id and self._recording_store:
-                    self._recording_store.update(
-                        recording_id,
-                        "failed",
-                        error=error_message,
-                    )
-                if self.on_error:
-                    self.on_error(error_message)
-                self._set_state(ModeState.IDLE)
-                return
-
-            if recording_id and self._recording_store:
-                self._recording_store.update(recording_id, "success", raw_text, error=None)
-
-            final_text = normalize_terms(raw_text)
-            uses_inline_polish = asr_model_handles_inline_polish(self._recording_asr_model)
-            if self.config.enable_polish and self.text_polisher and not uses_inline_polish:
-                try:
-                    self._set_processing_stage("polishing")
-                    polish_result = self.text_polisher.polish(raw_text)
-                    final_text = polish_result.polished_text
-                except Exception as e:
-                    if self.on_error:
-                        self.on_error(
-                            t(self.config.ui.language, "mode_polish_error", details=str(e))
-                        )
-
-            if self.config.auto_paste:
-                self._keyboard.paste_text(final_text)
-
-            if self.on_result:
-                self.on_result(final_text)
-
-        except Exception as e:
-            if recording_id and self._recording_store:
-                self._recording_store.update(recording_id, "failed", error=str(e))
-            if self.on_error:
-                self.on_error(
-                    t(self.config.ui.language, "mode_processing_error", details=str(e))
-                )
+            result = self._workflow.finish_recording(
+                pcm_data,
+                mode_name="realtime_long",
+                asr_model=self._recording_asr_model,
+                text_polisher=self.text_polisher,
+                messages=SimpleNamespace(
+                    empty_transcription=t(
+                        self.config.ui.language,
+                        "settings_empty_transcription",
+                    ),
+                    processing_error=lambda details: t(
+                        self.config.ui.language,
+                        "mode_processing_error",
+                        details=details,
+                    ),
+                    polish_error=lambda details: t(
+                        self.config.ui.language,
+                        "mode_polish_error",
+                        details=details,
+                    ),
+                ),
+                on_processing_stage=self._set_processing_stage,
+            )
+            self._emit_workflow_result(result)
         finally:
             self._set_state(ModeState.IDLE)
 
