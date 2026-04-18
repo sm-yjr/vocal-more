@@ -63,8 +63,20 @@ class AudioRecorder:
         if status:
             print(f"Audio status: {status}")
 
+        with self._lock:
+            is_recording = self._is_recording
+
+        if not is_recording:
+            return
+
+        highpass_filter = self._highpass_filter
+        gain = self._gain
+        soft_limiter = self._soft_limiter
+        on_audio_chunk = self.on_audio_chunk
+        on_audio_level = self._on_audio_level
+
         # 1. High-pass filter: remove <80Hz rumble (fans, hum, plosives)
-        if self._highpass_filter:
+        if highpass_filter:
             mono = indata[:, 0].copy()
             for i in range(len(mono)):
                 x = mono[i]
@@ -79,11 +91,11 @@ class AudioRecorder:
         rms = float(np.sqrt(np.mean(filtered ** 2)))
 
         # 3. Gain + limiter
-        if self._gain != 1.0:
-            if self._soft_limiter:
-                processed = np.tanh(filtered * self._gain)
+        if gain != 1.0:
+            if soft_limiter:
+                processed = np.tanh(filtered * gain)
             else:
-                processed = np.clip(filtered * self._gain, -1.0, 1.0)
+                processed = np.clip(filtered * gain, -1.0, 1.0)
         else:
             processed = filtered
 
@@ -95,14 +107,14 @@ class AudioRecorder:
                 self._audio_buffer.append(audio_data)
 
         # Call real-time callback if set
-        if self.on_audio_chunk and self._is_recording:
-            self.on_audio_chunk(audio_data)
+        if on_audio_chunk:
+            on_audio_chunk(audio_data)
 
         # Call audio level callback (use post-gain RMS for visualization)
-        if self._on_audio_level and self._is_recording:
-            if self._gain != 1.0 and rms > 0:
-                rms = min(1.0, rms * self._gain)
-            self._on_audio_level(rms)
+        if on_audio_level:
+            if gain != 1.0 and rms > 0:
+                rms = min(1.0, rms * gain)
+            on_audio_level(rms)
 
     def start(self) -> None:
         """Start recording audio.

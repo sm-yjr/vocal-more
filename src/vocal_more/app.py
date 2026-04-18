@@ -155,8 +155,12 @@ class VocalMoreApp(rumps.App):
     def _state_title_for_state(self, state: ModeState) -> str:
         return {
             ModeState.IDLE: self._t("menu_status_idle"),
+            ModeState.STARTING: self._t("menu_status_starting"),
             ModeState.RECORDING: self._t("menu_status_recording"),
+            ModeState.STOPPING: self._t("menu_status_stopping"),
             ModeState.PROCESSING: self._t("menu_status_processing"),
+            ModeState.CANCELLING: self._t("menu_status_cancelling"),
+            ModeState.FAILED: self._t("menu_status_failed"),
         }.get(state, self._t("menu_status_unknown"))
 
     def _build_menu(self) -> None:
@@ -276,7 +280,10 @@ class VocalMoreApp(rumps.App):
     def _quit_app(self, _) -> None:
         """Quit the application."""
         self._hotkey_manager.stop()
-        self._get_command_coordinator().call(self._handle_cancel_command)
+        self._get_command_coordinator().call(
+            self._handle_quit_cancel_command,
+            command_name="quit_cancel",
+        )
         self._capsule.hide()
         self._settings_window.close()
         for mode in (self._walkie_talkie, self._realtime_long):
@@ -670,7 +677,10 @@ class VocalMoreApp(rumps.App):
 
     def _on_fn_pressed(self) -> None:
         """Handle Fn key pressed."""
-        self._get_command_coordinator().submit(self._handle_fn_pressed_command)
+        self._get_command_coordinator().submit(
+            self._handle_fn_pressed_command,
+            command_name="fn_pressed",
+        )
 
     def _handle_fn_pressed_command(self) -> None:
         if self._current_mode.state == ModeState.IDLE:
@@ -682,14 +692,20 @@ class VocalMoreApp(rumps.App):
 
     def _on_fn_released(self) -> None:
         """Handle Fn key released."""
-        self._get_command_coordinator().submit(self._handle_fn_released_command)
+        self._get_command_coordinator().submit(
+            self._handle_fn_released_command,
+            command_name="fn_released",
+        )
 
     def _handle_fn_released_command(self) -> None:
         self._current_mode.on_hotkey_released()
 
     def _on_double_cmd(self) -> None:
         """Handle double Cmd key press."""
-        self._get_command_coordinator().submit(self._handle_double_cmd_command)
+        self._get_command_coordinator().submit(
+            self._handle_double_cmd_command,
+            command_name="double_cmd",
+        )
 
     def _handle_double_cmd_command(self) -> None:
         if self._current_mode.state == ModeState.IDLE:
@@ -711,8 +727,12 @@ class VocalMoreApp(rumps.App):
         # Update icon
         icon_name = {
             ModeState.IDLE: "icon_idle.png",
+            ModeState.STARTING: "icon_recording.png",
             ModeState.RECORDING: "icon_recording.png",
+            ModeState.STOPPING: "icon_processing.png",
             ModeState.PROCESSING: "icon_processing.png",
+            ModeState.CANCELLING: "icon_processing.png",
+            ModeState.FAILED: "icon_idle.png",
         }.get(state, "icon_idle.png")
 
         icon_path = self._get_icon_path(icon_name)
@@ -722,11 +742,15 @@ class VocalMoreApp(rumps.App):
         # Update floating capsule
         capsule_state = {
             ModeState.IDLE: "hidden",
+            ModeState.STARTING: "recording",
             ModeState.RECORDING: "recording",
+            ModeState.STOPPING: "processing",
             ModeState.PROCESSING: "processing",
+            ModeState.CANCELLING: "processing",
+            ModeState.FAILED: "hidden",
         }.get(state, "hidden")
         self._capsule.update_state(capsule_state)
-        if state == ModeState.PROCESSING:
+        if state in (ModeState.STOPPING, ModeState.PROCESSING, ModeState.CANCELLING):
             self._capsule.set_processing_stage("transcribing")
         elif state == ModeState.IDLE:
             self._select_default_mode_when_safe()
@@ -742,14 +766,23 @@ class VocalMoreApp(rumps.App):
 
     def _on_capsule_cancel(self) -> None:
         """Handle cancel button from floating capsule."""
-        self._get_command_coordinator().submit(self._handle_cancel_command)
+        self._get_command_coordinator().submit(
+            self._handle_cancel_command,
+            command_name="capsule_cancel",
+        )
 
-    def _handle_cancel_command(self) -> None:
-        self._current_mode.cancel()
+    def _handle_cancel_command(self, reason: str = "user_cancel") -> None:
+        self._current_mode.cancel(reason=reason)
+
+    def _handle_quit_cancel_command(self) -> None:
+        self._handle_cancel_command(reason="app_quit")
 
     def _on_capsule_finish(self) -> None:
         """Handle finish button from floating capsule (hands-free mode)."""
-        self._get_command_coordinator().submit(self._handle_capsule_finish_command)
+        self._get_command_coordinator().submit(
+            self._handle_capsule_finish_command,
+            command_name="capsule_finish",
+        )
 
     def _handle_capsule_finish_command(self) -> None:
         if self._current_mode is self._realtime_long:

@@ -71,6 +71,7 @@ It currently does:
 - append to the in-memory recording buffer
 - invoke `on_audio_chunk(audio_data)`
 - invoke `on_audio_level(rms)`
+- return immediately once recording has stopped, instead of doing late post-stop work
 
 It no longer performs realtime network sends directly.
 
@@ -98,15 +99,21 @@ If the queue fills or sender drain fails, the realtime path is marked degraded a
 
 This startup path is still separate from the sender thread, but session readiness and failure flags are protected by the engine lock.
 
-### 8. SDK callback thread delivers inbound realtime events
+### 8. Inbound realtime event worker owns callback-local ASR consequences
 
-DashScope realtime callbacks may arrive on SDK-managed threads. Today, `StreamingASRCallback` still:
+DashScope realtime callbacks may arrive on SDK-managed threads. Those threads now only:
 
-- maintains its own callback-local aggregation state
-- sets events used by `ASREngine.stop()`
-- forwards partial/error/final callbacks upward
+- parse raw SDK payloads into inbound callback events
+- enqueue them onto one long-lived inbound event worker
 
-This is safe enough for current behavior, but it is not yet the final “single state owner” architecture.
+`StreamingASRCallback` now has one inbound worker that owns:
+
+- callback-local aggregation state
+- `wait_for_*` completion events used by `ASREngine.stop()`
+- upward partial/final/error callback delivery
+- response/transcript completion bookkeeping
+
+This is a meaningful tightening over the earlier design because SDK callback threads no longer directly mutate callback state or emit business callbacks.
 
 ### 9. Mode-local processing executor owns finish workflows
 
@@ -170,23 +177,31 @@ The current model directly prevents these failure modes:
 
 These are still intentionally deferred:
 
-### 1. Inbound ASR events do not yet flow through the command coordinator
+### 1. Inbound ASR events still stop at the callback-local worker
 
-`StreamingASRCallback` is still partly an active state holder instead of a pure event source.
+The inbound worker is now the owner for callback-local consequences, which is a large improvement. It is still separate from `DictationCommandCoordinator`, so inbound ASR events do not yet share the same serial owner as hotkey control commands.
 
-### 2. Mode lifecycle is safer, but not yet a single explicit state machine
+### 2. Mode lifecycle is now explicit, but engine lifecycle is still partly implicit
 
-We now rely on:
+Modes now expose the explicit lifecycle states:
 
-- serial command ingress
-- engine-local locking
-- mode session tokens
+- `IDLE`
+- `STARTING`
+- `RECORDING`
+- `STOPPING`
+- `PROCESSING`
+- `CANCELLING`
+- `FAILED`
 
-This is much safer than before, but it is not yet the final `IDLE / STARTING / RECORDING / STOPPING / PROCESSING / CANCELLING / FAILED` owner-state-machine design.
+The remaining implicit pieces are mostly inside engine-local flags such as session readiness, connection failure, warm-session reuse, and fallback state.
 
 ### 3. Audio callback still performs some compute-heavy work
 
 The callback no longer sends on the network, which was the biggest risk. It still performs DSP, RMS calculation, and PCM conversion inline.
+
+### 4. Queue policy is now adaptive, but still empirical
+
+Outbound realtime queue sizing and drain timeout now scale with chunk duration, and diagnostics log queue depth and fallback causes. The exact thresholds are still empirical tuning values rather than the result of production telemetry.
 
 ## Practical Guidance For Future Changes
 
@@ -195,3 +210,4 @@ The callback no longer sends on the network, which was the biggest risk. It stil
 - If a task is best-effort and non-realtime, prefer `BackgroundExecutor` over a raw `threading.Thread(...)`.
 - If a new realtime path touches audio, preserve the rule that the PortAudio callback never blocks on network operations.
 - If a late callback could affect user-visible state, tie it to a session token or another invalidation mechanism.
+- If a new realtime SDK event path is added, keep SDK-managed threads as thin event producers and route consequences through one owned worker.

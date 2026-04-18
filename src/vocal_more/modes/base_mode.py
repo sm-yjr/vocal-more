@@ -10,8 +10,12 @@ class ModeState(Enum):
     """State of a recording mode."""
 
     IDLE = "idle"
+    STARTING = "starting"
     RECORDING = "recording"
+    STOPPING = "stopping"
     PROCESSING = "processing"
+    CANCELLING = "cancelling"
+    FAILED = "failed"
 
 
 class BaseMode(ABC):
@@ -54,7 +58,15 @@ class BaseMode(ABC):
 
     def _set_state(self, state: ModeState) -> None:
         """Set state and notify callback."""
+        if self._state == state:
+            return
+        previous = self._state
         self._state = state
+        self._log_lifecycle(
+            "state_transition",
+            from_state=previous.value,
+            to_state=state.value,
+        )
         if self.on_state_change:
             self.on_state_change(state)
 
@@ -62,11 +74,21 @@ class BaseMode(ABC):
         """Advance and return the active dictation session token."""
         with self._session_lock:
             self._session_token += 1
-            return self._session_token
+            token = self._session_token
+        self._log_lifecycle("session_started", session_token=token)
+        return token
 
-    def _invalidate_session(self) -> int:
+    def _invalidate_session(self, *, reason: str = "invalidate") -> int:
         """Invalidate any in-flight callbacks/work by advancing the token."""
-        return self._begin_session()
+        with self._session_lock:
+            self._session_token += 1
+            token = self._session_token
+        self._log_lifecycle(
+            "session_invalidated",
+            reason=reason,
+            session_token=token,
+        )
+        return token
 
     def _is_active_session(self, session_token: int) -> bool:
         with self._session_lock:
@@ -93,6 +115,17 @@ class BaseMode(ABC):
         if final_text and self.on_result:
             self.on_result(final_text)
 
+    def _log_lifecycle(self, event: str, **payload) -> None:
+        data = {
+            "mode": self.name,
+            "state": self._state.value,
+        }
+        with self._session_lock:
+            data["session_token"] = self._session_token
+        data.update(payload)
+        details = " ".join(f"{key}={value}" for key, value in data.items())
+        print(f"[ModeLifecycle] event={event} {details}")
+
     @abstractmethod
     def on_hotkey_pressed(self) -> None:
         """Handle hotkey press event."""
@@ -104,7 +137,7 @@ class BaseMode(ABC):
         pass
 
     @abstractmethod
-    def cancel(self) -> None:
+    def cancel(self, reason: str = "user_cancel") -> None:
         """Cancel current operation."""
         pass
 

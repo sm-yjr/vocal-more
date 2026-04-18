@@ -11,7 +11,7 @@ import threading
 import time
 import wave
 from dataclasses import asdict, dataclass
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import dashscope
 from dashscope import MultiModalConversation
@@ -81,9 +81,16 @@ INLINE_RESPONSE_LATE_START_GRACE_SECONDS = 1.0
 WARM_SESSION_TTL_SECONDS = 15.0
 MAX_ADAPTIVE_RESPONSE_START_TIMEOUT_SECONDS = 20.0
 MAX_ADAPTIVE_RESPONSE_COMPLETE_TIMEOUT_SECONDS = 90.0
+STREAMING_AUDIO_QUEUE_TARGET_SECONDS = 6.4
+STREAMING_AUDIO_QUEUE_MIN_CHUNKS = 8
 STREAMING_AUDIO_QUEUE_MAX_CHUNKS = 64
+MIN_AUDIO_QUEUE_DRAIN_TIMEOUT_SECONDS = 2.0
+MAX_AUDIO_QUEUE_DRAIN_TIMEOUT_SECONDS = 10.0
+AUDIO_QUEUE_DRAIN_HEADROOM_SECONDS = 1.0
+AUDIO_QUEUE_DRAIN_MULTIPLIER = 2.0
 
 _AUDIO_QUEUE_STOP = object()
+_CALLBACK_EVENT_STOP = object()
 _THREAD_CLASS = threading.Thread
 
 
@@ -213,6 +220,41 @@ def _pcm_duration_seconds(audio_data: Optional[bytes], sample_rate: int, channel
     if bytes_per_second <= 0:
         return 0.0
     return len(audio_data) / bytes_per_second
+
+
+def _streaming_audio_chunk_bytes(config=None) -> int:
+    config = config or get_config()
+    return max(1, config.audio.blocksize) * max(1, config.audio.channels) * 2
+
+
+def _streaming_audio_chunk_duration_seconds(config=None) -> float:
+    config = config or get_config()
+    sample_rate = max(1, config.audio.sample_rate)
+    return max(1, config.audio.blocksize) / sample_rate
+
+
+def _streaming_audio_queue_max_chunks(config=None) -> int:
+    chunk_duration = _streaming_audio_chunk_duration_seconds(config)
+    if chunk_duration <= 0:
+        return STREAMING_AUDIO_QUEUE_MAX_CHUNKS
+    target_chunks = int(STREAMING_AUDIO_QUEUE_TARGET_SECONDS / chunk_duration)
+    if STREAMING_AUDIO_QUEUE_TARGET_SECONDS % chunk_duration:
+        target_chunks += 1
+    return max(
+        STREAMING_AUDIO_QUEUE_MIN_CHUNKS,
+        min(STREAMING_AUDIO_QUEUE_MAX_CHUNKS, target_chunks),
+    )
+
+
+def _audio_queue_drain_timeout_seconds(pending_chunks: int, config=None) -> float:
+    if pending_chunks <= 0:
+        return MIN_AUDIO_QUEUE_DRAIN_TIMEOUT_SECONDS
+    pending_seconds = pending_chunks * _streaming_audio_chunk_duration_seconds(config)
+    timeout = AUDIO_QUEUE_DRAIN_HEADROOM_SECONDS + pending_seconds * AUDIO_QUEUE_DRAIN_MULTIPLIER
+    return max(
+        MIN_AUDIO_QUEUE_DRAIN_TIMEOUT_SECONDS,
+        min(MAX_AUDIO_QUEUE_DRAIN_TIMEOUT_SECONDS, timeout),
+    )
 
 
 def _adaptive_response_start_timeout(duration_seconds: float) -> float:
@@ -1251,16 +1293,33 @@ class StreamingASRCallback(OmniRealtimeCallback):
         self._response_output_item_status = ""
         self._started_at = time.perf_counter()
         self._debug_trace: Optional[ASRDebugTrace] = None
+        self._event_queue: queue.Queue[Any] = queue.Queue()
+        self._closed = False
+        self._event_worker = _THREAD_CLASS(
+            target=self._run_event_loop,
+            name="vocal-more-asr-inbound",
+            daemon=True,
+        )
+        self._event_worker.start()
 
     def set_debug_trace(self, trace: ASRDebugTrace) -> None:
         self._debug_trace = trace
 
-    def _record_event(self, event_type: str, **payload) -> None:
+    def _elapsed_ms(self) -> float:
+        return round((time.perf_counter() - self._started_at) * 1000, 2)
+
+    def _record_event(
+        self,
+        event_type: str,
+        *,
+        t_ms: Optional[float] = None,
+        **payload,
+    ) -> None:
         if self._debug_trace is None:
             return
 
         event = {
-            "t_ms": round((time.perf_counter() - self._started_at) * 1000, 2),
+            "t_ms": self._elapsed_ms() if t_ms is None else t_ms,
             "type": event_type,
         }
         if payload:
@@ -1272,18 +1331,27 @@ class StreamingASRCallback(OmniRealtimeCallback):
 
     def on_open(self):
         print("[StreamingASR] Connection opened")
-        self._record_event("socket.open")
+        self._enqueue_inbound_event(
+            {
+                "kind": "socket_open",
+                "event_type": "socket.open",
+                "t_ms": self._elapsed_ms(),
+                "metadata": {},
+            }
+        )
 
     def on_close(self, code, msg):
         print(f"[StreamingASR] Connection closed: code={code}, msg={msg}")
-        self._complete_event.set()
-        self._session_updated.set()
-        self._transcription_completed.set()
-        self._response_started.set()
-        self._response_completed.set()
-        self._record_event("socket.close", code=code, msg=msg)
-        if self._on_complete:
-            self._on_complete()
+        self._enqueue_inbound_event(
+            {
+                "kind": "socket_close",
+                "event_type": "socket.close",
+                "t_ms": self._elapsed_ms(),
+                "metadata": {"code": code, "msg": msg},
+                "code": code,
+                "message": msg,
+            }
+        )
 
     def on_event(self, response):
         try:
@@ -1293,176 +1361,348 @@ class StreamingASRCallback(OmniRealtimeCallback):
                 event_type,
                 response,
             )
-            self._record_event(event_type, **metadata)
+            inbound_event: dict[str, Any] = {
+                "kind": "server_event",
+                "event_type": event_type,
+                "t_ms": self._elapsed_ms(),
+                "metadata": metadata,
+            }
 
             if event_type == "session.created":
-                session_id = response.get("session", {}).get("id", "unknown")
-                print(f"[StreamingASR] Session created: {session_id}")
+                inbound_event["kind"] = "session_created"
+                inbound_event["session_id"] = response.get("session", {}).get("id", "unknown")
 
             elif event_type == "session.updated":
-                print("[StreamingASR] Session updated, ready")
-                self._session_updated.set()
+                inbound_event["kind"] = "session_updated"
 
             elif event_type == "conversation.item.input_audio_transcription.text":
-                text = response.get("text", "") or response.get("stash", "")
-                if text and self._on_partial:
-                    self._on_partial(ASRResult(text=text, is_final=False))
-                if text and self._debug_trace is not None:
-                    self._debug_trace.partial_texts.append(text)
-                    self._record_event(event_type, **metadata, text=text)
+                inbound_event["kind"] = "transcript_partial"
+                inbound_event["text"] = response.get("text", "") or response.get("stash", "")
 
             elif event_type == "conversation.item.input_audio_transcription.completed":
-                transcript = response.get("transcript", "")
-                with self._lock:
-                    self._full_text += transcript
-                    accumulated = self._full_text
-                self._transcription_completed.set()
-                if transcript and self._debug_trace is not None:
-                    self._debug_trace.final_transcripts.append(transcript)
-                    self._record_event(event_type, **metadata, transcript=transcript)
-                if self._on_partial:
-                    self._on_partial(ASRResult(text=accumulated, is_final=False))
-                if self._on_final:
-                    self._on_final(ASRResult(text=transcript, is_final=True))
+                inbound_event["kind"] = "transcript_completed"
+                inbound_event["transcript"] = response.get("transcript", "")
 
             elif event_type == "response.text.delta":
-                delta = response.get("delta", "")
-                if delta:
-                    self._response_started.set()
-                    with self._lock:
-                        self._response_text += delta
-                        response_text = self._response_text
-                    self._record_event(event_type, **metadata, delta=delta)
-                    if self._on_partial:
-                        self._on_partial(ASRResult(text=response_text, is_final=False))
+                inbound_event["kind"] = "response_delta"
+                inbound_event["delta"] = response.get("delta", "")
 
             elif event_type == "response.text.done":
-                text = response.get("text", "")
-                self._response_started.set()
-                self._response_text_done_received = True
-                with self._lock:
-                    self._response_text = _prefer_longer_text(
-                        self._response_text,
-                        text,
-                    )
-                    response_text = self._response_text
-                self._record_event(event_type, **metadata, text=text)
-                if self._on_partial and response_text:
-                    self._on_partial(ASRResult(text=response_text, is_final=False))
+                inbound_event["kind"] = "response_text_done"
+                inbound_event["text"] = response.get("text", "")
 
             elif event_type == "response.content_part.done":
-                part = response.get("part")
-                part_text = _extract_text_from_content_part(part)
-                self._response_started.set()
-                self._response_content_part_done_received = True
-                with self._lock:
-                    self._response_text = _prefer_longer_text(
-                        self._response_text,
-                        part_text,
-                    )
-                    response_text = self._response_text
-                if part_text:
-                    self._record_event(event_type, **metadata, text=part_text)
-                    if self._on_partial and response_text:
-                        self._on_partial(ASRResult(text=response_text, is_final=False))
+                inbound_event["kind"] = "response_content_part_done"
+                inbound_event["part"] = response.get("part")
 
             elif event_type == "response.output_item.done":
                 item = response.get("item")
-                item_text = _extract_text_from_realtime_item(item)
                 status = ""
                 if isinstance(item, dict):
                     status = str(item.get("status", "") or "")
-                self._response_started.set()
-                self._response_output_item_done_received = True
-                self._response_output_item_status = status
-                with self._lock:
-                    self._response_text = _prefer_longer_text(
-                        self._response_text,
-                        item_text,
-                    )
-                    response_text = self._response_text
-                self._response_completed.set()
-                self._record_event(event_type, **metadata, status=status, text=item_text)
-                if self._on_partial and response_text:
-                    self._on_partial(ASRResult(text=response_text, is_final=False))
+                inbound_event["kind"] = "response_output_item_done"
+                inbound_event["item"] = item
+                inbound_event["status"] = status
 
             elif event_type == "response.created":
-                self._response_started.set()
+                inbound_event["kind"] = "response_created"
 
             elif event_type == "response.done":
-                self._response_started.set()
-                self._response_done_received = True
                 response_obj = response.get("response")
                 response_status = ""
                 if isinstance(response_obj, dict):
                     response_status = str(response_obj.get("status", "") or "")
-                self._response_done_status = response_status
-                with self._lock:
-                    self._response_text = _prefer_longer_text(
-                        self._response_text,
-                        _extract_text_from_realtime_response(response_obj),
-                    )
-                self._response_completed.set()
-                self._record_event(event_type, status=response_status)
+                inbound_event["kind"] = "response_done"
+                inbound_event["response_obj"] = response_obj
+                inbound_event["status"] = response_status
 
             elif event_type == "session.finished":
-                transcript = response.get("transcript", "")
-                if transcript:
-                    with self._lock:
-                        if not self._full_text:
-                            self._full_text = transcript
-                    if self._debug_trace is not None:
-                        self._debug_trace.final_transcripts.append(transcript)
-                self._complete_event.set()
-                self._record_event(event_type, **metadata, transcript=transcript)
+                inbound_event["kind"] = "session_finished"
+                inbound_event["transcript"] = response.get("transcript", "")
 
             elif event_type == "error":
-                error_msg = response.get("error", {}).get("message", str(response))
-                self._transcription_completed.set()
-                self._record_event(event_type, **metadata, error=error_msg)
-                if self._on_error:
-                    self._on_error(error_msg)
+                inbound_event["kind"] = "error"
+                inbound_event["error_message"] = response.get("error", {}).get("message", str(response))
 
+            self._enqueue_inbound_event(inbound_event)
         except Exception as e:
+            self._enqueue_inbound_event(
+                {
+                    "kind": "error",
+                    "event_type": "client.callback.error",
+                    "t_ms": self._elapsed_ms(),
+                    "metadata": {},
+                    "error_message": str(e),
+                }
+            )
+
+    def _enqueue_inbound_event(self, event: dict[str, Any]) -> None:
+        if self._closed:
+            return
+        self._event_queue.put(event)
+
+    def _run_event_loop(self) -> None:
+        while True:
+            item = self._event_queue.get()
+            if item is _CALLBACK_EVENT_STOP:
+                break
+            if isinstance(item, threading.Event):
+                item.set()
+                continue
+            try:
+                self._apply_inbound_event(item)
+            except Exception as exc:
+                print(f"[StreamingASR] Callback worker failed: {exc}")
+                if self._on_error:
+                    self._on_error(str(exc))
+
+    def _apply_inbound_event(self, event: dict[str, Any]) -> None:
+        event_type = str(event.get("event_type", "") or "")
+        event_t_ms = float(event.get("t_ms", self._elapsed_ms()) or 0.0)
+        metadata = dict(event.get("metadata", {}) or {})
+        self._record_event(event_type, t_ms=event_t_ms, **metadata)
+
+        kind = event.get("kind")
+
+        if kind == "session_created":
+            print(f"[StreamingASR] Session created: {event.get('session_id', 'unknown')}")
+            return
+
+        if kind == "session_updated":
+            print("[StreamingASR] Session updated, ready")
+            self._session_updated.set()
+            return
+
+        if kind == "transcript_partial":
+            text = str(event.get("text", "") or "")
+            if text and self._debug_trace is not None:
+                self._debug_trace.partial_texts.append(text)
+                self._record_event(event_type, t_ms=event_t_ms, **metadata, text=text)
+            if text and self._on_partial:
+                self._on_partial(ASRResult(text=text, is_final=False))
+            return
+
+        if kind == "transcript_completed":
+            transcript = str(event.get("transcript", "") or "")
+            with self._lock:
+                self._full_text += transcript
+                accumulated = self._full_text
+            self._transcription_completed.set()
+            if transcript and self._debug_trace is not None:
+                self._debug_trace.final_transcripts.append(transcript)
+                self._record_event(
+                    event_type,
+                    t_ms=event_t_ms,
+                    **metadata,
+                    transcript=transcript,
+                )
+            if self._on_partial:
+                self._on_partial(ASRResult(text=accumulated, is_final=False))
+            if self._on_final:
+                self._on_final(ASRResult(text=transcript, is_final=True))
+            return
+
+        if kind == "response_delta":
+            delta = str(event.get("delta", "") or "")
+            if not delta:
+                return
+            self._response_started.set()
+            with self._lock:
+                self._response_text += delta
+                response_text = self._response_text
+            self._record_event(event_type, t_ms=event_t_ms, **metadata, delta=delta)
+            if self._on_partial:
+                self._on_partial(ASRResult(text=response_text, is_final=False))
+            return
+
+        if kind == "response_text_done":
+            text = str(event.get("text", "") or "")
+            self._response_started.set()
+            self._response_text_done_received = True
+            with self._lock:
+                self._response_text = _prefer_longer_text(
+                    self._response_text,
+                    text,
+                )
+                response_text = self._response_text
+            self._record_event(event_type, t_ms=event_t_ms, **metadata, text=text)
+            if self._on_partial and response_text:
+                self._on_partial(ASRResult(text=response_text, is_final=False))
+            return
+
+        if kind == "response_content_part_done":
+            part = event.get("part")
+            part_text = _extract_text_from_content_part(part)
+            self._response_started.set()
+            self._response_content_part_done_received = True
+            with self._lock:
+                self._response_text = _prefer_longer_text(
+                    self._response_text,
+                    part_text,
+                )
+                response_text = self._response_text
+            if part_text:
+                self._record_event(event_type, t_ms=event_t_ms, **metadata, text=part_text)
+                if self._on_partial and response_text:
+                    self._on_partial(ASRResult(text=response_text, is_final=False))
+            return
+
+        if kind == "response_output_item_done":
+            item = event.get("item")
+            item_text = _extract_text_from_realtime_item(item)
+            status = str(event.get("status", "") or "")
+            self._response_started.set()
+            self._response_output_item_done_received = True
+            self._response_output_item_status = status
+            with self._lock:
+                self._response_text = _prefer_longer_text(
+                    self._response_text,
+                    item_text,
+                )
+                response_text = self._response_text
+            self._response_completed.set()
+            self._record_event(
+                event_type,
+                t_ms=event_t_ms,
+                **metadata,
+                status=status,
+                text=item_text,
+            )
+            if self._on_partial and response_text:
+                self._on_partial(ASRResult(text=response_text, is_final=False))
+            return
+
+        if kind == "response_created":
+            self._response_started.set()
+            return
+
+        if kind == "response_done":
+            response_obj = event.get("response_obj")
+            response_status = str(event.get("status", "") or "")
+            self._response_started.set()
+            self._response_done_received = True
+            self._response_done_status = response_status
+            with self._lock:
+                self._response_text = _prefer_longer_text(
+                    self._response_text,
+                    _extract_text_from_realtime_response(response_obj),
+                )
+            self._response_completed.set()
+            self._record_event(event_type, t_ms=event_t_ms, status=response_status)
+            return
+
+        if kind == "session_finished":
+            transcript = str(event.get("transcript", "") or "")
+            if transcript:
+                with self._lock:
+                    if not self._full_text:
+                        self._full_text = transcript
+                if self._debug_trace is not None:
+                    self._debug_trace.final_transcripts.append(transcript)
+            self._complete_event.set()
+            self._record_event(event_type, t_ms=event_t_ms, **metadata, transcript=transcript)
+            return
+
+        if kind == "socket_close":
+            self._complete_event.set()
+            self._session_updated.set()
+            self._transcription_completed.set()
+            self._response_started.set()
+            self._response_completed.set()
+            self._record_event(
+                event_type,
+                t_ms=event_t_ms,
+                code=event.get("code"),
+                msg=event.get("message"),
+            )
+            if self._on_complete:
+                self._on_complete()
+            return
+
+        if kind == "error":
+            error_msg = str(event.get("error_message", "") or "")
+            self._transcription_completed.set()
+            self._record_event(event_type, t_ms=event_t_ms, **metadata, error=error_msg)
             if self._on_error:
-                self._on_error(str(e))
+                self._on_error(error_msg)
+
+    def _flush_inbound_events(self, timeout: float = 1.0) -> None:
+        if self._closed:
+            return
+        done = threading.Event()
+        self._event_queue.put(done)
+        done.wait(timeout=timeout)
+
+    def _drop_queued_events(self) -> None:
+        while True:
+            try:
+                item = self._event_queue.get_nowait()
+            except queue.Empty:
+                break
+            if isinstance(item, threading.Event):
+                item.set()
+            elif item is _CALLBACK_EVENT_STOP:
+                self._event_queue.put(_CALLBACK_EVENT_STOP)
+                break
 
     def get_full_text(self) -> str:
+        self._flush_inbound_events()
         with self._lock:
             return self._full_text
 
     def wait_for_session_updated(self, timeout: float = 10.0) -> bool:
-        return self._session_updated.wait(timeout=timeout)
+        ready = self._session_updated.wait(timeout=timeout)
+        if ready:
+            self._flush_inbound_events()
+        return ready
 
     def wait_for_transcription_complete(self, timeout: float = 30.0) -> bool:
-        return self._transcription_completed.wait(timeout=timeout)
+        complete = self._transcription_completed.wait(timeout=timeout)
+        if complete:
+            self._flush_inbound_events()
+        return complete
 
     def wait_for_complete(self, timeout: float = 10.0) -> bool:
-        return self._complete_event.wait(timeout=timeout)
+        complete = self._complete_event.wait(timeout=timeout)
+        if complete:
+            self._flush_inbound_events()
+        return complete
 
     def wait_for_response_complete(self, timeout: float = 30.0) -> bool:
-        return self._response_completed.wait(timeout=timeout)
+        complete = self._response_completed.wait(timeout=timeout)
+        if complete:
+            self._flush_inbound_events()
+        return complete
 
     def wait_for_response_started(self, timeout: float = 30.0) -> bool:
-        return self._response_started.wait(timeout=timeout)
+        started = self._response_started.wait(timeout=timeout)
+        if started:
+            self._flush_inbound_events()
+        return started
 
     def get_response_text(self) -> str:
+        self._flush_inbound_events()
         with self._lock:
             return self._response_text
 
     def did_receive_response_done(self) -> bool:
+        self._flush_inbound_events()
         return self._response_done_received
 
     def did_receive_response_text_done(self) -> bool:
+        self._flush_inbound_events()
         return self._response_text_done_received
 
     def did_receive_response_output_item_done(self) -> bool:
+        self._flush_inbound_events()
         return self._response_output_item_done_received
 
     def get_response_output_item_status(self) -> str:
+        self._flush_inbound_events()
         return self._response_output_item_status
 
     def get_response_done_status(self) -> str:
+        self._flush_inbound_events()
         return self._response_done_status
 
     def get_response_result_source(self) -> str:
@@ -1480,6 +1720,7 @@ class StreamingASRCallback(OmniRealtimeCallback):
         return ""
 
     def reset(self):
+        self._drop_queued_events()
         with self._lock:
             self._full_text = ""
             self._response_text = ""
@@ -1495,6 +1736,14 @@ class StreamingASRCallback(OmniRealtimeCallback):
         self._response_started.clear()
         self._response_completed.clear()
         self._started_at = time.perf_counter()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._drop_queued_events()
+        self._event_queue.put(_CALLBACK_EVENT_STOP)
+        self._event_worker.join(timeout=1.0)
 
 
 class ASREngine:
@@ -1522,9 +1771,10 @@ class ASREngine:
         self._connect_failed = False
         self._lock = threading.Lock()
         self._audio_queue: queue.Queue[bytes | object] = queue.Queue(
-            maxsize=STREAMING_AUDIO_QUEUE_MAX_CHUNKS
+            maxsize=_streaming_audio_queue_max_chunks(self.config)
         )
         self._pending_audio_chunks = 0
+        self._audio_queue_high_watermark = 0
         self._audio_queue_drained = threading.Condition(self._lock)
         self._streaming_degraded = False
         self._streaming_degraded_reason = ""
@@ -1581,6 +1831,36 @@ class ASREngine:
         _finalize_trace(trace, result_source)
         self._batch_fallback._dump_debug_artifacts(pcm_data or b"", trace)
 
+    def _queue_stats(self) -> tuple[int, int, int]:
+        with self._lock:
+            return (
+                self._pending_audio_chunks,
+                self._audio_queue_high_watermark,
+                self._audio_queue.maxsize,
+            )
+
+    def _log_queue_state(self, event: str, **payload) -> None:
+        pending, high_watermark, max_chunks = self._queue_stats()
+        fields = {
+            "event": event,
+            "model": self._session_model_id,
+            "queue_depth": pending,
+            "queue_high_watermark": high_watermark,
+            "queue_max": max_chunks,
+        }
+        fields.update(payload)
+        details = " ".join(f"{key}={value}" for key, value in fields.items())
+        print(f"[StreamingASRQueue] {details}")
+
+    def _log_fallback(self, reason: str, **payload) -> None:
+        fields = {
+            "reason": reason,
+            "model": self._session_model_id,
+        }
+        fields.update(payload)
+        details = " ".join(f"{key}={value}" for key, value in fields.items())
+        print(f"[StreamingASRFallback] {details}")
+
     def _cancel_warm_close(self) -> None:
         timer: Optional[threading.Timer] = None
         with self._lock:
@@ -1628,7 +1908,7 @@ class ASREngine:
                 "client.realtime.degraded",
                 reason=reason,
             )
-        print(f"[StreamingASR] Realtime path degraded: reason={reason}")
+        self._log_queue_state("degraded", reason=reason)
 
     def _clear_audio_queue(self) -> None:
         cleared = 0
@@ -1646,8 +1926,14 @@ class ASREngine:
         with self._lock:
             self._pending_audio_chunks = 0
             self._audio_queue_drained.notify_all()
+        self._log_queue_state("cleared", cleared=cleared)
 
-    def _wait_for_audio_queue_drain(self, timeout: float = 5.0) -> bool:
+    def _wait_for_audio_queue_drain(self, timeout: Optional[float] = None) -> bool:
+        if timeout is None:
+            timeout = _audio_queue_drain_timeout_seconds(
+                self._queue_stats()[0],
+                self.config,
+            )
         deadline = time.perf_counter() + timeout
         with self._audio_queue_drained:
             while self._pending_audio_chunks > 0:
@@ -1741,6 +2027,11 @@ class ASREngine:
             f"[StreamingASR] Starting session: model={self._session_model_id}, "
             f"backend={transport}, language={self.config.asr.language}"
         )
+        self._log_queue_state(
+            "session_start",
+            chunk_bytes=_streaming_audio_chunk_bytes(self.config),
+            chunk_ms=round(_streaming_audio_chunk_duration_seconds(self.config) * 1000, 2),
+        )
 
         self._is_running = True
         self._accepting_audio = True
@@ -1752,6 +2043,7 @@ class ASREngine:
         self._clear_audio_queue()
         with self._lock:
             self._pending_audio_chunks = 0
+            self._audio_queue_high_watermark = 0
             self._streaming_degraded = False
             self._streaming_degraded_reason = ""
         self._active_trace = self._batch_fallback._build_debug_trace(
@@ -1855,12 +2147,22 @@ class ASREngine:
 
     def send_audio(self, audio_chunk: bytes) -> None:
         """Queue audio for realtime ASR without blocking the audio callback thread."""
+        should_log_depth = False
+        queue_depth = 0
         with self._lock:
             if not self._is_running or not self._accepting_audio:
                 return
             if self._streaming_degraded:
                 return
             self._pending_audio_chunks += 1
+            queue_depth = self._pending_audio_chunks
+            if queue_depth > self._audio_queue_high_watermark:
+                self._audio_queue_high_watermark = queue_depth
+                should_log_depth = (
+                    queue_depth == 1
+                    or queue_depth == self._audio_queue.maxsize
+                    or queue_depth % 8 == 0
+                )
 
         try:
             self._audio_queue.put_nowait(audio_chunk)
@@ -1871,6 +2173,8 @@ class ASREngine:
                 self._audio_queue_drained.notify_all()
             self._mark_streaming_degraded("audio_queue_full")
             return
+        if should_log_depth:
+            self._log_queue_state("queued", chunk_bytes=len(audio_chunk))
 
     def stop(self, timeout: float = 30.0, pcm_data: Optional[bytes] = None) -> str:
         """Stop ASR: commit audio, wait for transcription, return result.
@@ -1888,6 +2192,7 @@ class ASREngine:
         # Wait for _connect() thread to finish (success or failure) before proceeding
         if not self._connect_done.wait(timeout=12.0):
             print("[StreamingASR] Timeout waiting for connection thread, falling back to batch")
+            self._log_fallback("connect_timeout")
             self._is_running = False
             self._clear_audio_queue()
             if self._callback:
@@ -1912,6 +2217,7 @@ class ASREngine:
 
         if degraded:
             print("[StreamingASR] Realtime queue degraded; falling back to batch transcription")
+            self._log_fallback(degraded_reason, degraded=True)
             self._is_running = False
             self._clear_audio_queue()
             self._cancel_warm_close()
@@ -1941,6 +2247,7 @@ class ASREngine:
             self._clear_audio_queue()
             if pcm_data:
                 print("[StreamingASR] Falling back to batch transcription")
+                self._log_fallback("connect_failed")
                 if self._callback:
                     self._callback.mark_client_event(
                         "client.fallback.started",
@@ -1959,8 +2266,10 @@ class ASREngine:
             )
             return ""
 
-        if not self._wait_for_audio_queue_drain(timeout=5.0):
+        drain_timeout = _audio_queue_drain_timeout_seconds(self._queue_stats()[0], self.config)
+        if not self._wait_for_audio_queue_drain(timeout=drain_timeout):
             print("[StreamingASR] Audio sender drain timed out, falling back to batch")
+            self._log_fallback("audio_drain_timeout", drain_timeout=round(drain_timeout, 2))
             self._is_running = False
             self._clear_audio_queue()
             self._cancel_warm_close()
@@ -2022,6 +2331,11 @@ class ASREngine:
                     "client.fallback.started",
                     reason="long_audio_direct_offline",
                 )
+            self._log_fallback(
+                "long_audio_direct_offline",
+                duration_s=round(audio_duration_seconds, 2),
+                offline_model=direct_offline_model,
+            )
             self._cancel_warm_close()
             stale = self._drop_conversation()
             self._close_conversation(stale)
@@ -2109,6 +2423,10 @@ class ASREngine:
                             "client.fallback.started",
                             reason=response_fallback_reason,
                         )
+                    self._log_fallback(
+                        response_fallback_reason,
+                        duration_s=round(audio_duration_seconds, 2),
+                    )
                     (
                         transcript_result,
                         result_source,
@@ -2149,6 +2467,7 @@ class ASREngine:
                     "client.fallback.started",
                     reason="empty_result",
                 )
+            self._log_fallback("empty_result")
             self._finish_active_trace(
                 pcm_data,
                 result_source="batch_fallback",
@@ -2165,6 +2484,12 @@ class ASREngine:
             )
 
         self._is_running = False
+        self._log_queue_state(
+            "session_stop",
+            result_source=result_source if result.strip() else "empty",
+            response_requested=response_requested,
+            fallback_reason=response_fallback_reason or "-",
+        )
         return result
 
     def is_running(self) -> bool:
@@ -2181,12 +2506,16 @@ class ASREngine:
         self._close_conversation(stale)
         self._active_trace = None
         self._trace_warm_reused = False
+        with self._lock:
+            self._audio_queue_high_watermark = 0
         if self._callback:
             self._callback.reset()
 
     def close(self) -> None:
         """Release background resources owned by the engine."""
         self.reset()
+        if self._callback:
+            self._callback.close()
         self._sender_shutdown.set()
         try:
             self._audio_queue.put_nowait(_AUDIO_QUEUE_STOP)

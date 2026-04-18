@@ -3,6 +3,7 @@
 import importlib
 import json
 import queue
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -13,6 +14,44 @@ import yaml
 def _make_pcm_segment(duration_sec: float, sample_value: int = 0) -> bytes:
     sample_count = int(16000 * duration_sec)
     return int(sample_value).to_bytes(2, "little", signed=True) * sample_count
+
+
+def test_streaming_callback_dispatches_partials_on_inbound_worker():
+    """Realtime partials should be delivered by the inbound event worker, not the SDK thread."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    partial_threads = []
+    received = threading.Event()
+    callback = asr_engine.StreamingASRCallback(
+        on_partial=lambda result: (
+            partial_threads.append(threading.current_thread().name),
+            received.set(),
+        ),
+    )
+
+    callback.on_event(
+        {
+            "type": "conversation.item.input_audio_transcription.text",
+            "text": "hello",
+        }
+    )
+
+    assert received.wait(timeout=1.0) is True
+    assert partial_threads == ["vocal-more-asr-inbound"]
+
+    callback.close()
+
+
+def test_streaming_queue_helpers_scale_with_blocksize():
+    """Queue sizing and drain timeout should reflect recorder chunk duration."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    fast_chunks = SimpleNamespace(audio=SimpleNamespace(sample_rate=16000, blocksize=800, channels=1))
+    slow_chunks = SimpleNamespace(audio=SimpleNamespace(sample_rate=16000, blocksize=3200, channels=1))
+
+    assert asr_engine._streaming_audio_queue_max_chunks(fast_chunks) > asr_engine._streaming_audio_queue_max_chunks(slow_chunks)
+    assert asr_engine._audio_queue_drain_timeout_seconds(0, fast_chunks) == asr_engine.MIN_AUDIO_QUEUE_DRAIN_TIMEOUT_SECONDS
+    assert asr_engine._audio_queue_drain_timeout_seconds(16, slow_chunks) > asr_engine.MIN_AUDIO_QUEUE_DRAIN_TIMEOUT_SECONDS
 
 
 def test_realtime_ws_batch_uses_manual_commit_and_corpus(tmp_path, monkeypatch):

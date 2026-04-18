@@ -1,133 +1,63 @@
-# Next Steps
+# Next Steps Status
 
-This file tracks the recommended post-merge follow-up work after the concurrency control refactor landed.
+This file originally tracked the post-merge follow-up work after the main concurrency-control refactor landed.
 
-The main refactor goals are already complete:
+That follow-up milestone is now complete.
 
-- UI access is marshaled onto the main thread
-- hotkey control intent is serialized
-- realtime audio sending is decoupled from the audio callback
-- finish-time workflows can be invalidated on cancel
-- retry/background helpers use managed executors
+## Completed In This Milestone
 
-What remains is not another large rewrite. The next phase should focus on observability, tightening boundaries, and finishing the state-ownership story.
+### P0: Observability and runtime visibility
 
-## P0
+- `docs/concurrency-runtime-model.md` was updated to reflect the latest worker ownership rules
+- `DictationCommandCoordinator` now logs command sequence and command type
+- mode lifecycle logs now include mode name, explicit state, session token, and cancel reason
+- realtime ASR logs now include outbound queue depth, queue high-water mark, realtime degradation reason, and fallback reason
 
-### 1. Keep the concurrency model visible
+### P1: Boundary tightening and explicit lifecycle states
 
-Owners:
+- `StreamingASRCallback` is now a thinner SDK-thread event source
+- SDK-managed realtime callbacks enqueue inbound events onto one callback-local worker
+- callback-local aggregation state and upward partial/final/error delivery now happen on that inbound worker
+- mode lifecycle states are now explicit:
+  - `IDLE`
+  - `STARTING`
+  - `RECORDING`
+  - `STOPPING`
+  - `PROCESSING`
+  - `CANCELLING`
+  - `FAILED`
+- concurrency-focused regression coverage was expanded around callback dispatch, lifecycle transitions, cancellation, and queue policy helpers
 
-- maintain `docs/concurrency-runtime-model.md`
-- update it whenever a new long-lived worker, queue, or cross-thread UI path is introduced
+### P2: Pragmatic performance and terminology cleanup
 
-Done when:
+- audio callback work was reduced slightly by returning early once recording has already stopped
+- realtime queue sizing now scales with recorder chunk duration instead of using one fixed chunk count blindly
+- sender drain timeout now scales with pending queue depth
+- terminology is now consistent across docs and logs:
+  - hotkey callback worker
+  - dictation command coordinator
+  - background executor
+  - ASR sender thread
+  - inbound ASR event worker
+  - mode session token
 
-- new concurrency changes include doc updates
+## What Still Remains
 
-### 2. Add high-value runtime diagnostics
+This is no longer a “must-finish” backlog. What remains is optional refinement work:
 
-Add structured or at least consistently formatted logs for:
-
-- `session_token`
-- command type and command sequence
-- active mode name
-- outbound audio queue depth
-- realtime degradation reason
-- fallback reason
-- cancel reason
-
-Why:
-
-- concurrency bugs are hardest when state transitions cannot be reconstructed after the fact
-
-### 3. Keep running real desktop smoke tests after concurrency-sensitive changes
-
-Minimum manual coverage:
-
-1. walkie-talkie press, hold, release
-2. realtime-long start, stop, cancel
-3. rapid repeated hotkey input
-4. retry transcription in settings
-5. long recording that exercises fallback behavior
-
-## P1
-
-### 1. Turn `StreamingASRCallback` into a thinner event source
-
-Target direction:
-
-- SDK callback thread parses incoming events
-- callback thread enqueues typed inbound events
-- one owner handles lifecycle consequences
-
-Why:
-
-- this is the biggest remaining place where session behavior is still partly driven from outside a single owner
-
-### 2. Make lifecycle states explicit
-
-Introduce and enforce a shared lifecycle enum such as:
-
-- `IDLE`
-- `STARTING`
-- `RECORDING`
-- `STOPPING`
-- `PROCESSING`
-- `CANCELLING`
-- `FAILED`
-
-Why:
-
-- today the system is much safer, but some transitions are still represented implicitly across mode state, engine flags, and callback events
-
-### 3. Expand concurrency-specific regression tests
-
-Recommended additions:
-
-- cancel during connect
-- late callback after mode close
-- shutdown while sender queue still has items
-- reconnect after degraded realtime path
-- multiple rapid cancel/start command sequences
-
-## P2
-
-### 1. Continue reducing audio callback workload
-
-Investigate whether any of the following should move off the callback thread:
-
-- some DSP stages
-- PCM conversion
-- parts of level computation
-
-This is lower priority than the structural fixes already landed.
-
-### 2. Tune realtime queue and fallback policy
-
-Things worth validating empirically:
-
-- queue size
-- sender drain timeout
-- warm session TTL
-- fallback thresholds for long recordings
-
-### 3. Normalize terminology in code and docs
-
-The codebase now has a few important concepts:
-
-- hotkey callback worker
-- dictation command coordinator
-- background executor
-- ASR sender thread
-- mode session token
-
-Keep those names stable and reuse them consistently in future code review and documentation.
+- keep doing manual desktop smoke tests after concurrency-sensitive changes
+- gather real-world telemetry before retuning queue/fallback thresholds again
+- decide whether inbound ASR events should eventually join the same serial owner as dictation commands instead of stopping at the callback-local worker
+- reduce audio callback DSP/PCM work further only if profiling shows it matters
 
 ## Recommended Next Milestone
 
-The best next engineering milestone is:
+The best next milestone is now:
 
-**Route inbound realtime ASR events through a single owner and formalize the lifecycle state machine.**
+**Add lightweight production-facing diagnostics review and collect a small amount of real-world evidence before any further concurrency rewrite.**
 
-That gives the highest remaining architecture payoff without requiring another repo-wide rewrite.
+In practice that means:
+
+1. watch queue depth / fallback logs during real usage
+2. confirm the new explicit lifecycle states match user-visible behavior
+3. only then decide whether a deeper engine-wide state machine is worth the complexity

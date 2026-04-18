@@ -96,7 +96,7 @@ class RealtimeLongMode(BaseMode):
         """Start recording + streaming ASR."""
         self._active_session_token = self._begin_session()
         self._recording_asr_model = self.config.asr.model
-        self._set_state(ModeState.RECORDING)
+        self._set_state(ModeState.STARTING)
         self._asr.start()
         try:
             self._recorder.start()
@@ -114,10 +114,15 @@ class RealtimeLongMode(BaseMode):
                         details=str(e),
                     )
                 )
+            self._set_state(ModeState.FAILED)
             self._set_state(ModeState.IDLE)
+            return
+
+        self._set_state(ModeState.RECORDING)
 
     def _stop_recording(self) -> None:
         """Stop recording and process."""
+        self._set_state(ModeState.STOPPING)
         pcm_data = self._recorder.stop()
 
         if len(pcm_data) < 3200:
@@ -140,7 +145,7 @@ class RealtimeLongMode(BaseMode):
         self._asr.send_audio(chunk)
 
     def _on_asr_error(self, msg: str) -> None:
-        if self.state == ModeState.IDLE:
+        if self.state in (ModeState.IDLE, ModeState.CANCELLING, ModeState.FAILED):
             return
         if self.on_error:
             self.on_error(
@@ -148,7 +153,7 @@ class RealtimeLongMode(BaseMode):
             )
 
     def _on_asr_partial(self, result) -> None:
-        if self.state == ModeState.IDLE:
+        if self.state in (ModeState.IDLE, ModeState.CANCELLING, ModeState.FAILED):
             return
         if self.on_partial_result and result.text:
             if (
@@ -187,15 +192,27 @@ class RealtimeLongMode(BaseMode):
                 should_abort=lambda: not self._is_active_session(session_token),
             )
             if self._is_active_session(session_token):
+                if getattr(result, "error_message", None):
+                    self._set_state(ModeState.FAILED)
                 self._emit_workflow_result(result)
         finally:
             if self._is_active_session(session_token):
                 self._set_state(ModeState.IDLE)
 
-    def cancel(self) -> None:
+    def cancel(self, reason: str = "user_cancel") -> None:
         """Cancel current operation."""
-        self._active_session_token = self._invalidate_session()
-        if self._state == ModeState.RECORDING:
+        if self._state == ModeState.IDLE:
+            return
+
+        previous_state = self._state
+        self._log_lifecycle(
+            "cancel_requested",
+            reason=reason,
+            from_state=previous_state.value,
+        )
+        self._active_session_token = self._invalidate_session(reason=reason)
+        self._set_state(ModeState.CANCELLING)
+        if previous_state == ModeState.RECORDING:
             self._recorder.stop()
             try:
                 self._asr.stop()
@@ -206,7 +223,8 @@ class RealtimeLongMode(BaseMode):
         self._set_state(ModeState.IDLE)
 
     def close(self) -> None:
-        self.cancel()
+        if self.state != ModeState.IDLE:
+            self.cancel(reason="mode_close")
         self._processing_executor.close(wait=True)
         if hasattr(self._asr, "close"):
             self._asr.close()

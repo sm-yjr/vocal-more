@@ -147,15 +147,24 @@ class RPCHandler:
         return {"ok": True, "mode": mode_name}
 
     def _handle_hotkey_pressed(self, params: dict) -> dict:
-        self._get_command_coordinator().call(self._handle_hotkey_pressed_command)
+        self._get_command_coordinator().call(
+            self._handle_hotkey_pressed_command,
+            command_name="rpc_hotkey_pressed",
+        )
         return {"ok": True}
 
     def _handle_hotkey_released(self, params: dict) -> dict:
-        self._get_command_coordinator().call(self._handle_hotkey_released_command)
+        self._get_command_coordinator().call(
+            self._handle_hotkey_released_command,
+            command_name="rpc_hotkey_released",
+        )
         return {"ok": True}
 
     def _handle_cancel(self, params: dict) -> dict:
-        self._get_command_coordinator().call(self._handle_cancel_command)
+        self._get_command_coordinator().call(
+            self._handle_cancel_command,
+            command_name="rpc_cancel",
+        )
         return {"ok": True}
 
     def _handle_get_dictionary(self, params: dict) -> list:
@@ -189,7 +198,10 @@ class RPCHandler:
     def _handle_shutdown(self, params: dict) -> dict:
         # Cancel any active recording
         if self._current_mode.state != ModeState.IDLE:
-            self._get_command_coordinator().call(self._handle_cancel_command)
+            self._get_command_coordinator().call(
+                self._handle_shutdown_cancel_command,
+                command_name="rpc_shutdown_cancel",
+            )
         return {"ok": True}
 
     def _handle_list_recordings(self, params: dict) -> list:
@@ -341,7 +353,10 @@ class RPCHandler:
         self._current_mode.on_hotkey_released()
 
     def _handle_cancel_command(self) -> None:
-        self._current_mode.cancel()
+        self._current_mode.cancel(reason="rpc_cancel")
+
+    def _handle_shutdown_cancel_command(self) -> None:
+        self._current_mode.cancel(reason="rpc_shutdown")
 
 
 class RPCError(Exception):
