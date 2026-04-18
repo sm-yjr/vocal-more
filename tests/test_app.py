@@ -217,6 +217,120 @@ def test_settings_form_sync_refreshes_runtime_sensitive_config_without_restart(
     realtime_asr.refresh_runtime_config.assert_called_once_with(drop_idle_session=True)
 
 
+def test_floating_capsule_show_marshals_to_main_thread(tmp_path, monkeypatch):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    capsule_module = importlib.import_module("vocal_more.ui.floating_capsule")
+    capsule_module = importlib.reload(capsule_module)
+
+    scheduled = []
+
+    class FakeTimer:
+        def __init__(self, callback):
+            self.callback = callback
+
+        def invalidate(self):
+            return None
+
+    class FakeRunLoop:
+        def addTimer_forMode_(self, timer, mode):
+            scheduled.append((timer, mode))
+
+    monkeypatch.setattr(
+        capsule_module.NSTimer,
+        "timerWithTimeInterval_repeats_block_",
+        lambda interval, repeats, callback: FakeTimer(callback),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        capsule_module.NSRunLoop,
+        "mainRunLoop",
+        lambda: FakeRunLoop(),
+        raising=False,
+    )
+
+    worker = object()
+    main = object()
+    monkeypatch.setattr(capsule_module.threading, "current_thread", lambda: worker)
+    monkeypatch.setattr(capsule_module.threading, "main_thread", lambda: main)
+
+    capsule = capsule_module.FloatingCapsule.__new__(capsule_module.FloatingCapsule)
+    capsule._main_thread_timers = set()
+    capsule._show_on_main_thread = MagicMock()
+
+    capsule.show("handsFree")
+
+    assert capsule._show_on_main_thread.call_count == 0
+    assert len(scheduled) == 1
+
+    timer, _mode = scheduled[0]
+    timer.callback(None)
+
+    capsule._show_on_main_thread.assert_called_once_with("handsFree")
+
+
+def test_app_state_change_marshals_to_main_thread(tmp_path, monkeypatch):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    scheduled = []
+
+    class FakeTimer:
+        def __init__(self, callback):
+            self.callback = callback
+
+        def invalidate(self):
+            return None
+
+    class FakeRunLoop:
+        def addTimer_forMode_(self, timer, mode):
+            scheduled.append((timer, mode))
+
+    monkeypatch.setattr(
+        app_module.NSTimer,
+        "timerWithTimeInterval_repeats_block_",
+        lambda interval, repeats, callback: FakeTimer(callback),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app_module.NSRunLoop,
+        "mainRunLoop",
+        lambda: FakeRunLoop(),
+        raising=False,
+    )
+
+    worker = object()
+    main = object()
+    monkeypatch.setattr(app_module.threading, "current_thread", lambda: worker)
+    monkeypatch.setattr(app_module.threading, "main_thread", lambda: main)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app._main_thread_timers = set()
+    app._apply_state_change = MagicMock()
+
+    app._on_state_change(app_module.ModeState.PROCESSING)
+
+    assert app._apply_state_change.call_count == 0
+    assert len(scheduled) == 1
+
+    timer, _mode = scheduled[0]
+    timer.callback(None)
+
+    app._apply_state_change.assert_called_once_with(app_module.ModeState.PROCESSING)
+
+
 def test_default_mode_change_waits_until_idle_before_switching_runtime_mode(
     tmp_path, monkeypatch
 ):

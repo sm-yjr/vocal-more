@@ -74,6 +74,7 @@ class FloatingCapsule:
         self._push_count: int = 0  # for throttled debug logging
         self._html_loaded: bool = False
         self._interface_language: str = "en"
+        self._main_thread_timers: set[NSTimer] = set()
 
         self._setup()
 
@@ -144,6 +145,9 @@ class FloatingCapsule:
 
     def show(self, mode: str = "pushToTalk") -> None:
         """Show the capsule."""
+        self._run_on_main_thread(lambda: self._show_on_main_thread(mode))
+
+    def _show_on_main_thread(self, mode: str) -> None:
         self._current_mode = mode
         self._panel.setIgnoresMouseEvents_(mode == "pushToTalk")
 
@@ -179,12 +183,21 @@ class FloatingCapsule:
 
     def set_interface_language(self, language: str) -> None:
         """Update the capsule language for the next visible state."""
-        self._interface_language = normalize_ui_language(language)
+        normalized = normalize_ui_language(language)
+        self._run_on_main_thread(
+            lambda: self._set_interface_language_on_main_thread(normalized)
+        )
+
+    def _set_interface_language_on_main_thread(self, language: str) -> None:
+        self._interface_language = language
         if self._panel and self._panel.isVisible():
             self._eval_js(f"setInterfaceLanguage('{self._interface_language}')")
 
     def hide(self) -> None:
         """Hide the capsule."""
+        self._run_on_main_thread(self._hide_on_main_thread)
+
+    def _hide_on_main_thread(self) -> None:
         self._stop_push_timer()
         self._eval_js("updateState('hidden')")
 
@@ -207,8 +220,11 @@ class FloatingCapsule:
 
     def update_state(self, state: str) -> None:
         """Update capsule state: 'recording', 'processing', or 'hidden'."""
+        self._run_on_main_thread(lambda: self._update_state_on_main_thread(state))
+
+    def _update_state_on_main_thread(self, state: str) -> None:
         if state == "hidden":
-            self.hide()
+            self._hide_on_main_thread()
             return
 
         self._eval_js(f"updateState('{state}')")
@@ -225,20 +241,12 @@ class FloatingCapsule:
     def set_processing_stage(self, stage: str) -> None:
         """Update the capsule's processing phase label."""
         escaped = stage.replace("\\", "\\\\").replace("'", "\\'")
-        js = f"setProcessingStage('{escaped}')"
-        timer = NSTimer.timerWithTimeInterval_repeats_block_(
-            0, False, lambda _: self._eval_js(js)
-        )
-        NSRunLoop.mainRunLoop().addTimer_forMode_(timer, NSRunLoopCommonModes)
+        self._run_on_main_thread(lambda: self._eval_js(f"setProcessingStage('{escaped}')"))
 
     def update_streaming_text(self, text: str) -> None:
         """Show streaming text below waveform/thinking. Safe to call from any thread."""
         escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
-        js = f"updateStreamingText('{escaped}')"
-        timer = NSTimer.timerWithTimeInterval_repeats_block_(
-            0, False, lambda _: self._eval_js(js)
-        )
-        NSRunLoop.mainRunLoop().addTimer_forMode_(timer, NSRunLoopCommonModes)
+        self._run_on_main_thread(lambda: self._eval_js(f"updateStreamingText('{escaped}')"))
 
     def _start_push_timer(self) -> None:
         """Start a main-thread timer to push RMS to JS at ~30fps."""
@@ -272,3 +280,22 @@ class FloatingCapsule:
         """Evaluate JavaScript in the WKWebView. Must be called from main thread."""
         if self._webview:
             self._webview.evaluateJavaScript_completionHandler_(js, None)
+
+    def _run_on_main_thread(self, callback: Callable[[], None]) -> None:
+        """Marshal UI work onto the main run loop to avoid AppKit/WebKit crashes."""
+        if threading.current_thread() is threading.main_thread():
+            callback()
+            return
+
+        timer_ref: dict[str, Optional[NSTimer]] = {"timer": None}
+
+        def _fire(_timer) -> None:
+            timer = timer_ref["timer"]
+            if timer is not None:
+                self._main_thread_timers.discard(timer)
+            callback()
+
+        timer = NSTimer.timerWithTimeInterval_repeats_block_(0, False, _fire)
+        timer_ref["timer"] = timer
+        self._main_thread_timers.add(timer)
+        NSRunLoop.mainRunLoop().addTimer_forMode_(timer, NSRunLoopCommonModes)

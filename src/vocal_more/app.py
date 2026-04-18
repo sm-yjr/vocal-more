@@ -2,12 +2,14 @@
 
 import os
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
 import dashscope
 import rumps
 from AppKit import NSApp, NSApplicationActivationPolicyAccessory
+from Foundation import NSRunLoop, NSRunLoopCommonModes, NSTimer
 
 from . import __version__
 from .application.runtime_facade import RuntimeFacade
@@ -87,6 +89,7 @@ class VocalMoreApp(rumps.App):
         self._hotkey_manager = dependencies.hotkey_manager
         self._runtime = dependencies.runtime
         self._settings_window = dependencies.settings_window
+        self._main_thread_timers: set[NSTimer] = set()
 
     # ── Resource paths ────────────────────────────────────────
 
@@ -668,6 +671,9 @@ class VocalMoreApp(rumps.App):
 
     def _on_state_change(self, state: ModeState) -> None:
         """Handle mode state change."""
+        self._run_on_main_thread(lambda: self._apply_state_change(state))
+
+    def _apply_state_change(self, state: ModeState) -> None:
         self._state_item.title = self._state_title_for_state(state)
 
         # Update icon
@@ -715,6 +721,9 @@ class VocalMoreApp(rumps.App):
 
     def _on_result(self, text: str) -> None:
         """Handle final result."""
+        self._run_on_main_thread(lambda: self._show_result_notification(text))
+
+    def _show_result_notification(self, text: str) -> None:
         display_text = text[:50] + "..." if len(text) > 50 else text
         try:
             rumps.notification(
@@ -733,6 +742,9 @@ class VocalMoreApp(rumps.App):
 
     def _on_error(self, error: str) -> None:
         """Handle error."""
+        self._run_on_main_thread(lambda: self._show_error_notification(error))
+
+    def _show_error_notification(self, error: str) -> None:
         try:
             rumps.notification(
                 "Vocal-More",
@@ -742,6 +754,25 @@ class VocalMoreApp(rumps.App):
             )
         except RuntimeError:
             print(f"[Error] {error}")
+
+    def _run_on_main_thread(self, callback) -> None:
+        """Marshal AppKit updates onto the main run loop."""
+        if threading.current_thread() is threading.main_thread():
+            callback()
+            return
+
+        timer_ref: dict[str, Optional[NSTimer]] = {"timer": None}
+
+        def _fire(_timer) -> None:
+            timer = timer_ref["timer"]
+            if timer is not None:
+                self._main_thread_timers.discard(timer)
+            callback()
+
+        timer = NSTimer.timerWithTimeInterval_repeats_block_(0, False, _fire)
+        timer_ref["timer"] = timer
+        self._main_thread_timers.add(timer)
+        NSRunLoop.mainRunLoop().addTimer_forMode_(timer, NSRunLoopCommonModes)
 
     # ── Run ───────────────────────────────────────────────────
 
