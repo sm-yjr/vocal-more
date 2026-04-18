@@ -32,6 +32,9 @@ from WebKit import (
 )
 
 from ..localization import normalize_ui_language, t
+from .mic_test_controller import MicTestController
+from .settings_actions import SettingsActionDispatcher
+from .settings_bridge import SettingsBridge
 from .webview_bridge import objc_to_python
 
 # WKUserScriptInjectionTime
@@ -142,10 +145,9 @@ class SettingsWindow:
         self._last_synced_state: Optional[str] = None
         self._js_queue: queue.Queue = queue.Queue()
         self._interface_language = "en"
-
-        self._mic_test_recorder = None
-        self._mic_test_pcm: Optional[bytes] = None
-        self._mic_test_timer: Optional[threading.Timer] = None
+        self._bridge = SettingsBridge()
+        self._mic_test_controller = self._build_mic_test_controller()
+        self._dispatcher = self._build_action_dispatcher()
 
         self._setup()
 
@@ -288,7 +290,7 @@ class SettingsWindow:
 
     def _on_window_close_requested(self) -> None:
         """Persist the latest form state and hide the settings window."""
-        self._cleanup_mic_test()
+        self._mic_test_controller.cleanup()
         self._request_form_state_sync()
         self._stop_live_sync()
         if self._window:
@@ -297,112 +299,10 @@ class SettingsWindow:
 
     def _on_js_message(self, body: dict) -> None:
         """Handle messages from JavaScript (user interactions)."""
-        action = body.get("action")
-        if not action:
+        message = self._bridge.parse(body)
+        if message is None:
             return
-
-        if action == "setConfig":
-            key = body.get("key")
-            value = body.get("value")
-            print(f"[Settings] setConfig: {key} = {value}")
-            if key is not None and self._on_set_config:
-                self._on_set_config(key, value)
-            if self._mic_test_recorder:
-                if key == "audio.gain":
-                    self._mic_test_recorder.set_gain(float(value))
-                elif key == "audio.highpass_filter":
-                    self._mic_test_recorder.set_highpass_filter(bool(value))
-                elif key == "audio.highpass_freq":
-                    self._mic_test_recorder.set_highpass_freq(int(value))
-                elif key == "audio.soft_limiter":
-                    self._mic_test_recorder.set_soft_limiter(bool(value))
-
-        elif action == "setAsrModel":
-            model = body.get("model")
-            backend = body.get("backend")
-            print(f"[Settings] setAsrModel: {model} ({backend})")
-            if model and backend and self._on_set_asr_model:
-                self._on_set_asr_model(model, backend)
-
-        elif action == "syncFormState":
-            state = body.get("state")
-            if isinstance(state, dict) and self._on_sync_form_state:
-                self._on_sync_form_state(state)
-
-        elif action == "setDevice":
-            device = body.get("device")
-            if self._on_set_device:
-                self._on_set_device(device if device else None)
-            if self._mic_test_recorder:
-                self._cleanup_mic_test()
-                self._eval_js(
-                    f"micTestError({json.dumps(t(self._interface_language, 'settings_device_changed'))})"
-                )
-
-        elif action == "setActiveHotkeys":
-            hotkeys = body.get("hotkeys", [])
-            if self._on_set_active_hotkeys:
-                self._on_set_active_hotkeys(hotkeys)
-
-        elif action == "addDictEntry":
-            term = body.get("term", "")
-            aliases = body.get("aliases", [])
-            if term and self._on_add_dict_entry:
-                self._on_add_dict_entry(term, aliases)
-
-        elif action == "removeDictEntry":
-            term = body.get("term", "")
-            if term and self._on_remove_dict_entry:
-                self._on_remove_dict_entry(term)
-
-        elif action == "refreshDevices":
-            if self._on_refresh_devices:
-                self._on_refresh_devices()
-
-        elif action == "openConfigFile":
-            if self._on_open_config_file:
-                self._on_open_config_file()
-
-        elif action == "openDictFile":
-            if self._on_open_dict_file:
-                self._on_open_dict_file()
-
-        elif action == "openExternal":
-            url = body.get("url", "")
-            if url and self._on_open_external:
-                self._on_open_external(url)
-
-        elif action == "getRecordings":
-            self._handle_get_recordings()
-
-        elif action == "retryTranscription":
-            rec_id = body.get("id", "")
-            if rec_id:
-                self._handle_retry_transcription(rec_id)
-
-        elif action == "deleteRecording":
-            rec_id = body.get("id", "")
-            if rec_id:
-                self._handle_delete_recording(rec_id)
-
-        elif action == "playRecording":
-            rec_id = body.get("id", "")
-            if rec_id:
-                self._handle_play_recording(rec_id)
-
-        elif action == "copyTranscript":
-            rec_id = body.get("id", "")
-            if rec_id:
-                self._handle_copy_transcript(rec_id)
-
-        elif action == "startMicTest":
-            self._handle_start_mic_test()
-
-        elif action == "stopMicTest":
-            self._handle_stop_mic_test()
-
-        elif action == "playMicTest":
-            self._handle_play_mic_test()
+        self._dispatcher.dispatch(message)
 
     def _eval_js(self, js: str) -> None:
         """Evaluate JavaScript in the WKWebView (thread-safe)."""
@@ -512,6 +412,49 @@ class SettingsWindow:
         json_str = json.dumps(entries)
         self._eval_js(f"loadDictionary({json_str})")
 
+    def _build_action_dispatcher(self) -> SettingsActionDispatcher:
+        return SettingsActionDispatcher(
+            on_set_config=self._on_set_config,
+            on_set_asr_model=self._on_set_asr_model,
+            on_sync_form_state=self._on_sync_form_state,
+            on_set_device=self._on_set_device,
+            on_set_active_hotkeys=self._on_set_active_hotkeys,
+            on_add_dict_entry=self._on_add_dict_entry,
+            on_remove_dict_entry=self._on_remove_dict_entry,
+            on_refresh_devices=self._on_refresh_devices,
+            on_open_config_file=self._on_open_config_file,
+            on_open_dict_file=self._on_open_dict_file,
+            on_open_external=self._on_open_external,
+            on_get_recordings=self._handle_get_recordings,
+            on_retry_transcription=self._handle_retry_transcription,
+            on_delete_recording=self._handle_delete_recording,
+            on_play_recording=self._handle_play_recording,
+            on_copy_transcript=self._handle_copy_transcript,
+            mic_test_controller=self._mic_test_controller,
+        )
+
+    def _build_mic_test_controller(self) -> MicTestController:
+        from ..config import get_config
+        from ..core.audio_recorder import AudioRecorder
+
+        return MicTestController(
+            config_provider=get_config,
+            recorder_factory=AudioRecorder,
+            on_started=lambda: self._eval_js("micTestStarted()"),
+            on_complete=lambda: self._eval_js("micTestComplete()"),
+            on_error=lambda message: self._eval_js(
+                f"micTestError({json.dumps(message)})"
+            ),
+            on_level=lambda rms: self._eval_js(f"micTestLevel({rms:.4f})"),
+            on_playback=lambda b64: self._eval_js(
+                f"micTestPlayback({json.dumps(b64)})"
+            ),
+            device_changed_error=lambda: t(
+                self._interface_language,
+                "settings_device_changed",
+            ),
+        )
+
     # ── Recording history handlers ───────────────────────────
 
     def _handle_get_recordings(self) -> None:
@@ -598,85 +541,3 @@ class SettingsWindow:
                 pb.setString_forType_(rec["transcript"], NSStringPboardType)
                 self._eval_js(f"copiedFeedback({json.dumps(rec_id)})")
                 return
-
-    # ── Mic test handlers ───────────────────────────────
-
-    def _handle_start_mic_test(self) -> None:
-        from ..config import get_config
-        from ..core.audio_recorder import AudioRecorder
-
-        self._cleanup_mic_test()
-
-        config = get_config()
-        try:
-            self._mic_test_recorder = AudioRecorder(
-                on_audio_level=self._on_mic_test_level,
-                device=config.audio.input_device,
-            )
-            self._mic_test_recorder.set_gain(config.audio.gain)
-            self._mic_test_recorder.set_highpass_filter(config.audio.highpass_filter)
-            self._mic_test_recorder.set_highpass_freq(config.audio.highpass_freq)
-            self._mic_test_recorder.set_soft_limiter(config.audio.soft_limiter)
-            self._mic_test_recorder.start()
-        except Exception as e:
-            print(f"[Settings] Mic test failed to start: {e}")
-            self._mic_test_recorder = None
-            self._eval_js(f"micTestError({json.dumps(str(e))})")
-            return
-
-        self._eval_js("micTestStarted()")
-
-        self._mic_test_timer = threading.Timer(5.0, self._auto_stop_mic_test)
-        self._mic_test_timer.daemon = True
-        self._mic_test_timer.start()
-        print("[Settings] Mic test started")
-
-    def _auto_stop_mic_test(self) -> None:
-        self._handle_stop_mic_test()
-
-    def _handle_stop_mic_test(self) -> None:
-        if self._mic_test_timer:
-            self._mic_test_timer.cancel()
-            self._mic_test_timer = None
-
-        if self._mic_test_recorder:
-            try:
-                self._mic_test_pcm = self._mic_test_recorder.stop()
-                self._mic_test_recorder = None
-                print(f"[Settings] Mic test stopped, {len(self._mic_test_pcm)} bytes")
-                self._eval_js("micTestComplete()")
-            except Exception as e:
-                print(f"[Settings] Mic test stop error: {e}")
-                self._mic_test_recorder = None
-                self._eval_js(f"micTestError({json.dumps(str(e))})")
-
-    def _handle_play_mic_test(self) -> None:
-        if not self._mic_test_pcm:
-            return
-        import base64
-        import io
-        import wave
-
-        buffer = io.BytesIO()
-        with wave.open(buffer, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(16000)
-            wf.writeframes(self._mic_test_pcm)
-        b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
-        self._eval_js(f"micTestPlayback({json.dumps(b64)})")
-
-    def _on_mic_test_level(self, rms: float) -> None:
-        self._eval_js(f"micTestLevel({rms:.4f})")
-
-    def _cleanup_mic_test(self) -> None:
-        if self._mic_test_timer:
-            self._mic_test_timer.cancel()
-            self._mic_test_timer = None
-        if self._mic_test_recorder:
-            try:
-                self._mic_test_recorder.stop()
-            except Exception:
-                pass
-            self._mic_test_recorder = None
-        self._mic_test_pcm = None

@@ -130,9 +130,8 @@ def test_polish_non_catalog_model_uses_generation_api(tmp_path, monkeypatch):
 
     # Use a model id not in LLM_MODEL_CATALOG — _parse_llm_model falls back
     # to default, so we monkeypatch _parse_llm_model to pass it through.
-    monkeypatch.setattr(
-        "vocal_more.config._parse_llm_model", lambda raw: raw
-    )
+    monkeypatch.setattr("vocal_more.config._parse_llm_model", lambda raw: raw)
+    monkeypatch.setattr("vocal_more.domain.config_models._parse_llm_model", lambda raw: raw)
 
     with open(config_path, "w") as f:
         yaml.dump({"llm": {"model": "qwen-legacy"}}, f)

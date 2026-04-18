@@ -8,10 +8,11 @@ from typing import Any, Callable, Optional
 
 import dashscope
 
+from .application.runtime_facade import RuntimeFacade
+from .bootstrap import build_rpc_handler_dependencies
 from .config import (
     ASR_MODEL_CATALOG,
     LLM_MODEL_CATALOG,
-    get_config,
 )
 from .core.audio_recorder import AudioRecorder
 from .core.recording_store import RecordingStore
@@ -21,7 +22,6 @@ from .localization import t
 from .modes.base_mode import BaseMode, ModeState
 from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
-from .runtime_config import should_refresh_asr_runtime
 
 VERSION = "0.2.0"
 
@@ -32,51 +32,31 @@ class RPCHandler:
     def __init__(
         self,
         send_notification: Callable[[str, dict], None],
+        dependencies=None,
     ):
         self._send_notification = send_notification
-        self.config = get_config()
-
-        # Initialize recording store
-        self._recording_store = RecordingStore()
-
-        # Initialize text polisher
-        self._text_polisher: Optional[TextPolisher] = None
-        if self.config.api_key:
-            self._text_polisher = TextPolisher()
-
-        # Initialize modes with callbacks
-        self._walkie_talkie = WalkieTalkieMode(
-            on_state_change=self._on_state_change,
-            on_result=self._on_result,
-            on_partial_result=self._on_partial_result,
-            on_error=self._on_error,
-            on_processing_stage=self._on_processing_stage,
-            text_polisher=self._text_polisher,
-            on_audio_level=self._on_audio_level,
-            recording_store=self._recording_store,
+        dependencies = dependencies or build_rpc_handler_dependencies(
+            self,
+            send_notification=send_notification,
+            text_polisher_factory=TextPolisher,
+            recording_store_factory=RecordingStore,
+            walkie_talkie_factory=WalkieTalkieMode,
+            realtime_long_factory=RealtimeLongMode,
         )
+        self._apply_dependencies(dependencies)
 
-        self._realtime_long = RealtimeLongMode(
-            on_state_change=self._on_state_change,
-            on_result=self._on_result,
-            on_partial_result=self._on_partial_result,
-            on_error=self._on_error,
-            on_processing_stage=self._on_processing_stage,
-            text_polisher=self._text_polisher,
-            on_audio_level=self._on_audio_level,
-            recording_store=self._recording_store,
-        )
-
-        self._modes: dict[str, BaseMode] = {
+    def _apply_dependencies(self, dependencies) -> None:
+        self.config = dependencies.config
+        self._recording_store = dependencies.recording_store
+        self._text_polisher = dependencies.text_polisher
+        self._walkie_talkie = dependencies.walkie_talkie
+        self._realtime_long = dependencies.realtime_long
+        self._modes = {
             "walkie_talkie": self._walkie_talkie,
             "realtime_long": self._realtime_long,
         }
-
-        self._current_mode: BaseMode = (
-            self._realtime_long
-            if self.config.default_mode == "realtime_long"
-            else self._walkie_talkie
-        )
+        self._current_mode = dependencies.current_mode
+        self._runtime = dependencies.runtime
 
     # -- Notification callbacks -----------------------------------------------
 
@@ -132,11 +112,10 @@ class RPCHandler:
         value = params.get("value")
 
         try:
-            self.config.apply_update(key, value)
+            self._get_runtime().apply_update(key, value)
         except ValueError as exc:
             raise RPCError(-32602, str(exc)) from exc
 
-        self._apply_runtime_config_keys({key})
         self.config.save()
 
         return {"ok": True}
@@ -146,8 +125,7 @@ class RPCHandler:
 
     def _handle_set_device(self, params: dict) -> dict:
         device_name = params.get("device")  # None means system default
-        self.config.apply_update("audio.input_device", device_name)
-        self._apply_runtime_config_keys({"audio.input_device"})
+        self._get_runtime().apply_update("audio.input_device", device_name)
         self.config.save()
 
         return {"ok": True}
@@ -157,8 +135,7 @@ class RPCHandler:
         if mode_name not in self._modes:
             raise RPCError(-32602, f"Unknown mode: {mode_name}")
 
-        self.config.apply_update("default_mode", mode_name)
-        self._apply_runtime_config_keys({"default_mode"})
+        self._get_runtime().apply_update("default_mode", mode_name)
         self.config.save()
         return {"ok": True, "mode": mode_name}
 
@@ -198,7 +175,7 @@ class RPCHandler:
 
     def _handle_set_active_hotkeys(self, params: dict) -> dict:
         hotkeys = params.get("hotkeys", [])
-        self.config.apply_update("hotkey.active_hotkeys", hotkeys)
+        self._get_runtime().apply_update("hotkey.active_hotkeys", hotkeys)
         self.config.save()
         return {"ok": True}
 
@@ -297,45 +274,38 @@ class RPCHandler:
 
     def _apply_runtime_config_keys(self, changed_keys: set[str]) -> None:
         """Apply live runtime side effects for config changes."""
-        if not changed_keys:
-            return
-
-        if "api_key" in changed_keys:
-            self._refresh_text_polisher()
-
-        if any(key.startswith("audio.") for key in changed_keys):
-            self._sync_audio_recorders()
-
-        if "default_mode" in changed_keys:
-            self._select_default_mode_when_safe()
-
-        if should_refresh_asr_runtime(changed_keys):
-            self._refresh_mode_asr_runtime()
+        self._get_runtime()._apply_runtime_config_keys(changed_keys)
 
     def _select_default_mode_when_safe(self) -> None:
         """Apply the configured default mode without interrupting active recording."""
-        if self._current_mode.state != ModeState.IDLE:
-            return
-        self._current_mode = self._modes[self.config.default_mode]
+        self._get_runtime()._select_default_mode_when_safe()
 
     def _refresh_mode_asr_runtime(self) -> None:
         """Invalidate idle ASR runtime state affected by config changes."""
-        for mode in self._modes.values():
-            asr = getattr(mode, "_asr", None)
-            if asr is not None and hasattr(asr, "refresh_runtime_config"):
-                asr.refresh_runtime_config(drop_idle_session=True)
+        self._get_runtime()._refresh_mode_asr_runtime()
 
     def _sync_audio_recorders(self) -> None:
         """Push the current audio config into all mode recorders."""
-        for mode in self._modes.values():
-            recorder = getattr(mode, "_recorder", None)
-            if recorder is None:
-                continue
-            recorder.set_device(self.config.audio.input_device)
-            recorder.set_gain(self.config.audio.gain)
-            recorder.set_highpass_filter(self.config.audio.highpass_filter)
-            recorder.set_highpass_freq(self.config.audio.highpass_freq)
-            recorder.set_soft_limiter(self.config.audio.soft_limiter)
+        self._get_runtime()._sync_audio_recorders()
+
+    def _build_runtime_facade(self) -> RuntimeFacade:
+        return RuntimeFacade(
+            config=self.config,
+            modes=self._modes,
+            get_current_mode=lambda: self._current_mode,
+            set_current_mode=lambda mode: setattr(self, "_current_mode", mode),
+            on_refresh_text_polisher=self._refresh_text_polisher,
+        )
+
+    def _get_runtime(self) -> RuntimeFacade:
+        runtime = getattr(self, "_runtime", None)
+        if runtime is None:
+            self._runtime = self._build_runtime_facade()
+        return self._runtime
+
+    @property
+    def runtime(self) -> RuntimeFacade:
+        return self._get_runtime()
 
 
 class RPCError(Exception):

@@ -22,6 +22,7 @@ _jsonrpc_out = os.fdopen(_raw_stdout_fd, "w", buffering=1, closefd=True)
 import json
 import threading
 
+from .bootstrap import build_rpc_handler
 from .rpc_handler import RPCError, RPCHandler
 
 _write_lock = threading.Lock()
@@ -50,7 +51,10 @@ def _make_error(id, code: int, message: str) -> dict:
 
 def main() -> None:
     """Main entry point: read stdin line by line, dispatch, respond."""
-    handler = RPCHandler(send_notification=send_notification)
+    handler = build_rpc_handler(
+        send_notification=send_notification,
+        handler_factory=RPCHandler,
+    )
 
     for line in sys.stdin:
         line = line.strip()

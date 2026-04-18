@@ -455,3 +455,49 @@ def test_processing_stage_callback_forwards_to_capsule(tmp_path, monkeypatch):
     app._on_processing_stage("polishing")
 
     app._capsule.set_processing_stage.assert_called_once_with("polishing")
+
+
+def test_build_runtime_returns_shared_facade_for_menu_and_rpc(tmp_path, monkeypatch):
+    """bootstrap.build_runtime should expose one facade object to both adapters."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+    rpc_module = importlib.import_module("vocal_more.rpc_handler")
+    rpc_module = importlib.reload(rpc_module)
+    bootstrap_module = importlib.import_module("vocal_more.bootstrap")
+    bootstrap_module = importlib.reload(bootstrap_module)
+
+    with (
+        patch.object(app_module, "TextPolisher", return_value=MagicMock()),
+        patch.object(rpc_module, "TextPolisher", return_value=MagicMock()),
+        patch.object(app_module, "FloatingCapsule", return_value=MagicMock()),
+        patch.object(app_module, "SettingsWindow", return_value=MagicMock()),
+        patch.object(app_module, "HotkeyManager", return_value=MagicMock()),
+        patch.object(app_module, "RecordingStore", return_value=MagicMock()),
+        patch.object(rpc_module, "RecordingStore", return_value=MagicMock()),
+        patch.object(app_module, "run_environment_checks", return_value=[]),
+        patch("vocal_more.modes.walkie_talkie.ASREngine", return_value=MagicMock()),
+        patch("vocal_more.modes.walkie_talkie.AudioRecorder", return_value=MagicMock()),
+        patch("vocal_more.modes.walkie_talkie.KeyboardSimulator", return_value=MagicMock()),
+        patch("vocal_more.modes.realtime_long.ASREngine", return_value=MagicMock()),
+        patch("vocal_more.modes.realtime_long.AudioRecorder", return_value=MagicMock()),
+        patch("vocal_more.modes.realtime_long.KeyboardSimulator", return_value=MagicMock()),
+    ):
+        runtime = bootstrap_module.build_runtime(
+            app_factory=app_module.VocalMoreApp,
+            handler_factory=rpc_module.RPCHandler,
+        )
+
+    assert runtime.menu_bar is not None
+    assert runtime.rpc_handler is not None
+    assert runtime.menu_bar.runtime is runtime.rpc_handler.runtime

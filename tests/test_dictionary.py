@@ -3,6 +3,39 @@
 import yaml
 
 
+def test_dictionary_service_builds_asr_corpus_without_config_cycle(tmp_path):
+    """The service should build corpus text from pure entries plus caller-supplied extras."""
+    from vocal_more.application.dictionary_service import DictionaryService
+    from vocal_more.domain.dictionary_models import DictEntry
+    from vocal_more.infrastructure.dictionary_repository import DictionaryRepository
+
+    service = DictionaryService(DictionaryRepository(base_dir=tmp_path))
+    service.replace_entries(
+        [
+            DictEntry(term="Vocal More", aliases=["vocal mall"]),
+            DictEntry(term="阿里云百炼", aliases=["阿里云白练"]),
+        ]
+    )
+
+    assert (
+        service.build_asr_corpus_text(["DashScope", "Vocal More"])
+        == "Vocal More\n阿里云百炼\n\nDashScope"
+    )
+
+
+def test_dictionary_service_normalizes_aliases_case_insensitively_for_ascii(tmp_path):
+    """ASCII aliases should normalize case-insensitively without matching inside larger tokens."""
+    from vocal_more.application.dictionary_service import DictionaryService
+    from vocal_more.domain.dictionary_models import DictEntry
+    from vocal_more.infrastructure.dictionary_repository import DictionaryRepository
+
+    service = DictionaryService(DictionaryRepository(base_dir=tmp_path))
+    service.replace_entries([DictEntry(term="OpenAI", aliases=["open ai", "OA"])])
+
+    assert service.normalize_terms("open ai codex") == "OpenAI codex"
+    assert service.normalize_terms("broadway") == "broadway"
+
+
 def test_build_asr_corpus_text_deduplicates_and_appends_extra_terms(
     tmp_path, monkeypatch
 ):

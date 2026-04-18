@@ -10,10 +10,11 @@ import rumps
 from AppKit import NSApp, NSApplicationActivationPolicyAccessory
 
 from . import __version__
+from .application.runtime_facade import RuntimeFacade
+from .bootstrap import build_menu_app_dependencies
 from .config import (
     ASR_MODEL_CATALOG,
     LLM_MODEL_CATALOG,
-    get_config,
 )
 from .core.audio_recorder import AudioRecorder
 from .core.hotkey_manager import HotkeyManager
@@ -26,7 +27,6 @@ from .localization import t
 from .modes.base_mode import BaseMode, ModeState
 from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
-from .runtime_config import flatten_config_keys, should_refresh_asr_runtime
 from .ui.floating_capsule import FloatingCapsule
 from .ui.settings_window import SettingsWindow
 
@@ -48,7 +48,7 @@ POLISH_LEVEL_OPTIONS = [
 class VocalMoreApp(rumps.App):
     """Menu bar application for Vocal-More."""
 
-    def __init__(self):
+    def __init__(self, dependencies=None):
         """Initialize the application."""
         super().__init__(
             "Vocal-More",
@@ -57,79 +57,36 @@ class VocalMoreApp(rumps.App):
             quit_button=None,
         )
 
-        self.config = get_config()
-        self._hotkey_listener_ready: Optional[bool] = None
-        self._environment_checks = []
-
-        # Initialize components
-        self._text_polisher: Optional[TextPolisher] = None
-        if self.config.api_key:
-            self._text_polisher = TextPolisher()
-
-        # Initialize floating capsule UI
-        self._capsule = FloatingCapsule(
-            on_cancel=self._on_capsule_cancel,
-            on_finish=self._on_capsule_finish,
+        dependencies = dependencies or build_menu_app_dependencies(
+            self,
+            text_polisher_factory=TextPolisher,
+            capsule_factory=FloatingCapsule,
+            recording_store_factory=RecordingStore,
+            walkie_talkie_factory=WalkieTalkieMode,
+            realtime_long_factory=RealtimeLongMode,
+            hotkey_manager_factory=HotkeyManager,
+            settings_window_factory=SettingsWindow,
         )
-
-        # Initialize recording store
-        self._recording_store = RecordingStore()
-
-        # Initialize modes
-        self._walkie_talkie = WalkieTalkieMode(
-            on_state_change=self._on_state_change,
-            on_result=self._on_result,
-            on_partial_result=self._on_partial_result,
-            on_error=self._on_error,
-            on_processing_stage=self._on_processing_stage,
-            text_polisher=self._text_polisher,
-            on_audio_level=self._on_audio_level,
-            recording_store=self._recording_store,
-        )
-
-        self._realtime_long = RealtimeLongMode(
-            on_state_change=self._on_state_change,
-            on_result=self._on_result,
-            on_partial_result=self._on_partial_result,
-            on_error=self._on_error,
-            on_processing_stage=self._on_processing_stage,
-            text_polisher=self._text_polisher,
-            on_audio_level=self._on_audio_level,
-            recording_store=self._recording_store,
-        )
-
-        self._current_mode: BaseMode = (
-            self._realtime_long if self.config.default_mode == "realtime_long"
-            else self._walkie_talkie
-        )
-
-        # Initialize hotkey manager
-        self._hotkey_manager = HotkeyManager(
-            on_fn_pressed=self._on_fn_pressed,
-            on_fn_released=self._on_fn_released,
-            on_double_cmd=self._on_double_cmd,
-        )
-
-        # Initialize settings window
-        self._settings_window = SettingsWindow(
-            on_set_config=self._on_settings_config_change,
-            on_set_asr_model=self._on_settings_set_asr_model,
-            on_sync_form_state=self._on_settings_sync_form_state,
-            on_set_device=self._on_settings_set_device,
-            on_set_active_hotkeys=self._on_settings_set_hotkeys,
-            on_add_dict_entry=self._on_settings_add_dict,
-            on_remove_dict_entry=self._on_settings_remove_dict,
-            on_refresh_devices=self._on_settings_refresh_devices,
-            on_open_config_file=self._on_settings_open_config,
-            on_open_dict_file=self._on_settings_open_dict,
-            on_open_external=self._on_settings_open_external,
-            recording_store=self._recording_store,
-        )
+        self._apply_dependencies(dependencies)
         self._apply_interface_language(update_frontend=False)
 
         # Build menu
         self._build_menu()
         self._refresh_environment_status()
+
+    def _apply_dependencies(self, dependencies) -> None:
+        self.config = dependencies.config
+        self._hotkey_listener_ready = dependencies.hotkey_listener_ready
+        self._environment_checks = dependencies.environment_checks
+        self._text_polisher = dependencies.text_polisher
+        self._capsule = dependencies.capsule
+        self._recording_store = dependencies.recording_store
+        self._walkie_talkie = dependencies.walkie_talkie
+        self._realtime_long = dependencies.realtime_long
+        self._current_mode = dependencies.current_mode
+        self._hotkey_manager = dependencies.hotkey_manager
+        self._runtime = dependencies.runtime
+        self._settings_window = dependencies.settings_window
 
     # ── Resource paths ────────────────────────────────────────
 
@@ -324,35 +281,31 @@ class VocalMoreApp(rumps.App):
     def _on_settings_config_change(self, key: str, value: Any) -> None:
         """Handle config change from settings window."""
         try:
-            self.config.apply_update(key, value)
+            self._get_runtime().apply_update(key, value)
         except ValueError as exc:
             print(f"[Settings] {exc}")
             return
 
-        self._apply_runtime_config_keys({key})
         self.config.save()
         self._refresh_quick_settings_menu()
         print(f"[Settings] Config updated: {key} = {value}")
 
     def _on_settings_set_device(self, device: Optional[str]) -> None:
         """Handle device change from settings window."""
-        self.config.apply_update("audio.input_device", device)
-        self._apply_runtime_config_keys({"audio.input_device"})
+        self._get_runtime().apply_update("audio.input_device", device)
         self.config.save()
         print(f"[Settings] Device set to: {device or 'System Default'}")
 
     def _on_settings_set_asr_model(self, model: str, backend: str) -> None:
         """Handle ASR model changes atomically so reopen shows the saved model."""
-        self.config.apply_update("asr.model", model)
-        self._apply_runtime_config_keys({"asr.model"})
+        self._get_runtime().apply_update("asr.model", model)
         self.config.save()
         self._refresh_quick_settings_menu()
         print(f"[Settings] ASR model set to: {self.config.asr.model} ({self.config.asr.backend})")
 
     def _on_settings_sync_form_state(self, form_state: dict) -> None:
         """Persist the full form state when the settings window closes."""
-        self.config.apply_form_state(form_state)
-        self._apply_runtime_config_keys(flatten_config_keys(form_state))
+        self._get_runtime().apply_form_state(form_state)
         self.config.save()
         self._refresh_quick_settings_menu()
 
@@ -360,8 +313,7 @@ class VocalMoreApp(rumps.App):
         """Handle active hotkeys change from settings window."""
         if not hotkeys:
             return
-        self.config.apply_update("hotkey.active_hotkeys", hotkeys)
-        self._apply_runtime_config_keys({"hotkey.active_hotkeys"})
+        self._get_runtime().apply_update("hotkey.active_hotkeys", hotkeys)
         self.config.save()
         print(f"[Settings] Active hotkeys: {self.config.hotkey.active_hotkeys}")
 
@@ -377,32 +329,7 @@ class VocalMoreApp(rumps.App):
 
     def _apply_runtime_config_keys(self, changed_keys: set[str]) -> None:
         """Apply runtime side effects for config changes without restarting the app."""
-        if not changed_keys:
-            return
-
-        if "api_key" in changed_keys:
-            self._refresh_text_polisher()
-
-        if any(key.startswith("audio.") for key in changed_keys):
-            self._sync_audio_recorders()
-
-        if "hotkey.active_hotkeys" in changed_keys:
-            self._hotkey_manager.set_active_hotkeys(self.config.hotkey.active_hotkeys)
-
-        if "hotkey.custom_key" in changed_keys:
-            self._hotkey_manager.set_custom_key(self.config.hotkey.custom_key)
-
-        if "ui.language" in changed_keys:
-            self._apply_interface_language()
-
-        if "default_mode" in changed_keys:
-            self._select_default_mode_when_safe()
-
-        if should_refresh_asr_runtime(changed_keys):
-            self._refresh_mode_asr_runtime()
-
-        if "api_key" in changed_keys or any(key.startswith("audio.") for key in changed_keys):
-            self._refresh_environment_status()
+        self._get_runtime()._apply_runtime_config_keys(changed_keys)
 
     def _on_settings_add_dict(self, term: str, aliases: list[str]) -> None:
         """Handle dictionary entry addition from settings window."""
@@ -454,17 +381,11 @@ class VocalMoreApp(rumps.App):
 
     def _select_default_mode_when_safe(self) -> None:
         """Apply the configured default mode without interrupting active recording."""
-        current_mode = getattr(self, "_current_mode", None)
-        if current_mode is not None and current_mode.state != ModeState.IDLE:
-            return
-        self._select_mode(self.config.default_mode)
+        self._get_runtime()._select_default_mode_when_safe()
 
     def _refresh_mode_asr_runtime(self) -> None:
         """Invalidate any idle ASR runtime state affected by config changes."""
-        for mode in (self._walkie_talkie, self._realtime_long):
-            asr = getattr(mode, "_asr", None)
-            if asr is not None and hasattr(asr, "refresh_runtime_config"):
-                asr.refresh_runtime_config(drop_idle_session=True)
+        self._get_runtime()._refresh_mode_asr_runtime()
 
     def _list_devices(self) -> list[dict]:
         """List available audio input devices."""
@@ -616,8 +537,7 @@ class VocalMoreApp(rumps.App):
             )
             return
 
-        self.config.apply_update("default_mode", mode_name)
-        self._apply_runtime_config_keys({"default_mode"})
+        self._get_runtime().apply_update("default_mode", mode_name)
         self.config.save()
         self._refresh_quick_settings_menu()
         print(f"[Menu] Recording mode set to: {self.config.default_mode}")
@@ -627,16 +547,14 @@ class VocalMoreApp(rumps.App):
         if model_id == self.config.asr.model:
             return
 
-        self.config.apply_update("asr.model", model_id)
-        self._apply_runtime_config_keys({"asr.model"})
+        self._get_runtime().apply_update("asr.model", model_id)
         self.config.save()
         self._refresh_quick_settings_menu()
         print(f"[Menu] ASR model set to: {self.config.asr.model}")
 
     def _on_quick_toggle_polish(self, _) -> None:
         """Toggle second-stage polishing from the status bar."""
-        self.config.apply_update("enable_polish", not self.config.enable_polish)
-        self._apply_runtime_config_keys({"enable_polish"})
+        self._get_runtime().apply_update("enable_polish", not self.config.enable_polish)
         self.config.save()
         self._refresh_quick_settings_menu()
         print(f"[Menu] Enable polish: {self.config.enable_polish}")
@@ -646,8 +564,7 @@ class VocalMoreApp(rumps.App):
         if level == self.config.llm.level:
             return
 
-        self.config.apply_update("llm.level", level)
-        self._apply_runtime_config_keys({"llm.level"})
+        self._get_runtime().apply_update("llm.level", level)
         self.config.save()
         self._refresh_quick_settings_menu()
         print(f"[Menu] Polish level set to: {self.config.llm.level}")
@@ -684,15 +601,36 @@ class VocalMoreApp(rumps.App):
 
     def _sync_audio_recorders(self) -> None:
         """Push the latest audio config into existing recorders."""
-        for mode in (self._walkie_talkie, self._realtime_long):
-            recorder = getattr(mode, "_recorder", None)
-            if recorder is None:
-                continue
-            recorder.set_device(self.config.audio.input_device)
-            recorder.set_gain(self.config.audio.gain)
-            recorder.set_highpass_filter(self.config.audio.highpass_filter)
-            recorder.set_highpass_freq(self.config.audio.highpass_freq)
-            recorder.set_soft_limiter(self.config.audio.soft_limiter)
+        self._get_runtime()._sync_audio_recorders()
+
+    def _build_runtime_facade(self) -> RuntimeFacade:
+        hotkey_manager = getattr(self, "_hotkey_manager", None)
+        return RuntimeFacade(
+            config=self.config,
+            modes={
+                "walkie_talkie": self._walkie_talkie,
+                "realtime_long": self._realtime_long,
+            },
+            get_current_mode=lambda: getattr(self, "_current_mode", None),
+            set_current_mode=lambda mode: self._select_mode(
+                "walkie_talkie" if mode is self._walkie_talkie else "realtime_long"
+            ),
+            on_refresh_text_polisher=self._refresh_text_polisher,
+            on_set_active_hotkeys=getattr(hotkey_manager, "set_active_hotkeys", None),
+            on_set_custom_key=getattr(hotkey_manager, "set_custom_key", None),
+            on_apply_interface_language=self._apply_interface_language,
+            on_refresh_environment_status=self._refresh_environment_status,
+        )
+
+    def _get_runtime(self) -> RuntimeFacade:
+        runtime = getattr(self, "_runtime", None)
+        if runtime is None:
+            self._runtime = self._build_runtime_facade()
+        return self._runtime
+
+    @property
+    def runtime(self) -> RuntimeFacade:
+        return self._get_runtime()
 
     def _get_dict_entries(self) -> list[dict]:
         """Get dictionary entries as dicts for the settings UI."""
@@ -816,9 +754,11 @@ class VocalMoreApp(rumps.App):
 
 def main() -> None:
     """Main entry point."""
+    from .bootstrap import build_menu_app
+
     _ensure_no_proxy("dashscope.aliyuncs.com")
     ensure_runtime_debug_dir_env()
-    app = VocalMoreApp()
+    app = build_menu_app(app_factory=VocalMoreApp)
     app.run()
 
 
