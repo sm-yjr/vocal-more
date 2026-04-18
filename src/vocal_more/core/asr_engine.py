@@ -5,6 +5,7 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+import queue
 import tempfile
 import threading
 import time
@@ -80,6 +81,10 @@ INLINE_RESPONSE_LATE_START_GRACE_SECONDS = 1.0
 WARM_SESSION_TTL_SECONDS = 15.0
 MAX_ADAPTIVE_RESPONSE_START_TIMEOUT_SECONDS = 20.0
 MAX_ADAPTIVE_RESPONSE_COMPLETE_TIMEOUT_SECONDS = 90.0
+STREAMING_AUDIO_QUEUE_MAX_CHUNKS = 64
+
+_AUDIO_QUEUE_STOP = object()
+_THREAD_CLASS = threading.Thread
 
 
 def _apply_dashscope_api_key(config=None) -> None:
@@ -1512,10 +1517,24 @@ class ASREngine:
         self._conversation: Optional[OmniRealtimeConversation] = None
         self._callback: Optional[StreamingASRCallback] = None
         self._is_running = False
+        self._accepting_audio = False
         self._session_ready = False
         self._connect_failed = False
-        self._pending_chunks: list[bytes] = []
         self._lock = threading.Lock()
+        self._audio_queue: queue.Queue[bytes | object] = queue.Queue(
+            maxsize=STREAMING_AUDIO_QUEUE_MAX_CHUNKS
+        )
+        self._pending_audio_chunks = 0
+        self._audio_queue_drained = threading.Condition(self._lock)
+        self._streaming_degraded = False
+        self._streaming_degraded_reason = ""
+        self._sender_shutdown = threading.Event()
+        self._sender_thread = _THREAD_CLASS(
+            target=self._run_audio_sender_loop,
+            name="vocal-more-asr-audio-sender",
+            daemon=True,
+        )
+        self._sender_thread.start()
         self._batch_fallback = BatchASREngine()
         self._session_model_id = self.config.asr.model
         self._conversation_model_id: Optional[str] = None
@@ -1598,6 +1617,94 @@ class ASREngine:
             self._session_ready = False
         self._close_conversation(conversation)
 
+    def _mark_streaming_degraded(self, reason: str) -> None:
+        with self._lock:
+            if self._streaming_degraded:
+                return
+            self._streaming_degraded = True
+            self._streaming_degraded_reason = reason
+        if self._callback:
+            self._callback.mark_client_event(
+                "client.realtime.degraded",
+                reason=reason,
+            )
+        print(f"[StreamingASR] Realtime path degraded: reason={reason}")
+
+    def _clear_audio_queue(self) -> None:
+        cleared = 0
+        while True:
+            try:
+                item = self._audio_queue.get_nowait()
+            except queue.Empty:
+                break
+            if item is not _AUDIO_QUEUE_STOP:
+                cleared += 1
+
+        if cleared == 0:
+            return
+
+        with self._lock:
+            self._pending_audio_chunks = 0
+            self._audio_queue_drained.notify_all()
+
+    def _wait_for_audio_queue_drain(self, timeout: float = 5.0) -> bool:
+        deadline = time.perf_counter() + timeout
+        with self._audio_queue_drained:
+            while self._pending_audio_chunks > 0:
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    return False
+                self._audio_queue_drained.wait(timeout=remaining)
+            return True
+
+    def _run_audio_sender_loop(self) -> None:
+        while not self._sender_shutdown.is_set():
+            try:
+                item = self._audio_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            if item is _AUDIO_QUEUE_STOP:
+                break
+
+            chunk = item
+            try:
+                while not self._sender_shutdown.is_set():
+                    with self._lock:
+                        session_ready = self._session_ready
+                        connect_failed = self._connect_failed
+                        conversation = self._conversation if session_ready else None
+                        connect_done = getattr(self, "_connect_done", None)
+
+                    if connect_failed:
+                        break
+
+                    if conversation is None:
+                        if connect_done is not None and connect_done.is_set():
+                            break
+                        time.sleep(0.01)
+                        continue
+
+                    audio_b64 = base64.b64encode(chunk).decode("ascii")
+                    conversation.append_audio(audio_b64)
+                    break
+            except Exception as exc:
+                print(f"[StreamingASR] Failed to append audio chunk: {exc}")
+                with self._lock:
+                    self._connect_failed = True
+                    self._accepting_audio = False
+                connect_done = getattr(self, "_connect_done", None)
+                if connect_done is not None:
+                    connect_done.set()
+                stale = self._drop_conversation()
+                self._close_conversation(stale)
+            finally:
+                with self._audio_queue_drained:
+                    if self._pending_audio_chunks > 0:
+                        self._pending_audio_chunks -= 1
+                    if self._pending_audio_chunks == 0:
+                        self._audio_queue_drained.notify_all()
+
     def _schedule_warm_close(self) -> None:
         self._cancel_warm_close()
         timer = threading.Timer(
@@ -1636,12 +1743,17 @@ class ASREngine:
         )
 
         self._is_running = True
+        self._accepting_audio = True
         self._session_ready = False
         self._connect_failed = False
         self._connect_done = threading.Event()
-        self._pending_chunks = []
         self._cancel_warm_close()
         self._trace_warm_reused = False
+        self._clear_audio_queue()
+        with self._lock:
+            self._pending_audio_chunks = 0
+            self._streaming_degraded = False
+            self._streaming_degraded_reason = ""
         self._active_trace = self._batch_fallback._build_debug_trace(
             backend=transport,
             model=self._session_model_id,
@@ -1716,15 +1828,8 @@ class ASREngine:
                     print("[StreamingASR] Timeout waiting for session.updated")
                     raise Exception("session.updated timeout")
 
-                # Session is ready — flush any audio that arrived during connection
                 with self._lock:
                     self._session_ready = True
-                    pending = self._pending_chunks
-                    self._pending_chunks = []
-
-                for chunk in pending:
-                    audio_b64 = base64.b64encode(chunk).decode("ascii")
-                    self._conversation.append_audio(audio_b64)
 
                 self._connect_done.set()
                 print(f"[StreamingASR] Connected (attempt {attempt + 1})")
@@ -1749,25 +1854,23 @@ class ASREngine:
         self._connect_done.set()
 
     def send_audio(self, audio_chunk: bytes) -> None:
-        """Send audio chunk to ASR. Buffers if session not yet ready."""
-        if not self._is_running:
-            return
-
+        """Queue audio for realtime ASR without blocking the audio callback thread."""
         with self._lock:
-            if not self._session_ready:
-                self._pending_chunks.append(audio_chunk)
+            if not self._is_running or not self._accepting_audio:
                 return
+            if self._streaming_degraded:
+                return
+            self._pending_audio_chunks += 1
 
-        if self._conversation:
-            audio_b64 = base64.b64encode(audio_chunk).decode("ascii")
-            try:
-                self._conversation.append_audio(audio_b64)
-            except Exception:
-                self._is_running = False
-                with self._lock:
-                    self._connect_failed = True
-                stale = self._drop_conversation()
-                self._close_conversation(stale)
+        try:
+            self._audio_queue.put_nowait(audio_chunk)
+        except queue.Full:
+            with self._audio_queue_drained:
+                if self._pending_audio_chunks > 0:
+                    self._pending_audio_chunks -= 1
+                self._audio_queue_drained.notify_all()
+            self._mark_streaming_degraded("audio_queue_full")
+            return
 
     def stop(self, timeout: float = 30.0, pcm_data: Optional[bytes] = None) -> str:
         """Stop ASR: commit audio, wait for transcription, return result.
@@ -1779,11 +1882,14 @@ class ASREngine:
         if not self._is_running:
             return ""
 
-        self._is_running = False
+        with self._lock:
+            self._accepting_audio = False
 
         # Wait for _connect() thread to finish (success or failure) before proceeding
         if not self._connect_done.wait(timeout=12.0):
             print("[StreamingASR] Timeout waiting for connection thread, falling back to batch")
+            self._is_running = False
+            self._clear_audio_queue()
             if self._callback:
                 self._callback.mark_client_event(
                     "client.fallback.started",
@@ -1801,8 +1907,38 @@ class ASREngine:
         # If streaming connection failed, fall back to batch transcription
         with self._lock:
             failed = self._connect_failed
+            degraded = self._streaming_degraded
+            degraded_reason = self._streaming_degraded_reason
+
+        if degraded:
+            print("[StreamingASR] Realtime queue degraded; falling back to batch transcription")
+            self._is_running = False
+            self._clear_audio_queue()
+            self._cancel_warm_close()
+            stale = self._drop_conversation()
+            self._close_conversation(stale)
+            if pcm_data:
+                if self._callback:
+                    self._callback.mark_client_event(
+                        "client.fallback.started",
+                        reason=degraded_reason,
+                    )
+                self._finish_active_trace(
+                    pcm_data,
+                    result_source="batch_fallback",
+                    fallback_reason=degraded_reason,
+                )
+                return self._batch_fallback.transcribe(pcm_data)
+            self._finish_active_trace(
+                pcm_data,
+                result_source="empty",
+                fallback_reason=f"{degraded_reason}_no_pcm",
+            )
+            return ""
 
         if failed:
+            self._is_running = False
+            self._clear_audio_queue()
             if pcm_data:
                 print("[StreamingASR] Falling back to batch transcription")
                 if self._callback:
@@ -1823,6 +1959,33 @@ class ASREngine:
             )
             return ""
 
+        if not self._wait_for_audio_queue_drain(timeout=5.0):
+            print("[StreamingASR] Audio sender drain timed out, falling back to batch")
+            self._is_running = False
+            self._clear_audio_queue()
+            self._cancel_warm_close()
+            stale = self._drop_conversation()
+            self._close_conversation(stale)
+            if pcm_data:
+                if self._callback:
+                    self._callback.mark_client_event(
+                        "client.fallback.started",
+                        reason="audio_drain_timeout",
+                    )
+                self._finish_active_trace(
+                    pcm_data,
+                    result_source="batch_fallback",
+                    fallback_reason="audio_drain_timeout",
+                )
+                return self._batch_fallback.transcribe(pcm_data)
+            self._finish_active_trace(
+                pcm_data,
+                result_source="empty",
+                fallback_reason="audio_drain_timeout_no_pcm",
+            )
+            return ""
+
+        self._is_running = False
         model_info = get_asr_model_info(self._session_model_id)
         is_omni = bool(model_info and model_info.get("input_audio_transcription_model") is not None)
         transcript_result = ""
@@ -1867,6 +2030,7 @@ class ASREngine:
                 result_source="batch_fallback",
                 fallback_reason="long_audio_direct_offline",
             )
+            self._is_running = False
             return self._batch_fallback.transcribe(
                 pcm_data,
                 model_override=direct_offline_model,
@@ -2000,6 +2164,7 @@ class ASREngine:
                 fallback_reason=response_fallback_reason,
             )
 
+        self._is_running = False
         return result
 
     def is_running(self) -> bool:
@@ -2008,6 +2173,9 @@ class ASREngine:
 
     def reset(self) -> None:
         """Reset the ASR engine state."""
+        self._is_running = False
+        self._accepting_audio = False
+        self._clear_audio_queue()
         self._cancel_warm_close()
         stale = self._drop_conversation()
         self._close_conversation(stale)
@@ -2015,6 +2183,17 @@ class ASREngine:
         self._trace_warm_reused = False
         if self._callback:
             self._callback.reset()
+
+    def close(self) -> None:
+        """Release background resources owned by the engine."""
+        self.reset()
+        self._sender_shutdown.set()
+        try:
+            self._audio_queue.put_nowait(_AUDIO_QUEUE_STOP)
+        except queue.Full:
+            self._clear_audio_queue()
+            self._audio_queue.put_nowait(_AUDIO_QUEUE_STOP)
+        self._sender_thread.join(timeout=1.0)
 
 
 if __name__ == "__main__":

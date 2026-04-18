@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
+import threading
 from typing import Callable, Optional
 
 
@@ -43,6 +44,8 @@ class BaseMode(ABC):
         self.on_audio_level = on_audio_level
 
         self._state = ModeState.IDLE
+        self._session_lock = threading.Lock()
+        self._session_token = 0
 
     @property
     def state(self) -> ModeState:
@@ -54,6 +57,20 @@ class BaseMode(ABC):
         self._state = state
         if self.on_state_change:
             self.on_state_change(state)
+
+    def _begin_session(self) -> int:
+        """Advance and return the active dictation session token."""
+        with self._session_lock:
+            self._session_token += 1
+            return self._session_token
+
+    def _invalidate_session(self) -> int:
+        """Invalidate any in-flight callbacks/work by advancing the token."""
+        return self._begin_session()
+
+    def _is_active_session(self, session_token: int) -> bool:
+        with self._session_lock:
+            return session_token == self._session_token
 
     def _set_processing_stage(self, stage: str) -> None:
         """Update the current processing phase label."""
@@ -90,6 +107,10 @@ class BaseMode(ABC):
     def cancel(self) -> None:
         """Cancel current operation."""
         pass
+
+    def close(self) -> None:
+        """Release any background resources owned by the mode."""
+        return None
 
     @property
     @abstractmethod

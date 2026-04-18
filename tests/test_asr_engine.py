@@ -2,6 +2,7 @@
 
 import importlib
 import json
+import queue
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -1697,6 +1698,92 @@ def test_streaming_omni_inline_polish_returns_response_text(tmp_path, monkeypatc
     timers[-1].fire()
     assert captured["closed"] is True
     assert text == "这个方案已经确认了，可以开始执行。"
+
+
+def test_streaming_queue_backpressure_falls_back_to_batch(tmp_path, monkeypatch):
+    """A full outbound audio queue should trigger deterministic batch fallback."""
+    from vocal_more.config import Config, reload_config
+
+    asr_engine = importlib.import_module("vocal_more.core.asr_engine")
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump({"asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"}}, f)
+
+    reload_config()
+
+    captured = {"append_count": 0, "closed": False}
+
+    class ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            if self._target:
+                self._target()
+
+    class FakeConversation:
+        def __init__(self, model, url, callback):
+            captured["callback"] = callback
+
+        def connect(self):
+            return None
+
+        def update_session(self, **kwargs):
+            captured["callback"].on_event({"type": "session.updated"})
+
+        def append_audio(self, _audio):
+            captured["append_count"] += 1
+
+        def commit(self):
+            raise AssertionError("queue overflow path should bypass realtime commit")
+
+        def create_response(self, instructions=None, output_modalities=None):
+            raise AssertionError("queue overflow path should bypass realtime response")
+
+        def close(self):
+            captured["closed"] = True
+
+    monkeypatch.setattr(asr_engine.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
+
+    engine = asr_engine.ASREngine()
+    offline_calls = []
+
+    def fake_transcribe(audio_data, model_override=None, language_override=None):
+        offline_calls.append(
+            {
+                "audio_size": len(audio_data),
+                "model_override": model_override,
+                "language_override": language_override,
+            }
+        )
+        return "batch fallback result"
+
+    monkeypatch.setattr(
+        engine._audio_queue,
+        "put_nowait",
+        lambda _chunk: (_ for _ in ()).throw(queue.Full()),
+    )
+    engine._batch_fallback.transcribe = fake_transcribe
+
+    engine.start()
+    engine.send_audio(b"\x01\x00" * 1600)
+    text = engine.stop(pcm_data=b"\x01\x00" * 4000)
+
+    assert text == "batch fallback result"
+    assert captured["append_count"] == 0
+    assert captured["closed"] is True
+    assert offline_calls == [
+        {
+            "audio_size": 8000,
+            "model_override": None,
+            "language_override": None,
+        }
+    ]
 
 
 def test_streaming_debug_trace_records_full_realtime_protocol(tmp_path, monkeypatch):

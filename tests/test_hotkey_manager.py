@@ -1,5 +1,7 @@
 """Tests for runtime hotkey lookup configuration."""
 
+import threading
+
 from vocal_more.config import Config
 from vocal_more.core import hotkey_manager as hotkey_module
 
@@ -69,3 +71,63 @@ def test_right_command_hotkey_is_registered_as_modifier(monkeypatch):
     manager = hotkey_module.HotkeyManager()
 
     assert manager._modifier_lookup[hotkey_module.CMD_RIGHT_KEYCODE] == hotkey_module.NX_COMMANDMASK
+
+
+def test_hotkey_events_are_dispatched_serially_in_order(monkeypatch):
+    """Queued hotkey events should run on one worker in enqueue order."""
+    config = Config()
+    monkeypatch.setattr(hotkey_module, "get_config", lambda: config)
+
+    received = []
+    done = threading.Event()
+
+    def on_pressed():
+        received.append("pressed")
+
+    def on_double_cmd():
+        received.append("double_cmd")
+
+    def on_released():
+        received.append("released")
+        done.set()
+
+    manager = hotkey_module.HotkeyManager(
+        on_fn_pressed=on_pressed,
+        on_fn_released=on_released,
+        on_double_cmd=on_double_cmd,
+    )
+
+    manager._enqueue_event(hotkey_module.HotkeyEvent.FN_PRESSED)
+    manager._enqueue_event(hotkey_module.HotkeyEvent.DOUBLE_CMD)
+    manager._enqueue_event(hotkey_module.HotkeyEvent.FN_RELEASED)
+
+    assert done.wait(timeout=1.0)
+    assert received == ["pressed", "double_cmd", "released"]
+
+    manager.stop()
+
+
+def test_hotkey_manager_stop_shuts_down_callback_worker(monkeypatch):
+    """Stopping the manager should also stop its serial callback worker."""
+    config = Config()
+    monkeypatch.setattr(hotkey_module, "get_config", lambda: config)
+
+    started = threading.Event()
+    allow_exit = threading.Event()
+
+    def fake_run_event_loop():
+        manager._running = True
+        started.set()
+        allow_exit.wait(timeout=1.0)
+
+    manager = hotkey_module.HotkeyManager()
+    monkeypatch.setattr(manager, "_run_event_loop", fake_run_event_loop)
+
+    assert manager.start() is True
+    assert manager._callback_thread is not None
+    assert manager._callback_thread.is_alive()
+
+    allow_exit.set()
+    manager.stop()
+
+    assert manager._callback_thread is None

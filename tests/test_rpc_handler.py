@@ -42,6 +42,7 @@ def handler(tmp_path, monkeypatch):
         rpc = RPCHandler(send_notification=lambda m, p: notifications.append((m, p)))
         rpc._notifications = notifications
         yield rpc
+        rpc.close()
 
 
 def test_dispatch_initialize(handler):
@@ -168,6 +169,15 @@ def test_dispatch_hotkey_pressed_released(handler):
     handler.dispatch("hotkey_released", {})
     # Releasing with too little data returns to idle.
     assert handler._notifications[-1] == ("state_changed", {"state": "idle"})
+
+
+def test_dispatch_hotkey_commands_use_serial_command_coordinator(handler):
+    handler._command_coordinator = MagicMock()
+
+    result = handler.dispatch("hotkey_pressed", {})
+
+    assert result["ok"] is True
+    handler._command_coordinator.call.assert_called_once()
 
 
 def test_dispatch_dictionary_crud(handler):

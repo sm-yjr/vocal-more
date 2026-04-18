@@ -12,6 +12,7 @@ from AppKit import NSApp, NSApplicationActivationPolicyAccessory
 from Foundation import NSRunLoop, NSRunLoopCommonModes, NSTimer
 
 from . import __version__
+from .application.dictation_command_coordinator import DictationCommandCoordinator
 from .application.runtime_facade import RuntimeFacade
 from .bootstrap import build_menu_app_dependencies
 from .config import (
@@ -86,6 +87,7 @@ class VocalMoreApp(rumps.App):
         self._walkie_talkie = dependencies.walkie_talkie
         self._realtime_long = dependencies.realtime_long
         self._current_mode = dependencies.current_mode
+        self._command_coordinator = dependencies.command_coordinator
         self._hotkey_manager = dependencies.hotkey_manager
         self._runtime = dependencies.runtime
         self._settings_window = dependencies.settings_window
@@ -273,10 +275,15 @@ class VocalMoreApp(rumps.App):
 
     def _quit_app(self, _) -> None:
         """Quit the application."""
-        self._current_mode.cancel()
-        self._capsule.hide()
-        self._settings_window.hide()
         self._hotkey_manager.stop()
+        self._get_command_coordinator().call(self._handle_cancel_command)
+        self._capsule.hide()
+        self._settings_window.close()
+        for mode in (self._walkie_talkie, self._realtime_long):
+            close = getattr(mode, "close", None)
+            if callable(close):
+                close()
+        self._close_command_coordinator()
         rumps.quit_application()
 
     # ── Settings window callbacks ─────────────────────────────
@@ -631,6 +638,22 @@ class VocalMoreApp(rumps.App):
             self._runtime = self._build_runtime_facade()
         return self._runtime
 
+    def _build_command_coordinator(self) -> DictationCommandCoordinator:
+        return DictationCommandCoordinator(thread_name="vocal-more-menu-commands")
+
+    def _get_command_coordinator(self) -> DictationCommandCoordinator:
+        coordinator = getattr(self, "_command_coordinator", None)
+        if coordinator is None:
+            self._command_coordinator = self._build_command_coordinator()
+        return self._command_coordinator
+
+    def _close_command_coordinator(self) -> None:
+        coordinator = getattr(self, "_command_coordinator", None)
+        if coordinator is None:
+            return
+        coordinator.close()
+        self._command_coordinator = None
+
     @property
     def runtime(self) -> RuntimeFacade:
         return self._get_runtime()
@@ -647,6 +670,9 @@ class VocalMoreApp(rumps.App):
 
     def _on_fn_pressed(self) -> None:
         """Handle Fn key pressed."""
+        self._get_command_coordinator().submit(self._handle_fn_pressed_command)
+
+    def _handle_fn_pressed_command(self) -> None:
         if self._current_mode.state == ModeState.IDLE:
             if self._current_mode is self._walkie_talkie:
                 self._capsule.show("pushToTalk")
@@ -656,10 +682,16 @@ class VocalMoreApp(rumps.App):
 
     def _on_fn_released(self) -> None:
         """Handle Fn key released."""
+        self._get_command_coordinator().submit(self._handle_fn_released_command)
+
+    def _handle_fn_released_command(self) -> None:
         self._current_mode.on_hotkey_released()
 
     def _on_double_cmd(self) -> None:
         """Handle double Cmd key press."""
+        self._get_command_coordinator().submit(self._handle_double_cmd_command)
+
+    def _handle_double_cmd_command(self) -> None:
         if self._current_mode.state == ModeState.IDLE:
             if self._current_mode is self._walkie_talkie:
                 self._capsule.show("pushToTalk")
@@ -710,10 +742,16 @@ class VocalMoreApp(rumps.App):
 
     def _on_capsule_cancel(self) -> None:
         """Handle cancel button from floating capsule."""
+        self._get_command_coordinator().submit(self._handle_cancel_command)
+
+    def _handle_cancel_command(self) -> None:
         self._current_mode.cancel()
 
     def _on_capsule_finish(self) -> None:
         """Handle finish button from floating capsule (hands-free mode)."""
+        self._get_command_coordinator().submit(self._handle_capsule_finish_command)
+
+    def _handle_capsule_finish_command(self) -> None:
         if self._current_mode is self._realtime_long:
             self._current_mode.on_hotkey_pressed()
 

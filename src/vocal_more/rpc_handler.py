@@ -8,6 +8,8 @@ from typing import Any, Callable, Optional
 
 import dashscope
 
+from .application.background_executor import BackgroundExecutor
+from .application.dictation_command_coordinator import DictationCommandCoordinator
 from .application.runtime_facade import RuntimeFacade
 from .bootstrap import build_rpc_handler_dependencies
 from .config import (
@@ -56,7 +58,12 @@ class RPCHandler:
             "realtime_long": self._realtime_long,
         }
         self._current_mode = dependencies.current_mode
+        self._command_coordinator = dependencies.command_coordinator
         self._runtime = dependencies.runtime
+        self._background_tasks = BackgroundExecutor(
+            max_workers=2,
+            thread_name_prefix="vocal-more-rpc-tasks",
+        )
 
     # -- Notification callbacks -----------------------------------------------
 
@@ -140,15 +147,15 @@ class RPCHandler:
         return {"ok": True, "mode": mode_name}
 
     def _handle_hotkey_pressed(self, params: dict) -> dict:
-        self._current_mode.on_hotkey_pressed()
+        self._get_command_coordinator().call(self._handle_hotkey_pressed_command)
         return {"ok": True}
 
     def _handle_hotkey_released(self, params: dict) -> dict:
-        self._current_mode.on_hotkey_released()
+        self._get_command_coordinator().call(self._handle_hotkey_released_command)
         return {"ok": True}
 
     def _handle_cancel(self, params: dict) -> dict:
-        self._current_mode.cancel()
+        self._get_command_coordinator().call(self._handle_cancel_command)
         return {"ok": True}
 
     def _handle_get_dictionary(self, params: dict) -> list:
@@ -182,15 +189,13 @@ class RPCHandler:
     def _handle_shutdown(self, params: dict) -> dict:
         # Cancel any active recording
         if self._current_mode.state != ModeState.IDLE:
-            self._current_mode.cancel()
+            self._get_command_coordinator().call(self._handle_cancel_command)
         return {"ok": True}
 
     def _handle_list_recordings(self, params: dict) -> list:
         return self._recording_store.list_recordings()
 
     def _handle_retry_transcription(self, params: dict) -> dict:
-        import threading
-
         from .core.asr_engine import BatchASREngine
         from .core.recording_store import RETRY_ASR_MODEL
 
@@ -235,7 +240,7 @@ class RPCHandler:
                     "retry_failed", {"id": rec_id, "error": str(e)}
                 )
 
-        threading.Thread(target=_do_retry, daemon=True).start()
+        self._background_tasks.submit(_do_retry)
         return {"ok": True}
 
     def _handle_delete_recording(self, params: dict) -> dict:
@@ -306,6 +311,37 @@ class RPCHandler:
     @property
     def runtime(self) -> RuntimeFacade:
         return self._get_runtime()
+
+    def _build_command_coordinator(self) -> DictationCommandCoordinator:
+        return DictationCommandCoordinator(thread_name="vocal-more-rpc-commands")
+
+    def _get_command_coordinator(self) -> DictationCommandCoordinator:
+        coordinator = getattr(self, "_command_coordinator", None)
+        if coordinator is None:
+            self._command_coordinator = self._build_command_coordinator()
+        return self._command_coordinator
+
+    def close(self) -> None:
+        coordinator = getattr(self, "_command_coordinator", None)
+        if coordinator is not None:
+            coordinator.close()
+            self._command_coordinator = None
+        background_tasks = getattr(self, "_background_tasks", None)
+        if background_tasks is not None:
+            background_tasks.close(wait=False, cancel_futures=True)
+        for mode in getattr(self, "_modes", {}).values():
+            close = getattr(mode, "close", None)
+            if callable(close):
+                close()
+
+    def _handle_hotkey_pressed_command(self) -> None:
+        self._current_mode.on_hotkey_pressed()
+
+    def _handle_hotkey_released_command(self) -> None:
+        self._current_mode.on_hotkey_released()
+
+    def _handle_cancel_command(self) -> None:
+        self._current_mode.cancel()
 
 
 class RPCError(Exception):

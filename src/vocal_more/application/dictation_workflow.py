@@ -48,7 +48,11 @@ class DictationWorkflow:
         text_polisher: object | None,
         messages,
         on_processing_stage: Optional[Callable[[str], None]] = None,
+        should_abort: Optional[Callable[[], bool]] = None,
     ) -> DictationWorkflowResult:
+        def _aborted() -> bool:
+            return bool(should_abort and should_abort())
+
         recording_id = None
         if self._recording_store is not None:
             try:
@@ -89,6 +93,12 @@ class DictationWorkflow:
 
             final_text = self._normalize_text(raw_text)
             warnings: list[str] = []
+            if _aborted():
+                return DictationWorkflowResult(
+                    raw_text=raw_text,
+                    final_text=final_text,
+                    recording_id=recording_id,
+                )
             uses_inline_polish = asr_model_handles_inline_polish(asr_model)
             if self.config.enable_polish and text_polisher and not uses_inline_polish:
                 try:
@@ -100,7 +110,7 @@ class DictationWorkflow:
                     warnings.append(messages.polish_error(str(exc)))
 
             pasted = False
-            if self.config.auto_paste:
+            if self.config.auto_paste and not _aborted():
                 self._keyboard.paste_text(final_text)
                 pasted = True
 

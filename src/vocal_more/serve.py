@@ -55,49 +55,53 @@ def main() -> None:
         send_notification=send_notification,
         handler_factory=RPCHandler,
     )
+    try:
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
 
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-
-        # Parse JSON
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError as e:
-            _send(_make_error(None, -32700, f"Parse error: {e}"))
-            continue
-
-        # Validate JSON-RPC structure
-        if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
-            msg_id = msg.get("id") if isinstance(msg, dict) else None
-            _send(_make_error(msg_id, -32600, "Invalid JSON-RPC 2.0 request"))
-            continue
-
-        method = msg.get("method")
-        params = msg.get("params", {})
-        msg_id = msg.get("id")
-
-        if not isinstance(method, str):
-            _send(_make_error(msg_id, -32600, "Missing or invalid method"))
-            continue
-
-        # Notifications (no id) — fire and forget
-        if msg_id is None:
+            # Parse JSON
             try:
-                handler.dispatch(method, params)
-            except Exception:
-                pass
-            continue
+                msg = json.loads(line)
+            except json.JSONDecodeError as e:
+                _send(_make_error(None, -32700, f"Parse error: {e}"))
+                continue
 
-        # Requests (with id) — must respond
-        try:
-            result = handler.dispatch(method, params)
-            _send(_make_response(msg_id, result))
-        except RPCError as e:
-            _send(_make_error(msg_id, e.code, e.message))
-        except Exception as e:
-            _send(_make_error(msg_id, -32603, f"Internal error: {e}"))
+            # Validate JSON-RPC structure
+            if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
+                msg_id = msg.get("id") if isinstance(msg, dict) else None
+                _send(_make_error(msg_id, -32600, "Invalid JSON-RPC 2.0 request"))
+                continue
+
+            method = msg.get("method")
+            params = msg.get("params", {})
+            msg_id = msg.get("id")
+
+            if not isinstance(method, str):
+                _send(_make_error(msg_id, -32600, "Missing or invalid method"))
+                continue
+
+            # Notifications (no id) — fire and forget
+            if msg_id is None:
+                try:
+                    handler.dispatch(method, params)
+                except Exception:
+                    pass
+                continue
+
+            # Requests (with id) — must respond
+            try:
+                result = handler.dispatch(method, params)
+                _send(_make_response(msg_id, result))
+            except RPCError as e:
+                _send(_make_error(msg_id, e.code, e.message))
+            except Exception as e:
+                _send(_make_error(msg_id, -32603, f"Internal error: {e}"))
+    finally:
+        close = getattr(handler, "close", None)
+        if callable(close):
+            close()
 
     # stdin closed (Swift closed the pipe) — exit cleanly
 

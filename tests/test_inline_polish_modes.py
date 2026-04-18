@@ -1,6 +1,7 @@
 """Tests for mode behavior when ASR handles polish inline."""
 
 import importlib
+import threading
 from types import SimpleNamespace
 import yaml
 
@@ -393,3 +394,70 @@ def test_walkie_talkie_emits_processing_stages_for_transcribe_and_polish(
     mode._processing_thread.join(timeout=2)
 
     assert stages == ["transcribing", "polishing"]
+
+
+def test_walkie_talkie_cancel_during_processing_suppresses_late_result_and_paste(
+    tmp_path, monkeypatch
+):
+    """Cancelling while the finish workflow is running should drop late side effects."""
+    from vocal_more.config import Config, reload_config
+
+    WalkieTalkieMode = importlib.import_module("vocal_more.modes.walkie_talkie").WalkieTalkieMode
+    ModeState = importlib.import_module("vocal_more.modes.base_mode").ModeState
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump({"enable_polish": False, "auto_paste": True}, f)
+
+    reload_config()
+
+    entered_stop = threading.Event()
+    release_stop = threading.Event()
+    pasted = []
+    results = []
+
+    class FakeASREngine:
+        def start(self):
+            return None
+
+        def stop(self, pcm_data=None):
+            entered_stop.set()
+            release_stop.wait(timeout=1.0)
+            return "晚到的结果"
+
+        def send_audio(self, _chunk):
+            return None
+
+    class FakeRecorder:
+        def __init__(self, on_audio_level=None, on_audio_chunk=None):
+            self.on_audio_chunk = on_audio_chunk
+
+        def start(self):
+            return None
+
+        def stop(self):
+            return b"\x01\x00" * 4000
+
+    class FakeKeyboard:
+        def paste_text(self, text):
+            pasted.append(text)
+
+    monkeypatch.setattr("vocal_more.modes.walkie_talkie.ASREngine", lambda **kwargs: FakeASREngine())
+    monkeypatch.setattr("vocal_more.modes.walkie_talkie.AudioRecorder", FakeRecorder)
+    monkeypatch.setattr("vocal_more.modes.walkie_talkie.KeyboardSimulator", lambda: FakeKeyboard())
+
+    mode = WalkieTalkieMode(on_result=results.append)
+    mode.on_hotkey_pressed()
+    mode.on_hotkey_released()
+
+    assert entered_stop.wait(timeout=1.0) is True
+    mode.cancel()
+    release_stop.set()
+    mode._processing_thread.join(timeout=2)
+
+    assert pasted == []
+    assert results == []
+    assert mode.state == ModeState.IDLE

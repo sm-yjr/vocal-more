@@ -571,6 +571,31 @@ def test_processing_stage_callback_forwards_to_capsule(tmp_path, monkeypatch):
     app._capsule.set_processing_stage.assert_called_once_with("polishing")
 
 
+def test_hotkey_callbacks_enqueue_serial_commands(tmp_path, monkeypatch):
+    """Hotkey entrypoints should enqueue work onto the shared command coordinator."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._command_coordinator = MagicMock()
+
+    app._on_fn_pressed()
+    app._on_fn_released()
+    app._on_double_cmd()
+    app._on_capsule_cancel()
+    app._on_capsule_finish()
+
+    assert app._command_coordinator.submit.call_count == 5
+
+
 def test_build_runtime_returns_shared_facade_for_menu_and_rpc(tmp_path, monkeypatch):
     """bootstrap.build_runtime should expose one facade object to both adapters."""
     from vocal_more.config import Config

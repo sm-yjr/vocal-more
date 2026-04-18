@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from .application.dictation_command_coordinator import DictationCommandCoordinator
 from .application.runtime_facade import RuntimeFacade
 from .config import get_config
 
@@ -20,6 +21,7 @@ class MenuAppDependencies:
     walkie_talkie: object
     realtime_long: object
     current_mode: object
+    command_coordinator: object
     hotkey_manager: object
     runtime: RuntimeFacade
     settings_window: object
@@ -33,6 +35,7 @@ class RPCHandlerDependencies:
     walkie_talkie: object
     realtime_long: object
     current_mode: object
+    command_coordinator: object
     runtime: RuntimeFacade
 
 
@@ -60,6 +63,7 @@ def build_menu_app_dependencies(
     realtime_long_factory,
     hotkey_manager_factory,
     settings_window_factory,
+    command_coordinator_factory=DictationCommandCoordinator,
     runtime_factory=RuntimeFacade,
 ) -> MenuAppDependencies:
     config = config or get_config()
@@ -91,6 +95,7 @@ def build_menu_app_dependencies(
         recording_store=recording_store,
     )
     current_mode = _select_mode(config.default_mode, walkie_talkie, realtime_long)
+    command_coordinator = command_coordinator_factory(thread_name="vocal-more-menu-commands")
 
     hotkey_manager = hotkey_manager_factory(
         on_fn_pressed=app._on_fn_pressed,
@@ -140,6 +145,7 @@ def build_menu_app_dependencies(
         walkie_talkie=walkie_talkie,
         realtime_long=realtime_long,
         current_mode=current_mode,
+        command_coordinator=command_coordinator,
         hotkey_manager=hotkey_manager,
         runtime=runtime,
         settings_window=settings_window,
@@ -155,6 +161,7 @@ def build_rpc_handler_dependencies(
     recording_store_factory,
     walkie_talkie_factory,
     realtime_long_factory,
+    command_coordinator_factory=DictationCommandCoordinator,
     runtime_factory=RuntimeFacade,
 ) -> RPCHandlerDependencies:
     config = config or get_config()
@@ -182,6 +189,7 @@ def build_rpc_handler_dependencies(
         recording_store=recording_store,
     )
     current_mode = _select_mode(config.default_mode, walkie_talkie, realtime_long)
+    command_coordinator = command_coordinator_factory(thread_name="vocal-more-rpc-commands")
 
     runtime = runtime_factory(
         config=config,
@@ -201,6 +209,7 @@ def build_rpc_handler_dependencies(
         walkie_talkie=walkie_talkie,
         realtime_long=realtime_long,
         current_mode=current_mode,
+        command_coordinator=command_coordinator,
         runtime=runtime,
     )
 

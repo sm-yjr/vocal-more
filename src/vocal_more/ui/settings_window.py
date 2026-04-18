@@ -31,6 +31,7 @@ from WebKit import (
     WKWebViewConfiguration,
 )
 
+from ..application.background_executor import BackgroundExecutor
 from ..localization import normalize_ui_language, t
 from .mic_test_controller import MicTestController
 from .settings_actions import SettingsActionDispatcher
@@ -145,6 +146,10 @@ class SettingsWindow:
         self._last_synced_state: Optional[str] = None
         self._js_queue: queue.Queue = queue.Queue()
         self._interface_language = "en"
+        self._background_tasks = BackgroundExecutor(
+            max_workers=2,
+            thread_name_prefix="vocal-more-settings-tasks",
+        )
         self._bridge = SettingsBridge()
         self._mic_test_controller = self._build_mic_test_controller()
         self._dispatcher = self._build_action_dispatcher()
@@ -398,6 +403,12 @@ class SettingsWindow:
             self._window.orderOut_(None)
             self._set_accessory_policy()
 
+    def close(self) -> None:
+        """Release background resources owned by the settings window."""
+        self.hide()
+        self._mic_test_controller.cleanup()
+        self._background_tasks.close(wait=False, cancel_futures=True)
+
     def is_visible(self) -> bool:
         """Check if the settings window is visible."""
         return bool(self._window and self._window.isVisible())
@@ -513,7 +524,7 @@ class SettingsWindow:
                     f"retryFailed({json.dumps(rec_id)}, {json.dumps(str(e))})"
                 )
 
-        threading.Thread(target=_do_retry, daemon=True).start()
+        self._background_tasks.submit(_do_retry)
 
     def _handle_delete_recording(self, rec_id: str) -> None:
         if not self._recording_store:

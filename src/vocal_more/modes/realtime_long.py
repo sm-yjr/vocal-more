@@ -1,9 +1,9 @@
 """Real-time long recording mode: toggle recording with Fn key."""
 
-import threading
 from types import SimpleNamespace
 from typing import Callable, Optional
 
+from ..application.background_executor import BackgroundExecutor, TaskHandle
 from ..application.dictation_workflow import DictationWorkflow
 from ..config import asr_model_handles_inline_polish, get_config
 from ..core.audio_recorder import AudioRecorder
@@ -65,8 +65,13 @@ class RealtimeLongMode(BaseMode):
             normalize_text=normalize_terms,
         )
 
-        self._processing_thread: Optional[threading.Thread] = None
+        self._processing_executor = BackgroundExecutor(
+            max_workers=1,
+            thread_name_prefix="vocal-more-realtime-finish",
+        )
+        self._processing_thread: Optional[TaskHandle[None]] = None
         self._recording_asr_model = self.config.asr.model
+        self._active_session_token = 0
 
     @property
     def name(self) -> str:
@@ -89,6 +94,7 @@ class RealtimeLongMode(BaseMode):
 
     def _start_recording(self) -> None:
         """Start recording + streaming ASR."""
+        self._active_session_token = self._begin_session()
         self._recording_asr_model = self.config.asr.model
         self._set_state(ModeState.RECORDING)
         self._asr.start()
@@ -122,22 +128,28 @@ class RealtimeLongMode(BaseMode):
             return
 
         self._set_state(ModeState.PROCESSING)
-        self._processing_thread = threading.Thread(
-            target=self._finish_transcription, args=(pcm_data,), daemon=True
+        session_token = self._active_session_token
+        self._processing_thread = self._processing_executor.submit(
+            self._finish_transcription,
+            pcm_data,
+            session_token,
         )
-        self._processing_thread.start()
 
     def _on_audio_chunk(self, chunk: bytes) -> None:
         """Forward audio chunks to streaming ASR in real-time."""
         self._asr.send_audio(chunk)
 
     def _on_asr_error(self, msg: str) -> None:
+        if self.state == ModeState.IDLE:
+            return
         if self.on_error:
             self.on_error(
                 t(self.config.ui.language, "mode_asr_error", details=msg)
             )
 
     def _on_asr_partial(self, result) -> None:
+        if self.state == ModeState.IDLE:
+            return
         if self.on_partial_result and result.text:
             if (
                 self.state == ModeState.PROCESSING
@@ -147,7 +159,7 @@ class RealtimeLongMode(BaseMode):
                 self._set_processing_stage("polishing")
             self.on_partial_result(result.text)
 
-    def _finish_transcription(self, pcm_data: bytes) -> None:
+    def _finish_transcription(self, pcm_data: bytes, session_token: int) -> None:
         """Commit ASR, get result, polish, paste."""
         try:
             result = self._workflow.finish_recording(
@@ -172,13 +184,17 @@ class RealtimeLongMode(BaseMode):
                     ),
                 ),
                 on_processing_stage=self._set_processing_stage,
+                should_abort=lambda: not self._is_active_session(session_token),
             )
-            self._emit_workflow_result(result)
+            if self._is_active_session(session_token):
+                self._emit_workflow_result(result)
         finally:
-            self._set_state(ModeState.IDLE)
+            if self._is_active_session(session_token):
+                self._set_state(ModeState.IDLE)
 
     def cancel(self) -> None:
         """Cancel current operation."""
+        self._active_session_token = self._invalidate_session()
         if self._state == ModeState.RECORDING:
             self._recorder.stop()
             try:
@@ -188,3 +204,9 @@ class RealtimeLongMode(BaseMode):
 
         self._recording_asr_model = self.config.asr.model
         self._set_state(ModeState.IDLE)
+
+    def close(self) -> None:
+        self.cancel()
+        self._processing_executor.close(wait=True)
+        if hasattr(self._asr, "close"):
+            self._asr.close()

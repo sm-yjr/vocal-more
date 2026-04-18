@@ -1,5 +1,6 @@
 """Hotkey manager using CGEventTap for Fn key detection."""
 
+import queue
 import threading
 import time
 from enum import Enum
@@ -90,6 +91,8 @@ class HotkeyManager:
         self._tap = None
         self._run_loop_source = None
         self._thread: Optional[threading.Thread] = None
+        self._callback_thread: Optional[threading.Thread] = None
+        self._callback_queue: queue.Queue[Optional[HotkeyEvent]] = queue.Queue()
         self._running = False
         self._run_loop = None
 
@@ -155,11 +158,11 @@ class HotkeyManager:
                 if pressed and not prev:
                     self._key_states[keycode] = True
                     if self.on_fn_pressed:
-                        self._safe_callback(self.on_fn_pressed)
+                        self._enqueue_event(HotkeyEvent.FN_PRESSED)
                 elif not pressed and prev:
                     self._key_states[keycode] = False
                     if self.on_fn_released:
-                        self._safe_callback(self.on_fn_released)
+                        self._enqueue_event(HotkeyEvent.FN_RELEASED)
 
                 # Consume modifier hotkey events so they don't reach the focused app
                 return None
@@ -177,7 +180,7 @@ class HotkeyManager:
                         if self._cmd_tap_count >= 2:
                             self._cmd_tap_count = 0
                             if self.on_double_cmd:
-                                self._safe_callback(self.on_double_cmd)
+                                self._enqueue_event(HotkeyEvent.DOUBLE_CMD)
                     else:
                         self._cmd_tap_count = 1
 
@@ -189,7 +192,7 @@ class HotkeyManager:
                 if keycode not in self._held_keys:
                     self._held_keys.add(keycode)
                     if self.on_fn_pressed:
-                        self._safe_callback(self.on_fn_pressed)
+                        self._enqueue_event(HotkeyEvent.FN_PRESSED)
                 # Consume both initial press and repeats
                 return None
 
@@ -198,15 +201,64 @@ class HotkeyManager:
                 if keycode in self._held_keys:
                     self._held_keys.discard(keycode)
                     if self.on_fn_released:
-                        self._safe_callback(self.on_fn_released)
+                        self._enqueue_event(HotkeyEvent.FN_RELEASED)
                 # Consume key-up too
                 return None
 
         return event
 
-    def _safe_callback(self, callback: Callable[[], None]) -> None:
-        """Execute callback in a separate thread to avoid blocking."""
-        threading.Thread(target=callback, daemon=True).start()
+    def _enqueue_event(self, event: HotkeyEvent) -> None:
+        """Queue hotkey events onto a single serial worker."""
+        self._start_callback_worker()
+        self._callback_queue.put(event)
+
+    def _dispatch_event(self, event: HotkeyEvent) -> None:
+        """Invoke hotkey callbacks in enqueue order on the callback worker."""
+        callback: Optional[Callable[[], None]] = None
+        if event == HotkeyEvent.FN_PRESSED:
+            callback = self.on_fn_pressed
+        elif event == HotkeyEvent.FN_RELEASED:
+            callback = self.on_fn_released
+        elif event == HotkeyEvent.DOUBLE_CMD:
+            callback = self.on_double_cmd
+
+        if callback is None:
+            return
+
+        try:
+            callback()
+        except Exception as exc:
+            print(f"[HotkeyManager] Callback failed for {event.value}: {exc}")
+
+    def _run_callback_loop(self) -> None:
+        """Process queued hotkey events serially."""
+        while True:
+            event = self._callback_queue.get()
+            if event is None:
+                break
+            self._dispatch_event(event)
+
+    def _start_callback_worker(self) -> None:
+        """Start the serial hotkey callback worker if needed."""
+        if self._callback_thread and self._callback_thread.is_alive():
+            return
+
+        self._callback_thread = threading.Thread(
+            target=self._run_callback_loop,
+            daemon=True,
+        )
+        self._callback_thread.start()
+
+    def _stop_callback_worker(self) -> None:
+        """Stop the serial hotkey callback worker."""
+        if not self._callback_thread:
+            return
+
+        if self._callback_thread.is_alive():
+            self._callback_queue.put(None)
+            self._callback_thread.join(timeout=1.0)
+
+        self._callback_thread = None
 
     def _run_event_loop(self) -> None:
         """Run the event tap run loop."""
@@ -259,6 +311,7 @@ class HotkeyManager:
         if self._thread and self._thread.is_alive():
             return True
 
+        self._start_callback_worker()
         self._thread = threading.Thread(target=self._run_event_loop, daemon=True)
         self._thread.start()
 
@@ -280,6 +333,8 @@ class HotkeyManager:
         if self._thread:
             self._thread.join(timeout=1.0)
             self._thread = None
+
+        self._stop_callback_worker()
 
     def set_active_hotkeys(self, hotkeys: list[str]) -> None:
         """Update which hotkeys are active at runtime. No restart needed."""
