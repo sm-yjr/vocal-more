@@ -54,6 +54,14 @@ def test_dispatch_initialize(handler):
     assert "audio" in result["config"]
 
 
+def test_initialize_does_not_expose_api_key(handler):
+    handler.config.api_key = "sk-secret-123"
+
+    result = handler.dispatch("initialize", {})
+
+    assert result["config"]["api_key"] == ""
+
+
 def test_initialize_includes_model_catalogs(handler):
     """Verify initialize response includes llm_models and asr_models."""
     result = handler.dispatch("initialize", {})
@@ -93,7 +101,11 @@ def test_dispatch_unknown_method(handler):
 
 
 def test_dispatch_get_config(handler):
+    handler.config.api_key = "sk-secret-123"
+
     result = handler.dispatch("get_config", {})
+
+    assert result["api_key"] == ""
     assert result["audio"]["sample_rate"] == 16000
     assert result["llm"]["model"] == "qwen3.5-plus"
     assert result["enable_polish"] is True

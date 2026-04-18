@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    env:
+      DASHSCOPE_API_KEY: test-api-key
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run test suite
+        run: uv run python -m pytest -q
+
+      - name: Smoke test JSON-RPC initialize
+        run: |
+          uv run python - <<'PY'
+          import json
+          import subprocess
+
+          request = '{"jsonrpc":"2.0","method":"initialize","params":{},"id":1}\n'
+          result = subprocess.run(
+              ["uv", "run", "python", "-u", "-m", "vocal_more.serve"],
+              input=request,
+              capture_output=True,
+              text=True,
+              check=True,
+          )
+          response = json.loads(result.stdout.strip().splitlines()[0])
+          assert response["result"]["state"] == "idle"
+          assert response["result"]["config"]["api_key"] == ""
+          PY

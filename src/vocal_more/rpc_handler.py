@@ -106,13 +106,13 @@ class RPCHandler:
             "version": VERSION,
             "state": self._current_mode.state.value,
             "current_mode": self._get_mode_name(self._current_mode),
-            "config": self.config.to_dict(),
+            "config": self.config.to_public_dict(),
             "llm_models": LLM_MODEL_CATALOG,
             "asr_models": ASR_MODEL_CATALOG,
         }
 
     def _handle_get_config(self, params: dict) -> dict:
-        return self.config.to_dict()
+        return self.config.to_public_dict()
 
     def _handle_set_config(self, params: dict) -> dict:
         key = params.get("key", "")

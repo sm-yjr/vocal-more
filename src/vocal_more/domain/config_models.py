@@ -447,6 +447,11 @@ class AppConfig:
             "default_mode": self.default_mode,
         }
 
+    def to_public_dict(self) -> dict:
+        data = self.to_dict()
+        data["api_key"] = ""
+        return data
+
     def ensure_api_key(self, config_path: Path | None = None) -> Optional[str]:
         if not self.api_key:
             path_display = config_path or Path("config.yaml")

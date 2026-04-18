@@ -1,6 +1,6 @@
 ## Development Focus
 
-The active codebase is the **Python app** (`src/vocal_more/`). The Swift app (`VocalMore/`) is legacy and not under active development. All new features, bug fixes, and improvements should target the Python codebase.
+The active codebase is the **Python app** (`src/vocal_more/`). All new features, bug fixes, and improvements should target the Python codebase.
 
 - **Python source**: `src/vocal_more/`
 - **Tests**: `tests/`

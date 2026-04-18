@@ -23,6 +23,7 @@ htmlcov/
 
 # Environment
 .env
+.codex/
 .agent/
 .agents/
 .claude/

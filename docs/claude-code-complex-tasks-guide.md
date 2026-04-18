@@ -103,16 +103,16 @@
 用户可以在设置中切换 "云端" 和 "本地" 模式。
 
 ## 上下文
-当前流程：Swift 录音 → RPC 调用 Python → 云端 ASR → 返回文本
+当前流程：Python 录音 → RPC 调用 Python 服务 → 云端 ASR → 返回文本
 - RPC 层: src/vocal_more/rpc_handler.py
 - 服务端: src/vocal_more/serve.py
-- Swift 后端客户端: VocalMore/VocalMore/Backend/
+- Python 应用入口: src/vocal_more/app.py
 
 ## 约束
 - 不改变现有云端 ASR 路径
 - RPC 协议保持向后兼容
 - Python 端用 faster-whisper
-- Swift 端遵循 Backend/ 目录下的 delegate 模式
+- 保持当前 Python 应用的数据流与 UI 回调模式
 
 ## 验收标准
 - [ ] pytest tests/ 全部通过

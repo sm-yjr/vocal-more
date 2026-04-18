@@ -62,6 +62,7 @@ def test_serve_initialize_roundtrip():
     assert "result" in resp
     assert resp["result"]["version"] == "0.2.0"
     assert resp["result"]["state"] == "idle"
+    assert resp["result"]["config"]["api_key"] == ""
 
 
 def test_serve_stdin_eof_exit():
