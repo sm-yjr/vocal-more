@@ -859,7 +859,6 @@ def main() -> None:
     from .bootstrap import build_menu_app
 
     _ensure_no_proxy("dashscope.aliyuncs.com")
-    ensure_runtime_debug_dir_env()
     app = build_menu_app(app_factory=VocalMoreApp)
     app.run()
 

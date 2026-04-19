@@ -640,3 +640,36 @@ def test_build_runtime_returns_shared_facade_for_menu_and_rpc(tmp_path, monkeypa
     assert runtime.menu_bar is not None
     assert runtime.rpc_handler is not None
     assert runtime.menu_bar.runtime is runtime.rpc_handler.runtime
+
+
+def test_main_does_not_enable_persistent_debug_dir_by_default(tmp_path, monkeypatch):
+    """Normal app startup should not opt users into persistent ASR debug dumps."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+    monkeypatch.delenv("VOCAL_MORE_DEBUG_DIR", raising=False)
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+    bootstrap_module = importlib.import_module("vocal_more.bootstrap")
+    bootstrap_module = importlib.reload(bootstrap_module)
+
+    fake_app = MagicMock()
+    monkeypatch.setattr(
+        bootstrap_module,
+        "build_menu_app",
+        lambda app_factory=None: fake_app,
+    )
+
+    app_module.main()
+
+    assert "VOCAL_MORE_DEBUG_DIR" not in app_module.os.environ
+    assert not (tmp_path / "debug").exists()
+    fake_app.run.assert_called_once()

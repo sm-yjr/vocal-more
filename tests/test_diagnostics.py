@@ -68,6 +68,86 @@ def test_export_support_bundle_includes_redacted_config_and_trace(
     assert config_snapshot["api_key"] == "sk-t***5678"
     assert manifest["trace_files"] == [trace_path.name]
     assert manifest["recording_id"] == rec_id
+    assert manifest["config_path"] == "config.yaml"
+    assert manifest["dictionary_path"] == "dictionary.yaml"
+    assert manifest["debug_dir"] == "debug/"
+    manifest_text = json.dumps(manifest, ensure_ascii=False)
+    assert str(tmp_path) not in manifest_text
+
+
+def test_export_support_bundle_redacts_external_debug_dir_in_manifest(
+    tmp_path, monkeypatch
+):
+    """Manifest should not expose absolute external debug paths."""
+    from vocal_more.config import Config
+    from vocal_more.core.recording_store import RecordingStore
+    from vocal_more.diagnostics import export_support_bundle
+
+    config_path = tmp_path / "config.yaml"
+    external_debug_dir = tmp_path.parent / "private-debug-cache"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    monkeypatch.setenv("VOCAL_MORE_DEBUG_DIR", str(external_debug_dir))
+
+    config = Config()
+    config.save()
+
+    external_debug_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = external_debug_dir / "20260416-000000-batch-omni_offline.json"
+    trace_path.write_text(json.dumps({"response_id": "resp-123"}, ensure_ascii=False), encoding="utf-8")
+
+    bundle_path = export_support_bundle(
+        config=config,
+        recording_store=RecordingStore(str(tmp_path / "recordings")),
+        environment_checks=[],
+        app_version="0.2.0",
+    )
+
+    with zipfile.ZipFile(bundle_path) as bundle:
+        manifest = json.loads(bundle.read("manifest.json"))
+
+    manifest_text = json.dumps(manifest, ensure_ascii=False)
+    assert manifest["debug_dir"] == "<external-debug-dir>"
+    assert manifest["trace_files"] == [trace_path.name]
+    assert str(external_debug_dir) not in manifest_text
+    assert str(tmp_path.parent) not in manifest_text
+
+
+def test_export_support_bundle_redacts_environment_check_path_details(
+    tmp_path, monkeypatch
+):
+    """Manifest should not leak absolute paths through environment-check details."""
+    from vocal_more.config import Config
+    from vocal_more.core.recording_store import RecordingStore
+    from vocal_more.diagnostics import export_support_bundle
+    from vocal_more.environment_check import run_environment_checks
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    config = Config()
+    checks = run_environment_checks(config, hotkey_listener_ready=False)
+
+    bundle_path = export_support_bundle(
+        config=config,
+        recording_store=RecordingStore(str(tmp_path / "recordings")),
+        environment_checks=checks,
+        app_version="0.2.0",
+    )
+
+    with zipfile.ZipFile(bundle_path) as bundle:
+        manifest = json.loads(bundle.read("manifest.json"))
+
+    manifest_text = json.dumps(manifest, ensure_ascii=False)
+    api_key_check = next(check for check in manifest["environment_checks"] if check["key"] == "api_key")
+
+    assert api_key_check["details"] == (
+        "DashScope API key not configured. "
+        "Set DASHSCOPE_API_KEY environment variable or add api_key to config.yaml"
+    )
+    assert str(config_path) not in manifest_text
+    assert str(tmp_path) not in manifest_text
 
 
 def test_run_environment_checks_reports_errors(monkeypatch):

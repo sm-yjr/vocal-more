@@ -53,6 +53,66 @@ def _latest_trace_paths(debug_dir: Path, limit: int = DEBUG_TRACE_LIMIT) -> list
     return sorted(debug_dir.glob("*.json"), reverse=True)[:limit]
 
 
+def _manifest_path_hint(
+    path: Path,
+    *,
+    base_dir: Path,
+    external_label: str,
+    is_dir: bool = False,
+) -> str:
+    normalized_path = Path(os.path.expanduser(str(path)))
+    normalized_base_dir = Path(os.path.expanduser(str(base_dir)))
+    try:
+        relative = normalized_path.relative_to(normalized_base_dir)
+    except ValueError:
+        return external_label
+
+    label = relative.as_posix()
+    if is_dir:
+        return f"{label.rstrip('/')}/" if label and label != "." else "./"
+    return label or "."
+
+
+def _sanitize_environment_check_details(
+    details: str,
+    *,
+    config_dir: Path,
+    config_path: Path,
+) -> str:
+    text = str(details or "")
+    if not text:
+        return ""
+
+    replacements = {
+        str(config_path): "config.yaml",
+        str(Path(os.path.expanduser(str(config_path)))): "config.yaml",
+        str(config_dir): "<config-dir>",
+        str(Path(os.path.expanduser(str(config_dir)))): "<config-dir>",
+    }
+    for source, replacement in replacements.items():
+        if source:
+            text = text.replace(source, replacement)
+    return text
+
+
+def _sanitized_environment_checks(
+    environment_checks: Iterable[EnvironmentCheckResult],
+    *,
+    config_dir: Path,
+    config_path: Path,
+) -> list[dict]:
+    checks = []
+    for check in environment_checks:
+        payload = asdict(check)
+        payload["details"] = _sanitize_environment_check_details(
+            payload.get("details", ""),
+            config_dir=config_dir,
+            config_path=config_path,
+        )
+        checks.append(payload)
+    return checks
+
+
 def _recording_payload(recording_store) -> tuple[Optional[dict], Optional[Path]]:
     recordings = recording_store.list_recordings()
     if not recordings:
@@ -80,18 +140,37 @@ def export_support_bundle(
     debug_dir = Path(os.path.expanduser(debug_dir_raw)) if debug_dir_raw else default_debug_dir()
     trace_paths = _latest_trace_paths(debug_dir)
     recording_meta, recording_path = _recording_payload(recording_store)
-    dictionary_path = Config.get_config_dir() / "dictionary.yaml"
-    recordings_index_path = Config.get_config_dir() / "recordings" / "recordings.json"
+    config_dir = Config.get_config_dir()
+    config_path = Config.get_config_path()
+    dictionary_path = config_dir / "dictionary.yaml"
+    recordings_index_path = config_dir / "recordings" / "recordings.json"
 
     manifest = {
         "exported_at": datetime.now().isoformat(timespec="seconds"),
         "app_version": app_version,
-        "config_path": str(Config.get_config_path()),
-        "dictionary_path": str(dictionary_path),
-        "debug_dir": str(debug_dir),
+        "config_path": _manifest_path_hint(
+            config_path,
+            base_dir=config_dir,
+            external_label="<external-config-path>",
+        ),
+        "dictionary_path": _manifest_path_hint(
+            dictionary_path,
+            base_dir=config_dir,
+            external_label="<external-dictionary-path>",
+        ),
+        "debug_dir": _manifest_path_hint(
+            debug_dir,
+            base_dir=config_dir,
+            external_label="<external-debug-dir>",
+            is_dir=True,
+        ),
         "trace_files": [path.name for path in trace_paths],
         "recording_id": recording_meta.get("id") if recording_meta else None,
-        "environment_checks": [asdict(check) for check in environment_checks],
+        "environment_checks": _sanitized_environment_checks(
+            environment_checks,
+            config_dir=config_dir,
+            config_path=config_path,
+        ),
     }
 
     with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
