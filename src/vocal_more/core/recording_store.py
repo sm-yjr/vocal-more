@@ -43,6 +43,11 @@ class RecordingStore:
             normalized = []
             for entry in data:
                 if isinstance(entry, dict):
+                    wav_path = self._recording_path_for_filename(entry.get("filename"))
+                    if wav_path is None:
+                        continue
+                    entry = dict(entry)
+                    entry["filename"] = wav_path.name
                     entry.setdefault("transcript", None)
                     entry.setdefault("error", None)
                     normalized.append(entry)
@@ -60,7 +65,8 @@ class RecordingStore:
         before = len(self._recordings)
         self._recordings = [
             r for r in self._recordings
-            if (self._dir / r["filename"]).exists()
+            if (wav_path := self._recording_path_for_filename(r.get("filename"))) is not None
+            and wav_path.exists()
         ]
         pruned = before - len(self._recordings)
         if pruned:
@@ -189,8 +195,8 @@ class RecordingStore:
             if entry is None:
                 return False
             self._recordings.remove(entry)
-            wav_path = self._dir / entry["filename"]
-            if wav_path.exists():
+            wav_path = self._recording_path_for_filename(entry.get("filename"))
+            if wav_path is not None and wav_path.exists():
                 try:
                     wav_path.unlink()
                 except OSError:
@@ -202,15 +208,27 @@ class RecordingStore:
         with self._lock:
             for rec in self._recordings:
                 if rec["id"] == recording_id:
-                    return self._dir / rec["filename"]
+                    return self._recording_path_for_filename(rec.get("filename"))
         return None
+
+    def _recording_path_for_filename(self, filename: object) -> Optional[Path]:
+        if not isinstance(filename, str):
+            return None
+        raw = filename.strip()
+        if not raw:
+            return None
+        candidate = Path(raw)
+        # Persisted recording entries should only ever reference local basenames.
+        if candidate.is_absolute() or candidate.name != raw or raw in {".", ".."}:
+            return None
+        return self._dir / raw
 
     def _enforce_limit(self) -> None:
         """Remove oldest recordings beyond MAX_RECORDINGS. Must hold lock."""
         while len(self._recordings) > MAX_RECORDINGS:
             oldest = self._recordings.pop(0)
-            wav_path = self._dir / oldest["filename"]
-            if wav_path.exists():
+            wav_path = self._recording_path_for_filename(oldest.get("filename"))
+            if wav_path is not None and wav_path.exists():
                 try:
                     wav_path.unlink()
                 except OSError:

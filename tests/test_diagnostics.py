@@ -1,6 +1,7 @@
 """Tests for diagnostics export and runtime environment checks."""
 
 import json
+from pathlib import Path
 import sys
 import types
 import zipfile
@@ -40,6 +41,8 @@ def test_export_support_bundle_includes_redacted_config_and_trace(
     trace_path.with_suffix(".wav").write_bytes(b"RIFFtest")
 
     recording_store = RecordingStore(str(tmp_path / "recordings"))
+    success_id = recording_store.save(b"\x01\x00" * 4000, "walkie_talkie", "qwen3.5-omni-plus")
+    recording_store.update(success_id, "success", "private successful transcript")
     rec_id = recording_store.save(b"\x01\x00" * 4000, "walkie_talkie", "qwen3.5-omni-plus")
     recording_store.update(rec_id, "failed", error="timeout")
 
@@ -58,21 +61,34 @@ def test_export_support_bundle_includes_redacted_config_and_trace(
         names = set(bundle.namelist())
         config_snapshot = json.loads(bundle.read("config.snapshot.json"))
         manifest = json.loads(bundle.read("manifest.json"))
+        selected_recording = json.loads(bundle.read("selected_recording.json"))
 
     assert "dictionary.yaml" in names
-    assert "recordings.json" in names
+    assert "recordings.json" not in names
     assert "selected_recording.json" in names
-    assert any(name.startswith("recordings/") and name.endswith(".wav") for name in names)
+    assert names == {
+        "manifest.json",
+        "config.snapshot.json",
+        "dictionary.yaml",
+        "selected_recording.json",
+        f"recordings/{Path(recording_store.get_recording_path(rec_id)).name}",
+        f"debug/{trace_path.name}",
+        f"debug/{trace_path.with_suffix('.wav').name}",
+    }
     assert f"debug/{trace_path.name}" in names
     assert f"debug/{trace_path.with_suffix('.wav').name}" in names
     assert config_snapshot["api_key"] == "sk-t***5678"
     assert manifest["trace_files"] == [trace_path.name]
     assert manifest["recording_id"] == rec_id
+    assert selected_recording["id"] == rec_id
+    assert selected_recording["transcript"] is None
     assert manifest["config_path"] == "config.yaml"
     assert manifest["dictionary_path"] == "dictionary.yaml"
     assert manifest["debug_dir"] == "debug/"
     manifest_text = json.dumps(manifest, ensure_ascii=False)
     assert str(tmp_path) not in manifest_text
+    archive_text = json.dumps(selected_recording, ensure_ascii=False)
+    assert "private successful transcript" not in archive_text
 
 
 def test_export_support_bundle_redacts_external_debug_dir_in_manifest(

@@ -218,3 +218,75 @@ class TestPersistence:
         store = RecordingStore(recordings_dir=str(recs_dir))
         assert len(store.list_recordings()) == 0
         assert (recs_dir / "recordings.json.bak").exists()
+
+    def test_rejects_absolute_filename_from_index(self, tmp_path):
+        recs_dir = tmp_path / "recs"
+        recs_dir.mkdir(parents=True)
+        external_wav = tmp_path / "outside.wav"
+        with wave.open(str(external_wav), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(_make_pcm(0.1))
+
+        (recs_dir / "recordings.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "evil-abs",
+                        "filename": str(external_wav),
+                        "timestamp": "2026-04-16T12:00:00",
+                        "duration_seconds": 0.1,
+                        "mode": "walkie_talkie",
+                        "asr_model": "model-a",
+                        "language": "zh",
+                        "status": "success",
+                        "transcript": "secret",
+                        "error": None,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        store = RecordingStore(recordings_dir=str(recs_dir))
+
+        assert store.list_recordings() == []
+        assert store.get_recording_path("evil-abs") is None
+        assert external_wav.exists()
+
+    def test_rejects_parent_relative_filename_from_index(self, tmp_path):
+        recs_dir = tmp_path / "recs"
+        recs_dir.mkdir(parents=True)
+        external_wav = tmp_path / "outside-parent.wav"
+        with wave.open(str(external_wav), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(_make_pcm(0.1))
+
+        (recs_dir / "recordings.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "evil-parent",
+                        "filename": "../outside-parent.wav",
+                        "timestamp": "2026-04-16T12:00:00",
+                        "duration_seconds": 0.1,
+                        "mode": "walkie_talkie",
+                        "asr_model": "model-a",
+                        "language": "zh",
+                        "status": "success",
+                        "transcript": "secret",
+                        "error": None,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        store = RecordingStore(recordings_dir=str(recs_dir))
+
+        assert store.list_recordings() == []
+        assert store.get_recording_path("evil-parent") is None
+        assert external_wav.exists()

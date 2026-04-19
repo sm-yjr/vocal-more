@@ -143,7 +143,6 @@ def export_support_bundle(
     config_dir = Config.get_config_dir()
     config_path = Config.get_config_path()
     dictionary_path = config_dir / "dictionary.yaml"
-    recordings_index_path = config_dir / "recordings" / "recordings.json"
 
     manifest = {
         "exported_at": datetime.now().isoformat(timespec="seconds"),
@@ -185,8 +184,6 @@ def export_support_bundle(
 
         if dictionary_path.exists():
             bundle.write(dictionary_path, arcname="dictionary.yaml")
-        if recordings_index_path.exists():
-            bundle.write(recordings_index_path, arcname="recordings.json")
         if recording_meta is not None:
             bundle.writestr(
                 "selected_recording.json",
