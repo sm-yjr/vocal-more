@@ -30,6 +30,7 @@ from .localization import t
 from .modes.base_mode import BaseMode, ModeState
 from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
+from .infrastructure.timestamped_output import install_timestamped_stream
 from .ui.floating_capsule import FloatingCapsule
 from .ui.settings_window import SettingsWindow
 
@@ -715,6 +716,22 @@ class VocalMoreApp(rumps.App):
                 self._capsule.show("handsFree")
         self._current_mode.on_hotkey_pressed()
 
+    def _on_escape_pressed(self) -> None:
+        """Handle Escape key pressed."""
+        self._get_command_coordinator().submit(
+            self._handle_escape_pressed_command,
+            command_name="escape_pressed",
+        )
+
+    def _handle_escape_pressed_command(self) -> None:
+        if self._current_mode.state in (
+            ModeState.STARTING,
+            ModeState.STOPPING,
+            ModeState.PROCESSING,
+            ModeState.CANCELLING,
+        ):
+            self._handle_cancel_command(reason="escape_cancel")
+
     # ── Mode state callbacks ──────────────────────────────────
 
     def _on_state_change(self, state: ModeState) -> None:
@@ -858,6 +875,8 @@ def main() -> None:
     """Main entry point."""
     from .bootstrap import build_menu_app
 
+    install_timestamped_stream("stdout")
+    install_timestamped_stream("stderr")
     _ensure_no_proxy("dashscope.aliyuncs.com")
     app = build_menu_app(app_factory=VocalMoreApp)
     app.run()

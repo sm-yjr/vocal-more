@@ -590,10 +590,53 @@ def test_hotkey_callbacks_enqueue_serial_commands(tmp_path, monkeypatch):
     app._on_fn_pressed()
     app._on_fn_released()
     app._on_double_cmd()
+    app._on_escape_pressed()
     app._on_capsule_cancel()
     app._on_capsule_finish()
 
-    assert app._command_coordinator.submit.call_count == 5
+    assert app._command_coordinator.submit.call_count == 6
+
+
+def test_escape_pressed_cancels_processing_mode(tmp_path, monkeypatch):
+    """Escape should cancel a stuck processing session through the shared path."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._current_mode = MagicMock(state=app_module.ModeState.PROCESSING)
+
+    app._handle_escape_pressed_command()
+
+    app._current_mode.cancel.assert_called_once_with(reason="escape_cancel")
+
+
+def test_escape_pressed_ignores_idle_mode(tmp_path, monkeypatch):
+    """Escape should not cancel anything when the app is idle."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._current_mode = MagicMock(state=app_module.ModeState.IDLE)
+
+    app._handle_escape_pressed_command()
+
+    app._current_mode.cancel.assert_not_called()
 
 
 def test_build_runtime_returns_shared_facade_for_menu_and_rpc(tmp_path, monkeypatch):

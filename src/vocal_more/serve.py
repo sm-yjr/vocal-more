@@ -14,6 +14,9 @@ import os
 import sys
 
 _raw_stdout_fd = os.dup(sys.stdout.fileno())
+from .infrastructure.timestamped_output import install_timestamped_stream
+
+install_timestamped_stream("stderr")
 sys.stdout = sys.stderr  # All print() goes to stderr now
 
 _jsonrpc_out = os.fdopen(_raw_stdout_fd, "w", buffering=1, closefd=True)

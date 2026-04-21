@@ -6,7 +6,7 @@ from typing import Callable, Optional
 from ..application.background_executor import BackgroundExecutor, TaskHandle
 from ..application.dictation_workflow import DictationWorkflow
 from ..config import asr_model_handles_inline_polish, get_config
-from ..core.audio_recorder import AudioRecorder
+from ..core.audio_recorder import AudioRecorder, AudioRecorderStartError
 from ..core.asr_engine import ASREngine
 from ..core.keyboard_sim import KeyboardSimulator
 from ..dictionary import normalize_terms
@@ -89,28 +89,47 @@ class WalkieTalkieMode(BaseMode):
         self._active_session_token = self._begin_session()
         self._recording_asr_model = self.config.asr.model
         self._set_state(ModeState.STARTING)
-        self._asr.start()       # Non-blocking: WebSocket connects in background
+
         try:
             self._recorder.start()  # Audio chunks → _on_audio_chunk → ASR
-        except Exception as e:
-            print(f"[WalkieTalkie] Failed to open audio device: {e}")
+        except Exception as exc:
+            print(f"[WalkieTalkie] Failed to open audio device: {exc}")
+            self._report_startup_failure(exc, stage="microphone")
+            return
+
+        try:
+            self._asr.start()  # Non-blocking: WebSocket connects in background
+        except Exception as exc:
+            print(f"[WalkieTalkie] Failed to start realtime ASR: {exc}")
             try:
-                self._asr.stop()
+                self._recorder.stop()
             except Exception:
                 pass
-            if self.on_error:
+            self._report_startup_failure(exc, stage="asr")
+            return
+
+        self._set_state(ModeState.RECORDING)
+
+    def _report_startup_failure(self, exc: Exception, *, stage: str) -> None:
+        if self.on_error:
+            if (
+                stage == "microphone"
+                and isinstance(exc, AudioRecorderStartError)
+                and exc.device_change_detected
+            ):
+                self.on_error(t(self.config.ui.language, "mode_microphone_device_changed"))
+            elif stage == "microphone":
                 self.on_error(
                     t(
                         self.config.ui.language,
                         "mode_microphone_unavailable",
-                        details=str(e),
+                        details=str(exc),
                     )
                 )
-            self._set_state(ModeState.FAILED)
-            self._set_state(ModeState.IDLE)
-            return
-
-        self._set_state(ModeState.RECORDING)
+            else:
+                self.on_error(t(self.config.ui.language, "mode_asr_error", details=str(exc)))
+        self._set_state(ModeState.FAILED)
+        self._set_state(ModeState.IDLE)
 
     def on_hotkey_released(self) -> None:
         """Stop recording and get ASR result."""

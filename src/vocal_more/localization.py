@@ -48,6 +48,9 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "notification_diagnostics_exported_body": "Saved to {path}",
         "notification_diagnostics_export_failed_title": "Diagnostics Export Failed",
         "mode_microphone_unavailable": "Could not start microphone: {details}",
+        "mode_microphone_device_changed": (
+            "Microphone changed or became unavailable. Re-select the input device and try again."
+        ),
         "mode_recording_too_short": "Recording too short. Hold the hotkey a bit longer.",
         "mode_asr_error": "ASR error: {details}",
         "mode_polish_error": "Polish error: {details}",
@@ -117,6 +120,9 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "notification_diagnostics_exported_body": "已保存到 {path}",
         "notification_diagnostics_export_failed_title": "导出诊断包失败",
         "mode_microphone_unavailable": "无法启动麦克风：{details}",
+        "mode_microphone_device_changed": (
+            "麦克风设备似乎已变更，请重新选择输入设备或重新连接麦克风后再试。"
+        ),
         "mode_recording_too_short": "录音太短了，请稍微多按一会儿热键。",
         "mode_asr_error": "识别错误：{details}",
         "mode_polish_error": "润色错误：{details}",

@@ -38,6 +38,7 @@ NX_SECONDARYFNMASK = 0x800000
 CMD_LEFT_KEYCODE = 55
 CMD_RIGHT_KEYCODE = 54
 NX_COMMANDMASK = 0x100000
+ESC_KEYCODE = 53
 
 # Key registry: name → (keycode, is_modifier, flag_mask)
 # Modifier keys are detected via kCGEventFlagsChanged (press state from flags).
@@ -62,6 +63,7 @@ class HotkeyEvent(Enum):
     FN_PRESSED = "fn_pressed"
     FN_RELEASED = "fn_released"
     DOUBLE_CMD = "double_cmd"
+    ESC_PRESSED = "esc_pressed"
 
 
 class HotkeyManager:
@@ -72,6 +74,7 @@ class HotkeyManager:
         on_fn_pressed: Optional[Callable[[], None]] = None,
         on_fn_released: Optional[Callable[[], None]] = None,
         on_double_cmd: Optional[Callable[[], None]] = None,
+        on_escape_pressed: Optional[Callable[[], None]] = None,
     ):
         """Initialize the hotkey manager.
 
@@ -79,11 +82,13 @@ class HotkeyManager:
             on_fn_pressed: Callback when Fn key is pressed
             on_fn_released: Callback when Fn key is released
             on_double_cmd: Callback when Cmd key is double-tapped
+            on_escape_pressed: Callback when Escape is pressed
         """
         self.config = get_config()
         self.on_fn_pressed = on_fn_pressed
         self.on_fn_released = on_fn_released
         self.on_double_cmd = on_double_cmd
+        self.on_escape_pressed = on_escape_pressed
 
         self._active_hotkeys: list[str] = list(self.config.hotkey.active_hotkeys)
         self._custom_key: Optional[dict] = self.config.hotkey.custom_key
@@ -187,6 +192,10 @@ class HotkeyManager:
                     self._last_cmd_time = current_time
 
         elif event_type == kCGEventKeyDown:
+            if keycode == ESC_KEYCODE and self.on_escape_pressed:
+                self._enqueue_event(HotkeyEvent.ESC_PRESSED)
+                return event
+
             # Handle regular keys (F13-F20, etc.) — ignore key repeat
             if keycode in self._regular_lookup:
                 if keycode not in self._held_keys:
@@ -221,6 +230,8 @@ class HotkeyManager:
             callback = self.on_fn_released
         elif event == HotkeyEvent.DOUBLE_CMD:
             callback = self.on_double_cmd
+        elif event == HotkeyEvent.ESC_PRESSED:
+            callback = self.on_escape_pressed
 
         if callback is None:
             return

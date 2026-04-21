@@ -10,6 +10,22 @@ import sounddevice as sd
 
 from ..config import get_config
 
+_PORTAUDIO_RECOVERY_MARKERS = (
+    "-9986",
+    "-10851",
+    "painternalerror",
+    "auhal",
+    "invalidpropertyvalue",
+)
+
+
+class AudioRecorderStartError(RuntimeError):
+    """Raised when microphone startup fails after all recovery attempts."""
+
+    def __init__(self, details: str, *, device_change_detected: bool = False):
+        super().__init__(details)
+        self.device_change_detected = device_change_detected
+
 
 class AudioRecorder:
     """Audio recorder using sounddevice for real-time audio capture."""
@@ -120,7 +136,7 @@ class AudioRecorder:
         """Start recording audio.
 
         Raises:
-            sd.PortAudioError: If no audio device could be opened.
+            AudioRecorderStartError: If no audio device could be opened.
         """
         with self._lock:
             if self._is_recording:
@@ -130,42 +146,14 @@ class AudioRecorder:
             self._hp_prev_in = 0.0
             self._hp_prev_out = 0.0
 
-        device_index = self._resolve_device()
-
         try:
-            self._stream = sd.InputStream(
-                samplerate=self.sample_rate,
-                channels=self.channels,
-                blocksize=self.blocksize,
-                dtype=np.float32,
-                callback=self._audio_callback,
-                device=device_index,
-            )
-            self._stream.start()
-        except sd.PortAudioError:
-            if device_index is not None:
-                print(f"Device '{self._device_name}' failed, falling back to default")
-                try:
-                    self._stream = sd.InputStream(
-                        samplerate=self.sample_rate,
-                        channels=self.channels,
-                        blocksize=self.blocksize,
-                        dtype=np.float32,
-                        callback=self._audio_callback,
-                    )
-                    self._stream.start()
-                except Exception:
-                    with self._lock:
-                        self._is_recording = False
-                    raise
-            else:
-                with self._lock:
-                    self._is_recording = False
-                raise
-        except Exception:
+            self._start_stream_with_recovery()
+        except Exception as exc:
             with self._lock:
                 self._is_recording = False
-            raise
+            if isinstance(exc, AudioRecorderStartError):
+                raise
+            raise AudioRecorderStartError(str(exc)) from exc
 
     def stop(self) -> bytes:
         """Stop recording and return PCM audio data.
@@ -196,6 +184,93 @@ class AudioRecorder:
         """Get current recorded PCM data without stopping."""
         with self._lock:
             return b"".join(self._audio_buffer)
+
+    def _start_stream_with_recovery(self) -> None:
+        """Open the input stream, then rebuild PortAudio once if it is wedged."""
+        device_index = self._resolve_device()
+
+        try:
+            self._open_stream_with_fallback(device_index)
+            return
+        except Exception as initial_error:
+            if self._should_retry_after_portaudio_reset(initial_error):
+                if self._recover_portaudio_state(initial_error):
+                    try:
+                        self._open_stream_with_fallback(self._resolve_device())
+                        return
+                    except Exception as retry_error:
+                        raise AudioRecorderStartError(
+                            str(retry_error),
+                            device_change_detected=True,
+                        ) from retry_error
+                raise AudioRecorderStartError(
+                    str(initial_error),
+                    device_change_detected=True,
+                ) from initial_error
+            raise AudioRecorderStartError(str(initial_error)) from initial_error
+
+    def _open_stream_with_fallback(self, device_index: Optional[int]) -> None:
+        try:
+            self._open_stream(device_index)
+        except sd.PortAudioError:
+            if device_index is None:
+                raise
+            print(f"Device '{self._device_name}' failed, falling back to default")
+            self._open_stream(None)
+
+    def _open_stream(self, device_index: Optional[int]) -> None:
+        stream = sd.InputStream(
+            samplerate=self.sample_rate,
+            channels=self.channels,
+            blocksize=self.blocksize,
+            dtype=np.float32,
+            callback=self._audio_callback,
+            device=device_index,
+        )
+        stream.start()
+        self._stream = stream
+
+    def _should_retry_after_portaudio_reset(self, error: Exception) -> bool:
+        if isinstance(error, sd.PortAudioError):
+            return True
+        details = str(error).lower()
+        return any(marker in details for marker in _PORTAUDIO_RECOVERY_MARKERS)
+
+    def _recover_portaudio_state(self, error: Exception) -> bool:
+        terminate = getattr(sd, "_terminate", None)
+        initialize = getattr(sd, "_initialize", None)
+        if not callable(terminate) or not callable(initialize):
+            print(
+                "[AudioRecorder] PortAudio reset hooks unavailable after startup "
+                f"failure: {error}"
+            )
+            return False
+
+        print(f"[AudioRecorder] Reinitializing PortAudio after startup failure: {error}")
+        self._close_stream_quietly()
+        terminate()
+
+        default = getattr(sd, "default", None)
+        reset = getattr(default, "reset", None)
+        if callable(reset):
+            reset()
+
+        initialize()
+        return True
+
+    def _close_stream_quietly(self) -> None:
+        stream = self._stream
+        self._stream = None
+        if stream is None:
+            return
+        try:
+            stream.stop()
+        except Exception:
+            pass
+        try:
+            stream.close()
+        except Exception:
+            pass
 
     def _resolve_device(self) -> Optional[int]:
         """Resolve device name to sounddevice index. Returns None for default."""

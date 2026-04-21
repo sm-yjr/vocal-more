@@ -91,18 +91,49 @@ def test_hotkey_events_are_dispatched_serially_in_order(monkeypatch):
         received.append("released")
         done.set()
 
+    def on_escape():
+        received.append("escape")
+
     manager = hotkey_module.HotkeyManager(
         on_fn_pressed=on_pressed,
         on_fn_released=on_released,
         on_double_cmd=on_double_cmd,
+        on_escape_pressed=on_escape,
     )
 
     manager._enqueue_event(hotkey_module.HotkeyEvent.FN_PRESSED)
     manager._enqueue_event(hotkey_module.HotkeyEvent.DOUBLE_CMD)
+    manager._enqueue_event(hotkey_module.HotkeyEvent.ESC_PRESSED)
     manager._enqueue_event(hotkey_module.HotkeyEvent.FN_RELEASED)
 
     assert done.wait(timeout=1.0)
-    assert received == ["pressed", "double_cmd", "released"]
+    assert received == ["pressed", "double_cmd", "escape", "released"]
+
+    manager.stop()
+
+
+def test_escape_keydown_dispatches_escape_callback_without_consuming_event(monkeypatch):
+    """Escape should trigger cancellation callback but still pass through to the focused app."""
+    config = Config()
+    monkeypatch.setattr(hotkey_module, "get_config", lambda: config)
+
+    captured = []
+    manager = hotkey_module.HotkeyManager(on_escape_pressed=lambda: None)
+    monkeypatch.setattr(manager, "_enqueue_event", lambda event: captured.append(event))
+
+    event = object()
+    monkeypatch.setattr(
+        hotkey_module,
+        "CGEventGetIntegerValueField",
+        lambda event_ref, field: hotkey_module.ESC_KEYCODE,
+    )
+    keydown_event = object()
+    monkeypatch.setattr(hotkey_module, "kCGEventKeyDown", keydown_event)
+
+    returned = manager._event_callback(None, keydown_event, event, None)
+
+    assert captured == [hotkey_module.HotkeyEvent.ESC_PRESSED]
+    assert returned is event
 
     manager.stop()
 

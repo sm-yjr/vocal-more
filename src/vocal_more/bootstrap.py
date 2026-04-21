@@ -101,6 +101,7 @@ def build_menu_app_dependencies(
         on_fn_pressed=app._on_fn_pressed,
         on_fn_released=app._on_fn_released,
         on_double_cmd=app._on_double_cmd,
+        on_escape_pressed=app._on_escape_pressed,
     )
 
     runtime = runtime_factory(

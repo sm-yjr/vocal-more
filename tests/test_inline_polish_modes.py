@@ -407,7 +407,11 @@ def test_realtime_long_reports_microphone_start_failure(tmp_path, monkeypatch):
     reload_config()
 
     class FakeASREngine:
+        def __init__(self):
+            self.start_calls = 0
+
         def start(self):
+            self.start_calls += 1
             return None
 
         def stop(self, pcm_data=None):
@@ -439,6 +443,127 @@ def test_realtime_long_reports_microphone_start_failure(tmp_path, monkeypatch):
 
     assert errors == ["无法启动麦克风：device busy"]
     assert mode.state == ModeState.IDLE
+    assert mode._asr.start_calls == 0
+
+
+def test_realtime_long_reports_device_change_after_recorder_recovery_fails(
+    tmp_path, monkeypatch
+):
+    """Recoverable PortAudio failures should collapse into one device-change message."""
+    from vocal_more.config import Config, reload_config
+    from vocal_more.core.audio_recorder import AudioRecorderStartError
+
+    RealtimeLongMode = importlib.import_module("vocal_more.modes.realtime_long").RealtimeLongMode
+    ModeState = importlib.import_module("vocal_more.modes.base_mode").ModeState
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump({"ui": {"language": "zh"}}, f)
+
+    reload_config()
+
+    class FakeASREngine:
+        def __init__(self):
+            self.start_calls = 0
+
+        def start(self):
+            self.start_calls += 1
+            return None
+
+        def stop(self, pcm_data=None):
+            return ""
+
+        def send_audio(self, _chunk):
+            return None
+
+    class FakeRecorder:
+        def __init__(self, on_audio_level=None, on_audio_chunk=None):
+            self.on_audio_chunk = on_audio_chunk
+
+        def start(self):
+            raise AudioRecorderStartError(
+                "PortAudio internal error -9986",
+                device_change_detected=True,
+            )
+
+        def stop(self):
+            return b""
+
+    monkeypatch.setattr("vocal_more.modes.realtime_long.ASREngine", lambda **kwargs: FakeASREngine())
+    monkeypatch.setattr("vocal_more.modes.realtime_long.AudioRecorder", FakeRecorder)
+    monkeypatch.setattr(
+        "vocal_more.modes.realtime_long.KeyboardSimulator",
+        lambda: SimpleNamespace(paste_text=lambda text: None),
+    )
+
+    errors = []
+    mode = RealtimeLongMode(on_error=errors.append)
+    mode.on_hotkey_pressed()
+
+    assert errors == ["麦克风设备似乎已变更，请重新选择输入设备或重新连接麦克风后再试。"]
+    assert mode.state == ModeState.IDLE
+    assert mode._asr.start_calls == 0
+
+
+def test_walkie_talkie_reports_microphone_start_failure_without_starting_asr(
+    tmp_path, monkeypatch
+):
+    """Hold-to-talk should not burn an ASR session when the microphone never opens."""
+    from vocal_more.config import Config, reload_config
+
+    WalkieTalkieMode = importlib.import_module("vocal_more.modes.walkie_talkie").WalkieTalkieMode
+    ModeState = importlib.import_module("vocal_more.modes.base_mode").ModeState
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump({"ui": {"language": "zh"}}, f)
+
+    reload_config()
+
+    class FakeASREngine:
+        def __init__(self):
+            self.start_calls = 0
+
+        def start(self):
+            self.start_calls += 1
+            return None
+
+        def stop(self, pcm_data=None):
+            return ""
+
+        def send_audio(self, _chunk):
+            return None
+
+    class FakeRecorder:
+        def __init__(self, on_audio_level=None, on_audio_chunk=None):
+            self.on_audio_chunk = on_audio_chunk
+
+        def start(self):
+            raise RuntimeError("device busy")
+
+        def stop(self):
+            return b""
+
+    monkeypatch.setattr("vocal_more.modes.walkie_talkie.ASREngine", lambda **kwargs: FakeASREngine())
+    monkeypatch.setattr("vocal_more.modes.walkie_talkie.AudioRecorder", FakeRecorder)
+    monkeypatch.setattr(
+        "vocal_more.modes.walkie_talkie.KeyboardSimulator",
+        lambda: SimpleNamespace(paste_text=lambda text: None),
+    )
+
+    errors = []
+    mode = WalkieTalkieMode(on_error=errors.append)
+    mode.on_hotkey_pressed()
+
+    assert errors == ["无法启动麦克风：device busy"]
+    assert mode.state == ModeState.IDLE
+    assert mode._asr.start_calls == 0
 
 
 def test_walkie_talkie_emits_processing_stages_for_transcribe_and_polish(
