@@ -30,6 +30,8 @@ class ASRDebugTrace:
     final_transcripts: list[str] = field(default_factory=list)
     result_text: str = ""
     result_source: str = ""
+    usage: dict = field(default_factory=dict)
+    billing: dict = field(default_factory=dict)
     timings_ms: dict[str, Optional[float]] = field(default_factory=dict)
     response_requested: bool = False
     warm_session_reused: bool = False
@@ -136,6 +138,21 @@ def update_trace_ids_from_response(
         payload["output_index"] = output_index
 
     return payload
+
+
+def update_trace_usage_from_response(
+    trace: Optional[ASRDebugTrace],
+    response: dict,
+) -> None:
+    """Capture usage payloads from realtime response events."""
+    if trace is None:
+        return
+    response_obj = response.get("response")
+    if not isinstance(response_obj, dict):
+        return
+    usage = response_obj.get("usage")
+    if isinstance(usage, dict):
+        trace.usage = dict(usage)
 
 
 def build_trace_timings(trace: ASRDebugTrace) -> dict[str, Optional[float]]:
@@ -255,5 +272,5 @@ __all__ = [
     "update_trace_ids_from_openai_chunk",
     "update_trace_ids_from_openai_stream",
     "update_trace_ids_from_response",
+    "update_trace_usage_from_response",
 ]
-

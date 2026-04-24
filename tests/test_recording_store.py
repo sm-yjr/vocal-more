@@ -90,6 +90,21 @@ class TestUpdate:
         assert rec["transcript"] == "hello world"
         assert rec["error"] is None
 
+    def test_update_persists_billing(self, store):
+        rec_id = store.save(_make_pcm(), "walkie_talkie", "m")
+        billing = {
+            "currency": "CNY",
+            "total_cost_cny": 0.00123,
+            "asr_cost_cny": 0.00123,
+            "polish_cost_cny": 0.0,
+            "estimated": False,
+        }
+
+        store.update(rec_id, "success", "hello world", billing=billing)
+
+        rec = store.list_recordings()[0]
+        assert rec["billing"] == billing
+
     def test_update_nonexistent_id_is_noop(self, store):
         store.save(_make_pcm(), "walkie_talkie", "m")
         store.update("nonexistent", "success", "text")
@@ -209,6 +224,7 @@ class TestPersistence:
         store = RecordingStore(recordings_dir=str(recs_dir))
         rec = store.list_recordings()[0]
         assert rec["error"] is None
+        assert rec["billing"] is None
 
     def test_handles_corrupt_index(self, tmp_path):
         recs_dir = tmp_path / "recs"

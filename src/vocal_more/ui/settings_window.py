@@ -32,6 +32,7 @@ from WebKit import (
 )
 
 from ..application.background_executor import BackgroundExecutor
+from ..infrastructure.pricing import merge_billing
 from ..localization import normalize_ui_language, t
 from .mic_test_controller import MicTestController
 from .settings_actions import SettingsActionDispatcher
@@ -503,26 +504,38 @@ class SettingsWindow:
                 transcript = engine.transcribe(
                     pcm_data, model_override=RETRY_ASR_MODEL, language_override=language
                 )
+                billing = merge_billing(engine.get_last_metering())
 
                 if transcript and transcript.strip():
-                    self._recording_store.update(rec_id, "success", transcript, error=None)
-                    self._eval_js(
-                        f"retryCompleted({json.dumps(rec_id)}, {json.dumps(transcript)})"
+                    self._recording_store.update(
+                        rec_id,
+                        "success",
+                        transcript,
+                        error=None,
+                        billing=billing,
                     )
+                    self._handle_get_recordings()
                 else:
                     error_message = t(
                         self._interface_language,
                         "settings_empty_transcription",
                     )
-                    self._recording_store.update(rec_id, "failed", error=error_message)
-                    self._eval_js(
-                        f"retryFailed({json.dumps(rec_id)}, {json.dumps(error_message)})"
+                    self._recording_store.update(
+                        rec_id,
+                        "failed",
+                        error=error_message,
+                        billing=billing,
                     )
+                    self._handle_get_recordings()
             except Exception as e:
-                self._recording_store.update(rec_id, "failed", error=str(e))
-                self._eval_js(
-                    f"retryFailed({json.dumps(rec_id)}, {json.dumps(str(e))})"
+                billing = merge_billing(engine.get_last_metering()) if "engine" in locals() else None
+                self._recording_store.update(
+                    rec_id,
+                    "failed",
+                    error=str(e),
+                    billing=billing,
                 )
+                self._handle_get_recordings()
 
         self._background_tasks.submit(_do_retry)
 

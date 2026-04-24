@@ -427,6 +427,30 @@ input[type="range"]:disabled {
   border-radius: var(--radius);
 }
 .rec-delete-banner.visible { display: flex; }
+.rec-summary {
+  display: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.rec-summary.visible { display: grid; }
+.rec-summary-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.rec-summary-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.rec-summary-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
 .rec-delete-copy {
   font-size: 12px;
   color: var(--text-secondary);
@@ -470,6 +494,7 @@ input[type="range"]:disabled {
   white-space: nowrap;
 }
 .rec-badge-dur { background: rgba(255,255,255,0.08); color: var(--text-secondary); }
+.rec-badge-cost { background: rgba(255,214,10,0.14); color: rgb(255,214,10); }
 .rec-badge-success { background: rgba(52,199,89,0.15); color: var(--green); }
 .rec-badge-failed { background: rgba(255,59,48,0.15); color: var(--red); }
 .rec-badge-pending { background: rgba(255,159,10,0.15); color: rgb(255,159,10); }
@@ -494,6 +519,14 @@ input[type="range"]:disabled {
   padding: 8px 10px; background: rgba(255,255,255,0.03);
   border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.05);
   max-height: 80px; overflow-y: auto;
+}
+.rec-cost-line {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.rec-cost-estimated {
+  color: rgb(255,214,10);
 }
 .rec-transcript-error {
   background: rgba(255,59,48,0.06);
@@ -954,6 +987,7 @@ input[type="range"]:disabled {
     <div id="tab-history" class="tab-panel">
       <div class="tab-title" data-i18n="tab_history">Recording History</div>
       <div id="history_delete_banner" class="rec-delete-banner"></div>
+      <div id="history_summary" class="rec-summary"></div>
       <div id="history_list"></div>
     </div>
 
@@ -1115,6 +1149,11 @@ const UI_TRANSLATIONS = {
     history_status_failed: 'Failed',
     history_status_retrying: 'Retrying...',
     history_status_pending: 'Pending',
+    history_cost_total: 'Total cost',
+    history_cost_asr: 'ASR cost',
+    history_cost_polish: 'Polish cost',
+    history_cost_label: 'Cost',
+    history_cost_estimated: 'Estimated',
     history_play: '\u25B6 Play',
     history_stop: '\u25A0 Stop',
     history_retry: 'Retry',
@@ -1242,6 +1281,11 @@ const UI_TRANSLATIONS = {
     history_status_failed: '失败',
     history_status_retrying: '重试中...',
     history_status_pending: '等待中',
+    history_cost_total: '累计费用',
+    history_cost_asr: '识别费用',
+    history_cost_polish: '润色费用',
+    history_cost_label: '费用',
+    history_cost_estimated: '估算',
     history_play: '\u25B6 播放',
     history_stop: '\u25A0 停止',
     history_retry: '重试',
@@ -2143,6 +2187,7 @@ function loadRecordings(recs) {
 
 function renderHistory() {
   const container = document.getElementById('history_list');
+  renderHistorySummary();
   if (!_recordings.length) {
     container.innerHTML = t('history_empty_html');
     renderDeleteBanner();
@@ -2186,6 +2231,46 @@ function renderDeleteBanner() {
   undoBtn.textContent = t('history_undo');
   undoBtn.addEventListener('click', undoDeleteRec);
   banner.appendChild(undoBtn);
+}
+
+function renderHistorySummary() {
+  const summary = document.getElementById('history_summary');
+  if (!summary) return;
+
+  if (!_recordings.length) {
+    summary.classList.remove('visible');
+    summary.innerHTML = '';
+    return;
+  }
+
+  const totals = _recordings.reduce(function(acc, rec) {
+    const billing = rec && rec.billing ? rec.billing : null;
+    if (!billing) return acc;
+    acc.total += Number(billing.total_cost_cny || 0);
+    acc.asr += Number(billing.asr_cost_cny || 0);
+    acc.polish += Number(billing.polish_cost_cny || 0);
+    return acc;
+  }, { total: 0, asr: 0, polish: 0 });
+
+  summary.classList.add('visible');
+  summary.innerHTML = '';
+  summary.appendChild(buildSummaryCard(t('history_cost_total'), formatCostCny(totals.total)));
+  summary.appendChild(buildSummaryCard(t('history_cost_asr'), formatCostCny(totals.asr)));
+  summary.appendChild(buildSummaryCard(t('history_cost_polish'), formatCostCny(totals.polish)));
+}
+
+function buildSummaryCard(label, value) {
+  const card = document.createElement('div');
+  card.className = 'rec-summary-card';
+  const title = document.createElement('div');
+  title.className = 'rec-summary-label';
+  title.textContent = label;
+  const amount = document.createElement('div');
+  amount.className = 'rec-summary-value';
+  amount.textContent = value;
+  card.appendChild(title);
+  card.appendChild(amount);
+  return card;
 }
 
 function commitPendingDelete() {
@@ -2239,6 +2324,9 @@ function buildRecItem(r) {
   meta.appendChild(makeBadge(modeLabel, 'rec-badge-mode'));
   meta.appendChild(makeBadge(resolveAsrModelName(r.asr_model), 'rec-badge-model'));
   meta.appendChild(makeBadge(durStr, 'rec-badge-dur'));
+  if (r.billing && Number(r.billing.total_cost_cny || 0) > 0) {
+    meta.appendChild(makeBadge(formatCostCny(r.billing.total_cost_cny), 'rec-badge-cost'));
+  }
   if (isSuccess) meta.appendChild(makeBadge(t('history_status_success'), 'rec-badge-success'));
   else if (isFailed) meta.appendChild(makeBadge(t('history_status_failed'), 'rec-badge-failed'));
   else if (isRetrying) meta.appendChild(makeBadge(t('history_status_retrying'), 'rec-badge-retrying'));
@@ -2272,6 +2360,9 @@ function buildRecItem(r) {
   header.appendChild(actions);
   item.appendChild(header);
 
+  const costLine = buildBillingLine(r.billing);
+  if (costLine) item.appendChild(costLine);
+
   // ── Body ──
   if (isRetrying) {
     var proc = document.createElement('div');
@@ -2294,6 +2385,29 @@ function buildRecItem(r) {
   }
 
   return item;
+}
+
+function buildBillingLine(billing) {
+  if (!billing) return null;
+  const total = Number(billing.total_cost_cny || 0);
+  const asr = Number(billing.asr_cost_cny || 0);
+  const polish = Number(billing.polish_cost_cny || 0);
+  if (!(total > 0 || asr > 0 || polish > 0)) return null;
+
+  const line = document.createElement('div');
+  line.className = 'rec-cost-line';
+  let text = `${t('history_cost_label')} ${formatCostCny(total)} · ${t('history_cost_asr')} ${formatCostCny(asr)}`;
+  if (polish > 0) {
+    text += ` · ${t('history_cost_polish')} ${formatCostCny(polish)}`;
+  }
+  line.textContent = text;
+  if (billing.estimated) {
+    const mark = document.createElement('span');
+    mark.className = 'rec-cost-estimated';
+    mark.textContent = ` · ${t('history_cost_estimated')}`;
+    line.appendChild(mark);
+  }
+  return line;
 }
 
 function makeBadge(text, cls) {
@@ -2331,6 +2445,15 @@ function formatDuration(secs) {
   const m = Math.floor(secs / 60);
   const s = Math.round(secs % 60);
   return m + t('history_minutes_suffix') + (s > 0 ? ' ' + s + t('history_seconds_suffix') : '');
+}
+
+function formatCostCny(value) {
+  const amount = Number(value || 0);
+  if (!(amount > 0)) return '\u00A50';
+  let decimals = 2;
+  if (amount < 0.01) decimals = 6;
+  else if (amount < 1) decimals = 4;
+  return '\u00A5' + amount.toFixed(decimals).replace(/0+$/, '').replace(/\.$/, '');
 }
 
 function retryRec(id) {

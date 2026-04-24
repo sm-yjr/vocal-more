@@ -20,6 +20,7 @@ from .core.audio_recorder import AudioRecorder
 from .core.recording_store import RecordingStore
 from .core.text_polisher import TextPolisher
 from .dictionary import get_dictionary, reload_dictionary
+from .infrastructure.pricing import merge_billing
 from .localization import t
 from .modes.base_mode import BaseMode, ModeState
 from .modes.realtime_long import RealtimeLongMode
@@ -233,21 +234,39 @@ class RPCHandler:
                 transcript = engine.transcribe(
                     pcm_data, model_override=RETRY_ASR_MODEL, language_override=language
                 )
+                billing = merge_billing(engine.get_last_metering())
 
                 if transcript and transcript.strip():
-                    self._recording_store.update(rec_id, "success", transcript, error=None)
+                    self._recording_store.update(
+                        rec_id,
+                        "success",
+                        transcript,
+                        error=None,
+                        billing=billing,
+                    )
                     self._send_notification(
                         "retry_completed", {"id": rec_id, "transcript": transcript}
                     )
                 else:
                     error_message = t(self.config.ui.language, "settings_empty_transcription")
-                    self._recording_store.update(rec_id, "failed", error=error_message)
+                    self._recording_store.update(
+                        rec_id,
+                        "failed",
+                        error=error_message,
+                        billing=billing,
+                    )
                     self._send_notification(
                         "retry_failed",
                         {"id": rec_id, "error": error_message},
                     )
             except Exception as e:
-                self._recording_store.update(rec_id, "failed", error=str(e))
+                billing = merge_billing(engine.get_last_metering()) if "engine" in locals() else None
+                self._recording_store.update(
+                    rec_id,
+                    "failed",
+                    error=str(e),
+                    billing=billing,
+                )
                 self._send_notification(
                     "retry_failed", {"id": rec_id, "error": str(e)}
                 )

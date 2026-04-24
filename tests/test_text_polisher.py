@@ -8,6 +8,7 @@ import yaml
 def _mock_generation_response(text: str):
     return SimpleNamespace(
         status_code=200,
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
         output=SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content=text))]
         ),
@@ -17,6 +18,7 @@ def _mock_generation_response(text: str):
 def _mock_multimodal_response(text: str):
     return SimpleNamespace(
         status_code=200,
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
         output=SimpleNamespace(
             choices=[
                 SimpleNamespace(
@@ -117,6 +119,7 @@ def test_polish_uses_llm_with_no_thinking(tmp_path, monkeypatch):
     assert "Vocal More 已经接好了" in captured["messages"][1]["content"][0]["text"]
     assert result.polished_text == "Vocal More 已经接好了。"
     assert result.used_llm is True
+    assert result.billing["cost_cny"] > 0
 
 
 def test_polish_non_catalog_model_uses_generation_api(tmp_path, monkeypatch):

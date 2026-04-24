@@ -50,6 +50,7 @@ class RecordingStore:
                     entry["filename"] = wav_path.name
                     entry.setdefault("transcript", None)
                     entry.setdefault("error", None)
+                    entry.setdefault("billing", None)
                     normalized.append(entry)
             return normalized
         except (json.JSONDecodeError, OSError):
@@ -137,6 +138,7 @@ class RecordingStore:
         transcript: Optional[str] = _MISSING,
         *,
         error: Optional[str] = _MISSING,
+        billing: Optional[dict] = _MISSING,
     ) -> None:
         """Update status and transcript for a recording."""
         with self._lock:
@@ -149,6 +151,8 @@ class RecordingStore:
                         rec["error"] = error
                     elif status == "success":
                         rec["error"] = None
+                    if billing is not _MISSING:
+                        rec["billing"] = billing
                     break
             self._save_index()
 

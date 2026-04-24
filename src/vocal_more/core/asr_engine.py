@@ -60,6 +60,11 @@ from ..infrastructure.asr.trace import (
     update_trace_ids_from_openai_chunk as _update_trace_ids_from_openai_chunk,
     update_trace_ids_from_openai_stream as _update_trace_ids_from_openai_stream,
     update_trace_ids_from_response as _update_trace_ids_from_response,
+    update_trace_usage_from_response as _update_trace_usage_from_response,
+)
+from ..infrastructure.pricing import (
+    build_asr_billing,
+    extract_usage_from_response as _extract_usage_from_response,
 )
 from .text_polisher import (
     TextPolisher,
@@ -527,6 +532,7 @@ class BatchASRCallback(OmniRealtimeCallback):
             elif event_type == "response.done":
                 self._response_started.set()
                 self._response_done_received = True
+                _update_trace_usage_from_response(self._debug_trace, response)
                 response_obj = response.get("response")
                 response_status = ""
                 if isinstance(response_obj, dict):
@@ -641,6 +647,7 @@ class BatchASREngine:
     def __init__(self):
         self.config = get_config()
         _apply_dashscope_api_key(self.config)
+        self._last_metering: dict[str, Any] | None = None
 
     def _frame_bytes(self) -> int:
         return _batch_frame_bytes(self.config.audio.channels)
@@ -775,6 +782,7 @@ class BatchASREngine:
         rather than a separate backend string.
         """
         _apply_dashscope_api_key(self.config)
+        self._last_metering = None
         model = model_override or self.config.asr.model
         model_info = get_asr_model_info(model)
         transport = model_info["transport"] if model_info else self.config.asr.backend
@@ -871,6 +879,17 @@ class BatchASREngine:
         )
         _print_trace_summary(trace)
         print(f"[BatchASR] Debug artifacts written to {json_path}")
+
+    def _finalize_trace_billing(self, trace: ASRDebugTrace) -> None:
+        trace.billing = build_asr_billing(
+            model=trace.model,
+            audio_seconds=trace.audio_duration_ms / 1000.0,
+            usage=trace.usage or None,
+        ) or {}
+        self._last_metering = dict(trace.billing) if trace.billing else None
+
+    def get_last_metering(self) -> dict[str, Any] | None:
+        return dict(self._last_metering) if self._last_metering else None
 
     def _supports_short_file(self, audio_data: bytes) -> bool:
         bytes_per_second = (
@@ -1092,6 +1111,7 @@ class BatchASREngine:
         finally:
             if not trace.result_source:
                 _finalize_trace(trace, result_source or ("error" if trace.error else "empty"))
+            self._finalize_trace_billing(trace)
             if conversation is not None:
                 try:
                     conversation.close()
@@ -1156,6 +1176,7 @@ class BatchASREngine:
                 result_format="message",
                 asr_options=asr_options,
             )
+            trace.usage = _extract_usage_from_response(response) or {}
 
             if response.status_code != 200:
                 raise Exception(f"API error: {response.code} - {response.message}")
@@ -1168,6 +1189,12 @@ class BatchASREngine:
             trace.error = str(exc)
             raise
         finally:
+            if not trace.result_source:
+                _finalize_trace(
+                    trace,
+                    "transcript" if trace.result_text else ("error" if trace.error else "empty"),
+                )
+            self._finalize_trace_billing(trace)
             self._dump_debug_artifacts(audio_data, trace)
             try:
                 os.unlink(temp_path)
@@ -1233,6 +1260,7 @@ class BatchASREngine:
             result_text = ""
             for chunk in completion:
                 _update_trace_ids_from_openai_chunk(trace, chunk)
+                trace.usage = _extract_usage_from_response(chunk) or trace.usage
                 if chunk.choices:
                     delta = chunk.choices[0].delta
                     if delta and delta.content:
@@ -1247,6 +1275,12 @@ class BatchASREngine:
             trace.error = str(exc)
             raise
         finally:
+            if not trace.result_source:
+                _finalize_trace(
+                    trace,
+                    "response" if trace.result_text else ("error" if trace.error else "empty"),
+                )
+            self._finalize_trace_billing(trace)
             self._dump_debug_artifacts(audio_data, trace)
 
     def _write_temp_wav(self, audio_data: bytes) -> str:
@@ -1415,6 +1449,8 @@ class StreamingASRCallback(OmniRealtimeCallback):
                 inbound_event["kind"] = "response_done"
                 inbound_event["response_obj"] = response_obj
                 inbound_event["status"] = response_status
+                if isinstance(response_obj, dict):
+                    inbound_event["usage"] = response_obj.get("usage")
 
             elif event_type == "session.finished":
                 inbound_event["kind"] = "session_finished"
@@ -1582,6 +1618,8 @@ class StreamingASRCallback(OmniRealtimeCallback):
             self._response_started.set()
             self._response_done_received = True
             self._response_done_status = response_status
+            if self._debug_trace is not None and isinstance(event.get("usage"), dict):
+                self._debug_trace.usage = dict(event["usage"])
             with self._lock:
                 self._response_text = _prefer_longer_text(
                     self._response_text,
@@ -1791,6 +1829,7 @@ class ASREngine:
         self._warm_close_timer: Optional[threading.Timer] = None
         self._active_trace: Optional[ASRDebugTrace] = None
         self._trace_warm_reused = False
+        self._last_metering: dict[str, Any] | None = None
 
         _apply_dashscope_api_key(self.config)
 
@@ -1829,6 +1868,12 @@ class ASREngine:
         if self._callback:
             self._callback.mark_client_event("client.result.selected", source=result_source)
         _finalize_trace(trace, result_source)
+        trace.billing = build_asr_billing(
+            model=trace.model,
+            audio_seconds=trace.audio_duration_ms / 1000.0,
+            usage=trace.usage or None,
+        ) or {}
+        self._last_metering = dict(trace.billing) if trace.billing else None
         self._batch_fallback._dump_debug_artifacts(pcm_data or b"", trace)
 
     def _queue_stats(self) -> tuple[int, int, int]:
@@ -2040,6 +2085,7 @@ class ASREngine:
         self._connect_done = threading.Event()
         self._cancel_warm_close()
         self._trace_warm_reused = False
+        self._last_metering = None
         self._clear_audio_queue()
         with self._lock:
             self._pending_audio_chunks = 0
@@ -2206,7 +2252,9 @@ class ASREngine:
                 fallback_reason="connect_timeout",
             )
             if pcm_data:
-                return self._batch_fallback.transcribe(pcm_data)
+                result = self._batch_fallback.transcribe(pcm_data)
+                self._last_metering = self._batch_fallback.get_last_metering()
+                return result
             return ""
 
         # If streaming connection failed, fall back to batch transcription
@@ -2234,7 +2282,9 @@ class ASREngine:
                     result_source="batch_fallback",
                     fallback_reason=degraded_reason,
                 )
-                return self._batch_fallback.transcribe(pcm_data)
+                result = self._batch_fallback.transcribe(pcm_data)
+                self._last_metering = self._batch_fallback.get_last_metering()
+                return result
             self._finish_active_trace(
                 pcm_data,
                 result_source="empty",
@@ -2258,7 +2308,9 @@ class ASREngine:
                     result_source="batch_fallback",
                     fallback_reason="connect_failed",
                 )
-                return self._batch_fallback.transcribe(pcm_data)
+                result = self._batch_fallback.transcribe(pcm_data)
+                self._last_metering = self._batch_fallback.get_last_metering()
+                return result
             self._finish_active_trace(
                 pcm_data,
                 result_source="empty",
@@ -2286,7 +2338,9 @@ class ASREngine:
                     result_source="batch_fallback",
                     fallback_reason="audio_drain_timeout",
                 )
-                return self._batch_fallback.transcribe(pcm_data)
+                result = self._batch_fallback.transcribe(pcm_data)
+                self._last_metering = self._batch_fallback.get_last_metering()
+                return result
             self._finish_active_trace(
                 pcm_data,
                 result_source="empty",
@@ -2345,10 +2399,12 @@ class ASREngine:
                 fallback_reason="long_audio_direct_offline",
             )
             self._is_running = False
-            return self._batch_fallback.transcribe(
+            result = self._batch_fallback.transcribe(
                 pcm_data,
                 model_override=direct_offline_model,
             )
+            self._last_metering = self._batch_fallback.get_last_metering()
+            return result
 
         if self._conversation:
             try:
@@ -2475,6 +2531,7 @@ class ASREngine:
                 fallback_reason="empty_result",
             )
             result = self._batch_fallback.transcribe(pcm_data)
+            self._last_metering = self._batch_fallback.get_last_metering()
         else:
             self._finish_active_trace(
                 pcm_data,
@@ -2496,6 +2553,9 @@ class ASREngine:
         """Check if ASR is currently running."""
         return self._is_running
 
+    def get_last_metering(self) -> dict[str, Any] | None:
+        return dict(self._last_metering) if self._last_metering else None
+
     def reset(self) -> None:
         """Reset the ASR engine state."""
         self._is_running = False
@@ -2506,6 +2566,7 @@ class ASREngine:
         self._close_conversation(stale)
         self._active_trace = None
         self._trace_warm_reused = False
+        self._last_metering = None
         with self._lock:
             self._audio_queue_high_watermark = 0
         if self._callback:

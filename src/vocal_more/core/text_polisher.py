@@ -8,6 +8,10 @@ from dashscope import Generation, MultiModalConversation
 
 from ..config import LLMConfig, get_config, get_llm_model_info
 from ..dictionary import normalize_terms
+from ..infrastructure.pricing import (
+    build_polish_billing,
+    extract_usage_from_response,
+)
 
 
 COMMON_POLISH_RULES = """通用要求：
@@ -152,6 +156,7 @@ class PolishResult:
     polished_text: str
     normalized_text: str = ""
     used_llm: bool = False
+    billing: dict | None = None
 
 
 class TextPolisher:
@@ -162,6 +167,7 @@ class TextPolisher:
         self.config = get_config()
         if self.config.api_key:
             dashscope.api_key = self.config.api_key
+        self._last_metering: dict | None = None
 
     def _build_messages(self, text: str) -> list[dict]:
         """Build system + user messages for the LLM call."""
@@ -240,13 +246,21 @@ class TextPolisher:
         """Polish the text."""
         normalized, skip = self._prepare(text)
         if skip:
+            self._last_metering = None
             return skip
 
         response = self._call_generation(self._build_messages(normalized))
         if response.status_code == 200:
+            billing = build_polish_billing(
+                model=self.config.llm.model,
+                enable_thinking=self.config.llm.enable_thinking,
+                usage=extract_usage_from_response(response),
+            )
+            self._last_metering = billing
             return PolishResult(
                 original_text=text, polished_text=self._extract_response_text(response).strip(),
                 normalized_text=normalized, used_llm=True,
+                billing=billing,
             )
         raise Exception(f"API error: {response.code} - {response.message}")
 
@@ -268,8 +282,10 @@ class TextPolisher:
         responses = self._call_generation(messages, stream=True)
 
         full_text = ""
+        last_usage = None
         for response in responses:
             if response.status_code == 200:
+                last_usage = extract_usage_from_response(response) or last_usage
                 chunk = self._extract_response_text(response)
                 full_text += chunk
                 if on_chunk:
@@ -278,9 +294,19 @@ class TextPolisher:
             else:
                 raise Exception(f"API error: {response.code} - {response.message}")
 
+        billing = build_polish_billing(
+            model=self.config.llm.model,
+            enable_thinking=self.config.llm.enable_thinking,
+            usage=last_usage,
+        )
+        self._last_metering = billing
         return PolishResult(
             original_text=text,
             polished_text=full_text.strip(),
             normalized_text=normalized,
             used_llm=True,
+            billing=billing,
         )
+
+    def get_last_metering(self) -> dict | None:
+        return self._last_metering

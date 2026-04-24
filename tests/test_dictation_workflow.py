@@ -18,6 +18,10 @@ def test_dictation_workflow_persists_audio_normalizes_text_and_optionally_pastes
     stages: list[str] = []
     asr = MagicMock()
     asr.stop.return_value = "open ai codex"
+    asr.get_last_metering.return_value = {
+        "stage": "asr",
+        "cost_cny": 0.001,
+    }
     keyboard = MagicMock()
     recording_store = MagicMock()
     text_polisher = None
@@ -50,6 +54,15 @@ def test_dictation_workflow_persists_audio_normalizes_text_and_optionally_pastes
         "success",
         "open ai codex",
         error=None,
+        billing={
+            "currency": "CNY",
+            "region": "cn-beijing",
+            "total_cost_cny": 0.001,
+            "asr_cost_cny": 0.001,
+            "polish_cost_cny": 0.0,
+            "estimated": False,
+            "asr": {"stage": "asr", "cost_cny": 0.001},
+        },
     )
     keyboard.paste_text.assert_called_once_with("OpenAI codex")
     assert stages == ["transcribing"]
@@ -64,6 +77,11 @@ def test_dictation_workflow_reports_empty_transcript_as_failure():
 
     asr = MagicMock()
     asr.stop.return_value = ""
+    asr.get_last_metering.return_value = {
+        "stage": "asr",
+        "cost_cny": 0.002,
+        "estimated": True,
+    }
     keyboard = MagicMock()
     recording_store = MagicMock()
     config = SimpleNamespace(
@@ -92,6 +110,15 @@ def test_dictation_workflow_reports_empty_transcript_as_failure():
         recording_store.save.return_value,
         "failed",
         error="empty transcript",
+        billing={
+            "currency": "CNY",
+            "region": "cn-beijing",
+            "total_cost_cny": 0.002,
+            "asr_cost_cny": 0.002,
+            "polish_cost_cny": 0.0,
+            "estimated": True,
+            "asr": {"stage": "asr", "cost_cny": 0.002, "estimated": True},
+        },
     )
     keyboard.paste_text.assert_not_called()
     assert result.error_message == "empty transcript"
