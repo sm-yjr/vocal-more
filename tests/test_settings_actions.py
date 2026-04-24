@@ -22,6 +22,75 @@ def test_settings_bridge_normalizes_sync_form_state_message():
     }
 
 
+def test_settings_bridge_rejects_unknown_config_keys():
+    from vocal_more.ui.settings_bridge import SettingsBridge
+
+    bridge = SettingsBridge()
+
+    assert bridge.parse(
+        {"action": "setConfig", "key": "debug.dump_everything", "value": True}
+    ) is None
+    assert bridge.parse(
+        {"action": "setConfig", "key": "audio.gain", "value": 3.0}
+    ) == {"action": "set_config", "key": "audio.gain", "value": 3.0}
+
+
+def test_settings_bridge_sanitizes_sync_form_state_payload():
+    from vocal_more.ui.settings_bridge import SettingsBridge
+
+    bridge = SettingsBridge()
+
+    message = bridge.parse(
+        {
+            "action": "syncFormState",
+            "state": {
+                "api_key": "sk-test",
+                "legacy_mode": True,
+                "audio": {"gain": 3.0, "debug_path": "/tmp/private"},
+                "llm": {"level": "strong", "unknown": True},
+                "hotkey": "not-a-dict",
+            },
+        }
+    )
+
+    assert message == {
+        "action": "sync_form_state",
+        "payload": {
+            "api_key": "sk-test",
+            "audio": {"gain": 3.0},
+            "llm": {"level": "strong"},
+        },
+    }
+
+
+def test_settings_bridge_rejects_malformed_payloads():
+    from vocal_more.ui.settings_bridge import SettingsBridge
+
+    bridge = SettingsBridge()
+
+    assert bridge.parse({"action": "setActiveHotkeys", "hotkeys": "fn"}) is None
+    assert bridge.parse({"action": "retryTranscription", "id": ["rec-1"]}) is None
+    assert bridge.parse({"action": "setAsrModel", "model": "", "backend": "realtime_ws"}) is None
+
+
+def test_settings_bridge_allows_only_expected_external_urls():
+    from vocal_more.ui.settings_bridge import SettingsBridge
+
+    bridge = SettingsBridge()
+
+    assert bridge.parse(
+        {
+            "action": "openExternal",
+            "url": "https://dashscope.console.aliyun.com/apiKey",
+        }
+    ) == {
+        "action": "open_external",
+        "url": "https://dashscope.console.aliyun.com/apiKey",
+    }
+    assert bridge.parse({"action": "openExternal", "url": "file:///etc/passwd"}) is None
+    assert bridge.parse({"action": "openExternal", "url": "https://example.com"}) is None
+
+
 def test_settings_action_dispatcher_routes_sync_form_state():
     from vocal_more.ui.settings_actions import SettingsActionDispatcher
 

@@ -261,6 +261,65 @@ def test_apply_form_state_normalizes_nested_config():
     assert config.ui.language == "zh"
 
 
+def test_config_boolean_strings_parse_as_booleans():
+    """String booleans from WebView/RPC payloads should not rely on bool(str)."""
+    from vocal_more.config import Config
+
+    config = Config()
+
+    config.apply_update("enable_polish", "false")
+    config.apply_update("auto_paste", "0")
+    config.apply_update("audio.highpass_filter", "no")
+    config.apply_update("audio.soft_limiter", "off")
+    config.apply_update("asr.use_dictionary_corpus", "false")
+    config.apply_update("llm.structured", "yes")
+    config.apply_update("llm.enable_thinking", "1")
+
+    assert config.enable_polish is False
+    assert config.auto_paste is False
+    assert config.audio.highpass_filter is False
+    assert config.audio.soft_limiter is False
+    assert config.asr.use_dictionary_corpus is False
+    assert config.llm.structured is True
+    assert config.llm.enable_thinking is True
+
+
+def test_config_numeric_fields_are_clamped_to_supported_ranges():
+    """Malformed numeric payloads should be normalized before reaching runtime code."""
+    from vocal_more.config import Config
+
+    config = Config()
+
+    config.apply_update("audio.gain", -999)
+    assert round(config.audio.gain, 6) == round(10 ** (-6 / 20), 6)
+    config.apply_update("audio.gain", 999)
+    assert round(config.audio.gain, 6) == round(10 ** (30 / 20), 6)
+
+    config.apply_update("audio.highpass_freq", -1)
+    assert config.audio.highpass_freq == 50
+    config.apply_update("audio.highpass_freq", 999999)
+    assert config.audio.highpass_freq == 500
+
+    config.apply_update("llm.temperature", -2)
+    assert config.llm.temperature == 0.0
+    config.apply_update("llm.temperature", 99)
+    assert config.llm.temperature == 1.0
+
+    config.apply_update("hotkey.double_tap_threshold", -5)
+    assert config.hotkey.double_tap_threshold == 0.15
+    config.apply_update("hotkey.double_tap_threshold", 9)
+    assert config.hotkey.double_tap_threshold == 0.5
+
+    config.apply_update("audio.sample_rate", 0)
+    assert config.audio.sample_rate == 8000
+    config.apply_update("audio.channels", 99)
+    assert config.audio.channels == 2
+    config.apply_update("audio.blocksize", 0)
+    assert config.audio.blocksize == 128
+    config.apply_update("llm.max_tokens", -1)
+    assert config.llm.max_tokens == 1
+
+
 def test_load_auto_cleans_legacy_noise_gate_field(tmp_path, monkeypatch):
     """Old noise_gate config should disappear as soon as the config is loaded."""
     from vocal_more.config import Config

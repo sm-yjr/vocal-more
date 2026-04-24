@@ -40,6 +40,11 @@ from ..infrastructure.asr.response_parsing import (
     extract_text_from_realtime_item as _extract_text_from_realtime_item,
     prefer_longer_text as _prefer_longer_text,
 )
+from ..infrastructure.asr.routing import (
+    direct_offline_fallback_model as _routing_direct_offline_fallback_model,
+    join_transcript_segments as _routing_join_transcript_segments,
+    omni_offline_fallback_model as _routing_omni_offline_fallback_model,
+)
 from ..infrastructure.asr.session_policy import (
     conversation_socket_connected as _conversation_socket_connected,
     should_reuse_warm_session,
@@ -185,13 +190,7 @@ def _should_start_inline_response_now(
 
 
 def _get_omni_offline_fallback_model(model_id: str) -> Optional[str]:
-    if not model_id.endswith("-realtime"):
-        return None
-    fallback_model = model_id.removesuffix("-realtime")
-    fallback_info = get_asr_model_info(fallback_model)
-    if fallback_info and fallback_info.get("transport") == "omni_offline":
-        return fallback_model
-    return None
+    return _routing_omni_offline_fallback_model(model_id)
 
 
 def _extract_multimodal_text(response) -> str:
@@ -286,37 +285,15 @@ def _get_direct_offline_fallback_model(
     model_id: str,
     duration_seconds: float,
 ) -> Optional[str]:
-    fallback_model = _get_omni_offline_fallback_model(model_id)
-    if (
-        fallback_model
-        and duration_seconds >= OMNI_REALTIME_DIRECT_OFFLINE_THRESHOLD_SECONDS
-    ):
-        return fallback_model
-    return None
+    return _routing_direct_offline_fallback_model(
+        model_id,
+        duration_seconds,
+        threshold_seconds=OMNI_REALTIME_DIRECT_OFFLINE_THRESHOLD_SECONDS,
+    )
 
 
 def _join_transcript_segments(segments: list[str]) -> str:
-    """Combine chunk transcripts without collapsing natural punctuation boundaries."""
-    normalized = [segment.strip() for segment in segments if segment and segment.strip()]
-    if not normalized:
-        return ""
-
-    result = normalized[0]
-    trailing_punctuation = "。！？!?\n"
-    leading_punctuation = "，。！？、；：,.!?;:"
-
-    for segment in normalized[1:]:
-        if not result:
-            result = segment
-            continue
-        if result.endswith(tuple(trailing_punctuation)):
-            result += segment
-        elif segment[:1] in leading_punctuation:
-            result += segment
-        else:
-            result += "\n" + segment
-
-    return result
+    return _routing_join_transcript_segments(segments)
 
 
 def _format_trace_ids(trace: Optional[ASRDebugTrace]) -> str:

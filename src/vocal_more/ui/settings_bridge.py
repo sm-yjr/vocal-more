@@ -3,6 +3,118 @@
 from __future__ import annotations
 
 from typing import Any, Optional
+from urllib.parse import urlparse
+
+from ..domain.model_catalog import ASR_MODEL_IDS
+
+
+_ALLOWED_TOP_LEVEL_CONFIG_KEYS = {
+    "api_key",
+    "default_mode",
+    "auto_paste",
+    "enable_polish",
+}
+
+_ALLOWED_CONFIG_SECTION_FIELDS = {
+    "audio": {
+        "sample_rate",
+        "channels",
+        "blocksize",
+        "input_device",
+        "gain",
+        "highpass_filter",
+        "highpass_freq",
+        "soft_limiter",
+    },
+    "asr": {
+        "backend",
+        "model",
+        "language",
+        "batch_mode",
+        "use_dictionary_corpus",
+        "extra_corpus_terms",
+    },
+    "llm": {
+        "model",
+        "temperature",
+        "enable_thinking",
+        "max_tokens",
+        "level",
+        "structured",
+        "tone",
+        "persona",
+    },
+    "hotkey": {
+        "primary_key",
+        "fallback_key",
+        "double_tap_threshold",
+        "active_hotkeys",
+        "custom_key",
+    },
+    "ui": {
+        "language",
+    },
+}
+
+_ALLOWED_CONFIG_KEYS = set(_ALLOWED_TOP_LEVEL_CONFIG_KEYS)
+for _section, _fields in _ALLOWED_CONFIG_SECTION_FIELDS.items():
+    _ALLOWED_CONFIG_KEYS.update(f"{_section}.{field}" for field in _fields)
+
+_ALLOWED_ASR_BACKENDS = {"realtime_ws", "short_file", "omni_offline"}
+_ALLOWED_EXTERNAL_HOSTS = {"dashscope.console.aliyun.com"}
+
+
+def _allowed_config_key(key: object) -> bool:
+    return isinstance(key, str) and key in _ALLOWED_CONFIG_KEYS
+
+
+def _sanitize_form_state(state: object) -> Optional[dict[str, Any]]:
+    if not isinstance(state, dict):
+        return None
+
+    payload: dict[str, Any] = {}
+    for key in _ALLOWED_TOP_LEVEL_CONFIG_KEYS:
+        if key in state:
+            payload[key] = state[key]
+
+    for section, allowed_fields in _ALLOWED_CONFIG_SECTION_FIELDS.items():
+        section_data = state.get(section)
+        if not isinstance(section_data, dict):
+            continue
+        sanitized = {
+            field: section_data[field]
+            for field in allowed_fields
+            if field in section_data
+        }
+        if sanitized:
+            payload[section] = sanitized
+
+    return payload
+
+
+def _non_empty_string(value: object) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _recording_action(action: str, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+    rec_id = _non_empty_string(body.get("id"))
+    if rec_id is None:
+        return None
+    return {"action": action, "id": rec_id}
+
+
+def _allowed_external_url(url: object) -> Optional[str]:
+    if not isinstance(url, str):
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return None
+    if parsed.netloc not in _ALLOWED_EXTERNAL_HOSTS:
+        return None
+    return url
 
 
 class SettingsBridge:
@@ -21,41 +133,66 @@ class SettingsBridge:
             return None
         return normalizer(body)
 
-    def _normalize_setConfig(self, body: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_setConfig(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        key = body.get("key")
+        if not _allowed_config_key(key):
+            return None
         return {
             "action": "set_config",
-            "key": body.get("key"),
+            "key": key,
             "value": body.get("value"),
         }
 
-    def _normalize_setAsrModel(self, body: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_setAsrModel(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        model = _non_empty_string(body.get("model"))
+        backend = _non_empty_string(body.get("backend"))
+        if model not in ASR_MODEL_IDS or backend not in _ALLOWED_ASR_BACKENDS:
+            return None
         return {
             "action": "set_asr_model",
-            "model": body.get("model"),
-            "backend": body.get("backend"),
+            "model": model,
+            "backend": backend,
         }
 
-    def _normalize_syncFormState(self, body: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_syncFormState(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        payload = _sanitize_form_state(body.get("state"))
+        if payload is None:
+            return None
         return {
             "action": "sync_form_state",
-            "payload": body.get("state"),
+            "payload": payload,
         }
 
-    def _normalize_setDevice(self, body: dict[str, Any]) -> dict[str, Any]:
-        return {"action": "set_device", "device": body.get("device")}
+    def _normalize_setDevice(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        device = body.get("device")
+        if device is not None and not isinstance(device, str):
+            return None
+        return {"action": "set_device", "device": device}
 
-    def _normalize_setActiveHotkeys(self, body: dict[str, Any]) -> dict[str, Any]:
-        return {"action": "set_active_hotkeys", "hotkeys": body.get("hotkeys", [])}
+    def _normalize_setActiveHotkeys(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        hotkeys = body.get("hotkeys", [])
+        if not isinstance(hotkeys, list) or not all(isinstance(item, str) for item in hotkeys):
+            return None
+        return {"action": "set_active_hotkeys", "hotkeys": hotkeys}
 
-    def _normalize_addDictEntry(self, body: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_addDictEntry(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        term = _non_empty_string(body.get("term"))
+        if term is None:
+            return None
+        aliases = body.get("aliases", [])
+        if not isinstance(aliases, list):
+            return None
         return {
             "action": "add_dict_entry",
-            "term": body.get("term", ""),
-            "aliases": body.get("aliases", []),
+            "term": term,
+            "aliases": [alias for alias in aliases if isinstance(alias, str)],
         }
 
-    def _normalize_removeDictEntry(self, body: dict[str, Any]) -> dict[str, Any]:
-        return {"action": "remove_dict_entry", "term": body.get("term", "")}
+    def _normalize_removeDictEntry(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        term = _non_empty_string(body.get("term"))
+        if term is None:
+            return None
+        return {"action": "remove_dict_entry", "term": term}
 
     def _normalize_refreshDevices(self, body: dict[str, Any]) -> dict[str, Any]:
         return {"action": "refresh_devices"}
@@ -66,23 +203,26 @@ class SettingsBridge:
     def _normalize_openDictFile(self, body: dict[str, Any]) -> dict[str, Any]:
         return {"action": "open_dict_file"}
 
-    def _normalize_openExternal(self, body: dict[str, Any]) -> dict[str, Any]:
-        return {"action": "open_external", "url": body.get("url", "")}
+    def _normalize_openExternal(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        url = _allowed_external_url(body.get("url", ""))
+        if url is None:
+            return None
+        return {"action": "open_external", "url": url}
 
     def _normalize_getRecordings(self, body: dict[str, Any]) -> dict[str, Any]:
         return {"action": "get_recordings"}
 
-    def _normalize_retryTranscription(self, body: dict[str, Any]) -> dict[str, Any]:
-        return {"action": "retry_transcription", "id": body.get("id", "")}
+    def _normalize_retryTranscription(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        return _recording_action("retry_transcription", body)
 
-    def _normalize_deleteRecording(self, body: dict[str, Any]) -> dict[str, Any]:
-        return {"action": "delete_recording", "id": body.get("id", "")}
+    def _normalize_deleteRecording(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        return _recording_action("delete_recording", body)
 
-    def _normalize_playRecording(self, body: dict[str, Any]) -> dict[str, Any]:
-        return {"action": "play_recording", "id": body.get("id", "")}
+    def _normalize_playRecording(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        return _recording_action("play_recording", body)
 
-    def _normalize_copyTranscript(self, body: dict[str, Any]) -> dict[str, Any]:
-        return {"action": "copy_transcript", "id": body.get("id", "")}
+    def _normalize_copyTranscript(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        return _recording_action("copy_transcript", body)
 
     def _normalize_startMicTest(self, body: dict[str, Any]) -> dict[str, Any]:
         return {"action": "start_mic_test"}

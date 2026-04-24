@@ -7,6 +7,27 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from ..localization import UILanguage, normalize_ui_language
+from .config_parsing import (
+    MAX_AUDIO_BLOCKSIZE,
+    MAX_AUDIO_CHANNELS,
+    MAX_AUDIO_GAIN,
+    MAX_AUDIO_SAMPLE_RATE,
+    MAX_DOUBLE_TAP_THRESHOLD,
+    MAX_HIGHPASS_FREQ,
+    MAX_LLM_MAX_TOKENS,
+    MAX_LLM_TEMPERATURE,
+    MIN_AUDIO_BLOCKSIZE,
+    MIN_AUDIO_CHANNELS,
+    MIN_AUDIO_GAIN,
+    MIN_AUDIO_SAMPLE_RATE,
+    MIN_DOUBLE_TAP_THRESHOLD,
+    MIN_HIGHPASS_FREQ,
+    MIN_LLM_MAX_TOKENS,
+    MIN_LLM_TEMPERATURE,
+    clamp_float,
+    clamp_int,
+    parse_bool,
+)
 from .model_catalog import (
     ASRBackend,
     ASR_MODEL_IDS,
@@ -291,9 +312,9 @@ class AppConfig:
         if field_name == "api_key":
             self.api_key = str(value or "")
         elif field_name == "enable_polish":
-            self.enable_polish = bool(value)
+            self.enable_polish = parse_bool(value, self.enable_polish)
         elif field_name == "auto_paste":
-            self.auto_paste = bool(value)
+            self.auto_paste = parse_bool(value, self.auto_paste)
         elif field_name == "default_mode":
             self.default_mode = _parse_default_mode(value)
         else:
@@ -315,21 +336,47 @@ class AppConfig:
 
     def _apply_audio_update(self, field_name: str, value: Any) -> None:
         if field_name == "sample_rate":
-            self.audio.sample_rate = int(value)
+            self.audio.sample_rate = clamp_int(
+                value,
+                default=self.audio.sample_rate,
+                minimum=MIN_AUDIO_SAMPLE_RATE,
+                maximum=MAX_AUDIO_SAMPLE_RATE,
+            )
         elif field_name == "channels":
-            self.audio.channels = int(value)
+            self.audio.channels = clamp_int(
+                value,
+                default=self.audio.channels,
+                minimum=MIN_AUDIO_CHANNELS,
+                maximum=MAX_AUDIO_CHANNELS,
+            )
         elif field_name == "blocksize":
-            self.audio.blocksize = int(value)
+            self.audio.blocksize = clamp_int(
+                value,
+                default=self.audio.blocksize,
+                minimum=MIN_AUDIO_BLOCKSIZE,
+                maximum=MAX_AUDIO_BLOCKSIZE,
+            )
         elif field_name == "input_device":
-            self.audio.input_device = str(value) if value else None
+            device = str(value).strip() if value else ""
+            self.audio.input_device = device or None
         elif field_name == "gain":
-            self.audio.gain = float(value)
+            self.audio.gain = clamp_float(
+                value,
+                default=self.audio.gain,
+                minimum=MIN_AUDIO_GAIN,
+                maximum=MAX_AUDIO_GAIN,
+            )
         elif field_name == "highpass_filter":
-            self.audio.highpass_filter = bool(value)
+            self.audio.highpass_filter = parse_bool(value, self.audio.highpass_filter)
         elif field_name == "highpass_freq":
-            self.audio.highpass_freq = int(value)
+            self.audio.highpass_freq = clamp_int(
+                value,
+                default=self.audio.highpass_freq,
+                minimum=MIN_HIGHPASS_FREQ,
+                maximum=MAX_HIGHPASS_FREQ,
+            )
         elif field_name == "soft_limiter":
-            self.audio.soft_limiter = bool(value)
+            self.audio.soft_limiter = parse_bool(value, self.audio.soft_limiter)
         else:
             raise ValueError(f"Unknown config key: audio.{field_name}")
 
@@ -349,7 +396,10 @@ class AppConfig:
         elif field_name == "batch_mode":
             self.asr.batch_mode = _parse_batch_mode(str(value))
         elif field_name == "use_dictionary_corpus":
-            self.asr.use_dictionary_corpus = bool(value)
+            self.asr.use_dictionary_corpus = parse_bool(
+                value,
+                self.asr.use_dictionary_corpus,
+            )
         elif field_name == "extra_corpus_terms":
             self.asr.extra_corpus_terms = _parse_extra_corpus_terms(value)
         else:
@@ -359,17 +409,27 @@ class AppConfig:
         if field_name == "model":
             self.llm.model = _parse_llm_model(str(value))
         elif field_name == "temperature":
-            self.llm.temperature = float(value)
+            self.llm.temperature = clamp_float(
+                value,
+                default=self.llm.temperature,
+                minimum=MIN_LLM_TEMPERATURE,
+                maximum=MAX_LLM_TEMPERATURE,
+            )
         elif field_name == "enable_thinking":
-            self.llm.enable_thinking = bool(value)
+            self.llm.enable_thinking = parse_bool(value, self.llm.enable_thinking)
         elif field_name == "max_tokens":
-            self.llm.max_tokens = int(value)
+            self.llm.max_tokens = clamp_int(
+                value,
+                default=self.llm.max_tokens,
+                minimum=MIN_LLM_MAX_TOKENS,
+                maximum=MAX_LLM_MAX_TOKENS,
+            )
         elif field_name == "polish_mode":
             return
         elif field_name == "level":
             self.llm.level = _parse_level(str(value))
         elif field_name == "structured":
-            self.llm.structured = bool(value)
+            self.llm.structured = parse_bool(value, self.llm.structured)
         elif field_name == "tone":
             self.llm.tone = _parse_tone(str(value))
         elif field_name == "persona":
@@ -387,7 +447,12 @@ class AppConfig:
         elif field_name == "fallback_key":
             self.hotkey.fallback_key = str(value)
         elif field_name == "double_tap_threshold":
-            self.hotkey.double_tap_threshold = float(value)
+            self.hotkey.double_tap_threshold = clamp_float(
+                value,
+                default=self.hotkey.double_tap_threshold,
+                minimum=MIN_DOUBLE_TAP_THRESHOLD,
+                maximum=MAX_DOUBLE_TAP_THRESHOLD,
+            )
         elif field_name == "active_hotkeys":
             self.hotkey.active_hotkeys = _parse_hotkeys(value if isinstance(value, list) else [])
         elif field_name == "custom_key":

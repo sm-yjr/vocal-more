@@ -4,6 +4,16 @@ from pathlib import Path
 
 
 SETTINGS_HTML = Path(__file__).resolve().parents[1] / "resources" / "settings" / "settings.html"
+SETTINGS_CSS = SETTINGS_HTML.with_name("settings.css")
+
+
+def test_html_settings_loads_external_stylesheet():
+    """Settings layout styles should live outside the already-large HTML file."""
+    html = SETTINGS_HTML.read_text(encoding="utf-8")
+
+    assert 'rel="stylesheet"' in html
+    assert 'href="settings.css"' in html
+    assert SETTINGS_CSS.exists()
 
 
 def test_html_settings_has_dedicated_omni_llm_gating_logic():
