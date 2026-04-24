@@ -367,6 +367,8 @@ class SettingsWindow:
         devices: list,
         dictionary: list,
         version: str = "",
+        initial_tab: str = "",
+        focus_recording_id: str = "",
     ) -> None:
         """Show the settings window and populate with data."""
         # Bring app to front
@@ -387,6 +389,9 @@ class SettingsWindow:
             "devices": devices,
             "dictionary": dictionary,
             "recordings": self._recording_store.list_recordings() if self._recording_store else [],
+            "initial_tab": initial_tab,
+            "focus_recording_id": focus_recording_id,
+            "focusRecordingId": focus_recording_id,
         }
 
         # Inject data into page and reload
@@ -439,6 +444,7 @@ class SettingsWindow:
             on_open_external=self._on_open_external,
             on_get_recordings=self._handle_get_recordings,
             on_retry_transcription=self._handle_retry_transcription,
+            on_generate_meeting_notes=self._handle_generate_meeting_notes,
             on_delete_recording=self._handle_delete_recording,
             on_play_recording=self._handle_play_recording,
             on_copy_transcript=self._handle_copy_transcript,
@@ -538,6 +544,29 @@ class SettingsWindow:
                 self._handle_get_recordings()
 
         self._background_tasks.submit(_do_retry)
+
+    def _handle_generate_meeting_notes(self, rec_id: str) -> None:
+        if not self._recording_store:
+            return
+
+        self._eval_js(f"meetingNotesStarted({json.dumps(rec_id)})")
+
+        def _do_generate():
+            from ..application.meeting_jobs import MeetingNotesRecordingRunner
+            from ..config import get_config
+
+            MeetingNotesRecordingRunner(
+                config=get_config(),
+                recording_store=self._recording_store,
+            ).generate_for_recording(
+                rec_id,
+                on_stage=lambda stage: self._eval_js(
+                    f"meetingNotesStage({json.dumps(rec_id)}, {json.dumps(stage)})"
+                ),
+            )
+            self._handle_get_recordings()
+
+        self._background_tasks.submit(_do_generate)
 
     def _handle_delete_recording(self, rec_id: str) -> None:
         if not self._recording_store:

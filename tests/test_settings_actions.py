@@ -70,6 +70,7 @@ def test_settings_bridge_rejects_malformed_payloads():
 
     assert bridge.parse({"action": "setActiveHotkeys", "hotkeys": "fn"}) is None
     assert bridge.parse({"action": "retryTranscription", "id": ["rec-1"]}) is None
+    assert bridge.parse({"action": "generateMeetingNotes", "id": ["rec-1"]}) is None
     assert bridge.parse({"action": "setAsrModel", "model": "", "backend": "realtime_ws"}) is None
 
 
@@ -152,3 +153,21 @@ def test_mic_test_controller_cleans_up_recorder_after_stop():
     recorder.stop.assert_called_once_with()
     timer.cancel.assert_called_once_with()
     assert controller.is_running is False
+
+
+def test_settings_bridge_and_dispatcher_route_meeting_notes_action():
+    from vocal_more.ui.settings_actions import SettingsActionDispatcher
+    from vocal_more.ui.settings_bridge import SettingsBridge
+
+    bridge = SettingsBridge()
+    message = bridge.parse({"action": "generateMeetingNotes", "id": "rec-1"})
+    calls: list[str] = []
+    dispatcher = SettingsActionDispatcher(
+        on_generate_meeting_notes=lambda rec_id: calls.append(rec_id)
+    )
+
+    assert message == {"action": "generate_meeting_notes", "id": "rec-1"}
+
+    dispatcher.dispatch(message)
+
+    assert calls == ["rec-1"]

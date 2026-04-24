@@ -149,7 +149,7 @@ class FloatingCapsule:
 
     def _show_on_main_thread(self, mode: str) -> None:
         self._current_mode = mode
-        self._panel.setIgnoresMouseEvents_(mode == "pushToTalk")
+        self._panel.setIgnoresMouseEvents_(mode in {"pushToTalk", "meeting"})
 
         # Cancel any pending hide timer from a previous hide() call
         if self._hide_timer:

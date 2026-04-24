@@ -52,7 +52,7 @@ VALID_HOTKEYS = (
     "f19",
     "f20",
 )
-VALID_DEFAULT_MODES = ("walkie_talkie", "realtime_long")
+VALID_DEFAULT_MODES = ("walkie_talkie", "realtime_long", "meeting")
 ASRLanguage = Literal["zh", "en", "auto"]
 HOTKEY_ALIASES = {
     "printscreen": "f13",

@@ -810,6 +810,22 @@ class BatchASREngine:
             language_override=language_override,
         )
 
+    def transcribe_with_system_prompt(
+        self,
+        audio_data: bytes,
+        *,
+        system_prompt: str,
+        model_override: Optional[str] = None,
+        language_override: Optional[str] = None,
+    ) -> str:
+        """Transcribe audio with an Omni offline instruction prompt."""
+        del language_override
+        return self._transcribe_omni_offline(
+            audio_data,
+            model_override=model_override,
+            system_prompt=system_prompt,
+        )
+
     def _build_debug_trace(
         self,
         backend: str,
@@ -1178,7 +1194,12 @@ class BatchASREngine:
             except OSError:
                 pass
 
-    def _transcribe_omni_offline(self, audio_data: bytes, model_override: Optional[str] = None) -> str:
+    def _transcribe_omni_offline(
+        self,
+        audio_data: bytes,
+        model_override: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+    ) -> str:
         model = model_override or self.config.asr.model
         print(f"[BatchASR] Starting Omni offline transcription, audio size: {len(audio_data)} bytes")
         print(f"[BatchASR] Backend: omni_offline, Model: {model}")
@@ -1199,10 +1220,12 @@ class BatchASREngine:
                 wf.writeframes(audio_data)
             audio_b64 = base64.b64encode(wav_buf.getvalue()).decode("ascii")
 
-            if self.config.enable_polish:
-                system_prompt = build_omni_inline_polish_instructions(self.config.llm)
+            if system_prompt is not None:
+                prompt = system_prompt
+            elif self.config.enable_polish:
+                prompt = build_omni_inline_polish_instructions(self.config.llm)
             else:
-                system_prompt = "请将以下音频准确转录为文字，直接输出转录结果。"
+                prompt = "请将以下音频准确转录为文字，直接输出转录结果。"
 
             from openai import OpenAI
             client = OpenAI(
@@ -1214,7 +1237,7 @@ class BatchASREngine:
             completion = client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": system_prompt},
+                    {"role": "system", "content": prompt},
                     {
                         "role": "user",
                         "content": [

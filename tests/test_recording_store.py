@@ -105,6 +105,34 @@ class TestUpdate:
         rec = store.list_recordings()[0]
         assert rec["billing"] == billing
 
+    def test_update_persists_meeting_notes(self, store):
+        rec_id = store.save(_make_pcm(), "realtime_long", "m")
+        meeting_notes = {
+            "speaker_count": 2,
+            "speakers": [
+                {"id": "speaker_1", "label": "Speaker 1"},
+                {"id": "speaker_2", "label": "Speaker 2"},
+            ],
+            "segments": [
+                {
+                    "speaker": "speaker_1",
+                    "speaker_label": "Speaker 1",
+                    "text": "We should ship this first.",
+                },
+                {
+                    "speaker": "speaker_2",
+                    "speaker_label": "Speaker 2",
+                    "text": "Agreed.",
+                },
+            ],
+            "transcript": "Speaker 1: We should ship this first.\nSpeaker 2: Agreed.",
+        }
+
+        store.update(rec_id, "success", meeting_notes["transcript"], meeting=meeting_notes)
+
+        rec = store.list_recordings()[0]
+        assert rec["meeting"] == meeting_notes
+
     def test_update_nonexistent_id_is_noop(self, store):
         store.save(_make_pcm(), "walkie_talkie", "m")
         store.update("nonexistent", "success", "text")
@@ -225,6 +253,7 @@ class TestPersistence:
         rec = store.list_recordings()[0]
         assert rec["error"] is None
         assert rec["billing"] is None
+        assert rec["meeting"] is None
 
     def test_handles_corrupt_index(self, tmp_path):
         recs_dir = tmp_path / "recs"

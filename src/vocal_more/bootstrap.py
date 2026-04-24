@@ -20,6 +20,7 @@ class MenuAppDependencies:
     recording_store: object
     walkie_talkie: object
     realtime_long: object
+    meeting: object
     current_mode: object
     command_coordinator: object
     hotkey_manager: object
@@ -34,6 +35,7 @@ class RPCHandlerDependencies:
     text_polisher: object | None
     walkie_talkie: object
     realtime_long: object
+    meeting: object
     current_mode: object
     command_coordinator: object
     runtime: RuntimeFacade
@@ -46,10 +48,24 @@ class AppRuntime:
     rpc_handler: object
 
 
-def _select_mode(default_mode: str, walkie_talkie: object, realtime_long: object) -> object:
+def _select_mode(
+    default_mode: str,
+    walkie_talkie: object,
+    realtime_long: object,
+    meeting: object,
+) -> object:
+    if default_mode == "meeting":
+        return meeting
     if default_mode == "realtime_long":
         return realtime_long
     return walkie_talkie
+
+
+def _mode_name_for_instance(mode: object, modes: dict[str, object]) -> str:
+    for name, candidate in modes.items():
+        if mode is candidate:
+            return name
+    return "realtime_long"
 
 
 def build_menu_app_dependencies(
@@ -61,6 +77,7 @@ def build_menu_app_dependencies(
     recording_store_factory,
     walkie_talkie_factory,
     realtime_long_factory,
+    meeting_factory,
     hotkey_manager_factory,
     settings_window_factory,
     command_coordinator_factory=DictationCommandCoordinator,
@@ -94,7 +111,16 @@ def build_menu_app_dependencies(
         on_audio_level=app._on_audio_level,
         recording_store=recording_store,
     )
-    current_mode = _select_mode(config.default_mode, walkie_talkie, realtime_long)
+    meeting = meeting_factory(
+        on_state_change=app._on_state_change,
+        on_result=app._on_result,
+        on_error=app._on_error,
+        on_processing_stage=app._on_processing_stage,
+        on_audio_level=app._on_audio_level,
+        recording_store=recording_store,
+        on_meeting_result=app._on_meeting_result,
+    )
+    current_mode = _select_mode(config.default_mode, walkie_talkie, realtime_long, meeting)
     command_coordinator = command_coordinator_factory(thread_name="vocal-more-menu-commands")
 
     hotkey_manager = hotkey_manager_factory(
@@ -109,11 +135,17 @@ def build_menu_app_dependencies(
         modes={
             "walkie_talkie": walkie_talkie,
             "realtime_long": realtime_long,
+            "meeting": meeting,
         },
         get_current_mode=lambda: getattr(app, "_current_mode", None),
-        set_current_mode=lambda mode: app._select_mode(
-            "walkie_talkie" if mode is walkie_talkie else "realtime_long"
-        ),
+        set_current_mode=lambda mode: app._select_mode(_mode_name_for_instance(
+            mode,
+            {
+                "walkie_talkie": walkie_talkie,
+                "realtime_long": realtime_long,
+                "meeting": meeting,
+            },
+        )),
         on_refresh_text_polisher=app._refresh_text_polisher,
         on_set_active_hotkeys=getattr(hotkey_manager, "set_active_hotkeys", None),
         on_set_custom_key=getattr(hotkey_manager, "set_custom_key", None),
@@ -145,6 +177,7 @@ def build_menu_app_dependencies(
         recording_store=recording_store,
         walkie_talkie=walkie_talkie,
         realtime_long=realtime_long,
+        meeting=meeting,
         current_mode=current_mode,
         command_coordinator=command_coordinator,
         hotkey_manager=hotkey_manager,
@@ -162,6 +195,7 @@ def build_rpc_handler_dependencies(
     recording_store_factory,
     walkie_talkie_factory,
     realtime_long_factory,
+    meeting_factory,
     command_coordinator_factory=DictationCommandCoordinator,
     runtime_factory=RuntimeFacade,
 ) -> RPCHandlerDependencies:
@@ -189,7 +223,15 @@ def build_rpc_handler_dependencies(
         on_audio_level=handler._on_audio_level,
         recording_store=recording_store,
     )
-    current_mode = _select_mode(config.default_mode, walkie_talkie, realtime_long)
+    meeting = meeting_factory(
+        on_state_change=handler._on_state_change,
+        on_result=handler._on_result,
+        on_error=handler._on_error,
+        on_processing_stage=handler._on_processing_stage,
+        on_audio_level=handler._on_audio_level,
+        recording_store=recording_store,
+    )
+    current_mode = _select_mode(config.default_mode, walkie_talkie, realtime_long, meeting)
     command_coordinator = command_coordinator_factory(thread_name="vocal-more-rpc-commands")
 
     runtime = runtime_factory(
@@ -197,6 +239,7 @@ def build_rpc_handler_dependencies(
         modes={
             "walkie_talkie": walkie_talkie,
             "realtime_long": realtime_long,
+            "meeting": meeting,
         },
         get_current_mode=lambda: getattr(handler, "_current_mode", None),
         set_current_mode=lambda mode: setattr(handler, "_current_mode", mode),
@@ -209,6 +252,7 @@ def build_rpc_handler_dependencies(
         text_polisher=text_polisher,
         walkie_talkie=walkie_talkie,
         realtime_long=realtime_long,
+        meeting=meeting,
         current_mode=current_mode,
         command_coordinator=command_coordinator,
         runtime=runtime,

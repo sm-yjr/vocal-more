@@ -23,6 +23,7 @@ from .dictionary import get_dictionary, reload_dictionary
 from .infrastructure.pricing import merge_billing
 from .localization import t
 from .modes.base_mode import BaseMode, ModeState
+from .modes.meeting import MeetingMode
 from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
 
@@ -45,6 +46,7 @@ class RPCHandler:
             recording_store_factory=RecordingStore,
             walkie_talkie_factory=WalkieTalkieMode,
             realtime_long_factory=RealtimeLongMode,
+            meeting_factory=MeetingMode,
         )
         self._apply_dependencies(dependencies)
 
@@ -54,9 +56,11 @@ class RPCHandler:
         self._text_polisher = dependencies.text_polisher
         self._walkie_talkie = dependencies.walkie_talkie
         self._realtime_long = dependencies.realtime_long
+        self._meeting = dependencies.meeting
         self._modes = {
             "walkie_talkie": self._walkie_talkie,
             "realtime_long": self._realtime_long,
+            "meeting": self._meeting,
         }
         self._current_mode = dependencies.current_mode
         self._command_coordinator = dependencies.command_coordinator
@@ -274,6 +278,46 @@ class RPCHandler:
         self._background_tasks.submit(_do_retry)
         return {"ok": True}
 
+    def _handle_generate_meeting_notes(self, params: dict) -> dict:
+        from .application.meeting_jobs import MeetingNotesRecordingRunner
+
+        rec_id = params.get("id", "")
+        if not rec_id:
+            raise RPCError(-32602, "id is required")
+
+        self._send_notification("meeting_notes_started", {"id": rec_id})
+
+        def _do_generate():
+            result = MeetingNotesRecordingRunner(
+                config=self.config,
+                recording_store=self._recording_store,
+            ).generate_for_recording(
+                rec_id,
+                on_stage=lambda stage: self._send_notification(
+                    "meeting_notes_stage",
+                    {"id": rec_id, "stage": stage},
+                ),
+            )
+            if result.status == "already_running":
+                self._send_notification(
+                    "meeting_notes_stage",
+                    {"id": rec_id, "stage": "meeting_transcribing"},
+                )
+                return
+            if result.status in {"success", "partial"}:
+                self._send_notification(
+                    "meeting_notes_completed",
+                    {"id": rec_id, "meeting": result.meeting},
+                )
+                return
+            self._send_notification(
+                "meeting_notes_failed",
+                {"id": rec_id, "error": result.error or "Meeting notes failed"},
+            )
+
+        self._background_tasks.submit(_do_generate)
+        return {"ok": True}
+
     def _handle_delete_recording(self, params: dict) -> dict:
         rec_id = params.get("id", "")
         if not rec_id:
@@ -303,7 +347,8 @@ class RPCHandler:
         dashscope.api_key = self.config.api_key or None
         self._text_polisher = TextPolisher() if self.config.api_key else None
         for mode in self._modes.values():
-            mode.text_polisher = self._text_polisher
+            if hasattr(mode, "text_polisher"):
+                mode.text_polisher = self._text_polisher
             asr = getattr(mode, "_asr", None)
             if asr is not None and hasattr(asr, "refresh_api_key"):
                 asr.refresh_api_key()

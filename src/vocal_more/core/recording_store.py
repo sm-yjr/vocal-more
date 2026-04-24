@@ -15,6 +15,7 @@ SAMPLE_WIDTH = 2
 MAX_RECORDINGS = 30
 RETRY_ASR_MODEL = "qwen3.5-omni-plus"
 _MISSING = object()
+_RUNNING_MEETING_STATUSES = {"transcribing", "summarizing"}
 
 
 class RecordingStore:
@@ -51,6 +52,7 @@ class RecordingStore:
                     entry.setdefault("transcript", None)
                     entry.setdefault("error", None)
                     entry.setdefault("billing", None)
+                    entry.setdefault("meeting", None)
                     normalized.append(entry)
             return normalized
         except (json.JSONDecodeError, OSError):
@@ -121,6 +123,7 @@ class RecordingStore:
             "status": "pending",
             "transcript": None,
             "error": None,
+            "meeting": None,
         }
 
         with self._lock:
@@ -139,6 +142,7 @@ class RecordingStore:
         *,
         error: Optional[str] = _MISSING,
         billing: Optional[dict] = _MISSING,
+        meeting: Optional[dict] = _MISSING,
     ) -> None:
         """Update status and transcript for a recording."""
         with self._lock:
@@ -153,8 +157,53 @@ class RecordingStore:
                         rec["error"] = None
                     if billing is not _MISSING:
                         rec["billing"] = billing
+                    if meeting is not _MISSING:
+                        rec["meeting"] = meeting
                     break
             self._save_index()
+
+    def begin_meeting_generation(self, recording_id: str) -> dict:
+        """Atomically mark a recording as generating meeting notes.
+
+        Returns a small status dictionary so callers can avoid launching
+        duplicate model requests for the same recording.
+        """
+        with self._lock:
+            for rec in self._recordings:
+                if rec["id"] != recording_id:
+                    continue
+
+                recording_status = rec.get("status") or "pending"
+                meeting = rec.get("meeting")
+                meeting_status = (
+                    meeting.get("status")
+                    if isinstance(meeting, dict)
+                    else None
+                )
+                if meeting_status in _RUNNING_MEETING_STATUSES:
+                    return {
+                        "started": False,
+                        "reason": "already_running",
+                        "recording_status": recording_status,
+                        "meeting": meeting,
+                    }
+
+                rec["error"] = None
+                rec["meeting"] = {"status": "transcribing"}
+                self._save_index()
+                return {
+                    "started": True,
+                    "reason": None,
+                    "recording_status": recording_status,
+                    "meeting": rec["meeting"],
+                }
+
+        return {
+            "started": False,
+            "reason": "not_found",
+            "recording_status": "pending",
+            "meeting": None,
+        }
 
     def list_recordings(self) -> list[dict]:
         """Return all recording metadata, newest first."""

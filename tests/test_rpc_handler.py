@@ -36,6 +36,7 @@ def handler(tmp_path, monkeypatch):
         patch("vocal_more.modes.realtime_long.ASREngine", return_value=MagicMock()),
         patch("vocal_more.modes.realtime_long.AudioRecorder", return_value=MagicMock()),
         patch("vocal_more.modes.realtime_long.KeyboardSimulator", return_value=MagicMock()),
+        patch("vocal_more.modes.meeting.AudioRecorder", return_value=MagicMock()),
     ):
         from vocal_more.rpc_handler import RPCHandler
         notifications = []
@@ -164,6 +165,11 @@ def test_dispatch_set_mode(handler):
 
     result2 = handler.dispatch("initialize", {})
     assert result2["current_mode"] == "realtime_long"
+
+    result = handler.dispatch("set_mode", {"mode": "meeting"})
+    assert result["ok"] is True
+    assert result["mode"] == "meeting"
+    assert handler.dispatch("initialize", {})["current_mode"] == "meeting"
 
 
 def test_dispatch_set_mode_invalid(handler):
@@ -366,3 +372,61 @@ def test_dispatch_set_active_hotkeys_normalizes_values(handler):
 
     assert result["ok"] is True
     assert handler.config.hotkey.active_hotkeys == ["f13"]
+
+
+def test_dispatch_generate_meeting_notes_updates_recording(handler, monkeypatch):
+    rec_id = handler._recording_store.save(b"\x00\x00" * 16000, "realtime_long", "m")
+    notifications = []
+    handler._send_notification = lambda name, payload: notifications.append((name, payload))
+    handler._background_tasks.submit = lambda callback, *args, **kwargs: callback(*args, **kwargs)
+
+    class FakeMeetingNotesService:
+        def __init__(self, *, config):
+            self.config = config
+
+        def generate(self, pcm_data, *, on_stage=None):
+            if on_stage is not None:
+                on_stage("meeting_transcribing")
+                on_stage("meeting_summarizing")
+            return MagicMock(
+                notes={
+                    "status": "success",
+                    "speaker_count": 2,
+                    "speakers": [
+                        {"id": "speaker_1", "label": "Speaker 1"},
+                        {"id": "speaker_2", "label": "Speaker 2"},
+                    ],
+                    "segments": [
+                        {
+                            "speaker": "speaker_1",
+                            "speaker_label": "Speaker 1",
+                            "text": "Hi",
+                        },
+                        {
+                            "speaker": "speaker_2",
+                            "speaker_label": "Speaker 2",
+                            "text": "Hello",
+                        },
+                    ],
+                    "transcript": "Speaker 1: Hi\nSpeaker 2: Hello",
+                },
+                billing={"total_cost_cny": 0.001},
+            )
+
+    monkeypatch.setattr(
+        "vocal_more.application.meeting_notes.MeetingNotesService",
+        FakeMeetingNotesService,
+    )
+
+    result = handler.dispatch("generate_meeting_notes", {"id": rec_id})
+
+    assert result == {"ok": True}
+    rec = handler._recording_store.list_recordings()[0]
+    assert rec["status"] == "success"
+    assert rec["transcript"] == "Speaker 1: Hi\nSpeaker 2: Hello"
+    assert rec["meeting"]["speaker_count"] == 2
+    assert rec["billing"] == {"total_cost_cny": 0.001}
+    assert notifications[-1] == (
+        "meeting_notes_completed",
+        {"id": rec_id, "meeting": rec["meeting"]},
+    )

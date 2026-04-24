@@ -97,6 +97,15 @@ def test_config_new_fields_defaults():
     assert config.ui.language == "zh"
 
 
+def test_meeting_is_valid_default_mode():
+    from vocal_more.config import Config
+
+    config = Config()
+    config.apply_update("default_mode", "meeting")
+
+    assert config.default_mode == "meeting"
+
+
 def test_config_repository_round_trips_app_config(tmp_path):
     """The repository should persist the pure app config without the legacy facade."""
     from vocal_more.domain.config_models import AppConfig

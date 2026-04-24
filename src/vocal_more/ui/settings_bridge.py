@@ -215,6 +215,9 @@ class SettingsBridge:
     def _normalize_retryTranscription(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
         return _recording_action("retry_transcription", body)
 
+    def _normalize_generateMeetingNotes(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        return _recording_action("generate_meeting_notes", body)
+
     def _normalize_deleteRecording(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
         return _recording_action("delete_recording", body)
 

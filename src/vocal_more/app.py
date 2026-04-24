@@ -28,6 +28,7 @@ from .dictionary import get_dictionary, reload_dictionary
 from .environment_check import run_environment_checks
 from .localization import t
 from .modes.base_mode import BaseMode, ModeState
+from .modes.meeting import MeetingMode
 from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
 from .infrastructure.timestamped_output import install_timestamped_stream
@@ -40,6 +41,7 @@ MENU_STATE_ON = 1
 MODE_MENU_OPTIONS = [
     ("walkie_talkie", "mode_walkie_talkie"),
     ("realtime_long", "mode_realtime_long"),
+    ("meeting", "mode_meeting"),
 ]
 
 POLISH_LEVEL_OPTIONS = [
@@ -68,6 +70,7 @@ class VocalMoreApp(rumps.App):
             recording_store_factory=RecordingStore,
             walkie_talkie_factory=WalkieTalkieMode,
             realtime_long_factory=RealtimeLongMode,
+            meeting_factory=MeetingMode,
             hotkey_manager_factory=HotkeyManager,
             settings_window_factory=SettingsWindow,
         )
@@ -87,6 +90,7 @@ class VocalMoreApp(rumps.App):
         self._recording_store = dependencies.recording_store
         self._walkie_talkie = dependencies.walkie_talkie
         self._realtime_long = dependencies.realtime_long
+        self._meeting = dependencies.meeting
         self._current_mode = dependencies.current_mode
         self._command_coordinator = dependencies.command_coordinator
         self._hotkey_manager = dependencies.hotkey_manager
@@ -265,8 +269,17 @@ class VocalMoreApp(rumps.App):
         environment.add(self._environment_refresh_item)
         return environment
 
-    def _open_settings(self, _) -> None:
+    def _open_settings(self, _=None) -> None:
         """Open the settings window."""
+        self._show_settings()
+
+    def _show_settings(
+        self,
+        *,
+        initial_tab: str = "",
+        focus_recording_id: str = "",
+    ) -> None:
+        """Open settings, optionally navigating to a specific record."""
         devices = self._list_devices()
         dictionary = self._get_dict_entries()
         self._settings_window.show(
@@ -276,6 +289,8 @@ class VocalMoreApp(rumps.App):
             devices=devices,
             dictionary=dictionary,
             version=__version__,
+            initial_tab=initial_tab,
+            focus_recording_id=focus_recording_id,
         )
 
     def _quit_app(self, _) -> None:
@@ -287,7 +302,7 @@ class VocalMoreApp(rumps.App):
         )
         self._capsule.hide()
         self._settings_window.close()
-        for mode in (self._walkie_talkie, self._realtime_long):
+        for mode in self._all_modes():
             close = getattr(mode, "close", None)
             if callable(close):
                 close()
@@ -339,8 +354,9 @@ class VocalMoreApp(rumps.App):
         """Recreate text polisher after API key changes and update all modes."""
         dashscope.api_key = self.config.api_key or None
         self._text_polisher = TextPolisher() if self.config.api_key else None
-        for mode in (self._walkie_talkie, self._realtime_long):
-            mode.text_polisher = self._text_polisher
+        for mode in self._all_modes():
+            if hasattr(mode, "text_polisher"):
+                mode.text_polisher = self._text_polisher
             asr = getattr(mode, "_asr", None)
             if asr is not None and hasattr(asr, "refresh_api_key"):
                 asr.refresh_api_key()
@@ -396,6 +412,15 @@ class VocalMoreApp(rumps.App):
             self._current_mode = self._walkie_talkie
         elif mode_name == "realtime_long":
             self._current_mode = self._realtime_long
+        elif mode_name == "meeting":
+            self._current_mode = self._meeting
+
+    def _all_modes(self) -> tuple[object, ...]:
+        modes = [self._walkie_talkie, self._realtime_long]
+        meeting = getattr(self, "_meeting", None)
+        if meeting is not None:
+            modes.append(meeting)
+        return tuple(modes)
 
     def _select_default_mode_when_safe(self) -> None:
         """Apply the configured default mode without interrupting active recording."""
@@ -623,16 +648,19 @@ class VocalMoreApp(rumps.App):
 
     def _build_runtime_facade(self) -> RuntimeFacade:
         hotkey_manager = getattr(self, "_hotkey_manager", None)
+        modes = {
+            "walkie_talkie": self._walkie_talkie,
+            "realtime_long": self._realtime_long,
+        }
+        meeting = getattr(self, "_meeting", None)
+        if meeting is not None:
+            modes["meeting"] = meeting
+
         return RuntimeFacade(
             config=self.config,
-            modes={
-                "walkie_talkie": self._walkie_talkie,
-                "realtime_long": self._realtime_long,
-            },
+            modes=modes,
             get_current_mode=lambda: getattr(self, "_current_mode", None),
-            set_current_mode=lambda mode: self._select_mode(
-                "walkie_talkie" if mode is self._walkie_talkie else "realtime_long"
-            ),
+            set_current_mode=lambda mode: self._select_mode(self._mode_name_for_instance(mode, modes)),
             on_refresh_text_polisher=self._refresh_text_polisher,
             on_set_active_hotkeys=getattr(hotkey_manager, "set_active_hotkeys", None),
             on_set_custom_key=getattr(hotkey_manager, "set_custom_key", None),
@@ -645,6 +673,12 @@ class VocalMoreApp(rumps.App):
         if runtime is None:
             self._runtime = self._build_runtime_facade()
         return self._runtime
+
+    def _mode_name_for_instance(self, mode: object, modes: dict[str, object]) -> str:
+        for name, candidate in modes.items():
+            if mode is candidate:
+                return name
+        return self.config.default_mode
 
     def _build_command_coordinator(self) -> DictationCommandCoordinator:
         return DictationCommandCoordinator(thread_name="vocal-more-menu-commands")
@@ -685,10 +719,7 @@ class VocalMoreApp(rumps.App):
 
     def _handle_fn_pressed_command(self) -> None:
         if self._current_mode.state == ModeState.IDLE:
-            if self._current_mode is self._walkie_talkie:
-                self._capsule.show("pushToTalk")
-            else:
-                self._capsule.show("handsFree")
+            self._capsule.show(self._capsule_mode_for_current_mode())
         self._current_mode.on_hotkey_pressed()
 
     def _on_fn_released(self) -> None:
@@ -710,10 +741,7 @@ class VocalMoreApp(rumps.App):
 
     def _handle_double_cmd_command(self) -> None:
         if self._current_mode.state == ModeState.IDLE:
-            if self._current_mode is self._walkie_talkie:
-                self._capsule.show("pushToTalk")
-            else:
-                self._capsule.show("handsFree")
+            self._capsule.show(self._capsule_mode_for_current_mode())
         self._current_mode.on_hotkey_pressed()
 
     def _on_escape_pressed(self) -> None:
@@ -768,7 +796,14 @@ class VocalMoreApp(rumps.App):
         }.get(state, "hidden")
         self._capsule.update_state(capsule_state)
         if state in (ModeState.STOPPING, ModeState.PROCESSING, ModeState.CANCELLING):
-            self._capsule.set_processing_stage("transcribing")
+            current_mode = getattr(self, "_current_mode", None)
+            stage = (
+                "meeting_transcribing"
+                if current_mode is not None
+                and current_mode is getattr(self, "_meeting", None)
+                else "transcribing"
+            )
+            self._capsule.set_processing_stage(stage)
         elif state == ModeState.IDLE:
             self._select_default_mode_when_safe()
 
@@ -802,8 +837,15 @@ class VocalMoreApp(rumps.App):
         )
 
     def _handle_capsule_finish_command(self) -> None:
-        if self._current_mode is self._realtime_long:
+        if self._current_mode in (self._realtime_long, getattr(self, "_meeting", None)):
             self._current_mode.on_hotkey_pressed()
+
+    def _capsule_mode_for_current_mode(self) -> str:
+        if self._current_mode is self._walkie_talkie:
+            return "pushToTalk"
+        if self._current_mode is getattr(self, "_meeting", None):
+            return "meeting"
+        return "handsFree"
 
     # ── Result callbacks ──────────────────────────────────────
 
@@ -827,6 +869,15 @@ class VocalMoreApp(rumps.App):
         """Handle partial result — show streaming text in capsule."""
         if text and self._capsule:
             self._capsule.update_streaming_text(text)
+
+    def _on_meeting_result(self, recording_id: str) -> None:
+        """Open the history view focused on a completed meeting recording."""
+        self._run_on_main_thread(
+            lambda: self._show_settings(
+                initial_tab="history",
+                focus_recording_id=recording_id,
+            )
+        )
 
     def _on_error(self, error: str) -> None:
         """Handle error."""

@@ -129,6 +129,20 @@ body {
   display: flex;
 }
 
+.recording-label {
+  display: none;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.82);
+  margin-right: 10px;
+  white-space: nowrap;
+}
+
+.capsule.meeting.state-recording .recording-label {
+  display: block;
+}
+
 /* Thinking state */
 .thinking-container {
   display: none;
@@ -189,6 +203,7 @@ body {
 <div class="capsule" id="capsule">
   <div class="capsule-row">
     <button class="capsule-btn btn-cancel" id="btnCancel" onclick="onCancel()">✕</button>
+    <span class="recording-label" id="recordingLabel">Meeting</span>
     <div class="waveform" id="waveform"></div>
     <div class="thinking-container" id="thinking">
       <span class="thinking-text" id="thinkingLabel">Thinking</span>
@@ -206,15 +221,22 @@ const NUM_BARS = 10;
 const capsule = document.getElementById('capsule');
 const waveform = document.getElementById('waveform');
 const thinkingText = document.getElementById('thinkingLabel');
+const recordingLabel = document.getElementById('recordingLabel');
 
 const CAPSULE_TRANSLATIONS = {
   en: {
+    meetingRecording: 'Meeting recording',
     transcribing: 'Transcribing',
     polishing: 'Polishing',
+    meeting_transcribing: 'Generating transcript',
+    meeting_summarizing: 'Generating minutes',
   },
   zh: {
+    meetingRecording: '会议录制中',
     transcribing: '识别中',
     polishing: '润色中',
+    meeting_transcribing: '生成逐字稿中',
+    meeting_summarizing: '生成纪要中',
   },
 };
 
@@ -230,6 +252,7 @@ function setInterfaceLanguage(language) {
   interfaceLanguage = language === 'zh' ? 'zh' : 'en';
   document.documentElement.lang = interfaceLanguage === 'zh' ? 'zh-CN' : 'en';
   thinkingText.textContent = processingStageLabel(currentProcessingStage);
+  recordingLabel.textContent = (CAPSULE_TRANSLATIONS[interfaceLanguage] || CAPSULE_TRANSLATIONS.en).meetingRecording;
 }
 
 // Generate waveform bars
@@ -336,11 +359,11 @@ function stopProgress() {
 }
 
 /**
- * Set capsule mode: "pushToTalk" or "handsFree"
+ * Set capsule mode: "pushToTalk", "handsFree", or "meeting"
  */
 function setMode(mode) {
   currentMode = mode;
-  capsule.classList.remove('pushToTalk', 'handsFree');
+  capsule.classList.remove('pushToTalk', 'handsFree', 'meeting');
   capsule.classList.add(mode);
 }
 

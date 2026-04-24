@@ -67,6 +67,7 @@
           <select id="default_mode">
             <option value="walkie_talkie" data-i18n="mode_walkie_talkie">Walkie-Talkie (Hold)</option>
             <option value="realtime_long" data-i18n="mode_realtime_long">Real-time Long (Toggle)</option>
+            <option value="meeting" data-i18n="mode_meeting">Meeting Mode (Toggle)</option>
           </select>
         </div>
       </div>
@@ -407,6 +408,7 @@ let _apiKeyRevealed = false;
 let _pendingDelete = null;
 let _lastDeviceRefreshAt = 0;
 let _activeSliderIds = new Set();
+let _focusRecordingId = null;
 
 const AUDIO_PRESETS = {
   whisper: {
@@ -460,6 +462,7 @@ const UI_TRANSLATIONS = {
     general_open_config_file: 'Open Config File',
     mode_walkie_talkie: 'Walkie-Talkie (Hold)',
     mode_realtime_long: 'Real-time Long (Toggle)',
+    mode_meeting: 'Meeting Mode (Toggle)',
     audio_input_device_label: 'Input Device',
     audio_system_default: 'System Default',
     audio_device_default_suffix: 'default',
@@ -537,6 +540,7 @@ const UI_TRANSLATIONS = {
     history_empty_html: '<div class="rec-empty"><div class="rec-empty-icon">&#128197;</div><div class="rec-empty-text">No recordings yet<br>Recordings will appear here after you use voice input</div></div>',
     history_mode_realtime_long: 'Realtime Long',
     history_mode_walkie_talkie: 'Walkie Talkie',
+    history_mode_meeting: 'Meeting',
     history_model_label: 'Model',
     history_status_success: 'Success',
     history_status_failed: 'Failed',
@@ -550,6 +554,18 @@ const UI_TRANSLATIONS = {
     history_play: '\u25B6 Play',
     history_stop: '\u25A0 Stop',
     history_retry: 'Retry',
+    history_meeting_notes: 'Meeting Notes',
+    history_meeting_generating: 'Generating...',
+    history_meeting_failed: 'Meeting notes failed',
+    history_meeting_transcript: 'Speaker Transcript',
+    history_meeting_minutes: 'Minutes',
+    history_meeting_summary: 'Summary',
+    history_meeting_key_points: 'Key Points',
+    history_meeting_action_items: 'Action Items',
+    history_meeting_transcribing: 'Generating transcript...',
+    history_meeting_summarizing: 'Generating minutes...',
+    history_meeting_minutes_failed: 'Minutes generation failed. Transcript is still available.',
+    history_meeting_partial: 'Minutes generation failed',
     history_copy: 'Copy',
     history_transcribing: 'Transcribing...',
     history_transcription_failed: 'Transcription failed',
@@ -592,6 +608,7 @@ const UI_TRANSLATIONS = {
     general_open_config_file: '打开配置文件',
     mode_walkie_talkie: '对讲模式（按住）',
     mode_realtime_long: '实时长录（切换）',
+    mode_meeting: '会议模式（切换）',
     audio_input_device_label: '输入设备',
     audio_system_default: '系统默认',
     audio_device_default_suffix: '默认',
@@ -669,6 +686,7 @@ const UI_TRANSLATIONS = {
     history_empty_html: '<div class="rec-empty"><div class="rec-empty-icon">&#128197;</div><div class="rec-empty-text">还没有录音记录<br>开始使用语音输入后，这里会显示历史记录</div></div>',
     history_mode_realtime_long: '实时长录',
     history_mode_walkie_talkie: '对讲模式',
+    history_mode_meeting: '会议模式',
     history_model_label: '模型',
     history_status_success: '成功',
     history_status_failed: '失败',
@@ -682,6 +700,18 @@ const UI_TRANSLATIONS = {
     history_play: '\u25B6 播放',
     history_stop: '\u25A0 停止',
     history_retry: '重试',
+    history_meeting_notes: '会议记录',
+    history_meeting_generating: '生成中...',
+    history_meeting_failed: '会议记录生成失败',
+    history_meeting_transcript: '双人逐字稿',
+    history_meeting_minutes: '会议纪要',
+    history_meeting_summary: '概述',
+    history_meeting_key_points: '关键点',
+    history_meeting_action_items: '待办',
+    history_meeting_transcribing: '生成逐字稿中...',
+    history_meeting_summarizing: '生成纪要中...',
+    history_meeting_minutes_failed: '纪要生成失败，逐字稿仍可用。',
+    history_meeting_partial: '纪要生成失败',
     history_copy: '复制',
     history_transcribing: '识别中...',
     history_transcription_failed: '识别失败',
@@ -988,20 +1018,23 @@ function setInterfaceLanguage(language) {
    Tab Navigation
    ══════════════════════════════════════════════════════════ */
 
+function activateTab(tab, options) {
+  const target = document.querySelector(`.sidebar-item[data-tab="${tab}"]`);
+  if (!target) return;
+  document.querySelectorAll('.sidebar-item').forEach(b => b.classList.remove('active'));
+  target.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'history' && !(options && options.skipRequest)) requestRecordings();
+  if (tab !== 'audio' && _micTestState === 'recording') {
+    postMsg({ action: 'stopMicTest' });
+    _micTestState = 'idle';
+    renderMicTest();
+  }
+}
+
 document.querySelectorAll('.sidebar-item').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.sidebar-item').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    const tab = btn.dataset.tab;
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    document.getElementById('tab-' + tab).classList.add('active');
-    if (tab === 'history') requestRecordings();
-    if (tab !== 'audio' && _micTestState === 'recording') {
-      postMsg({ action: 'stopMicTest' });
-      _micTestState = 'idle';
-      renderMicTest();
-    }
-  });
+  btn.addEventListener('click', () => activateTab(btn.dataset.tab));
 });
 
 /* ══════════════════════════════════════════════════════════
@@ -1015,9 +1048,16 @@ function loadAll(data) {
   _llmModels = data.llm_models || [];
   _devices = data.devices || [];
   _dictEntries = data.dictionary || [];
+  _focusRecordingId = data.focusRecordingId || data.focus_recording_id || null;
 
   _recordings = data.recordings || [];
   renderAll();
+  if (data.initial_tab) {
+    activateTab(data.initial_tab, { skipRequest: true });
+  }
+  if (_focusRecordingId) {
+    setTimeout(focusRecording, 0);
+  }
 }
 
 /** Called from Python: update a single config value in the UI */
@@ -1593,11 +1633,31 @@ function renderHistory() {
   _recordings.forEach(function(r) { list.appendChild(buildRecItem(r)); });
   container.appendChild(list);
   renderDeleteBanner();
+  if (_focusRecordingId) {
+    setTimeout(focusRecording, 0);
+  }
+}
+
+function focusRecording() {
+  if (!_focusRecordingId) return;
+  const target = document.getElementById('rec-' + _focusRecordingId);
+  if (!target) return;
+  document.querySelectorAll('.rec-item.focused').forEach(function(item) {
+    item.classList.remove('focused');
+  });
+  target.classList.add('focused');
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
 
 function resolveAsrModelName(modelId) {
   const model = _asrModels.find(function(entry) { return entry.id === modelId; });
   return model ? model.display_name : (modelId || t('history_model_label'));
+}
+
+function resolveModeLabel(mode) {
+  if (mode === 'meeting') return t('history_mode_meeting');
+  if (mode === 'realtime_long') return t('history_mode_realtime_long');
+  return t('history_mode_walkie_talkie');
 }
 
 function renderDeleteBanner() {
@@ -1689,12 +1749,14 @@ function buildRecItem(r) {
   const isSuccess = r.status === 'success';
   const isPending = r.status === 'pending';
   const isPlaying = _playingId === r.id;
+  const meetingStatus = r.meeting && r.meeting.status;
+  const isMeetingGenerating = r.meeting_status === 'generating'
+    || meetingStatus === 'transcribing'
+    || meetingStatus === 'summarizing';
 
   const timeStr = formatRecTime(r.timestamp);
   const durStr = formatDuration(r.duration_seconds);
-  const modeLabel = r.mode === 'realtime_long'
-    ? t('history_mode_realtime_long')
-    : t('history_mode_walkie_talkie');
+  const modeLabel = resolveModeLabel(r.mode);
 
   const item = document.createElement('div');
   item.className = 'rec-item' + (isRetrying ? ' retrying' : '');
@@ -1740,6 +1802,14 @@ function buildRecItem(r) {
   retryBtn.addEventListener('click', function() { retryRec(r.id); });
   actions.appendChild(retryBtn);
 
+  var meetingBtn = makeRecBtn(
+    isMeetingGenerating ? t('history_meeting_generating') : t('history_meeting_notes'),
+    'rec-btn-meeting',
+    isRetrying || isMeetingGenerating
+  );
+  meetingBtn.addEventListener('click', function() { generateMeetingNotes(r.id); });
+  actions.appendChild(meetingBtn);
+
   if (isSuccess && r.transcript) {
     var copyBtn = makeRecBtn(t('history_copy'), 'rec-btn-copy', isRetrying);
     copyBtn.addEventListener('click', function() { copyRec(r.id); });
@@ -1762,6 +1832,8 @@ function buildRecItem(r) {
     proc.className = 'rec-processing';
     proc.innerHTML = `<div class="rec-spinner"></div>${t('history_transcribing')}`;
     item.appendChild(proc);
+  } else if (r.meeting) {
+    item.appendChild(buildMeetingNotes(r.meeting));
   } else if (isSuccess && r.transcript) {
     var tx = document.createElement('div');
     tx.className = 'rec-transcript';
@@ -1778,6 +1850,253 @@ function buildRecItem(r) {
   }
 
   return item;
+}
+
+function buildMeetingNotes(meeting) {
+  meeting = normalizeMeetingForDisplay(meeting);
+  const box = document.createElement('div');
+  box.className = 'rec-meeting';
+
+  if (meeting.status === 'failed') {
+    box.className += ' rec-meeting-error';
+    box.textContent = meeting.error || t('history_meeting_failed');
+    return box;
+  }
+
+  if (meeting.status === 'transcribing' || meeting.status === 'summarizing') {
+    const proc = document.createElement('div');
+    proc.className = 'rec-processing';
+    const label = meeting.status === 'summarizing'
+      ? t('history_meeting_summarizing')
+      : t('history_meeting_transcribing');
+    proc.innerHTML = `<div class="rec-spinner"></div>${label}`;
+    box.appendChild(proc);
+    return box;
+  }
+
+  const title = document.createElement('div');
+  title.className = 'rec-meeting-title';
+  title.textContent = t('history_meeting_transcript');
+  box.appendChild(title);
+
+  const segments = Array.isArray(meeting.segments) ? meeting.segments : [];
+  const timeline = document.createElement('div');
+  timeline.className = 'rec-meeting-timeline';
+  segments.forEach(function(segment) {
+    const row = document.createElement('div');
+    row.className = 'rec-meeting-segment speaker-' + (segment.speaker === 'speaker_2' ? '2' : '1');
+
+    const time = document.createElement('div');
+    time.className = 'rec-meeting-time';
+    time.textContent = segment.timestamp || formatMeetingTimestamp(segment.start_seconds);
+    row.appendChild(time);
+
+    const turn = document.createElement('div');
+    turn.className = 'rec-meeting-turn';
+
+    const speaker = document.createElement('div');
+    speaker.className = 'rec-meeting-speaker';
+    speaker.textContent = segment.speaker_label || segment.speaker || 'Speaker';
+    turn.appendChild(speaker);
+
+    const text = document.createElement('div');
+    text.className = 'rec-meeting-text';
+    text.textContent = segment.text || '';
+    turn.appendChild(text);
+    row.appendChild(turn);
+    timeline.appendChild(row);
+  });
+  if (segments.length) {
+    box.appendChild(timeline);
+  }
+
+  if (!segments.length && meeting.transcript) {
+    const text = document.createElement('div');
+    text.className = 'rec-meeting-text rec-meeting-transcript-text';
+    text.textContent = meeting.transcript;
+    box.appendChild(text);
+  }
+
+  const minutes = meeting.minutes || (
+    meeting.summary || meeting.key_points || meeting.action_items
+      ? {
+          status: 'success',
+          summary: meeting.summary || '',
+          key_points: meeting.key_points || [],
+          action_items: meeting.action_items || [],
+          error: null,
+        }
+      : null
+  );
+  const minutesNode = buildMeetingMinutes(minutes);
+  if (minutesNode) {
+    box.appendChild(minutesNode);
+  }
+
+  return box;
+}
+
+function normalizeMeetingForDisplay(meeting) {
+  if (!meeting || typeof meeting !== 'object') return {};
+  const segments = Array.isArray(meeting.segments) ? meeting.segments : [];
+  if (segments.length !== 1) return meeting;
+
+  const rawText = String(segments[0].text || '').trim();
+  if (!rawText.startsWith('{') || !rawText.includes('"segments"')) return meeting;
+
+  const parsed = parseMeetingJsonText(rawText);
+  if (!parsed || !Array.isArray(parsed.segments)) return meeting;
+
+  return {
+    ...meeting,
+    speakers: Array.isArray(parsed.speakers) ? parsed.speakers : meeting.speakers,
+    speaker_count: parsed.speaker_count || meeting.speaker_count,
+    segments: normalizeMeetingSegmentsForDisplay(parsed.segments, parsed.speakers || meeting.speakers),
+  };
+}
+
+function parseMeetingJsonText(text) {
+  const raw = String(text || '').trim();
+  const candidates = [raw, repairMeetingJsonText(raw)];
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch (_err) {
+      continue;
+    }
+  }
+  return null;
+}
+
+function repairMeetingJsonText(text) {
+  return String(text || '')
+    .replace(/,\s*"((?:\\.|[^"\\])*)"\s*}/g, ', "text": "$1"}')
+    .replace(/,(\s*[}\]])/g, '$1');
+}
+
+function normalizeMeetingSegmentsForDisplay(rawSegments, rawSpeakers) {
+  const labels = {};
+  if (Array.isArray(rawSpeakers)) {
+    rawSpeakers.forEach(function(speaker) {
+      if (!speaker || typeof speaker !== 'object') return;
+      const id = normalizeSpeakerId(speaker.id || speaker.speaker);
+      labels[id] = speaker.label || speaker.name || (id === 'speaker_2' ? 'Speaker 2' : 'Speaker 1');
+    });
+  }
+
+  return rawSegments
+    .filter(function(segment) { return segment && typeof segment === 'object'; })
+    .map(function(segment) {
+      const speaker = normalizeSpeakerId(segment.speaker || segment.speaker_id);
+      const start = coerceMeetingSeconds(segment.start_seconds ?? segment.start);
+      const end = coerceMeetingSeconds(segment.end_seconds ?? segment.end);
+      const normalized = {
+        speaker: speaker,
+        speaker_label: labels[speaker] || (speaker === 'speaker_2' ? 'Speaker 2' : 'Speaker 1'),
+        text: String(segment.text || segment.content || '').trim(),
+      };
+      if (Number.isFinite(start)) {
+        normalized.start_seconds = start;
+        normalized.timestamp = formatMeetingTimestamp(start);
+      }
+      if (Number.isFinite(end)) {
+        normalized.end_seconds = end;
+      }
+      return normalized;
+    })
+    .filter(function(segment) { return !!segment.text; });
+}
+
+function normalizeSpeakerId(value) {
+  const text = String(value || '').trim().toLowerCase().replace(/\s+/g, '_');
+  if (['speaker_2', 'speaker2', '2', 'b', 'speaker_b'].includes(text)) return 'speaker_2';
+  return 'speaker_1';
+}
+
+function coerceMeetingSeconds(value) {
+  if (value == null || value === '') return NaN;
+  if (typeof value === 'number') return Math.max(0, value);
+  const text = String(value).trim();
+  if (!text) return NaN;
+  if (text.includes(':')) {
+    const parts = text.split(':').map(function(part) { return Number(part); });
+    if (parts.some(function(part) { return !Number.isFinite(part); })) return NaN;
+    if (parts.length === 2) return Math.max(0, parts[0] * 60 + parts[1]);
+    if (parts.length === 3) return Math.max(0, parts[0] * 3600 + parts[1] * 60 + parts[2]);
+    return NaN;
+  }
+  const numeric = Number(text.replace(/seconds?|secs?|s$/i, '').trim());
+  return Number.isFinite(numeric) ? Math.max(0, numeric) : NaN;
+}
+
+function formatMeetingTimestamp(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return '';
+  const totalSeconds = Math.floor(value);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  const pad = function(n) { return String(n).padStart(2, '0'); };
+  if (hours > 0) return pad(hours) + ':' + pad(minutes) + ':' + pad(secs);
+  return pad(minutes) + ':' + pad(secs);
+}
+
+function buildMeetingMinutes(minutes) {
+  if (!minutes) return null;
+
+  const box = document.createElement('div');
+  box.className = 'rec-meeting-minutes';
+
+  const title = document.createElement('div');
+  title.className = 'rec-meeting-title rec-meeting-minutes-title';
+  title.textContent = t('history_meeting_minutes');
+  box.appendChild(title);
+
+  if (minutes.status === 'pending') {
+    const proc = document.createElement('div');
+    proc.className = 'rec-processing';
+    proc.innerHTML = `<div class="rec-spinner"></div>${t('history_meeting_summarizing')}`;
+    box.appendChild(proc);
+    return box;
+  }
+
+  if (minutes.status === 'failed') {
+    const failed = document.createElement('div');
+    failed.className = 'rec-meeting-minutes-error';
+    failed.textContent = minutes.error || t('history_meeting_minutes_failed');
+    box.appendChild(failed);
+    return box;
+  }
+
+  if (minutes.summary) {
+    const summary = document.createElement('div');
+    summary.className = 'rec-meeting-summary';
+    summary.textContent = minutes.summary;
+    box.appendChild(summary);
+  }
+
+  appendMinutesList(box, t('history_meeting_key_points'), minutes.key_points);
+  appendMinutesList(box, t('history_meeting_action_items'), minutes.action_items);
+
+  if (box.children.length === 1) return null;
+  return box;
+}
+
+function appendMinutesList(container, title, items) {
+  if (!Array.isArray(items) || !items.length) return;
+  const label = document.createElement('div');
+  label.className = 'rec-meeting-section-label';
+  label.textContent = title;
+  container.appendChild(label);
+
+  const list = document.createElement('ul');
+  list.className = 'rec-meeting-actions';
+  items.forEach(function(item) {
+    const li = document.createElement('li');
+    li.textContent = item;
+    list.appendChild(li);
+  });
+  container.appendChild(list);
 }
 
 function buildBillingLine(billing) {
@@ -1857,6 +2176,17 @@ function retryRec(id) {
     renderHistory();
   }
   postMsg({ action: 'retryTranscription', id: id });
+}
+
+function generateMeetingNotes(id) {
+  var rec = _recordings.find(function(r) { return r.id === id; });
+  if (rec) {
+    rec.meeting_status = 'generating';
+    rec.meeting = { status: 'transcribing' };
+    _focusRecordingId = id;
+    renderHistory();
+  }
+  postMsg({ action: 'generateMeetingNotes', id: id });
 }
 
 function deleteRec(id) {
@@ -1939,6 +2269,26 @@ function retryFailed(id, error) {
     rec.error = error || null;
     renderHistory();
   }
+}
+
+function meetingNotesStarted(id) {
+  const rec = _recordings.find(r => r.id === id);
+  if (rec) {
+    rec.meeting_status = 'generating';
+    rec.meeting = { status: 'transcribing' };
+    _focusRecordingId = id;
+    renderHistory();
+  }
+}
+
+function meetingNotesStage(id, stage) {
+  const rec = _recordings.find(r => r.id === id);
+  if (!rec) return;
+  rec.meeting_status = 'generating';
+  rec.meeting = rec.meeting || {};
+  rec.meeting.status = stage === 'meeting_summarizing' ? 'summarizing' : 'transcribing';
+  _focusRecordingId = id;
+  renderHistory();
 }
 
 function recordingDeleted(id) {
