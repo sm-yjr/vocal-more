@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VERSION="$("$ROOT/.venv/bin/python" -c 'from vocal_more import __version__; print(__version__)')"
+VERSION="$("$ROOT/.venv/bin/python" "$ROOT/packaging/macos/read_version.py")"
 DMG="${1:-$ROOT/dist/Vocal-More-${VERSION}.dmg}"
 KEYCHAIN_PROFILE="${VOCAL_MORE_NOTARY_PROFILE:-}"
 

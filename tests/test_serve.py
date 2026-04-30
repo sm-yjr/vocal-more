@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,11 @@ os.environ.setdefault("DASHSCOPE_API_KEY", "test-api-key")
 PROJECT_ROOT = Path(__file__).parent.parent
 SRC_PATH = PROJECT_ROOT / "src"
 SUBPROCESS_STUBS = PROJECT_ROOT / "tests" / "subprocess_stubs"
+
+
+def _project_version() -> str:
+    metadata = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text("utf-8"))
+    return metadata["project"]["version"]
 
 
 def _serve_env() -> dict[str, str]:
@@ -60,7 +66,7 @@ def test_serve_initialize_roundtrip():
     assert resp["jsonrpc"] == "2.0"
     assert resp["id"] == 1
     assert "result" in resp
-    assert resp["result"]["version"] == "0.2.0"
+    assert resp["result"]["version"] == _project_version()
     assert resp["result"]["state"] == "idle"
     assert resp["result"]["config"]["api_key"] == ""
 

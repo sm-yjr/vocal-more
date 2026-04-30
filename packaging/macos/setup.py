@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import sys
+import os
 
 from setuptools import setup
 
@@ -12,6 +13,8 @@ sys.path.insert(0, str(SRC))
 
 from vocal_more import __version__  # noqa: E402
 
+BUILD_NUMBER = os.environ.get("VOCAL_MORE_BUILD_NUMBER", __version__)
+
 APP = [
     {
         "script": str(ROOT / "packaging" / "macos" / "vocal_more_launcher.py"),
@@ -20,7 +23,7 @@ APP = [
             "CFBundleDisplayName": "Vocal More",
             "CFBundleIdentifier": "com.sm-yjr.vocal-more",
             "CFBundleShortVersionString": __version__,
-            "CFBundleVersion": __version__,
+            "CFBundleVersion": BUILD_NUMBER,
             "NSHighResolutionCapable": True,
             "NSMicrophoneUsageDescription": (
                 "Vocal More needs microphone access to convert your voice to text."

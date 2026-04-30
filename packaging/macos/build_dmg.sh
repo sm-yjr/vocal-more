@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP="$ROOT/dist/Vocal More.app"
 STAGING="$ROOT/dist/dmg-staging"
-VERSION="$("$ROOT/.venv/bin/python" -c 'from vocal_more import __version__; print(__version__)')"
+VERSION="$("$ROOT/.venv/bin/python" "$ROOT/packaging/macos/read_version.py")"
 DMG="$ROOT/dist/Vocal-More-${VERSION}.dmg"
 VOLNAME="Vocal More"
 IDENTITY="${VOCAL_MORE_SIGN_IDENTITY:-}"

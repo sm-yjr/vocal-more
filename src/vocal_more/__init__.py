@@ -1,3 +1,8 @@
 """Vocal-More: macOS voice recognition app with real-time ASR and text polishing."""
 
-__version__ = "0.2.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("vocal-more")
+except PackageNotFoundError:
+    __version__ = "0+unknown"

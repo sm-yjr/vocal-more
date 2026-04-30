@@ -26,8 +26,7 @@ from .modes.base_mode import BaseMode, ModeState
 from .modes.meeting import MeetingMode
 from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
-
-VERSION = "0.2.0"
+from . import __version__
 
 
 class RPCHandler:
@@ -108,7 +107,7 @@ class RPCHandler:
 
     def _handle_initialize(self, params: dict) -> dict:
         return {
-            "version": VERSION,
+            "version": __version__,
             "state": self._current_mode.state.value,
             "current_mode": self._get_mode_name(self._current_mode),
             "config": self.config.to_public_dict(),
