@@ -21,7 +21,6 @@ APP = [
             "CFBundleIdentifier": "com.sm-yjr.vocal-more",
             "CFBundleShortVersionString": __version__,
             "CFBundleVersion": __version__,
-            "LSUIElement": True,
             "NSHighResolutionCapable": True,
             "NSMicrophoneUsageDescription": (
                 "Vocal More needs microphone access to convert your voice to text."

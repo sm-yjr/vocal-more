@@ -7,6 +7,8 @@ build/
 .venv/
 packaging/macos/.venv-py2app/
 packaging/macos/.VocalMore.*.png
+dist/*.dmg
+dist/dmg-staging/
 
 # macOS
 .DS_Store

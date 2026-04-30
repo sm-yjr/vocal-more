@@ -7,7 +7,6 @@ from typing import Any, Optional
 
 import dashscope
 import rumps
-from AppKit import NSApp, NSApplicationActivationPolicyAccessory
 from Foundation import NSRunLoop, NSRunLoopCommonModes, NSTimer
 
 from . import __version__

@@ -11,7 +11,6 @@ from typing import Any, Callable, Optional
 import objc
 from AppKit import (
     NSApp,
-    NSApplicationActivationPolicyAccessory,
     NSApplicationActivationPolicyRegular,
     NSBackingStoreBuffered,
     NSColor,
@@ -218,10 +217,6 @@ class SettingsWindow:
             return str(html_path)
         return None
 
-    def _set_accessory_policy(self) -> None:
-        """Hide the app from the dock when settings is dismissed."""
-        NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
-
     def set_interface_language(
         self,
         language: str,
@@ -300,7 +295,6 @@ class SettingsWindow:
         self._stop_live_sync()
         if self._window:
             self._window.orderOut_(None)
-        self._set_accessory_policy()
 
     def _on_js_message(self, body: dict) -> None:
         """Handle messages from JavaScript (user interactions)."""
@@ -406,7 +400,6 @@ class SettingsWindow:
             self._request_form_state_sync()
             self._stop_live_sync()
             self._window.orderOut_(None)
-            self._set_accessory_policy()
 
     def close(self) -> None:
         """Release background resources owned by the settings window."""
