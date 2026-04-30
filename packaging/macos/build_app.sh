@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+BUILD_PYTHON="${VOCAL_MORE_BUILD_PYTHON:-/usr/local/bin/python3.12}"
+BUILD_VENV="$ROOT/packaging/macos/.venv-py2app"
+
+rm -rf build dist
+rm -rf "$ROOT/packaging/macos/build" "$ROOT/packaging/macos/dist"
+
+if [[ ! -x "$BUILD_PYTHON" ]]; then
+  echo "Build Python not found: $BUILD_PYTHON" >&2
+  echo "Set VOCAL_MORE_BUILD_PYTHON to a Python.org/Homebrew framework Python 3.12." >&2
+  exit 1
+fi
+
+"$ROOT/packaging/macos/make_icon.sh"
+
+"$BUILD_PYTHON" -m venv "$BUILD_VENV"
+"$BUILD_VENV/bin/python" -m pip install --upgrade pip >/dev/null
+"$BUILD_VENV/bin/python" -m pip install -e "$ROOT" py2app 'setuptools<70'
+
+cd "$ROOT/packaging/macos"
+
+"$BUILD_VENV/bin/python" setup.py py2app
+
+rm -rf "$ROOT/dist"
+mkdir -p "$ROOT/dist"
+cp -R "$ROOT/packaging/macos/dist/Vocal More.app" "$ROOT/dist/"
+
+if [[ "${VOCAL_MORE_SKIP_ADHOC_SIGN:-0}" != "1" ]]; then
+  codesign --force --deep --sign - "$ROOT/dist/Vocal More.app"
+fi
+
+echo "Built dist/Vocal More.app"

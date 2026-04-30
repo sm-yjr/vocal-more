@@ -2,7 +2,6 @@
 
 import os
 import threading
-from pathlib import Path
 from typing import Callable, Optional
 
 import objc
@@ -19,6 +18,7 @@ from Foundation import NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer, NSURL
 from WebKit import WKUserContentController, WKWebView, WKWebViewConfiguration
 
 from ..localization import normalize_ui_language
+from ..paths import bundled_resource_path
 from .webview_bridge import objc_to_python
 
 # NSWindow level constants
@@ -137,8 +137,7 @@ class FloatingCapsule:
 
     def _get_html_path(self) -> Optional[str]:
         """Get path to capsule.html."""
-        package_dir = Path(__file__).parent.parent.parent.parent
-        html_path = package_dir / "resources" / "floating_capsule" / "capsule.html"
+        html_path = bundled_resource_path("resources", "floating_capsule", "capsule.html")
         if html_path.exists():
             return str(html_path)
         return None

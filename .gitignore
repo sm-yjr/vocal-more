@@ -5,6 +5,8 @@ __pycache__/
 dist/
 build/
 .venv/
+packaging/macos/.venv-py2app/
+packaging/macos/.VocalMore.*.png
 
 # macOS
 .DS_Store

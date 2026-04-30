@@ -6,7 +6,6 @@ import queue
 import sys
 import threading
 import traceback
-from pathlib import Path
 from typing import Any, Callable, Optional
 
 import objc
@@ -34,6 +33,7 @@ from WebKit import (
 from ..application.background_executor import BackgroundExecutor
 from ..infrastructure.pricing import merge_billing
 from ..localization import normalize_ui_language, t
+from ..paths import bundled_resource_path
 from .mic_test_controller import MicTestController
 from .settings_actions import SettingsActionDispatcher
 from .settings_bridge import SettingsBridge
@@ -213,8 +213,7 @@ class SettingsWindow:
 
     def _get_html_path(self) -> Optional[str]:
         """Get path to settings.html."""
-        package_dir = Path(__file__).parent.parent.parent.parent
-        html_path = package_dir / "resources" / "settings" / "settings.html"
+        html_path = bundled_resource_path("resources", "settings", "settings.html")
         if html_path.exists():
             return str(html_path)
         return None

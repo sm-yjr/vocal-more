@@ -3,7 +3,6 @@
 import os
 import subprocess
 import threading
-from pathlib import Path
 from typing import Any, Optional
 
 import dashscope
@@ -31,6 +30,7 @@ from .modes.base_mode import BaseMode, ModeState
 from .modes.meeting import MeetingMode
 from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
+from .paths import bundled_resource_path
 from .infrastructure.timestamped_output import install_timestamped_stream
 from .ui.floating_capsule import FloatingCapsule
 from .ui.settings_window import SettingsWindow
@@ -102,16 +102,14 @@ class VocalMoreApp(rumps.App):
 
     def _get_icon_path(self, icon_name: str) -> Optional[str]:
         """Get icon path."""
-        package_dir = Path(__file__).parent.parent.parent
-        icon_path = package_dir / "resources" / "icons" / icon_name
+        icon_path = bundled_resource_path("resources", "icons", icon_name)
         if icon_path.exists():
             return str(icon_path)
         return None
 
     def _get_logo_path(self) -> Optional[str]:
         """Get logo path for notifications."""
-        package_dir = Path(__file__).parent.parent.parent
-        logo_path = package_dir / "assets" / "logo.png"
+        logo_path = bundled_resource_path("assets", "logo.png")
         if logo_path.exists():
             return str(logo_path)
         return None
