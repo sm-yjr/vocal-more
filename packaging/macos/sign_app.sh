@@ -29,7 +29,6 @@ echo "Identity: $IDENTITY"
 
 while IFS= read -r file; do
   codesign --force --timestamp --options runtime \
-    --entitlements "$ENTITLEMENTS" \
     --sign "$IDENTITY" "$file" >/dev/null
 done < <(
   find "$APP/Contents" -type f -print0 |

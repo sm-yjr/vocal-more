@@ -29,7 +29,19 @@ mkdir -p "$ROOT/dist"
 cp -R "$ROOT/packaging/macos/dist/Vocal More.app" "$ROOT/dist/"
 
 if [[ "${VOCAL_MORE_SKIP_ADHOC_SIGN:-0}" != "1" ]]; then
-  codesign --force --deep --sign - "$ROOT/dist/Vocal More.app"
+  while IFS= read -r file; do
+    codesign --force --options runtime \
+      --sign - "$file" >/dev/null
+  done < <(
+    find "$ROOT/dist/Vocal More.app/Contents" -type f -print0 |
+      xargs -0 file |
+      awk -F: '/Mach-O/ { sub(/ [(]for architecture .*/, "", $1); print $1 }' |
+      sort -ru
+  )
+
+  codesign --force --options runtime \
+    --entitlements "$ROOT/packaging/macos/entitlements.plist" \
+    --sign - "$ROOT/dist/Vocal More.app"
 fi
 
 echo "Built dist/Vocal More.app"
