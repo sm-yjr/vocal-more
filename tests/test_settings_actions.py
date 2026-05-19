@@ -131,6 +131,7 @@ def test_mic_test_controller_cleans_up_recorder_after_stop():
     recorder = MagicMock()
     recorder.stop.return_value = b"pcm"
     timer = MagicMock()
+    factory_kwargs = []
 
     controller = MicTestController(
         config_provider=lambda: SimpleNamespace(
@@ -142,7 +143,7 @@ def test_mic_test_controller_cleans_up_recorder_after_stop():
                 soft_limiter=True,
             )
         ),
-        recorder_factory=lambda **kwargs: recorder,
+        recorder_factory=lambda **kwargs: factory_kwargs.append(kwargs) or recorder,
         timer_factory=lambda interval, callback: timer,
     )
 
@@ -151,6 +152,7 @@ def test_mic_test_controller_cleans_up_recorder_after_stop():
 
     recorder.start.assert_called_once_with()
     recorder.stop.assert_called_once_with()
+    assert factory_kwargs == [{"on_audio_level": controller._handle_audio_level}]
     timer.cancel.assert_called_once_with()
     assert controller.is_running is False
 

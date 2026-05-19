@@ -55,6 +55,7 @@ class AudioRecorder:
         self.blocksize = blocksize or config.audio.blocksize
         self.on_audio_chunk = on_audio_chunk
         self._on_audio_level = on_audio_level
+        self._use_config_device = device is None
         self._device_name: Optional[str] = device if device is not None else config.audio.input_device
         self._gain: float = config.audio.gain
         self._highpass_filter: bool = config.audio.highpass_filter
@@ -187,6 +188,8 @@ class AudioRecorder:
 
     def _start_stream_with_recovery(self) -> None:
         """Open the input stream, then rebuild PortAudio once if it is wedged."""
+        if self._use_config_device:
+            self._device_name = get_config().audio.input_device
         device_index = self._resolve_device()
 
         try:
@@ -216,6 +219,8 @@ class AudioRecorder:
             if device_index is None:
                 raise
             print(f"Device '{self._device_name}' failed, falling back to default")
+            if self._use_config_device:
+                self._clear_unavailable_device()
             self._open_stream(None)
 
     def _open_stream(self, device_index: Optional[int]) -> None:
@@ -280,7 +285,30 @@ class AudioRecorder:
             if dev["name"] == self._device_name and dev["max_input_channels"] > 0:
                 return dev["index"]
         print(f"Device '{self._device_name}' not found, using default")
+        self._clear_unavailable_device()
         return None
+
+    def _clear_unavailable_device(self) -> None:
+        missing_device = self._device_name
+        if not missing_device:
+            return
+
+        self._device_name = None
+        if not self._use_config_device:
+            return
+
+        config = get_config()
+        if config.audio.input_device != missing_device:
+            return
+
+        config.audio.input_device = None
+        try:
+            config.save()
+        except Exception as exc:
+            print(
+                "[AudioRecorder] Failed to persist system-default fallback after "
+                f"device '{missing_device}' became unavailable: {exc}"
+            )
 
     def set_device(self, name: Optional[str]) -> None:
         """Set the input device by name. Takes effect on next start()."""

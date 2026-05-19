@@ -52,7 +52,6 @@ class MicTestController:
         try:
             self._recorder = self._recorder_factory(
                 on_audio_level=self._handle_audio_level,
-                device=config.audio.input_device,
             )
             self._recorder.set_gain(config.audio.gain)
             self._recorder.set_highpass_filter(config.audio.highpass_filter)
