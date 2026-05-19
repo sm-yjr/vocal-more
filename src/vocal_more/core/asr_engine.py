@@ -74,6 +74,7 @@ from ..infrastructure.pricing import (
 from .text_polisher import (
     TextPolisher,
     build_omni_inline_polish_instructions,
+    normalize_structured_list_spacing,
 )
 
 REALTIME_CHUNK_SIZE = 3200
@@ -1078,6 +1079,12 @@ class BatchASREngine:
                 result_text = transcript_text
                 result_source = "transcript" if transcript_text else "empty"
 
+            if self.config.enable_polish:
+                result_text = normalize_structured_list_spacing(
+                    result_text,
+                    self.config.llm,
+                )
+
             trace.result_text = result_text
             trace.response_requested = response_requested
             trace.fallback_reason = fallback_reason
@@ -1268,6 +1275,11 @@ class BatchASREngine:
 
             elapsed = time.time() - t0
             result_text = result_text.strip()
+            if self.config.enable_polish:
+                result_text = normalize_structured_list_spacing(
+                    result_text,
+                    self.config.llm,
+                )
             trace.result_text = result_text
             print(f"[BatchASR] Omni offline result ({elapsed:.1f}s): '{result_text}'")
             return result_text

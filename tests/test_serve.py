@@ -4,10 +4,11 @@ import json
 import os
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 import pytest
+
+from tests.project_metadata import read_project_version
 
 os.environ.setdefault("DASHSCOPE_API_KEY", "test-api-key")
 
@@ -17,8 +18,7 @@ SUBPROCESS_STUBS = PROJECT_ROOT / "tests" / "subprocess_stubs"
 
 
 def _project_version() -> str:
-    metadata = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text("utf-8"))
-    return metadata["project"]["version"]
+    return read_project_version(PROJECT_ROOT)
 
 
 def _serve_env() -> dict[str, str]:

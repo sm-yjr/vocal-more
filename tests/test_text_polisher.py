@@ -282,6 +282,36 @@ def level_label(level: str) -> str:
     return LEVEL_INSTRUCTIONS[level][:10]
 
 
+def test_structured_list_spacing_splits_ordered_items():
+    """Structured polish should not leave obvious list items glued together."""
+    from vocal_more.config import LLMConfig
+    from vocal_more.core.text_polisher import normalize_structured_list_spacing
+
+    text = "今天要做三件事：1.修复测试 2.验证会议模式 3.准备润色增强"
+
+    assert normalize_structured_list_spacing(text, LLMConfig(structured=True)) == (
+        "今天要做三件事：\n"
+        "1.修复测试\n"
+        "2.验证会议模式\n"
+        "3.准备润色增强"
+    )
+
+
+def test_structured_list_spacing_does_not_split_versions_or_when_disabled():
+    """Version-like decimals should remain intact, and the feature obeys the setting."""
+    from vocal_more.config import LLMConfig
+    from vocal_more.core.text_polisher import normalize_structured_list_spacing
+
+    text = "版本 0.2.1 已发布 1.修复测试 2.更新打包"
+
+    assert normalize_structured_list_spacing(text, LLMConfig(structured=True)) == (
+        "版本 0.2.1 已发布\n"
+        "1.修复测试\n"
+        "2.更新打包"
+    )
+    assert normalize_structured_list_spacing(text, LLMConfig(structured=False)) == text
+
+
 def test_minimal_prompt_preserves_spoken_texture_by_default(tmp_path, monkeypatch):
     """Minimal polish should stay close to the original spoken phrasing."""
     from vocal_more.config import Config, LLMConfig, reload_config

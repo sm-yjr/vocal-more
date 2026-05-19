@@ -1,6 +1,7 @@
 """Text polishing helpers and second-stage LLM text polishing."""
 
 from dataclasses import dataclass
+import re
 from typing import Callable, Generator, Optional
 
 import dashscope
@@ -92,6 +93,14 @@ PERSONA_INSTRUCTIONS = {
     "chat": CHAT_PERSONA_INSTRUCTIONS,
 }
 
+ORDERED_LIST_MARKER_RE = re.compile(
+    r"(?<!^)(?<!\n)(?:(?<=\S)\s+|(?<=[：:])\s*)"
+    r"((?:\d{1,2}|[一二三四五六七八九十]+)[.、．]\s*(?=\D))"
+)
+BULLET_LIST_MARKER_RE = re.compile(r"(?<!^)(?<!\n)(?<=\S)\s+([•·]\s*)")
+HYPHEN_LIST_MARKER_RE = re.compile(r"\s+(-\s+)")
+ASTERISK_LIST_MARKER_RE = re.compile(r"\s+(\*\s+)")
+
 
 def _build_polish_rule_block(llm_config: LLMConfig) -> str:
     blocks = [
@@ -105,6 +114,31 @@ def _build_polish_rule_block(llm_config: LLMConfig) -> str:
     blocks.append(COMMON_POLISH_RULES)
     blocks.append(POLISH_EXAMPLES[llm_config.level])
     return "\n\n".join(blocks)
+
+
+def normalize_structured_list_spacing(text: str, llm_config: Optional[LLMConfig] = None) -> str:
+    """Ensure obvious list markers remain visually scannable after model polish."""
+    llm_config = llm_config or get_config().llm
+    if not llm_config.structured or not text.strip():
+        return text.strip()
+
+    formatted_lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            formatted_lines.append("")
+            continue
+
+        line = ORDERED_LIST_MARKER_RE.sub(r"\n\1", line)
+        line = BULLET_LIST_MARKER_RE.sub(r"\n\1", line)
+        if line.count(" - ") >= 2:
+            line = HYPHEN_LIST_MARKER_RE.sub(r"\n\1", line)
+        if line.count(" * ") >= 2:
+            line = ASTERISK_LIST_MARKER_RE.sub(r"\n\1", line)
+
+        formatted_lines.extend(part.strip() for part in line.split("\n"))
+
+    return "\n".join(formatted_lines).strip()
 
 
 def build_polish_system_prompt(llm_config: Optional[LLMConfig] = None) -> str:
@@ -258,7 +292,11 @@ class TextPolisher:
             )
             self._last_metering = billing
             return PolishResult(
-                original_text=text, polished_text=self._extract_response_text(response).strip(),
+                original_text=text,
+                polished_text=normalize_structured_list_spacing(
+                    self._extract_response_text(response),
+                    self.config.llm,
+                ),
                 normalized_text=normalized, used_llm=True,
                 billing=billing,
             )
@@ -302,7 +340,7 @@ class TextPolisher:
         self._last_metering = billing
         return PolishResult(
             original_text=text,
-            polished_text=full_text.strip(),
+            polished_text=normalize_structured_list_spacing(full_text, self.config.llm),
             normalized_text=normalized,
             used_llm=True,
             billing=billing,
