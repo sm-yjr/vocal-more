@@ -217,6 +217,30 @@ def test_settings_form_sync_refreshes_runtime_sensitive_config_without_restart(
     realtime_asr.refresh_runtime_config.assert_called_once_with(drop_idle_session=True)
 
 
+def test_settings_can_disable_all_builtin_hotkeys(tmp_path, monkeypatch):
+    """Custom-key users should be able to turn off every built-in hotkey."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._hotkey_manager = MagicMock()
+    app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._realtime_long = SimpleNamespace(state=app_module.ModeState.IDLE)
+
+    app._on_settings_set_hotkeys([])
+
+    assert app.config.hotkey.active_hotkeys == []
+    app._hotkey_manager.set_active_hotkeys.assert_called_once_with([])
+
+
 def test_floating_capsule_show_marshals_to_main_thread(tmp_path, monkeypatch):
     from vocal_more.config import Config
 
@@ -395,6 +419,7 @@ def test_build_menu_adds_quick_settings_and_marks_current_config(
     titles = [item.title for item in app.menu if item]
     assert "Environment: Pending" in titles
     assert "Recording Mode: Real-time Long (Toggle)" in titles
+    assert "Microphone: System Default" in titles
     assert "ASR Model: Pro" in titles
     assert "Enable Polishing" in titles
     assert "Polish Strength: Strong" in titles
@@ -403,6 +428,71 @@ def test_build_menu_adds_quick_settings_and_marks_current_config(
     assert app._mode_menu_items["realtime_long"].state == 1
     assert app._asr_model_menu_items["qwen3.5-omni-plus"].state == 1
     assert app._polish_level_menu_items["strong"].state == 1
+    assert app._microphone_default_item.state == 1
+
+
+def test_status_bar_microphone_menu_switches_input_device(
+    tmp_path, monkeypatch
+):
+    """Status-bar microphone settings should update the live audio input."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app.config.apply_update("ui.language", "en")
+    app._walkie_talkie = SimpleNamespace(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
+    app._realtime_long = SimpleNamespace(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
+    app._current_mode = app._realtime_long
+    app._refresh_environment_status = MagicMock()
+    monkeypatch.setattr(
+        app,
+        "_list_devices",
+        lambda: [
+            {"name": "Built-in Mic", "is_default": True},
+            {"name": "USB Mic", "is_default": False},
+        ],
+    )
+
+    app._build_menu()
+    app._on_quick_set_microphone_device("USB Mic")
+
+    assert app.config.audio.input_device == "USB Mic"
+    assert app._microphone_default_item.state == 0
+    assert app._microphone_device_menu_items["USB Mic"].state == 1
+    app._walkie_talkie._recorder.set_device.assert_called_with("USB Mic")
+    app._realtime_long._recorder.set_device.assert_called_with("USB Mic")
+    app._refresh_environment_status.assert_called()
+
+
+def test_status_bar_microphone_settings_opens_audio_tab(
+    tmp_path, monkeypatch
+):
+    """The microphone menu should deep-link into the Audio settings tab."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._show_settings = MagicMock()
+
+    app._open_microphone_settings()
+
+    app._show_settings.assert_called_once_with(initial_tab="audio")
 
 
 def test_quick_settings_actions_update_config_and_menu_state(

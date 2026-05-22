@@ -28,6 +28,7 @@ from .config_parsing import (
     clamp_int,
     parse_bool,
 )
+from .hotkey_catalog import normalize_custom_key
 from .model_catalog import (
     ASRBackend,
     ASR_MODEL_IDS,
@@ -58,7 +59,6 @@ HOTKEY_ALIASES = {
     "printscreen": "f13",
     "print_screen": "f13",
 }
-_CUSTOM_KEY_REQUIRED_FIELDS = {"key_code", "display_name", "is_modifier", "flag_mask"}
 
 
 @dataclass
@@ -120,24 +120,7 @@ class UIConfig:
 
 
 def _validate_custom_key(raw: object) -> Optional[dict]:
-    if not isinstance(raw, dict):
-        return None
-    if not _CUSTOM_KEY_REQUIRED_FIELDS.issubset(raw.keys()):
-        return None
-    if not isinstance(raw["key_code"], int):
-        return None
-    if not isinstance(raw["display_name"], str):
-        return None
-    if not isinstance(raw["is_modifier"], bool):
-        return None
-    if not isinstance(raw["flag_mask"], int):
-        return None
-    return {
-        "key_code": raw["key_code"],
-        "display_name": raw["display_name"],
-        "is_modifier": raw["is_modifier"],
-        "flag_mask": raw["flag_mask"],
-    }
+    return normalize_custom_key(raw)
 
 
 def _parse_hotkeys(raw: list) -> list[str]:
@@ -148,7 +131,7 @@ def _parse_hotkeys(raw: list) -> list[str]:
         if canonical in VALID_HOTKEYS and canonical not in seen:
             seen.add(canonical)
             result.append(canonical)
-    return result or ["fn"]
+    return result
 
 
 def _parse_asr_backend(raw: str) -> ASRBackend:

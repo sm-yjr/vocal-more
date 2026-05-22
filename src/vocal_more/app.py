@@ -140,6 +140,7 @@ class VocalMoreApp(rumps.App):
         self._environment_item.title = self._t("menu_environment")
         self._export_diagnostics_item.title = self._t("menu_export_diagnostics")
         self._quick_mode_item.title = self._t("menu_recording_mode")
+        self._quick_microphone_item.title = self._t("menu_microphone")
         self._quick_asr_model_item.title = self._t("menu_asr_model")
         self._quick_enable_polish_item.title = self._t("menu_enable_polishing")
         self._quick_polish_level_item.title = self._t("menu_polish_strength")
@@ -234,6 +235,8 @@ class VocalMoreApp(rumps.App):
             callback=self._on_quick_toggle_polish,
         )
 
+        self._quick_microphone_item = self._build_microphone_item()
+
         self._quick_polish_level_item = rumps.MenuItem(self._t("menu_polish_strength"))
         self._polish_level_menu_items: dict[str, rumps.MenuItem] = {}
         for level, _ in POLISH_LEVEL_OPTIONS:
@@ -245,10 +248,39 @@ class VocalMoreApp(rumps.App):
             self._quick_polish_level_item.add(item)
         return [
             self._quick_mode_item,
+            self._quick_microphone_item,
             self._quick_asr_model_item,
             self._quick_enable_polish_item,
             self._quick_polish_level_item,
         ]
+
+    def _build_microphone_item(self) -> rumps.MenuItem:
+        """Build status-bar microphone settings."""
+        item = rumps.MenuItem(self._t("menu_microphone"))
+        self._microphone_default_item = rumps.MenuItem(
+            self._t("menu_microphone_system_default"),
+            callback=lambda _: self._on_quick_set_microphone_device(None),
+        )
+        self._microphone_device_menu_items: dict[str, rumps.MenuItem] = {}
+        item.add(self._microphone_default_item)
+
+        for device in self._list_devices():
+            name = str(device.get("name") or "").strip()
+            if not name or name in self._microphone_device_menu_items:
+                continue
+            device_item = rumps.MenuItem(
+                name,
+                callback=lambda _, value=name: self._on_quick_set_microphone_device(value),
+            )
+            self._microphone_device_menu_items[name] = device_item
+            item.add(device_item)
+
+        self._microphone_settings_item = rumps.MenuItem(
+            self._t("menu_microphone_settings"),
+            callback=self._open_microphone_settings,
+        )
+        item.add(self._microphone_settings_item)
+        return item
 
     def _build_environment_item(self) -> rumps.MenuItem:
         """Build the environment check submenu."""
@@ -269,6 +301,10 @@ class VocalMoreApp(rumps.App):
     def _open_settings(self, _=None) -> None:
         """Open the settings window."""
         self._show_settings()
+
+    def _open_microphone_settings(self, _=None) -> None:
+        """Open settings directly to microphone controls."""
+        self._show_settings(initial_tab="audio")
 
     def _show_settings(
         self,
@@ -341,8 +377,6 @@ class VocalMoreApp(rumps.App):
 
     def _on_settings_set_hotkeys(self, hotkeys: list[str]) -> None:
         """Handle active hotkeys change from settings window."""
-        if not hotkeys:
-            return
         self._get_runtime().apply_update("hotkey.active_hotkeys", hotkeys)
         self.config.save()
         print(f"[Settings] Active hotkeys: {self.config.hotkey.active_hotkeys}")
@@ -444,6 +478,23 @@ class VocalMoreApp(rumps.App):
         self._quick_mode_item.title = self._t("menu_recording_mode_title", value=mode_label)
         for mode_name, item in self._mode_menu_items.items():
             item.state = MENU_STATE_ON if mode_name == self.config.default_mode else MENU_STATE_OFF
+
+        microphone_label = self._microphone_display_name()
+        self._quick_microphone_item.title = self._t(
+            "menu_microphone_title",
+            value=microphone_label,
+        )
+        self._microphone_default_item.title = self._t("menu_microphone_system_default")
+        self._microphone_default_item.state = (
+            MENU_STATE_ON if not self.config.audio.input_device else MENU_STATE_OFF
+        )
+        for device_name, item in self._microphone_device_menu_items.items():
+            item.state = (
+                MENU_STATE_ON
+                if device_name == self.config.audio.input_device
+                else MENU_STATE_OFF
+            )
+        self._microphone_settings_item.title = self._t("menu_microphone_settings")
 
         asr_label = self._asr_model_display_name(self.config.asr.model)
         self._quick_asr_model_item.title = self._t("menu_asr_model_title", value=asr_label)
@@ -592,6 +643,18 @@ class VocalMoreApp(rumps.App):
         self._refresh_quick_settings_menu()
         print(f"[Menu] ASR model set to: {self.config.asr.model}")
 
+    def _on_quick_set_microphone_device(self, device_name: Optional[str]) -> None:
+        """Switch the input microphone from the status bar."""
+        current = self.config.audio.input_device
+        if (device_name or None) == current:
+            return
+
+        self._get_runtime().apply_update("audio.input_device", device_name)
+        self.config.save()
+        self._refresh_quick_settings_menu()
+        self._refresh_environment_status()
+        print(f"[Menu] Microphone set to: {device_name or 'System Default'}")
+
     def _on_quick_toggle_polish(self, _) -> None:
         """Toggle second-stage polishing from the status bar."""
         self._get_runtime().apply_update("enable_polish", not self.config.enable_polish)
@@ -638,6 +701,9 @@ class VocalMoreApp(rumps.App):
             ),
             model_id,
         )
+
+    def _microphone_display_name(self) -> str:
+        return self.config.audio.input_device or self._t("menu_microphone_system_default")
 
     def _sync_audio_recorders(self) -> None:
         """Push the latest audio config into existing recorders."""

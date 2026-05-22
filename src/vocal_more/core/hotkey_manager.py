@@ -28,32 +28,23 @@ from Quartz import (
 )
 
 from ..config import get_config
+from ..domain.hotkey_catalog import BUILT_IN_HOTKEYS, NX_COMMANDMASK, NX_SECONDARYFNMASK
 
 
 # Fn key constants
 FN_KEYCODE = 63
-NX_SECONDARYFNMASK = 0x800000
 
 # Command key constants for double-tap
 CMD_LEFT_KEYCODE = 55
 CMD_RIGHT_KEYCODE = 54
-NX_COMMANDMASK = 0x100000
 ESC_KEYCODE = 53
 
 # Key registry: name → (keycode, is_modifier, flag_mask)
 # Modifier keys are detected via kCGEventFlagsChanged (press state from flags).
 # Regular keys are detected via kCGEventKeyDown / kCGEventKeyUp.
 KEY_REGISTRY: dict[str, tuple[int, bool, int]] = {
-    "fn": (FN_KEYCODE, True, NX_SECONDARYFNMASK),
-    "right_cmd": (CMD_RIGHT_KEYCODE, True, NX_COMMANDMASK),
-    "f13": (105, False, 0),
-    "f14": (107, False, 0),
-    "f15": (113, False, 0),
-    "f16": (106, False, 0),
-    "f17": (64, False, 0),
-    "f18": (79, False, 0),
-    "f19": (80, False, 0),
-    "f20": (90, False, 0),
+    name: (definition.key_code, definition.is_modifier, definition.flag_mask)
+    for name, definition in BUILT_IN_HOTKEYS.items()
 }
 
 
@@ -192,10 +183,6 @@ class HotkeyManager:
                     self._last_cmd_time = current_time
 
         elif event_type == kCGEventKeyDown:
-            if keycode == ESC_KEYCODE and self.on_escape_pressed:
-                self._enqueue_event(HotkeyEvent.ESC_PRESSED)
-                return event
-
             # Handle regular keys (F13-F20, etc.) — ignore key repeat
             if keycode in self._regular_lookup:
                 if keycode not in self._held_keys:
@@ -204,6 +191,10 @@ class HotkeyManager:
                         self._enqueue_event(HotkeyEvent.FN_PRESSED)
                 # Consume both initial press and repeats
                 return None
+
+            if keycode == ESC_KEYCODE and self.on_escape_pressed:
+                self._enqueue_event(HotkeyEvent.ESC_PRESSED)
+                return event
 
         elif event_type == kCGEventKeyUp:
             if keycode in self._regular_lookup:

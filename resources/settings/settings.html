@@ -776,14 +776,14 @@ function applyTranslations() {
 }
 
 const MODIFIER_KEY_MAP = {
-  MetaLeft: { key_code: 55, display_name: 'Command', flag_mask: 0x100000 },
-  MetaRight: { key_code: 54, display_name: 'Command', flag_mask: 0x100000 },
-  ShiftLeft: { key_code: 56, display_name: 'Shift', flag_mask: 0x20000 },
-  ShiftRight: { key_code: 60, display_name: 'Shift', flag_mask: 0x20000 },
-  AltLeft: { key_code: 58, display_name: 'Option', flag_mask: 0x80000 },
-  AltRight: { key_code: 61, display_name: 'Option', flag_mask: 0x80000 },
-  ControlLeft: { key_code: 59, display_name: 'Control', flag_mask: 0x40000 },
-  ControlRight: { key_code: 62, display_name: 'Control', flag_mask: 0x40000 },
+  MetaLeft: { key_code: 55, display_name: 'Left Command', flag_mask: 0x100000 },
+  MetaRight: { key_code: 54, display_name: 'Right Command', flag_mask: 0x100000 },
+  ShiftLeft: { key_code: 56, display_name: 'Left Shift', flag_mask: 0x20000 },
+  ShiftRight: { key_code: 60, display_name: 'Right Shift', flag_mask: 0x20000 },
+  AltLeft: { key_code: 58, display_name: 'Left Option', flag_mask: 0x80000 },
+  AltRight: { key_code: 61, display_name: 'Right Option', flag_mask: 0x80000 },
+  ControlLeft: { key_code: 59, display_name: 'Left Control', flag_mask: 0x40000 },
+  ControlRight: { key_code: 62, display_name: 'Right Control', flag_mask: 0x40000 },
   CapsLock: { key_code: 57, display_name: 'Caps Lock', flag_mask: 0x10000 },
 };
 
@@ -798,6 +798,7 @@ const REGULAR_KEY_MAP = {
   KeyX: { key_code: 7, display_name: 'X' },
   KeyC: { key_code: 8, display_name: 'C' },
   KeyV: { key_code: 9, display_name: 'V' },
+  IntlBackslash: { key_code: 10, display_name: 'Section' },
   KeyB: { key_code: 11, display_name: 'B' },
   KeyQ: { key_code: 12, display_name: 'Q' },
   KeyW: { key_code: 13, display_name: 'W' },
@@ -1525,13 +1526,6 @@ function onHotkeyToggle(key, enabled) {
   document.querySelectorAll('#hotkey_grid input[data-hotkey]').forEach(el => {
     if (el.checked) hotkeys.push(el.dataset.hotkey);
   });
-  // Don't allow disabling all
-  if (hotkeys.length === 0) {
-    // Re-check the one they just unchecked
-    const el = document.querySelector(`input[data-hotkey="${key}"]`);
-    if (el) el.checked = true;
-    return;
-  }
   postMsg({ action: 'setActiveHotkeys', hotkeys: hotkeys });
   setNestedValue(_config, 'hotkey.active_hotkeys', hotkeys);
   syncFormStateSoon();

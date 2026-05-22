@@ -229,6 +229,12 @@ def test_dispatch_set_active_hotkeys(handler):
     assert handler.config.hotkey.active_hotkeys == ["fn"]
 
 
+def test_dispatch_set_active_hotkeys_allows_empty_list(handler):
+    result = handler.dispatch("set_active_hotkeys", {"hotkeys": []})
+    assert result["ok"] is True
+    assert handler.config.hotkey.active_hotkeys == []
+
+
 def test_dispatch_shutdown(handler):
     result = handler.dispatch("shutdown", {})
     assert result["ok"] is True

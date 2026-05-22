@@ -64,3 +64,20 @@ def test_html_settings_exposes_meeting_mode():
     assert 'option value="meeting" data-i18n="mode_meeting"' in html
     assert "history_mode_meeting" in html
     assert "focusRecordingId" in html
+
+
+def test_html_custom_hotkey_capture_covers_catalog_browser_codes():
+    """The settings UI should be able to record every browser-visible catalog key."""
+    from vocal_more.domain.hotkey_catalog import CUSTOM_HOTKEY_KEYS_BY_BROWSER_CODE
+
+    html = SETTINGS_HTML.read_text(encoding="utf-8")
+
+    for browser_code in CUSTOM_HOTKEY_KEYS_BY_BROWSER_CODE:
+        assert f"{browser_code}:" in html
+
+
+def test_html_allows_disabling_all_builtin_hotkeys():
+    html = SETTINGS_HTML.read_text(encoding="utf-8")
+
+    assert "Don't allow disabling all" not in html
+    assert "hotkeys.length === 0" not in html

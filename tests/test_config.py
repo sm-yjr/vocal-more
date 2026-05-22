@@ -532,21 +532,36 @@ def test_config_active_hotkeys_filters_invalid(tmp_path, monkeypatch):
     assert loaded.hotkey.active_hotkeys == ["fn"]
 
 
-def test_config_active_hotkeys_empty_fallback(tmp_path, monkeypatch):
-    """Test that empty active_hotkeys list falls back to default."""
+def test_config_active_hotkeys_can_be_empty(tmp_path, monkeypatch):
+    """Users may disable all built-in hotkeys when using a custom key."""
     from vocal_more.config import Config
 
     config_path = tmp_path / "config.yaml"
     monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
     monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
 
-    # Write config with all-invalid hotkeys (would result in empty list)
+    data = {"hotkey": {"active_hotkeys": []}}
+    with open(config_path, "w") as f:
+        yaml.dump(data, f)
+
+    loaded = Config.load()
+    assert loaded.hotkey.active_hotkeys == []
+
+
+def test_config_active_hotkeys_all_invalid_becomes_empty(tmp_path, monkeypatch):
+    """All-invalid built-in hotkeys should not silently re-enable Fn."""
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
     data = {"hotkey": {"active_hotkeys": ["bogus"]}}
     with open(config_path, "w") as f:
         yaml.dump(data, f)
 
     loaded = Config.load()
-    assert loaded.hotkey.active_hotkeys == ["fn"]
+    assert loaded.hotkey.active_hotkeys == []
 
 
 def test_config_hotkey_alias_normalization(tmp_path, monkeypatch):
