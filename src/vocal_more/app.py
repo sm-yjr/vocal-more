@@ -508,7 +508,7 @@ class VocalMoreApp(rumps.App):
         """Rebuild status-bar microphone choices from the latest device list."""
         self._microphone_device_menu_items = {}
         clear = getattr(item, "clear", None)
-        if callable(clear):
+        if callable(clear) and getattr(item, "_menu", None) is not None:
             clear()
         elif hasattr(item, "children"):
             item.children.clear()

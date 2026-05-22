@@ -22,14 +22,19 @@ def _install_rumps_stub(monkeypatch) -> None:
             self.callback = callback
             self.children = []
             self.state = 0
+            self._menu = None
 
         def set_callback(self, callback):
             self.callback = callback
 
         def add(self, menuitem):
+            if self._menu is None:
+                self._menu = object()
             self.children.append(menuitem)
 
         def clear(self):
+            if self._menu is None:
+                raise AttributeError("'NoneType' object has no attribute 'removeAllItems'")
             self.children.clear()
 
     rumps.App = DummyApp
