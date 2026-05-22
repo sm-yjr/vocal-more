@@ -29,6 +29,9 @@ def _install_rumps_stub(monkeypatch) -> None:
         def add(self, menuitem):
             self.children.append(menuitem)
 
+        def clear(self):
+            self.children.clear()
+
     rumps.App = DummyApp
     rumps.MenuItem = DummyMenuItem
     rumps.notification = lambda *args, **kwargs: None
@@ -470,6 +473,135 @@ def test_status_bar_microphone_menu_switches_input_device(
     app._walkie_talkie._recorder.set_device.assert_called_with("USB Mic")
     app._realtime_long._recorder.set_device.assert_called_with("USB Mic")
     app._refresh_environment_status.assert_called()
+
+
+def test_refresh_devices_rebuilds_status_menu_and_clears_missing_selection(
+    tmp_path, monkeypatch
+):
+    """Device-list refresh should replace stale status-bar microphone choices."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app.config.apply_update("ui.language", "en")
+    app.config.apply_update("audio.input_device", "USB Mic")
+    app._walkie_talkie = SimpleNamespace(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
+    app._realtime_long = SimpleNamespace(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
+    app._current_mode = app._realtime_long
+    app._runtime = SimpleNamespace(
+        apply_update=lambda key, value: app.config.apply_update(key, value)
+    )
+    app._environment_checks = []
+    app._refresh_environment_status = MagicMock()
+    app._settings_window = MagicMock()
+
+    devices = [
+        {"name": "Built-in Mic", "is_default": True},
+        {"name": "USB Mic", "is_default": False},
+    ]
+    monkeypatch.setattr(app, "_list_devices", lambda: devices)
+
+    app._build_menu()
+    assert "USB Mic" in app._microphone_device_menu_items
+
+    devices = [
+        {"name": "Built-in Mic", "is_default": True},
+        {"name": "Desk Mic", "is_default": False},
+    ]
+    app._on_settings_refresh_devices()
+
+    assert app.config.audio.input_device is None
+    assert "USB Mic" not in app._microphone_device_menu_items
+    assert "Desk Mic" in app._microphone_device_menu_items
+    assert [
+        child.title for child in app._quick_microphone_item.children
+    ] == [
+        "System Default",
+        "Built-in Mic",
+        "Desk Mic",
+        "Microphone Settings...",
+    ]
+    app._settings_window.update_devices.assert_called_once_with(devices, None)
+    app._refresh_environment_status.assert_called_once_with()
+
+
+def test_device_listing_does_not_reset_portaudio_while_recording(
+    tmp_path, monkeypatch
+):
+    """Refreshing the UI list should not reinitialize PortAudio during capture."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    refresh_values = []
+    monkeypatch.setattr(
+        app_module.AudioRecorder,
+        "list_input_devices",
+        staticmethod(
+            lambda *, refresh=False: refresh_values.append(refresh)
+            or [{"name": "Built-in Mic", "is_default": True}]
+        ),
+    )
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.RECORDING)
+    app._realtime_long = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._meeting = None
+
+    assert app._list_devices() == [{"name": "Built-in Mic", "is_default": True}]
+    assert refresh_values == [False]
+
+
+def test_device_listing_does_not_reset_portaudio_during_mic_test(
+    tmp_path, monkeypatch
+):
+    """Settings mic tests also own an input stream, so refresh must avoid resets."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    refresh_values = []
+    monkeypatch.setattr(
+        app_module.AudioRecorder,
+        "list_input_devices",
+        staticmethod(
+            lambda *, refresh=False: refresh_values.append(refresh)
+            or [{"name": "Built-in Mic", "is_default": True}]
+        ),
+    )
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._realtime_long = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._meeting = None
+    app._settings_window = SimpleNamespace(
+        _mic_test_controller=SimpleNamespace(is_running=True)
+    )
+
+    assert app._list_devices() == [{"name": "Built-in Mic", "is_default": True}]
+    assert refresh_values == [False]
 
 
 def test_status_bar_microphone_settings_opens_audio_tab(

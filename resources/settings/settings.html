@@ -1081,8 +1081,11 @@ function updateConfig(key, value) {
 }
 
 /** Called from Python: refresh device list */
-function loadDevices(devices) {
+function loadDevices(devices, selectedDevice) {
   _devices = devices;
+  if (arguments.length > 1) {
+    setNestedValue(_config, 'audio.input_device', selectedDevice || null);
+  }
   renderDeviceSelect();
 }
 

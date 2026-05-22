@@ -38,6 +38,8 @@ from .settings_actions import SettingsActionDispatcher
 from .settings_bridge import SettingsBridge
 from .webview_bridge import objc_to_python
 
+_UNSET = object()
+
 # WKUserScriptInjectionTime
 WKUserScriptInjectionTimeAtDocumentStart = 0
 
@@ -411,10 +413,15 @@ class SettingsWindow:
         """Check if the settings window is visible."""
         return bool(self._window and self._window.isVisible())
 
-    def update_devices(self, devices: list) -> None:
+    def update_devices(self, devices: list, selected_device: object = _UNSET) -> None:
         """Update the device list in the UI (while window is open)."""
         json_str = json.dumps(devices)
-        self._eval_js(f"loadDevices({json_str})")
+        if selected_device is _UNSET:
+            self._eval_js(f"loadDevices({json_str})")
+            return
+
+        selected_json = json.dumps(selected_device)
+        self._eval_js(f"loadDevices({json_str}, {selected_json})")
 
     def update_dictionary(self, entries: list) -> None:
         """Update the dictionary in the UI (while window is open)."""

@@ -46,3 +46,15 @@ def test_js_messages_with_unknown_action_are_ignored():
     window._on_js_message({"action": "unknownAction"})
 
     assert called["value"] is False
+
+
+def test_update_devices_can_sync_selected_device_to_frontend():
+    """Backend refreshes should also correct the frontend's selected mic state."""
+    calls = []
+
+    window = SettingsWindow.__new__(SettingsWindow)
+    window._eval_js = lambda script: calls.append(script)
+
+    window.update_devices([{"name": "Built-in Mic"}], None)
+
+    assert calls == ['loadDevices([{"name": "Built-in Mic"}], null)']

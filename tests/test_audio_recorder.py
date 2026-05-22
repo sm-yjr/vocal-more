@@ -608,3 +608,43 @@ def test_config_save_failure_does_not_block_default_fallback(tmp_path, monkeypat
     assert call_devices == [None]
     assert recorder._device_name is None
     assert get_config().audio.input_device is None
+
+
+def test_list_input_devices_can_refresh_portaudio_before_enumerating(monkeypatch):
+    """Refreshing the settings list should rebuild PortAudio's device cache first."""
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    calls = []
+
+    class FakeDefault:
+        device = [2, None]
+
+        def reset(self):
+            calls.append("default.reset")
+
+    fake_sd = type(
+        "FakeSoundDevice",
+        (),
+        {
+            "default": FakeDefault(),
+            "query_devices": staticmethod(
+                lambda: [
+                    {"index": 2, "name": "Built-in Mic", "max_input_channels": 1},
+                    {"index": 4, "name": "USB Headset Mic", "max_input_channels": 1},
+                    {"index": 5, "name": "USB Headset Output", "max_input_channels": 0},
+                ]
+            ),
+            "_terminate": staticmethod(lambda: calls.append("_terminate")),
+            "_initialize": staticmethod(lambda: calls.append("_initialize")),
+        },
+    )()
+    monkeypatch.setattr(audio_recorder_module, "sd", fake_sd)
+
+    devices = AudioRecorder.list_input_devices(refresh=True)
+
+    assert calls == ["_terminate", "default.reset", "_initialize"]
+    assert devices == [
+        {"index": 2, "name": "Built-in Mic", "is_default": True},
+        {"index": 4, "name": "USB Headset Mic", "is_default": False},
+    ]

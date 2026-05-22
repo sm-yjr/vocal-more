@@ -17,6 +17,7 @@ _PORTAUDIO_RECOVERY_MARKERS = (
     "auhal",
     "invalidpropertyvalue",
 )
+_PORTAUDIO_RESET_LOCK = threading.Lock()
 
 
 class AudioRecorderStartError(RuntimeError):
@@ -242,25 +243,30 @@ class AudioRecorder:
         return any(marker in details for marker in _PORTAUDIO_RECOVERY_MARKERS)
 
     def _recover_portaudio_state(self, error: Exception) -> bool:
+        print(f"[AudioRecorder] Reinitializing PortAudio after startup failure: {error}")
+        self._close_stream_quietly()
+        return self._reset_portaudio_state(error)
+
+    @staticmethod
+    def _reset_portaudio_state(error: Exception | str) -> bool:
         terminate = getattr(sd, "_terminate", None)
         initialize = getattr(sd, "_initialize", None)
         if not callable(terminate) or not callable(initialize):
             print(
-                "[AudioRecorder] PortAudio reset hooks unavailable after startup "
-                f"failure: {error}"
+                "[AudioRecorder] PortAudio reset hooks unavailable: "
+                f"{error}"
             )
             return False
 
-        print(f"[AudioRecorder] Reinitializing PortAudio after startup failure: {error}")
-        self._close_stream_quietly()
-        terminate()
+        with _PORTAUDIO_RESET_LOCK:
+            terminate()
 
-        default = getattr(sd, "default", None)
-        reset = getattr(default, "reset", None)
-        if callable(reset):
-            reset()
+            default = getattr(sd, "default", None)
+            reset = getattr(default, "reset", None)
+            if callable(reset):
+                reset()
 
-        initialize()
+            initialize()
         return True
 
     def _close_stream_quietly(self) -> None:
@@ -335,12 +341,20 @@ class AudioRecorder:
         return 1.0 / (1.0 + 2.0 * math.pi * freq / self.sample_rate)
 
     @staticmethod
-    def list_input_devices() -> list[dict]:
+    def list_input_devices(*, refresh: bool = False) -> list[dict]:
         """Return all available input devices.
+
+        Args:
+            refresh: Reinitialize PortAudio before enumerating devices. This is
+                useful after macOS input devices are plugged in or removed,
+                because PortAudio can otherwise return a stale device cache.
 
         Returns:
             List of dicts with 'index', 'name', 'is_default' keys.
         """
+        if refresh:
+            AudioRecorder._reset_portaudio_state("refreshing input device list")
+
         default_device = sd.default.device[0]  # default input device index
         devices = []
         for dev in sd.query_devices():

@@ -262,24 +262,11 @@ class VocalMoreApp(rumps.App):
             callback=lambda _: self._on_quick_set_microphone_device(None),
         )
         self._microphone_device_menu_items: dict[str, rumps.MenuItem] = {}
-        item.add(self._microphone_default_item)
-
-        for device in self._list_devices():
-            name = str(device.get("name") or "").strip()
-            if not name or name in self._microphone_device_menu_items:
-                continue
-            device_item = rumps.MenuItem(
-                name,
-                callback=lambda _, value=name: self._on_quick_set_microphone_device(value),
-            )
-            self._microphone_device_menu_items[name] = device_item
-            item.add(device_item)
-
         self._microphone_settings_item = rumps.MenuItem(
             self._t("menu_microphone_settings"),
             callback=self._open_microphone_settings,
         )
-        item.add(self._microphone_settings_item)
+        self._populate_microphone_device_menu(item, self._list_devices())
         return item
 
     def _build_environment_item(self) -> rumps.MenuItem:
@@ -314,6 +301,8 @@ class VocalMoreApp(rumps.App):
     ) -> None:
         """Open settings, optionally navigating to a specific record."""
         devices = self._list_devices()
+        self._clear_missing_configured_microphone(devices)
+        self._populate_microphone_device_menu(self._quick_microphone_item, devices)
         dictionary = self._get_dict_entries()
         self._settings_window.show(
             config=self.config.to_dict(),
@@ -412,7 +401,10 @@ class VocalMoreApp(rumps.App):
     def _on_settings_refresh_devices(self) -> None:
         """Handle device refresh request from settings window."""
         devices = self._list_devices()
-        self._settings_window.update_devices(devices)
+        self._clear_missing_configured_microphone(devices)
+        self._populate_microphone_device_menu(self._quick_microphone_item, devices)
+        self._refresh_quick_settings_menu()
+        self._settings_window.update_devices(devices, self.config.audio.input_device)
         self._refresh_environment_status()
 
     def _on_settings_open_config(self) -> None:
@@ -461,13 +453,78 @@ class VocalMoreApp(rumps.App):
         """Invalidate any idle ASR runtime state affected by config changes."""
         self._get_runtime()._refresh_mode_asr_runtime()
 
-    def _list_devices(self) -> list[dict]:
+    def _list_devices(self, *, refresh_audio: Optional[bool] = None) -> list[dict]:
         """List available audio input devices."""
+        if refresh_audio is None:
+            refresh_audio = not self._has_active_audio_capture()
         try:
-            return AudioRecorder.list_input_devices()
+            return AudioRecorder.list_input_devices(refresh=refresh_audio)
         except Exception as e:
             print(f"[Settings] Error listing devices: {e}")
             return []
+
+    def _has_active_audio_capture(self) -> bool:
+        settings_window = getattr(self, "_settings_window", None)
+        mic_test_controller = getattr(settings_window, "_mic_test_controller", None)
+        if getattr(mic_test_controller, "is_running", False) is True:
+            return True
+
+        active_states = {
+            ModeState.STARTING,
+            ModeState.RECORDING,
+            ModeState.STOPPING,
+            ModeState.CANCELLING,
+        }
+        return any(
+            getattr(mode, "state", None) in active_states
+            for mode in self._all_modes()
+        )
+
+    def _clear_missing_configured_microphone(self, devices: list[dict]) -> None:
+        selected = self.config.audio.input_device
+        if not selected or not devices:
+            return
+
+        available_names = {
+            str(device.get("name") or "").strip()
+            for device in devices
+            if str(device.get("name") or "").strip()
+        }
+        if selected in available_names:
+            return
+
+        self._get_runtime().apply_update("audio.input_device", None)
+        self.config.save()
+        print(
+            "[Settings] Cleared unavailable input device after device list refresh: "
+            f"{selected}"
+        )
+
+    def _populate_microphone_device_menu(
+        self,
+        item: rumps.MenuItem,
+        devices: list[dict],
+    ) -> None:
+        """Rebuild status-bar microphone choices from the latest device list."""
+        self._microphone_device_menu_items = {}
+        clear = getattr(item, "clear", None)
+        if callable(clear):
+            clear()
+        elif hasattr(item, "children"):
+            item.children.clear()
+
+        item.add(self._microphone_default_item)
+        for device in devices:
+            name = str(device.get("name") or "").strip()
+            if not name or name in self._microphone_device_menu_items:
+                continue
+            device_item = rumps.MenuItem(
+                name,
+                callback=lambda _, value=name: self._on_quick_set_microphone_device(value),
+            )
+            self._microphone_device_menu_items[name] = device_item
+            item.add(device_item)
+        item.add(self._microphone_settings_item)
 
     def _refresh_quick_settings_menu(self) -> None:
         """Sync quick-menu checkmarks and labels with current config."""
