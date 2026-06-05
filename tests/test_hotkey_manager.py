@@ -162,3 +162,22 @@ def test_hotkey_manager_stop_shuts_down_callback_worker(monkeypatch):
     manager.stop()
 
     assert manager._callback_thread is None
+
+
+def test_hotkey_manager_failed_event_tap_leaves_clean_retry_state(monkeypatch):
+    """A denied event tap should leave the manager ready for a later retry."""
+    config = Config()
+    monkeypatch.setattr(hotkey_module, "get_config", lambda: config)
+    monkeypatch.setattr(hotkey_module, "CGEventTapCreate", lambda *args, **kwargs: None)
+
+    manager = hotkey_module.HotkeyManager()
+
+    assert manager.start() is False
+    assert manager._running is False
+    assert manager._tap is None
+    assert manager._run_loop is None
+    assert manager._run_loop_source is None
+
+    manager.stop()
+    assert manager._thread is None
+    assert manager._callback_thread is None

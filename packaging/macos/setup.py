@@ -44,6 +44,7 @@ OPTIONS = {
         "dashscope",
         "_sounddevice_data",
         "certifi",
+        "chardet",
         "charset_normalizer",
         "numpy",
         "openai",

@@ -1,0 +1,137 @@
+name: Release DMG
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-sign-notarize:
+    runs-on: macos-latest
+    env:
+      DASHSCOPE_API_KEY: test-api-key
+      PYTHONUNBUFFERED: "1"
+      NOTARY_PROFILE: vocal-more-notary
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install test dependencies
+        run: uv sync --group dev
+
+      - name: Run tests
+        run: uv run python -m pytest -q
+
+      - name: Validate release tag
+        run: |
+          set -euo pipefail
+          version="$(python3 packaging/macos/read_version.py)"
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [[ "$tag_version" != "$version" ]]; then
+            echo "Tag version '$tag_version' does not match pyproject version '$version'." >&2
+            exit 1
+          fi
+          echo "VOCAL_MORE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "DMG_PATH=$GITHUB_WORKSPACE/dist/Vocal-More-$version.dmg" >> "$GITHUB_ENV"
+
+      - name: Install packaging Python
+        run: |
+          set -euo pipefail
+          brew install python@3.12
+          echo "VOCAL_MORE_BUILD_PYTHON=$(brew --prefix python@3.12)/bin/python3.12" >> "$GITHUB_ENV"
+
+      - name: Import signing certificate
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${MACOS_CERTIFICATE_P12_BASE64:?Missing MACOS_CERTIFICATE_P12_BASE64 secret}"
+          : "${MACOS_CERTIFICATE_PASSWORD:?Missing MACOS_CERTIFICATE_PASSWORD secret}"
+
+          keychain="$RUNNER_TEMP/vocal-more-signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          certificate="$RUNNER_TEMP/developer-id-application.p12"
+
+          if ! printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate" 2>/dev/null; then
+            printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 -D > "$certificate"
+          fi
+
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12
+          security list-keychains -d user -s "$keychain" login.keychain
+          security default-keychain -s "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+
+          identity="$(
+            security find-identity -p codesigning -v "$keychain" |
+              awk -F '"' '/Developer ID Application/ { print $2; exit }'
+          )"
+          if [[ -z "$identity" ]]; then
+            echo "Developer ID Application signing identity was not found in imported certificate." >&2
+            exit 1
+          fi
+
+          echo "VOCAL_MORE_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "VOCAL_MORE_NOTARY_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+      - name: Store notarization credentials
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${APPLE_ID:?Missing APPLE_ID secret}"
+          : "${APPLE_TEAM_ID:?Missing APPLE_TEAM_ID secret}"
+          : "${APPLE_APP_SPECIFIC_PASSWORD:?Missing APPLE_APP_SPECIFIC_PASSWORD secret}"
+
+          xcrun notarytool store-credentials "$NOTARY_PROFILE" \
+            --keychain "$VOCAL_MORE_NOTARY_KEYCHAIN" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD"
+          echo "VOCAL_MORE_NOTARY_PROFILE=$NOTARY_PROFILE" >> "$GITHUB_ENV"
+
+      - name: Build signed DMG
+        run: ./packaging/macos/build_dmg.sh
+
+      - name: Notarize and staple DMG
+        run: ./packaging/macos/notarize_dmg.sh "$DMG_PATH"
+
+      - name: Verify release artifact
+        run: |
+          set -euo pipefail
+          test -f "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+          codesign --verify --verbose=2 "$DMG_PATH"
+          ls -lh "$DMG_PATH"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vocal-More-${{ env.VOCAL_MORE_VERSION }}.dmg
+          path: ${{ env.DMG_PATH }}
+          if-no-files-found: error
+
+      - name: Create GitHub release and upload DMG
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          title="Vocal-More $VOCAL_MORE_VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$DMG_PATH" --clobber
+          else
+            gh release create "$tag" "$DMG_PATH" --title "$title" --generate-notes
+          fi

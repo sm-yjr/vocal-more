@@ -23,7 +23,7 @@ from .core.recording_store import RecordingStore
 from .core.text_polisher import TextPolisher
 from .diagnostics import ensure_runtime_debug_dir_env, export_support_bundle
 from .dictionary import get_dictionary, reload_dictionary
-from .environment_check import run_environment_checks
+from .environment_check import is_accessibility_trusted, run_environment_checks
 from .localization import t
 from .modes.base_mode import BaseMode, ModeState
 from .modes.meeting import MeetingMode
@@ -48,6 +48,8 @@ POLISH_LEVEL_OPTIONS = [
     ("balanced", "polish_level_balanced"),
     ("strong", "polish_level_strong"),
 ]
+
+HOTKEY_PERMISSION_RETRY_INTERVAL_SECONDS = 2.0
 
 
 class VocalMoreApp(rumps.App):
@@ -96,6 +98,7 @@ class VocalMoreApp(rumps.App):
         self._runtime = dependencies.runtime
         self._settings_window = dependencies.settings_window
         self._main_thread_timers: set[NSTimer] = set()
+        self._hotkey_permission_retry_timer: Optional[NSTimer] = None
 
     # ── Resource paths ────────────────────────────────────────
 
@@ -317,6 +320,7 @@ class VocalMoreApp(rumps.App):
 
     def _quit_app(self, _) -> None:
         """Quit the application."""
+        self._stop_hotkey_permission_retry_timer()
         self._hotkey_manager.stop()
         self._get_command_coordinator().call(
             self._handle_quit_cancel_command,
@@ -639,7 +643,81 @@ class VocalMoreApp(rumps.App):
 
     def _rerun_environment_check(self, _) -> None:
         """Refresh menu-visible environment checks on demand."""
+        was_hotkey_listener_ready = getattr(self, "_hotkey_listener_ready", None) is True
+        recovered_hotkey_listener = self._retry_hotkey_listener_if_accessibility_ready(
+            show_success_notification=True,
+        )
+        if recovered_hotkey_listener and not was_hotkey_listener_ready:
+            return
+        if getattr(self, "_hotkey_listener_ready", None) is False:
+            self._start_hotkey_permission_retry_timer()
         self._refresh_environment_status(show_notification=True)
+
+    def _start_hotkey_permission_retry_timer(self) -> None:
+        """Retry the hotkey listener after the user grants Accessibility access."""
+        if getattr(self, "_hotkey_permission_retry_timer", None) is not None:
+            return
+
+        def _fire(_timer) -> None:
+            if getattr(self, "_hotkey_listener_ready", None) is True:
+                self._stop_hotkey_permission_retry_timer()
+                return
+            self._retry_hotkey_listener_if_accessibility_ready(
+                show_success_notification=True,
+            )
+
+        timer = NSTimer.timerWithTimeInterval_repeats_block_(
+            HOTKEY_PERMISSION_RETRY_INTERVAL_SECONDS,
+            True,
+            _fire,
+        )
+        self._hotkey_permission_retry_timer = timer
+        NSRunLoop.mainRunLoop().addTimer_forMode_(timer, NSRunLoopCommonModes)
+
+    def _stop_hotkey_permission_retry_timer(self) -> None:
+        timer = getattr(self, "_hotkey_permission_retry_timer", None)
+        if timer is None:
+            return
+
+        invalidate = getattr(timer, "invalidate", None)
+        if callable(invalidate):
+            invalidate()
+        self._hotkey_permission_retry_timer = None
+
+    def _retry_hotkey_listener_if_accessibility_ready(
+        self,
+        *,
+        show_success_notification: bool = False,
+    ) -> bool:
+        """Start hotkeys once macOS reports Accessibility permission is active."""
+        if getattr(self, "_hotkey_listener_ready", None) is True:
+            self._stop_hotkey_permission_retry_timer()
+            return True
+
+        if is_accessibility_trusted() is not True:
+            return False
+
+        self._hotkey_listener_ready = bool(self._hotkey_manager.start())
+        self._refresh_environment_status()
+
+        if self._hotkey_listener_ready is not True:
+            return False
+
+        self._stop_hotkey_permission_retry_timer()
+        if show_success_notification:
+            self._show_hotkeys_ready_notification()
+        return True
+
+    def _show_hotkeys_ready_notification(self) -> None:
+        try:
+            rumps.notification(
+                "Vocal-More",
+                self._t("notification_hotkeys_ready_title"),
+                self._t("notification_hotkeys_ready_body"),
+                icon=self._get_logo_path(),
+            )
+        except RuntimeError:
+            print("[Hotkey] Accessibility permission active; hotkeys are ready.")
 
     def _export_diagnostics(self, _) -> None:
         """Export a support bundle with recent traces and environment state."""
@@ -1037,7 +1115,9 @@ class VocalMoreApp(rumps.App):
 
     def run(self) -> None:
         """Run the application."""
-        self._hotkey_listener_ready = self._hotkey_manager.start()
+        self._hotkey_listener_ready = bool(self._hotkey_manager.start())
+        if self._hotkey_listener_ready is not True:
+            self._start_hotkey_permission_retry_timer()
         self._refresh_environment_status(show_notification=True)
         super().run()
 

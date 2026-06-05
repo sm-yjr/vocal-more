@@ -42,6 +42,10 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
             "Please grant Accessibility permissions in System Settings → "
             "Privacy & Security → Accessibility"
         ),
+        "notification_hotkeys_ready_title": "Hotkeys Ready",
+        "notification_hotkeys_ready_body": (
+            "Accessibility permission is active. Vocal-More hotkeys are ready."
+        ),
         "notification_recording_in_progress_title": "Recording In Progress",
         "notification_recording_in_progress_body": (
             "Stop the current session before switching recording modes."
@@ -121,6 +125,10 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "notification_permissions_required_title": "需要权限",
         "notification_permissions_required_body": (
             "请在 系统设置 → 隐私与安全性 → 辅助功能 中授予辅助功能权限"
+        ),
+        "notification_hotkeys_ready_title": "热键已可用",
+        "notification_hotkeys_ready_body": (
+            "辅助功能权限已生效，现在可以直接使用 Vocal-More 热键。"
         ),
         "notification_recording_in_progress_title": "正在录音",
         "notification_recording_in_progress_body": "请先停止当前录音，再切换录音模式。",

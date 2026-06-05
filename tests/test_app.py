@@ -752,6 +752,72 @@ def test_refresh_environment_status_updates_menu_titles(
     assert app._environment_check_items["hotkey_listener"].title == "Hotkey Listener: Failed"
 
 
+def test_hotkey_listener_retries_after_accessibility_permission_granted(
+    tmp_path, monkeypatch
+):
+    """Granting Accessibility permission should recover hotkeys without restarting."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    scheduled = []
+
+    class FakeTimer:
+        def __init__(self, callback):
+            self.callback = callback
+            self.invalidated = False
+
+        def invalidate(self):
+            self.invalidated = True
+
+    class FakeRunLoop:
+        def addTimer_forMode_(self, timer, mode):
+            scheduled.append((timer, mode))
+
+    monkeypatch.setattr(
+        app_module.NSTimer,
+        "timerWithTimeInterval_repeats_block_",
+        lambda interval, repeats, callback: FakeTimer(callback),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        app_module.NSRunLoop,
+        "mainRunLoop",
+        lambda: FakeRunLoop(),
+        raising=False,
+    )
+    monkeypatch.setattr(app_module, "is_accessibility_trusted", lambda: True)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._hotkey_listener_ready = False
+    app._hotkey_manager = MagicMock()
+    app._hotkey_manager.start.return_value = True
+    app._hotkey_permission_retry_timer = None
+    app._refresh_environment_status = MagicMock()
+    app._show_hotkeys_ready_notification = MagicMock()
+
+    app._start_hotkey_permission_retry_timer()
+    assert len(scheduled) == 1
+    assert scheduled[0][0] is app._hotkey_permission_retry_timer
+
+    timer, _mode = scheduled[0]
+    timer.callback(timer)
+
+    app._hotkey_manager.start.assert_called_once()
+    assert app._hotkey_listener_ready is True
+    assert timer.invalidated is True
+    assert app._hotkey_permission_retry_timer is None
+    app._refresh_environment_status.assert_called_once()
+    app._show_hotkeys_ready_notification.assert_called_once()
+
+
 def test_processing_state_updates_capsule_stage(tmp_path, monkeypatch):
     """Entering processing should reset the capsule to the transcribing phase."""
     from vocal_more.config import Config

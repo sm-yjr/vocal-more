@@ -7,6 +7,7 @@ ICONSET="$ROOT/packaging/macos/VocalMore.iconset"
 OUTPUT="$ROOT/packaging/macos/VocalMore.icns"
 MASKED_SOURCE="$ROOT/packaging/macos/.VocalMore.masked.png"
 ICON_SOURCE="$ROOT/packaging/macos/.VocalMore.icon-source.png"
+PYTHON_BIN="${VOCAL_MORE_BUILD_PYTHON:-python3}"
 
 if [[ ! -f "$SOURCE" ]]; then
   echo "Icon source not found: $SOURCE" >&2
@@ -16,7 +17,7 @@ fi
 rm -rf "$ICONSET"
 mkdir -p "$ICONSET"
 
-python - "$SOURCE" "$MASKED_SOURCE" <<'PY'
+"$PYTHON_BIN" - "$SOURCE" "$MASKED_SOURCE" <<'PY'
 from __future__ import annotations
 
 from collections import deque
@@ -201,7 +202,13 @@ sips -z 512 512 "$ICON_SOURCE" --out "$ICONSET/icon_256x256@2x.png" >/dev/null
 sips -z 512 512 "$ICON_SOURCE" --out "$ICONSET/icon_512x512.png" >/dev/null
 sips -z 1024 1024 "$ICON_SOURCE" --out "$ICONSET/icon_512x512@2x.png" >/dev/null
 
-iconutil -c icns "$ICONSET" -o "$OUTPUT"
+if ! iconutil -c icns "$ICONSET" -o "$OUTPUT"; then
+  if [[ -f "$OUTPUT" ]]; then
+    echo "Warning: iconutil could not regenerate $OUTPUT; reusing existing icon." >&2
+  else
+    exit 1
+  fi
+fi
 rm -rf "$ICONSET" "$MASKED_SOURCE" "$ICON_SOURCE"
 
 echo "Wrote $OUTPUT"

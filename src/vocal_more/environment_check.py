@@ -34,6 +34,16 @@ def _check_api_key(config: Config) -> EnvironmentCheckResult:
     return EnvironmentCheckResult("api_key", "ok", "configured")
 
 
+def is_accessibility_trusted() -> Optional[bool]:
+    """Return the current macOS Accessibility trust state when available."""
+    try:
+        from ApplicationServices import AXIsProcessTrusted
+
+        return bool(AXIsProcessTrusted())
+    except Exception:
+        return None
+
+
 def _check_accessibility() -> EnvironmentCheckResult:
     try:
         from ApplicationServices import AXIsProcessTrusted

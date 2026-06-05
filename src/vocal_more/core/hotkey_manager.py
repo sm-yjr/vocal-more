@@ -284,6 +284,9 @@ class HotkeyManager:
         )
 
         if self._tap is None:
+            self._running = False
+            self._run_loop = None
+            self._run_loop_source = None
             print(
                 "Failed to create event tap. "
                 "Make sure Accessibility permissions are granted."
@@ -337,6 +340,9 @@ class HotkeyManager:
             self._thread = None
 
         self._stop_callback_worker()
+        self._tap = None
+        self._run_loop = None
+        self._run_loop_source = None
 
     def set_active_hotkeys(self, hotkeys: list[str]) -> None:
         """Update which hotkeys are active at runtime. No restart needed."""

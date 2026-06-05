@@ -1,6 +1,6 @@
 [project]
 name = "vocal-more"
-version = "0.2.1"
+version = "0.2.2"
 description = "macOS voice recognition app with real-time ASR and text polishing"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -11,6 +11,7 @@ dependencies = [
     "numpy>=1.24.0",
     "pyperclip>=1.8.2",
     "dashscope>=1.14.0",
+    "chardet>=5.2.0,<6",
     "pyyaml>=6.0",
     "pyobjc-framework-Quartz>=10.0",
     "pyobjc-framework-WebKit>=10.0",

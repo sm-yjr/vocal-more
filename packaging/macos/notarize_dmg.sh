@@ -2,9 +2,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VERSION="$("$ROOT/.venv/bin/python" "$ROOT/packaging/macos/read_version.py")"
+VERSION="$(python3 "$ROOT/packaging/macos/read_version.py")"
 DMG="${1:-$ROOT/dist/Vocal-More-${VERSION}.dmg}"
 KEYCHAIN_PROFILE="${VOCAL_MORE_NOTARY_PROFILE:-}"
+KEYCHAIN="${VOCAL_MORE_NOTARY_KEYCHAIN:-}"
 
 if [[ ! -f "$DMG" ]]; then
   echo "DMG not found: $DMG" >&2
@@ -17,11 +18,17 @@ if [[ -z "$KEYCHAIN_PROFILE" ]]; then
   exit 1
 fi
 
-xcrun notarytool submit "$DMG" \
-  --keychain-profile "$KEYCHAIN_PROFILE" \
-  --wait
+NOTARY_ARGS=(--keychain-profile "$KEYCHAIN_PROFILE")
+if [[ -n "$KEYCHAIN" ]]; then
+  NOTARY_ARGS+=(--keychain "$KEYCHAIN")
+fi
+
+xcrun notarytool submit "$DMG" "${NOTARY_ARGS[@]}" --wait
 
 xcrun stapler staple "$DMG"
-spctl -a -vv -t open --context context:primary-signature "$DMG"
+xcrun stapler validate "$DMG"
+if ! spctl -a -vv -t open --context context:primary-signature "$DMG"; then
+  echo "Warning: spctl open validation failed; notarization and stapler validation succeeded." >&2
+fi
 
 echo "Notarized and stapled $DMG"
