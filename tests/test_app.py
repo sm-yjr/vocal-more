@@ -100,7 +100,7 @@ def test_settings_form_sync_updates_all_audio_processing_controls(
     assert app.config.audio.highpass_filter is False
     assert app.config.audio.highpass_freq == 410
     assert app.config.audio.soft_limiter is False
-    assert app.config.hotkey.active_hotkeys == ["f13"]
+    assert app.config.hotkey.active_hotkeys == ["fn"]
 
     for recorder in (recorder_one, recorder_two):
         recorder.set_device.assert_called_with("USB Mic")
@@ -109,7 +109,7 @@ def test_settings_form_sync_updates_all_audio_processing_controls(
         recorder.set_highpass_freq.assert_called_with(410)
         recorder.set_soft_limiter.assert_called_with(False)
 
-    app._hotkey_manager.set_active_hotkeys.assert_called_with(["f13"])
+    app._hotkey_manager.set_active_hotkeys.assert_called_with(["fn"])
     app._select_mode.assert_called_with("realtime_long")
     app._refresh_text_polisher.assert_called_once()
 
@@ -196,7 +196,7 @@ def test_settings_form_sync_refreshes_runtime_sensitive_config_without_restart(
             "asr": {"model": "qwen3.5-omni-plus-realtime", "language": "en"},
             "llm": {"level": "strong"},
             "hotkey": {
-                "active_hotkeys": ["f13"],
+                "active_hotkeys": ["fn"],
                 "custom_key": {
                     "key_code": 105,
                     "display_name": "F13",
@@ -210,7 +210,7 @@ def test_settings_form_sync_refreshes_runtime_sensitive_config_without_restart(
     assert app._current_mode is app._walkie_talkie
     app._refresh_text_polisher.assert_called_once()
     app._apply_interface_language.assert_called_once()
-    app._hotkey_manager.set_active_hotkeys.assert_called_once_with(["f13"])
+    app._hotkey_manager.set_active_hotkeys.assert_called_once_with(["fn"])
     app._hotkey_manager.set_custom_key.assert_called_once_with(
         {
             "key_code": 105,
@@ -536,6 +536,101 @@ def test_refresh_devices_rebuilds_status_menu_and_clears_missing_selection(
     ]
     app._settings_window.update_devices.assert_called_once_with(devices, None)
     app._refresh_environment_status.assert_called_once_with()
+
+
+def test_status_menu_open_refreshes_microphone_devices_without_settings_window(
+    tmp_path, monkeypatch
+):
+    """Opening the status-bar menu should refresh hot-plugged input devices."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app.config.apply_update("ui.language", "en")
+    app.config.apply_update("audio.input_device", "USB Mic")
+    app._walkie_talkie = SimpleNamespace(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
+    app._realtime_long = SimpleNamespace(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
+    app._current_mode = app._realtime_long
+    app._runtime = SimpleNamespace(
+        apply_update=lambda key, value: app.config.apply_update(key, value)
+    )
+    app._environment_checks = []
+
+    devices = [
+        {"name": "Built-in Mic", "is_default": True},
+        {"name": "USB Mic", "is_default": False},
+    ]
+    monkeypatch.setattr(app, "_list_devices", lambda: devices)
+
+    app._build_menu()
+    assert "USB Mic" in app._microphone_device_menu_items
+
+    devices = [
+        {"name": "Built-in Mic", "is_default": True},
+        {"name": "Desk Mic", "is_default": False},
+    ]
+    app._on_status_menu_will_open()
+
+    assert app.config.audio.input_device is None
+    assert "USB Mic" not in app._microphone_device_menu_items
+    assert "Desk Mic" in app._microphone_device_menu_items
+    assert [
+        child.title for child in app._quick_microphone_item.children
+    ] == [
+        "System Default",
+        "Built-in Mic",
+        "Desk Mic",
+        "Microphone Settings...",
+    ]
+
+
+def test_build_menu_installs_status_menu_delegate(tmp_path, monkeypatch):
+    """The AppKit menu delegate should be installed for top-level menu opens."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    class FakeNSMenu:
+        def __init__(self):
+            self.delegate = None
+
+        def setDelegate_(self, delegate):
+            self.delegate = delegate
+
+    ns_menu = FakeNSMenu()
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app._menu = SimpleNamespace(_menu=ns_menu)
+    app.config = Config()
+    app.config.apply_update("ui.language", "en")
+    app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._realtime_long = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._current_mode = app._realtime_long
+    app._environment_checks = []
+    monkeypatch.setattr(
+        app,
+        "_list_devices",
+        lambda: [{"name": "Built-in Mic", "is_default": True}],
+    )
+
+    app._build_menu()
+
+    assert ns_menu.delegate is app._status_menu_delegate
+    assert getattr(ns_menu.delegate, "_app") is app
 
 
 def test_device_listing_does_not_reset_portaudio_while_recording(
@@ -1009,3 +1104,81 @@ def test_main_does_not_enable_persistent_debug_dir_by_default(tmp_path, monkeypa
     assert "VOCAL_MORE_DEBUG_DIR" not in app_module.os.environ
     assert not (tmp_path / "debug").exists()
     fake_app.run.assert_called_once()
+
+
+def test_app_started_notification_uses_status_bar_message(tmp_path, monkeypatch):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    notifications = []
+    monkeypatch.setattr(
+        app_module.rumps,
+        "notification",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app.config.apply_update("ui.language", "zh")
+
+    app._show_app_started_notification()
+
+    assert notifications == [
+        (
+            (
+                "Vocal-More",
+                "Vocal-More 已启动",
+                "Vocal-More 已在状态栏运行。",
+            ),
+            {"icon": app._get_logo_path()},
+        )
+    ]
+
+
+def test_run_shows_app_started_notification_before_entering_event_loop(tmp_path, monkeypatch):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    run_calls = []
+    monkeypatch.setattr(
+        app_module.rumps.App,
+        "run",
+        lambda self: run_calls.append("run"),
+        raising=False,
+    )
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._hotkey_manager = MagicMock()
+    app._hotkey_manager.start.return_value = True
+    app._refresh_environment_status = MagicMock()
+    app._show_app_started_notification = MagicMock()
+
+    app.run()
+
+    app._hotkey_manager.start.assert_called_once_with()
+    app._refresh_environment_status.assert_called_once_with(show_notification=True)
+    app._show_app_started_notification.assert_called_once_with()
+    assert run_calls == ["run"]

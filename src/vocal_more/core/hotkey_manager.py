@@ -28,15 +28,12 @@ from Quartz import (
 )
 
 from ..config import get_config
-from ..domain.hotkey_catalog import BUILT_IN_HOTKEYS, NX_COMMANDMASK, NX_SECONDARYFNMASK
+from ..domain.hotkey_catalog import BUILT_IN_HOTKEYS, NX_SECONDARYFNMASK
 
 
 # Fn key constants
 FN_KEYCODE = 63
 
-# Command key constants for double-tap
-CMD_LEFT_KEYCODE = 55
-CMD_RIGHT_KEYCODE = 54
 ESC_KEYCODE = 53
 
 # Key registry: name → (keycode, is_modifier, flag_mask)
@@ -95,25 +92,19 @@ class HotkeyManager:
         # State tracking
         self._key_states: dict[int, bool] = {}  # keycode → pressed
         self._held_keys: set[int] = set()  # regular keys currently held
-        self._last_cmd_time = 0.0
-        self._cmd_tap_count = 0
 
         # Pre-compute lookup tables
         self._modifier_lookup: dict[int, int] = {}  # keycode → flag_mask
         self._regular_lookup: set[int] = set()  # keycodes
-        self._double_cmd_active = False
         self._update_lookup_tables()
 
     def _update_lookup_tables(self) -> None:
         """Rebuild fast-lookup tables from active_hotkeys."""
         self._modifier_lookup = {}
         self._regular_lookup = set()
-        self._double_cmd_active = False
 
         for name in self._active_hotkeys:
-            if name == "double_cmd":
-                self._double_cmd_active = True
-            elif name in KEY_REGISTRY:
+            if name in KEY_REGISTRY:
                 keycode, is_mod, flag = KEY_REGISTRY[name]
                 if is_mod:
                     self._modifier_lookup[keycode] = flag
@@ -162,25 +153,6 @@ class HotkeyManager:
 
                 # Consume modifier hotkey events so they don't reach the focused app
                 return None
-
-            # Handle Cmd double-tap (do NOT consume — Cmd is needed for normal use)
-            if self._double_cmd_active and keycode in (CMD_LEFT_KEYCODE, CMD_RIGHT_KEYCODE):
-                cmd_pressed = bool(flags & NX_COMMANDMASK)
-
-                if not cmd_pressed:  # Key released
-                    current_time = time.time()
-                    threshold = self.config.hotkey.double_tap_threshold
-
-                    if current_time - self._last_cmd_time < threshold:
-                        self._cmd_tap_count += 1
-                        if self._cmd_tap_count >= 2:
-                            self._cmd_tap_count = 0
-                            if self.on_double_cmd:
-                                self._enqueue_event(HotkeyEvent.DOUBLE_CMD)
-                    else:
-                        self._cmd_tap_count = 1
-
-                    self._last_cmd_time = current_time
 
         elif event_type == kCGEventKeyDown:
             # Handle regular keys (F13-F20, etc.) — ignore key repeat

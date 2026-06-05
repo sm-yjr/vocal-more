@@ -328,18 +328,6 @@
         <div class="form-hint" data-i18n="shortcuts_press_any_key_hint">Press any key to assign as a custom hotkey.</div>
       </div>
 
-      <div class="form-separator"></div>
-
-      <div class="form-group">
-        <div class="form-row">
-          <span class="form-label" data-i18n="shortcuts_double_tap_threshold_label">Double-tap Threshold</span>
-          <div class="slider-group">
-            <input type="range" id="hotkey_double_tap" min="0.15" max="0.5" step="0.05" value="0.3">
-            <span class="slider-value" id="hotkey_double_tap_val">0.30s</span>
-          </div>
-        </div>
-        <div class="form-hint" data-i18n="shortcuts_double_tap_hint">Maximum interval between two taps for Double Command.</div>
-      </div>
     </div>
 
     <!-- ═══ Dictionary ═══ -->
@@ -520,14 +508,9 @@ const UI_TRANSLATIONS = {
     shortcuts_cancel: 'Cancel',
     shortcuts_clear: 'Clear',
     shortcuts_press_any_key_hint: 'Press any key to assign as a custom hotkey.',
-    shortcuts_double_tap_threshold_label: 'Double-tap Threshold',
-    shortcuts_double_tap_hint: 'Maximum interval between two taps for Double Command.',
     shortcuts_press_a_key: 'Press a key...',
     shortcuts_unsupported_key: 'Unsupported key',
     shortcut_hotkey_fn: 'Fn Key (Hold / Toggle)',
-    shortcut_hotkey_right_cmd: 'Right Command',
-    shortcut_hotkey_double_cmd: 'Double Command',
-    shortcut_hotkey_f13: 'F13 (PrintScreen)',
     dictionary_hint: 'Custom terms improve ASR accuracy for proper nouns. Click × to remove a term.',
     dictionary_empty: 'No terms added yet.',
     dictionary_term_label: 'Term',
@@ -666,14 +649,9 @@ const UI_TRANSLATIONS = {
     shortcuts_cancel: '取消',
     shortcuts_clear: '清除',
     shortcuts_press_any_key_hint: '按下任意按键即可将其设为自定义热键。',
-    shortcuts_double_tap_threshold_label: '双击阈值',
-    shortcuts_double_tap_hint: '两次按下 Double Command 的最大间隔。',
     shortcuts_press_a_key: '请按下一个按键...',
     shortcuts_unsupported_key: '不支持的按键',
     shortcut_hotkey_fn: 'Fn 键（按住 / 切换）',
-    shortcut_hotkey_right_cmd: '右 Command',
-    shortcut_hotkey_double_cmd: '双击 Command',
-    shortcut_hotkey_f13: 'F13（PrintScreen）',
     dictionary_hint: '自定义词条可以提升专有名词的识别准确率。点击 × 删除词条。',
     dictionary_empty: '还没有添加词条。',
     dictionary_term_label: '词条',
@@ -1325,17 +1303,12 @@ function renderShortcuts() {
   const active = hotkey.active_hotkeys || ['fn'];
 
   const labels = {
-    fn: t('shortcut_hotkey_fn'),
-    right_cmd: t('shortcut_hotkey_right_cmd'),
-    double_cmd: t('shortcut_hotkey_double_cmd'),
-    f13: t('shortcut_hotkey_f13'),
-    f14: 'F14', f15: 'F15', f16: 'F16', f17: 'F17',
-    f18: 'F18', f19: 'F19', f20: 'F20'
+    fn: t('shortcut_hotkey_fn')
   };
 
   const grid = document.getElementById('hotkey_grid');
   grid.innerHTML = '';
-  const allKeys = ['fn','right_cmd','double_cmd','f13','f14','f15','f16','f17','f18','f19','f20'];
+  const allKeys = ['fn'];
   allKeys.forEach(key => {
     const row = document.createElement('div');
     row.className = 'hotkey-row';
@@ -1368,13 +1341,6 @@ function renderShortcuts() {
     display.classList.remove('recording');
     clearBtn.style.display = 'none';
   }
-
-  // Double-tap threshold
-  const dtEl = document.getElementById('hotkey_double_tap');
-  if (!isSliderActive('hotkey_double_tap')) {
-    dtEl.value = hotkey.double_tap_threshold != null ? hotkey.double_tap_threshold : 0.3;
-  }
-  document.getElementById('hotkey_double_tap_val').textContent = parseFloat(dtEl.value).toFixed(2) + 's';
 }
 
 function renderDictionary() {
@@ -1517,12 +1483,6 @@ document.getElementById('llm_enable_thinking').addEventListener('change', functi
 });
 
 // ── Shortcuts ──
-bindSlider('hotkey_double_tap', function() {
-  document.getElementById('hotkey_double_tap_val').textContent = parseFloat(this.value).toFixed(2) + 's';
-}, function() {
-  setConfig('hotkey.double_tap_threshold', parseFloat(this.value));
-});
-
 function onHotkeyToggle(key, enabled) {
   // Collect current state from checkboxes
   const hotkeys = [];
@@ -2371,7 +2331,7 @@ function collectFormState() {
     },
     hotkey: {
       active_hotkeys: activeHotkeys,
-      double_tap_threshold: parseFloat(document.getElementById('hotkey_double_tap')?.value || '0.3'),
+      double_tap_threshold: _config.hotkey?.double_tap_threshold || 0.3,
       custom_key: _config.hotkey?.custom_key || null,
     },
   };

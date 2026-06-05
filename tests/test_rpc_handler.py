@@ -377,7 +377,7 @@ def test_dispatch_set_active_hotkeys_normalizes_values(handler):
     )
 
     assert result["ok"] is True
-    assert handler.config.hotkey.active_hotkeys == ["f13"]
+    assert handler.config.hotkey.active_hotkeys == ["fn"]
 
 
 def test_dispatch_generate_meeting_notes_updates_recording(handler, monkeypatch):

@@ -1,5 +1,6 @@
 """Tests for legacy HTML settings behavior."""
 
+import re
 from pathlib import Path
 
 
@@ -81,3 +82,26 @@ def test_html_allows_disabling_all_builtin_hotkeys():
 
     assert "Don't allow disabling all" not in html
     assert "hotkeys.length === 0" not in html
+
+
+def test_html_shortcuts_only_lists_fn_as_builtin_hotkey():
+    html = SETTINGS_HTML.read_text(encoding="utf-8")
+
+    assert "const allKeys = ['fn'];" in html
+    assert "shortcut_hotkey_right_cmd" not in html
+    assert "shortcut_hotkey_double_cmd" not in html
+    assert "shortcut_hotkey_f13" not in html
+    assert "hotkey_double_tap" not in html
+
+
+def test_recording_history_copy_button_is_primary_action():
+    css = SETTINGS_CSS.read_text(encoding="utf-8")
+
+    copy_rule = re.search(r"\.rec-btn-copy\s*\{([^}]*)\}", css)
+    retry_rule = re.search(r"\.rec-btn-retry\s*\{([^}]*)\}", css)
+    assert copy_rule is not None
+    assert retry_rule is not None
+
+    assert "background: var(--accent)" in copy_rule.group(1)
+    assert "color: #fff" in copy_rule.group(1)
+    assert "background: var(--accent)" not in retry_rule.group(1)

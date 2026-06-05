@@ -6,8 +6,9 @@ import threading
 from typing import Any, Optional
 
 import dashscope
+import objc
 import rumps
-from Foundation import NSRunLoop, NSRunLoopCommonModes, NSTimer
+from Foundation import NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer
 
 from . import __version__
 from .application.dictation_command_coordinator import DictationCommandCoordinator
@@ -50,6 +51,20 @@ POLISH_LEVEL_OPTIONS = [
 ]
 
 HOTKEY_PERMISSION_RETRY_INTERVAL_SECONDS = 2.0
+
+
+class StatusMenuRefreshDelegate(NSObject):
+    """Refresh volatile status-bar menu content before the menu opens."""
+
+    def initWithApp_(self, app):
+        self = objc.super(StatusMenuRefreshDelegate, self).init()
+        if self is None:
+            return None
+        self._app = app
+        return self
+
+    def menuWillOpen_(self, _menu) -> None:
+        self._app._on_status_menu_will_open()
 
 
 class VocalMoreApp(rumps.App):
@@ -99,6 +114,7 @@ class VocalMoreApp(rumps.App):
         self._settings_window = dependencies.settings_window
         self._main_thread_timers: set[NSTimer] = set()
         self._hotkey_permission_retry_timer: Optional[NSTimer] = None
+        self._status_menu_delegate = None
 
     # ── Resource paths ────────────────────────────────────────
 
@@ -204,8 +220,29 @@ class VocalMoreApp(rumps.App):
             None,
             self._quit_menu_item,
         ]
+        self._install_status_menu_delegate()
         self._refresh_quick_settings_menu()
         self._refresh_environment_menu()
+
+    def _install_status_menu_delegate(self) -> None:
+        """Attach an AppKit menu delegate so hardware-dependent items stay fresh."""
+        menu = getattr(getattr(self, "_menu", None), "_menu", None)
+        set_delegate = getattr(menu, "setDelegate_", None)
+        if not callable(set_delegate):
+            return
+
+        alloc = getattr(StatusMenuRefreshDelegate, "alloc", None)
+        if callable(alloc):
+            delegate = StatusMenuRefreshDelegate.alloc().initWithApp_(self)
+        else:
+            delegate = StatusMenuRefreshDelegate()
+            delegate._app = self
+        self._status_menu_delegate = delegate
+        set_delegate(delegate)
+
+    def _on_status_menu_will_open(self) -> None:
+        """Refresh status-bar-only dynamic menus before users inspect them."""
+        self._refresh_microphone_status_menu()
 
     def _build_quick_settings_items(self) -> list[rumps.MenuItem]:
         """Build the primary menu items for common settings."""
@@ -404,11 +441,7 @@ class VocalMoreApp(rumps.App):
 
     def _on_settings_refresh_devices(self) -> None:
         """Handle device refresh request from settings window."""
-        devices = self._list_devices()
-        self._clear_missing_configured_microphone(devices)
-        self._populate_microphone_device_menu(self._quick_microphone_item, devices)
-        self._refresh_quick_settings_menu()
-        self._settings_window.update_devices(devices, self.config.audio.input_device)
+        self._refresh_microphone_status_menu(update_settings_window=True)
         self._refresh_environment_status()
 
     def _on_settings_open_config(self) -> None:
@@ -503,6 +536,26 @@ class VocalMoreApp(rumps.App):
             "[Settings] Cleared unavailable input device after device list refresh: "
             f"{selected}"
         )
+
+    def _refresh_microphone_status_menu(
+        self,
+        *,
+        update_settings_window: bool = False,
+    ) -> list[dict]:
+        """Refresh the status-bar microphone choices from current hardware state."""
+        devices = self._list_devices()
+        self._clear_missing_configured_microphone(devices)
+        if hasattr(self, "_quick_microphone_item"):
+            self._populate_microphone_device_menu(self._quick_microphone_item, devices)
+        self._refresh_quick_settings_menu()
+
+        if update_settings_window:
+            settings_window = getattr(self, "_settings_window", None)
+            update_devices = getattr(settings_window, "update_devices", None)
+            if callable(update_devices):
+                update_devices(devices, self.config.audio.input_device)
+
+        return devices
 
     def _populate_microphone_device_menu(
         self,
@@ -718,6 +771,17 @@ class VocalMoreApp(rumps.App):
             )
         except RuntimeError:
             print("[Hotkey] Accessibility permission active; hotkeys are ready.")
+
+    def _show_app_started_notification(self) -> None:
+        try:
+            rumps.notification(
+                "Vocal-More",
+                self._t("notification_app_started_title"),
+                self._t("notification_app_started_body"),
+                icon=self._get_logo_path(),
+            )
+        except RuntimeError:
+            print("[Startup] Vocal-More is running in the menu bar.")
 
     def _export_diagnostics(self, _) -> None:
         """Export a support bundle with recent traces and environment state."""
@@ -1119,6 +1183,7 @@ class VocalMoreApp(rumps.App):
         if self._hotkey_listener_ready is not True:
             self._start_hotkey_permission_retry_timer()
         self._refresh_environment_status(show_notification=True)
+        self._show_app_started_notification()
         super().run()
 
 

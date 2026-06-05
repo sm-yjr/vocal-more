@@ -42,6 +42,8 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
             "Please grant Accessibility permissions in System Settings → "
             "Privacy & Security → Accessibility"
         ),
+        "notification_app_started_title": "Vocal-More Started",
+        "notification_app_started_body": "Vocal-More is running in the menu bar.",
         "notification_hotkeys_ready_title": "Hotkeys Ready",
         "notification_hotkeys_ready_body": (
             "Accessibility permission is active. Vocal-More hotkeys are ready."
@@ -126,6 +128,8 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "notification_permissions_required_body": (
             "请在 系统设置 → 隐私与安全性 → 辅助功能 中授予辅助功能权限"
         ),
+        "notification_app_started_title": "Vocal-More 已启动",
+        "notification_app_started_body": "Vocal-More 已在状态栏运行。",
         "notification_hotkeys_ready_title": "热键已可用",
         "notification_hotkeys_ready_body": (
             "辅助功能权限已生效，现在可以直接使用 Vocal-More 热键。"

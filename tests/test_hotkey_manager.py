@@ -62,15 +62,15 @@ def test_set_custom_key_updates_lookup_tables(monkeypatch):
     assert 49 not in manager._regular_lookup
 
 
-def test_right_command_hotkey_is_registered_as_modifier(monkeypatch):
-    """Built-in right Command should be treated as a modifier hotkey."""
+def test_legacy_right_command_hotkey_is_not_registered_as_builtin(monkeypatch):
+    """Only Fn should be registered as a built-in hotkey."""
     config = Config()
     config.hotkey.active_hotkeys = ["right_cmd"]
     monkeypatch.setattr(hotkey_module, "get_config", lambda: config)
 
     manager = hotkey_module.HotkeyManager()
 
-    assert manager._modifier_lookup[hotkey_module.CMD_RIGHT_KEYCODE] == hotkey_module.NX_COMMANDMASK
+    assert 54 not in manager._modifier_lookup
 
 
 def test_hotkey_events_are_dispatched_serially_in_order(monkeypatch):

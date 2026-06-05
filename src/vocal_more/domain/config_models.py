@@ -42,6 +42,8 @@ from .model_catalog import (
 
 VALID_HOTKEYS = (
     "fn",
+)
+LEGACY_BUILT_IN_HOTKEYS = (
     "right_cmd",
     "double_cmd",
     "f13",
@@ -106,7 +108,7 @@ class HotkeyConfig:
     """Hotkey configuration."""
 
     primary_key: str = "fn"
-    fallback_key: str = "double_cmd"
+    fallback_key: str = "fn"
     double_tap_threshold: float = 0.3
     active_hotkeys: list[str] = field(default_factory=lambda: ["fn"])
     custom_key: Optional[dict] = None
@@ -123,14 +125,31 @@ def _validate_custom_key(raw: object) -> Optional[dict]:
     return normalize_custom_key(raw)
 
 
+def _parse_builtin_hotkey(raw: object) -> str:
+    if not isinstance(raw, str):
+        return "fn"
+    canonical = HOTKEY_ALIASES.get(raw, raw)
+    if canonical in VALID_HOTKEYS:
+        return canonical
+    if canonical in LEGACY_BUILT_IN_HOTKEYS:
+        return "fn"
+    return "fn"
+
+
 def _parse_hotkeys(raw: list) -> list[str]:
     seen = set()
     result = []
+    saw_legacy_builtin = False
     for hotkey in raw:
         canonical = HOTKEY_ALIASES.get(hotkey, hotkey)
+        if canonical in LEGACY_BUILT_IN_HOTKEYS:
+            saw_legacy_builtin = True
+            continue
         if canonical in VALID_HOTKEYS and canonical not in seen:
             seen.add(canonical)
             result.append(canonical)
+    if not result and saw_legacy_builtin:
+        return ["fn"]
     return result
 
 
@@ -426,9 +445,9 @@ class AppConfig:
 
     def _apply_hotkey_update(self, field_name: str, value: Any) -> None:
         if field_name == "primary_key":
-            self.hotkey.primary_key = str(value)
+            self.hotkey.primary_key = _parse_builtin_hotkey(value)
         elif field_name == "fallback_key":
-            self.hotkey.fallback_key = str(value)
+            self.hotkey.fallback_key = _parse_builtin_hotkey(value)
         elif field_name == "double_tap_threshold":
             self.hotkey.double_tap_threshold = clamp_float(
                 value,
@@ -519,6 +538,7 @@ __all__ = [
     "AudioConfig",
     "HOTKEY_ALIASES",
     "HotkeyConfig",
+    "LEGACY_BUILT_IN_HOTKEYS",
     "LLMConfig",
     "UIConfig",
     "VALID_DEFAULT_MODES",

@@ -506,12 +506,12 @@ input[type="range"]:disabled {
 .rec-btn:disabled { opacity: 0.4; cursor: default; }
 .rec-btn-play { background: rgba(255,255,255,0.08); color: var(--text-primary); }
 .rec-btn-play:hover:not(:disabled) { background: rgba(255,255,255,0.12); }
-.rec-btn-retry { background: var(--accent); color: #fff; }
-.rec-btn-retry:hover:not(:disabled) { background: var(--accent-hover); }
+.rec-btn-retry { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+.rec-btn-retry:hover:not(:disabled) { background: rgba(255,255,255,0.12); }
 .rec-btn-meeting { background: rgba(52,199,89,0.14); color: var(--green); }
 .rec-btn-meeting:hover:not(:disabled) { background: rgba(52,199,89,0.22); }
-.rec-btn-copy { background: rgba(255,255,255,0.08); color: var(--text-primary); }
-.rec-btn-copy:hover:not(:disabled) { background: rgba(255,255,255,0.12); }
+.rec-btn-copy { background: var(--accent); color: #fff; }
+.rec-btn-copy:hover:not(:disabled) { background: var(--accent-hover); }
 .rec-btn-del { background: rgba(255,59,48,0.1); color: var(--red); }
 .rec-btn-del:hover:not(:disabled) { background: rgba(255,59,48,0.2); }
 .rec-transcript {

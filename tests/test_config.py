@@ -116,7 +116,7 @@ def test_config_repository_round_trips_app_config(tmp_path):
     config.apply_update("audio.gain", 4.0)
     config.apply_update("asr.model", "qwen3.5-omni-plus")
     config.apply_update("llm.structured", True)
-    config.apply_update("hotkey.active_hotkeys", ["fn", "f13"])
+    config.apply_update("hotkey.active_hotkeys", ["fn"])
 
     repo.save(config)
     loaded = repo.load()
@@ -266,7 +266,7 @@ def test_apply_form_state_normalizes_nested_config():
     assert config.asr.model == "qwen3.5-omni-plus"
     assert config.asr.backend == "omni_offline"
     assert config.asr.language == "en"
-    assert config.hotkey.active_hotkeys == ["f13"]
+    assert config.hotkey.active_hotkeys == ["fn"]
     assert config.ui.language == "zh"
 
 
@@ -377,11 +377,11 @@ def test_load_auto_cleans_unknown_and_normalized_fields(tmp_path, monkeypatch):
     persisted = yaml.safe_load(config_path.read_text())
 
     assert loaded.asr.backend == "omni_offline"
-    assert loaded.hotkey.active_hotkeys == ["f13"]
+    assert loaded.hotkey.active_hotkeys == ["fn"]
     assert "legacy_mode" not in persisted
     assert "noise_gate" not in persisted["audio"]
     assert persisted["asr"]["backend"] == "omni_offline"
-    assert persisted["hotkey"]["active_hotkeys"] == ["f13"]
+    assert persisted["hotkey"]["active_hotkeys"] == ["fn"]
     assert persisted["api_key"] == ""
 
 
@@ -564,8 +564,8 @@ def test_config_active_hotkeys_all_invalid_becomes_empty(tmp_path, monkeypatch):
     assert loaded.hotkey.active_hotkeys == []
 
 
-def test_config_hotkey_alias_normalization(tmp_path, monkeypatch):
-    """Test that 'printscreen' alias is normalized to 'f13'."""
+def test_config_legacy_hotkey_alias_migrates_to_fn(tmp_path, monkeypatch):
+    """Old built-in hotkey aliases should migrate to Fn."""
     from vocal_more.config import Config
 
     config_path = tmp_path / "config.yaml"
@@ -577,11 +577,11 @@ def test_config_hotkey_alias_normalization(tmp_path, monkeypatch):
         yaml.dump(data, f)
 
     loaded = Config.load()
-    assert loaded.hotkey.active_hotkeys == ["f13", "double_cmd"]
+    assert loaded.hotkey.active_hotkeys == ["fn"]
 
 
-def test_config_accepts_right_command_hotkey(tmp_path, monkeypatch):
-    """Built-in right Command hotkey should survive config parsing."""
+def test_config_legacy_command_hotkeys_migrate_to_fn(tmp_path, monkeypatch):
+    """Old Command hotkeys should migrate to Fn."""
     from vocal_more.config import Config
 
     config_path = tmp_path / "config.yaml"
@@ -593,7 +593,7 @@ def test_config_accepts_right_command_hotkey(tmp_path, monkeypatch):
         yaml.dump(data, f)
 
     loaded = Config.load()
-    assert loaded.hotkey.active_hotkeys == ["right_cmd", "double_cmd"]
+    assert loaded.hotkey.active_hotkeys == ["fn"]
 
 
 def test_parse_llm_model_valid():
@@ -749,8 +749,8 @@ def test_custom_key_wrong_type_falls_back(tmp_path, monkeypatch):
     assert loaded.hotkey.custom_key is None
 
 
-def test_config_fkey_hotkeys_roundtrip(tmp_path, monkeypatch):
-    """Test F-key hotkeys survive save/load cycle."""
+def test_config_legacy_fkey_hotkeys_migrate_to_fn(tmp_path, monkeypatch):
+    """Old F-key built-ins should migrate to Fn on load."""
     from vocal_more.config import Config
 
     config_path = tmp_path / "config.yaml"
@@ -762,7 +762,7 @@ def test_config_fkey_hotkeys_roundtrip(tmp_path, monkeypatch):
     config.save()
 
     loaded = Config.load()
-    assert loaded.hotkey.active_hotkeys == ["f13", "f16"]
+    assert loaded.hotkey.active_hotkeys == ["fn"]
 
 
 def test_structured_defaults_to_false():

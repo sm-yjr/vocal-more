@@ -164,15 +164,6 @@ CUSTOM_HOTKEY_KEYS_BY_BROWSER_CODE = {
 
 BUILT_IN_HOTKEYS: dict[str, HotkeyKeyDefinition] = {
     "fn": HotkeyKeyDefinition(63, "Fn", True, NX_SECONDARYFNMASK),
-    "right_cmd": HotkeyKeyDefinition(54, "Right Command", True, NX_COMMANDMASK),
-    "f13": HotkeyKeyDefinition(105, "F13"),
-    "f14": HotkeyKeyDefinition(107, "F14"),
-    "f15": HotkeyKeyDefinition(113, "F15"),
-    "f16": HotkeyKeyDefinition(106, "F16"),
-    "f17": HotkeyKeyDefinition(64, "F17"),
-    "f18": HotkeyKeyDefinition(79, "F18"),
-    "f19": HotkeyKeyDefinition(80, "F19"),
-    "f20": HotkeyKeyDefinition(90, "F20"),
 }
 
 

@@ -64,10 +64,10 @@ def test_runtime_facade_updates_config_and_reports_changed_keys():
 
     assert result.changed_keys == {"audio.gain", "hotkey.active_hotkeys"}
     assert config.audio.gain == 4.0
-    assert config.hotkey.active_hotkeys == ["f13"]
+    assert config.hotkey.active_hotkeys == ["fn"]
     assert result.refresh_audio_recorders is True
     assert result.refresh_asr_runtime is False
-    callbacks["set_active_hotkeys"].assert_called_once_with(["f13"])
+    callbacks["set_active_hotkeys"].assert_called_once_with(["fn"])
     walkie._recorder.set_gain.assert_called_once_with(4.0)
     realtime._recorder.set_gain.assert_called_once_with(4.0)
 
