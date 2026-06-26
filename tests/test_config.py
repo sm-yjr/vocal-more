@@ -35,6 +35,7 @@ def test_config_load(tmp_path, monkeypatch):
     assert config.llm.temperature == 0.0
     assert config.llm.enable_thinking is False
     assert config.llm.max_tokens == 1024
+    assert config.llm.polish_mode == "dictation"
     assert config.hotkey.primary_key == "fn"
     assert config.hotkey.active_hotkeys == ["fn"]
     assert config.ui.language == "zh"
@@ -92,6 +93,7 @@ def test_config_new_fields_defaults():
     assert config.asr.extra_corpus_terms == []
     assert config.llm.enable_thinking is False
     assert config.llm.max_tokens == 1024
+    assert config.llm.polish_mode == "dictation"
     assert config.llm.structured is False
     assert config.hotkey.active_hotkeys == ["fn"]
     assert config.ui.language == "zh"
@@ -116,6 +118,7 @@ def test_config_repository_round_trips_app_config(tmp_path):
     config.apply_update("audio.gain", 4.0)
     config.apply_update("asr.model", "qwen3.5-omni-plus")
     config.apply_update("llm.structured", True)
+    config.apply_update("llm.polish_mode", "prompt")
     config.apply_update("hotkey.active_hotkeys", ["fn"])
 
     repo.save(config)
@@ -156,6 +159,7 @@ def test_config_new_fields_roundtrip(tmp_path, monkeypatch):
     config.asr.extra_corpus_terms = ["Vocal More", "DashScope"]
     config.llm.enable_thinking = True
     config.llm.max_tokens = 128
+    config.apply_update("llm.polish_mode", "prompt")
     config.hotkey.active_hotkeys = ["fn"]
     config.ui.language = "zh"
     config.save()
@@ -168,6 +172,7 @@ def test_config_new_fields_roundtrip(tmp_path, monkeypatch):
     assert loaded.asr.extra_corpus_terms == ["Vocal More", "DashScope"]
     assert loaded.llm.enable_thinking is True
     assert loaded.llm.max_tokens == 128
+    assert loaded.llm.polish_mode == "prompt"
     assert loaded.hotkey.active_hotkeys == ["fn"]
     assert loaded.ui.language == "zh"
 
@@ -254,10 +259,14 @@ def test_apply_form_state_normalizes_nested_config():
             "ui": {
                 "language": "zh",
             },
+            "llm": {
+                "polish_mode": "prompt",
+            },
         }
     )
 
     assert config.default_mode == "realtime_long"
+    assert config.llm.polish_mode == "prompt"
     assert config.audio.input_device == "Built-in Mic"
     assert config.audio.gain == 4.0
     assert config.audio.highpass_filter is False
@@ -431,8 +440,8 @@ def test_config_invalid_modes_fall_back(tmp_path, monkeypatch):
     assert loaded.asr.batch_mode == "manual"
 
 
-def test_legacy_polish_mode_field_is_ignored_and_removed(tmp_path, monkeypatch):
-    """Legacy llm.polish_mode should be dropped automatically on load."""
+def test_invalid_polish_mode_falls_back_and_rewrites_yaml(tmp_path, monkeypatch):
+    """Invalid llm.polish_mode should be normalized on load."""
     from vocal_more.config import Config
 
     config_path = tmp_path / "config.yaml"
@@ -446,8 +455,9 @@ def test_legacy_polish_mode_field_is_ignored_and_removed(tmp_path, monkeypatch):
     persisted = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     assert loaded.llm.level == "strong"
-    assert "polish_mode" not in loaded.to_dict()["llm"]
-    assert "polish_mode" not in persisted["llm"]
+    assert loaded.llm.polish_mode == "dictation"
+    assert loaded.to_dict()["llm"]["polish_mode"] == "dictation"
+    assert persisted["llm"]["polish_mode"] == "dictation"
 
 
 def test_load_handles_legacy_python_string_tags_and_rewrites_clean_yaml(

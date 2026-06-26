@@ -233,6 +233,17 @@
 
       <div class="form-group">
         <div class="form-row">
+          <span class="form-label" data-i18n="polish_output_type_label">Output Type</span>
+          <select id="llm_polish_mode" class="polish-control">
+            <option value="dictation" data-i18n="polish_output_type_dictation">Dictation Text</option>
+            <option value="prompt" data-i18n="polish_output_type_prompt">Prompt</option>
+          </select>
+        </div>
+        <div class="form-hint" data-i18n="polish_output_type_hint">Choose whether polish returns clean text or a task prompt.</div>
+      </div>
+
+      <div class="form-group">
+        <div class="form-row">
           <span class="form-label" data-i18n="polish_level_label">Level</span>
           <select id="llm_level" class="polish-control">
             <option value="minimal" data-i18n="polish_level_minimal">Minimal</option>
@@ -479,6 +490,10 @@ const UI_TRANSLATIONS = {
     recognition_backend_omni_offline: 'Omni Offline',
     polish_enable_label: 'Enable Text Polish',
     polish_enable_hint: 'Use LLM to clean up transcription results.',
+    polish_output_type_label: 'Output Type',
+    polish_output_type_dictation: 'Dictation Text',
+    polish_output_type_prompt: 'Prompt',
+    polish_output_type_hint: 'Choose whether polish returns clean text or a task prompt.',
     polish_level_label: 'Level',
     polish_level_minimal: 'Minimal',
     polish_level_balanced: 'Balanced',
@@ -620,6 +635,10 @@ const UI_TRANSLATIONS = {
     recognition_backend_omni_offline: 'Omni 离线',
     polish_enable_label: '启用文本润色',
     polish_enable_hint: '使用 LLM 清理和整理识别结果。',
+    polish_output_type_label: '输出类型',
+    polish_output_type_dictation: '听写文本',
+    polish_output_type_prompt: 'Prompt',
+    polish_output_type_hint: '选择润色后输出普通文本还是任务 Prompt。',
     polish_level_label: '强度',
     polish_level_minimal: '轻度',
     polish_level_balanced: '均衡',
@@ -1234,6 +1253,7 @@ function renderPolish() {
   const enabled = _config.enable_polish !== false;
   document.getElementById('enable_polish').checked = enabled;
 
+  document.getElementById('llm_polish_mode').value = llm.polish_mode || 'dictation';
   document.getElementById('llm_level').value = llm.level || 'minimal';
   document.getElementById('llm_structured').checked = !!llm.structured;
   document.getElementById('llm_tone').value = llm.tone || 'neutral';
@@ -1456,6 +1476,9 @@ document.getElementById('asr_language').addEventListener('change', function() {
 document.getElementById('enable_polish').addEventListener('change', function() {
   setConfig('enable_polish', this.checked);
   togglePolishControls(this.checked);
+});
+document.getElementById('llm_polish_mode').addEventListener('change', function() {
+  setConfig('llm.polish_mode', this.value);
 });
 document.getElementById('llm_level').addEventListener('change', function() {
   setConfig('llm.level', this.value);
@@ -2324,6 +2347,7 @@ function collectFormState() {
       model: document.getElementById('llm_model')?.value || 'qwen3.5-plus',
       temperature: parseFloat(document.getElementById('llm_temperature')?.value || '0.0'),
       enable_thinking: !!document.getElementById('llm_enable_thinking')?.checked,
+      polish_mode: document.getElementById('llm_polish_mode')?.value || 'dictation',
       level: document.getElementById('llm_level')?.value || 'minimal',
       structured: !!document.getElementById('llm_structured')?.checked,
       tone: document.getElementById('llm_tone')?.value || 'neutral',

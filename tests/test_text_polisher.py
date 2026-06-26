@@ -257,6 +257,61 @@ def test_structured_flag_adds_instructions_to_prompt(tmp_path, monkeypatch):
     assert "换行" in prompt_on
 
 
+def test_prompt_polish_mode_builds_task_prompt_instructions():
+    from vocal_more.config import LLMConfig
+    from vocal_more.core.text_polisher import build_polish_system_prompt
+
+    prompt = build_polish_system_prompt(LLMConfig(polish_mode="prompt"))
+
+    assert "GPT-5.5" in prompt
+    assert "Role" in prompt
+    assert "Goal" in prompt
+    assert "Success criteria" in prompt
+    assert "Constraints" in prompt
+    assert "Output" in prompt
+    assert "Stop rules" in prompt
+    assert "不要补充用户没有说出的业务事实" in prompt
+
+
+def test_prompt_polish_mode_routes_text_polisher_messages(tmp_path, monkeypatch):
+    from vocal_more.config import Config, reload_config
+    from vocal_more.core.text_polisher import TextPolisher
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump({"llm": {"polish_mode": "prompt"}}, f)
+
+    reload_config()
+    polisher = TextPolisher()
+    messages = polisher._build_messages("帮我让模型分析这个 bug 怎么修")
+
+    assert messages[0]["role"] == "system"
+    assert "把口语化输入转换成任务式 Prompt" in messages[0]["content"]
+    assert messages[1] == {"role": "user", "content": "帮我让模型分析这个 bug 怎么修"}
+
+
+def test_prompt_polish_mode_routes_omni_inline_instructions(tmp_path, monkeypatch):
+    from vocal_more.config import Config, reload_config
+    from vocal_more.core.text_polisher import build_omni_inline_polish_instructions
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump({"llm": {"polish_mode": "prompt"}}, f)
+
+    config = reload_config()
+    prompt = build_omni_inline_polish_instructions(config.llm)
+
+    assert "你会收到用户口述的音频内容" in prompt
+    assert "把口语化输入转换成任务式 Prompt" in prompt
+    assert "Stop rules" in prompt
+
+
 def test_structured_is_independent_of_level(tmp_path, monkeypatch):
     """Structured can be combined with any level."""
     from vocal_more.config import Config, LLMConfig, reload_config

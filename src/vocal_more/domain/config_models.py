@@ -57,6 +57,7 @@ LEGACY_BUILT_IN_HOTKEYS = (
 )
 VALID_DEFAULT_MODES = ("walkie_talkie", "realtime_long", "meeting")
 ASRLanguage = Literal["zh", "en", "auto"]
+PolishMode = Literal["dictation", "prompt"]
 HOTKEY_ALIASES = {
     "printscreen": "f13",
     "print_screen": "f13",
@@ -97,6 +98,7 @@ class LLMConfig:
     temperature: float = 0.0
     enable_thinking: bool = False
     max_tokens: int = 1024
+    polish_mode: PolishMode = "dictation"
     level: Literal["minimal", "balanced", "strong"] = "minimal"
     structured: bool = False
     tone: Literal["neutral", "gentle", "direct"] = "neutral"
@@ -209,6 +211,12 @@ def _parse_persona(raw: str) -> Literal["default", "technical", "bilingual", "pr
     if raw in ("default", "technical", "bilingual", "professional", "chat"):
         return raw
     return "default"
+
+
+def _parse_polish_mode(raw: object) -> PolishMode:
+    if raw in ("dictation", "prompt"):
+        return raw
+    return "dictation"
 
 
 def _parse_default_mode(raw: object) -> str:
@@ -427,7 +435,7 @@ class AppConfig:
                 maximum=MAX_LLM_MAX_TOKENS,
             )
         elif field_name == "polish_mode":
-            return
+            self.llm.polish_mode = _parse_polish_mode(value)
         elif field_name == "level":
             self.llm.level = _parse_level(str(value))
         elif field_name == "structured":
@@ -494,6 +502,7 @@ class AppConfig:
                 "temperature": self.llm.temperature,
                 "enable_thinking": self.llm.enable_thinking,
                 "max_tokens": self.llm.max_tokens,
+                "polish_mode": self.llm.polish_mode,
                 "level": self.llm.level,
                 "structured": self.llm.structured,
                 "tone": self.llm.tone,

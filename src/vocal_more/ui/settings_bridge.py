@@ -39,6 +39,7 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
         "temperature",
         "enable_thinking",
         "max_tokens",
+        "polish_mode",
         "level",
         "structured",
         "tone",

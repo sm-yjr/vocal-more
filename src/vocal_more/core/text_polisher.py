@@ -62,6 +62,38 @@ STRUCTURED_INSTRUCTIONS = """当内容存在结构化特征时（如并列要点
 - 如果内容本身是单条连贯的表达，不要强行拆成列表
 - 结构化只是让内容更好读——只在确实有结构时使用，不要为了格式化而格式化"""
 
+PROMPT_OUTPUT_INSTRUCTIONS = """Prompt 输出模式：
+你要把用户的口语化输入转换成任务式 Prompt，目标是让下游 LLM 可以直接执行。
+参考 GPT-5.5 prompting guide 的 outcome-first 风格：优先写清最终目标、成功标准、约束、输出要求和停止规则，减少过程控制。
+
+转换规则：
+1. 提取用户真正想让 LLM 完成的任务、对象、上下文、交付物、约束和成功标准
+2. 删除寒暄、犹豫、停顿词、重复、自我修正和无效铺垫
+3. 不要补充用户没有说出的业务事实、数据、结论或偏好
+4. 如果缺少执行任务所必需的信息，把缺口写进 Prompt 的澄清要求或 Stop rules
+5. 保护代码、路径、API 名、模型名、文件名、命令和专有名词
+6. 根据用户口述语言选择输出语言；中英文混合口述时优先保留关键术语原文
+
+输出格式：
+Role: <给下游模型的角色定位>
+
+# Goal
+<一句或几句说明要完成的具体任务>
+
+# Success criteria
+<用编号列出可判断任务完成质量的标准>
+
+# Constraints
+<用编号列出边界、事实保护、风格和禁止事项>
+
+# Output
+<说明下游模型应该输出什么格式、粒度和内容>
+
+# Stop rules
+<说明信息不足、需求冲突或无法安全完成时该怎么处理>
+
+只输出最终 Prompt，不要解释转换过程，不要添加前缀。"""
+
 TONE_INSTRUCTIONS = {
     "neutral": "保持自然、中性、克制的表达，不主动增加额外情绪色彩。",
     "gentle": "将生硬、直接、强硬的措辞软化为更温和、委婉的表达，但不要过度客套。",
@@ -144,6 +176,16 @@ def normalize_structured_list_spacing(text: str, llm_config: Optional[LLMConfig]
 def build_polish_system_prompt(llm_config: Optional[LLMConfig] = None) -> str:
     """Build the shared polish system prompt for second-stage LLM calls."""
     llm_config = llm_config or get_config().llm
+    if llm_config.polish_mode == "prompt":
+        return f"""你是一个 Prompt 整理助手。
+
+你需要把口语化输入转换成任务式 Prompt，供下游 LLM 直接执行。
+必须保持用户原始意图，不补充用户没有说出的业务事实。
+
+{PROMPT_OUTPUT_INSTRUCTIONS}
+
+请直接输出处理后的 Prompt，不要添加任何解释或说明。"""
+
     return f"""你是一个中文听写整理助手。
 
 你需要根据给定的润色强度、语气和表达人格来整理文本。
@@ -161,6 +203,16 @@ def build_omni_inline_polish_instructions(llm_config: Optional[LLMConfig] = None
     llm_config = llm_config or get_config().llm
     dictionary_block = get_dictionary().format_for_prompt()
     extra = f"\n\n{dictionary_block}" if dictionary_block else ""
+    if llm_config.polish_mode == "prompt":
+        return f"""你是一个 Prompt 整理助手。
+
+你会收到用户口述的音频内容。请先准确理解用户说的话，再把口语化输入转换成任务式 Prompt，供下游 LLM 直接执行。
+你的唯一任务是把用户刚才说出的指令整理成最终 Prompt。
+
+{PROMPT_OUTPUT_INSTRUCTIONS}{extra}
+
+请只输出最终 Prompt，不要解释过程，不要添加前缀，不要复述任务。"""
+
     return f"""你是一个中文听写整理助手。
 
 你会收到用户口述的音频内容。请先准确理解用户说的话，再直接输出最终整理后的文本。

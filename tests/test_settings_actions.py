@@ -33,6 +33,9 @@ def test_settings_bridge_rejects_unknown_config_keys():
     assert bridge.parse(
         {"action": "setConfig", "key": "audio.gain", "value": 3.0}
     ) == {"action": "set_config", "key": "audio.gain", "value": 3.0}
+    assert bridge.parse(
+        {"action": "setConfig", "key": "llm.polish_mode", "value": "prompt"}
+    ) == {"action": "set_config", "key": "llm.polish_mode", "value": "prompt"}
 
 
 def test_settings_bridge_sanitizes_sync_form_state_payload():
@@ -47,7 +50,7 @@ def test_settings_bridge_sanitizes_sync_form_state_payload():
                 "api_key": "sk-test",
                 "legacy_mode": True,
                 "audio": {"gain": 3.0, "debug_path": "/tmp/private"},
-                "llm": {"level": "strong", "unknown": True},
+                "llm": {"level": "strong", "polish_mode": "prompt", "unknown": True},
                 "hotkey": "not-a-dict",
             },
         }
@@ -58,7 +61,7 @@ def test_settings_bridge_sanitizes_sync_form_state_payload():
         "payload": {
             "api_key": "sk-test",
             "audio": {"gain": 3.0},
-            "llm": {"level": "strong"},
+            "llm": {"level": "strong", "polish_mode": "prompt"},
         },
     }
 
