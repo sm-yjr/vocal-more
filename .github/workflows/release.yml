@@ -135,3 +135,49 @@ jobs:
           else
             gh release create "$tag" "$DMG_PATH" --title "$title" --generate-notes
           fi
+
+      - name: Publish signed Sparkle appcast
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          : "${SPARKLE_PRIVATE_KEY:?Missing SPARKLE_PRIVATE_KEY secret}"
+
+          tag="$GITHUB_REF_NAME"
+          archive_name="$(basename "$DMG_PATH")"
+          archive_stem="${archive_name%.dmg}"
+          updates_dir="$RUNNER_TEMP/sparkle-updates"
+          sparkle_root="$(./packaging/macos/install_sparkle.sh)"
+          mkdir -p "$updates_dir"
+
+          if gh release view sparkle-feed >/dev/null 2>&1; then
+            gh release download sparkle-feed \
+              --pattern appcast.xml \
+              --dir "$updates_dir" \
+              --clobber
+          fi
+
+          cp "$DMG_PATH" "$updates_dir/$archive_name"
+          gh release view "$tag" --json body --jq .body > "$updates_dir/$archive_stem.md"
+
+          printf '%s' "$SPARKLE_PRIVATE_KEY" |
+            "$sparkle_root/bin/generate_appcast" \
+              --ed-key-file - \
+              --download-url-prefix "https://github.com/sm-yjr/vocal-more/releases/download/$tag/" \
+              --embed-release-notes \
+              --maximum-versions 5 \
+              --maximum-deltas 0 \
+              --link "https://github.com/sm-yjr/vocal-more" \
+              -o "$updates_dir/appcast.xml" \
+              "$updates_dir"
+
+          if gh release view sparkle-feed >/dev/null 2>&1; then
+            gh release upload sparkle-feed "$updates_dir/appcast.xml" --clobber
+          else
+            gh release create sparkle-feed "$updates_dir/appcast.xml" \
+              --target "$GITHUB_SHA" \
+              --title "Sparkle Update Feed" \
+              --notes "Signed update metadata consumed by Vocal-More." \
+              --prerelease
+          fi

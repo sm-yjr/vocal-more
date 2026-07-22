@@ -6,6 +6,7 @@ dist/
 build/
 .venv/
 packaging/macos/.venv-py2app/
+packaging/macos/.sparkle/
 packaging/macos/.VocalMore.*.png
 dist/*.dmg
 dist/dmg-staging/

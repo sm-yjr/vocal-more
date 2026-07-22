@@ -799,10 +799,31 @@ def test_build_menu_localizes_titles_when_ui_language_is_chinese(
     assert "启用润色" in titles
     assert "润色强度：轻度" in titles
     assert "导出诊断包…" in titles
+    assert "检查更新…" in titles
     assert app._state_item.title == "状态：空闲"
     assert app._quick_enable_polish_item.title == "启用润色"
     assert app._settings_menu_item.title == "更多设置..."
+    assert app._check_for_updates_item.title == "检查更新…"
     assert app._quit_menu_item.title == "退出 Vocal-More"
+
+
+def test_check_for_updates_uses_sparkle_controller(tmp_path, monkeypatch):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app._sparkle_updater = MagicMock()
+    app._sparkle_updater.check_for_updates.return_value = True
+
+    sender = object()
+    app._check_for_updates(sender)
+
+    app._sparkle_updater.check_for_updates.assert_called_once_with(sender)
 
 
 def test_refresh_environment_status_updates_menu_titles(

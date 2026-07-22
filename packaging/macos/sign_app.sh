@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP="${1:-$ROOT/dist/Vocal More.app}"
 ENTITLEMENTS="$ROOT/packaging/macos/entitlements.plist"
 IDENTITY="${VOCAL_MORE_SIGN_IDENTITY:-}"
+SPARKLE_FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
 
 if [[ ! -d "$APP" ]]; then
   echo "App bundle not found: $APP" >&2
@@ -27,11 +28,13 @@ fi
 echo "Signing $APP"
 echo "Identity: $IDENTITY"
 
+"$ROOT/packaging/macos/sign_sparkle.sh" "$SPARKLE_FRAMEWORK" "$IDENTITY" 1
+
 while IFS= read -r file; do
   codesign --force --timestamp --options runtime \
     --sign "$IDENTITY" "$file" >/dev/null
 done < <(
-  find "$APP/Contents" -type f -print0 |
+  find "$APP/Contents" -path "$SPARKLE_FRAMEWORK/*" -prune -o -type f -print0 |
     xargs -0 file |
     awk -F: '/Mach-O/ { sub(/ [(]for architecture .*/, "", $1); print $1 }' |
     sort -ru

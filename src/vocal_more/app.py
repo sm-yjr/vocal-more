@@ -31,6 +31,7 @@ from .modes.meeting import MeetingMode
 from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
 from .paths import bundled_resource_path
+from .infrastructure.sparkle_updater import SparkleUpdater
 from .infrastructure.timestamped_output import install_timestamped_stream
 from .ui.floating_capsule import FloatingCapsule
 from .ui.settings_window import SettingsWindow
@@ -91,6 +92,7 @@ class VocalMoreApp(rumps.App):
             settings_window_factory=SettingsWindow,
         )
         self._apply_dependencies(dependencies)
+        self._sparkle_updater = SparkleUpdater()
         self._apply_interface_language(update_frontend=False)
 
         # Build menu
@@ -157,6 +159,7 @@ class VocalMoreApp(rumps.App):
         """Refresh localized menu strings without rebuilding menu objects."""
         self._state_item.title = self._state_title_for_state(self._current_mode.state)
         self._environment_item.title = self._t("menu_environment")
+        self._check_for_updates_item.title = self._t("menu_check_for_updates")
         self._export_diagnostics_item.title = self._t("menu_export_diagnostics")
         self._quick_mode_item.title = self._t("menu_recording_mode")
         self._quick_microphone_item.title = self._t("menu_microphone")
@@ -199,6 +202,10 @@ class VocalMoreApp(rumps.App):
             self._t("menu_export_diagnostics"),
             callback=self._export_diagnostics,
         )
+        self._check_for_updates_item = rumps.MenuItem(
+            self._t("menu_check_for_updates"),
+            callback=self._check_for_updates,
+        )
         self._settings_menu_item = rumps.MenuItem(
             self._t("menu_more_settings"),
             callback=self._open_settings,
@@ -215,6 +222,7 @@ class VocalMoreApp(rumps.App):
             None,
             *quick_items,
             None,
+            self._check_for_updates_item,
             self._export_diagnostics_item,
             self._settings_menu_item,
             None,
@@ -328,6 +336,20 @@ class VocalMoreApp(rumps.App):
     def _open_settings(self, _=None) -> None:
         """Open the settings window."""
         self._show_settings()
+
+    def _check_for_updates(self, sender=None) -> None:
+        """Ask Sparkle to check the signed update feed for a newer release."""
+        updater = getattr(self, "_sparkle_updater", None)
+        if updater is not None and updater.check_for_updates(sender):
+            return
+
+        error = getattr(updater, "startup_error", None)
+        if error is not None:
+            print(f"[Updater] Sparkle is unavailable: {error}")
+        subprocess.run(
+            ["open", "https://github.com/sm-yjr/vocal-more/releases/latest"],
+            check=False,
+        )
 
     def _open_microphone_settings(self, _=None) -> None:
         """Open settings directly to microphone controls."""

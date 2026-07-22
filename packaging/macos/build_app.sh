@@ -47,12 +47,21 @@ rm -rf "$ROOT/dist"
 mkdir -p "$ROOT/dist"
 cp -R "$ROOT/packaging/macos/dist/Vocal More.app" "$ROOT/dist/"
 
+APP="$ROOT/dist/Vocal More.app"
+SPARKLE_ROOT="$("$ROOT/packaging/macos/install_sparkle.sh")"
+SPARKLE_FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
+mkdir -p "$APP/Contents/Frameworks"
+ditto "$SPARKLE_ROOT/Sparkle.framework" "$SPARKLE_FRAMEWORK"
+ditto "$SPARKLE_ROOT/LICENSE" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
+
 if [[ "${VOCAL_MORE_SKIP_ADHOC_SIGN:-0}" != "1" ]]; then
+  "$ROOT/packaging/macos/sign_sparkle.sh" "$SPARKLE_FRAMEWORK" - 0
+
   while IFS= read -r file; do
     codesign --force --options runtime \
       --sign - "$file" >/dev/null
   done < <(
-    find "$ROOT/dist/Vocal More.app/Contents" -type f -print0 |
+    find "$APP/Contents" -path "$SPARKLE_FRAMEWORK/*" -prune -o -type f -print0 |
       xargs -0 file |
       awk -F: '/Mach-O/ { sub(/ [(]for architecture .*/, "", $1); print $1 }' |
       sort -ru
@@ -60,7 +69,7 @@ if [[ "${VOCAL_MORE_SKIP_ADHOC_SIGN:-0}" != "1" ]]; then
 
   codesign --force --options runtime \
     --entitlements "$ROOT/packaging/macos/entitlements.plist" \
-    --sign - "$ROOT/dist/Vocal More.app"
+    --sign - "$APP"
 fi
 
 echo "Built dist/Vocal More.app"

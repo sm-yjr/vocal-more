@@ -24,6 +24,13 @@ APP = [
             "CFBundleIdentifier": "com.sm-yjr.vocal-more",
             "CFBundleShortVersionString": __version__,
             "CFBundleVersion": BUILD_NUMBER,
+            "SUFeedURL": (
+                "https://github.com/sm-yjr/vocal-more/releases/download/"
+                "sparkle-feed/appcast.xml"
+            ),
+            "SUPublicEDKey": "rX4Sp1huP0v763afpuPlVkpDuXYoMj/+2fNqnFFMHsk=",
+            "SUVerifyUpdateBeforeExtraction": True,
+            "SURequireSignedFeed": True,
             "NSHighResolutionCapable": True,
             "NSMicrophoneUsageDescription": (
                 "Vocal More needs microphone access to convert your voice to text."

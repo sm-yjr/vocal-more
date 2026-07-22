@@ -41,6 +41,19 @@ def test_py2app_declares_microphone_usage_description():
     assert usage.value
 
 
+def test_py2app_declares_signed_sparkle_feed():
+    app_plist = _load_py2app_plist()
+
+    feed_url = app_plist["SUFeedURL"]
+    public_key = app_plist["SUPublicEDKey"]
+    assert isinstance(feed_url, ast.Constant)
+    assert feed_url.value.endswith("/sparkle-feed/appcast.xml")
+    assert isinstance(public_key, ast.Constant)
+    assert public_key.value == "rX4Sp1huP0v763afpuPlVkpDuXYoMj/+2fNqnFFMHsk="
+    assert app_plist["SUVerifyUpdateBeforeExtraction"].value is True
+    assert app_plist["SURequireSignedFeed"].value is True
+
+
 def test_developer_id_entitlements_allow_audio_input():
     entitlements = plistlib.loads(
         (ROOT / "packaging" / "macos" / "entitlements.plist").read_bytes()
@@ -60,3 +73,37 @@ def test_nested_macho_files_are_signed_without_app_entitlements():
     nested_signing_block = sign_script.split("done < <(", maxsplit=1)[0]
 
     assert "--entitlements" not in nested_signing_block
+
+
+def test_sparkle_dependency_is_pinned_and_checksum_verified():
+    install_script = (ROOT / "packaging" / "macos" / "install_sparkle.sh").read_text()
+    build_script = (ROOT / "packaging" / "macos" / "build_app.sh").read_text()
+
+    assert 'SPARKLE_VERSION="2.9.4"' in install_script
+    assert "ce89daf967db1e1893ed3ebd67575ed82d3902563e3191ca92aaec9164fbdef9" in install_script
+    assert "shasum -a 256 -c -" in install_script
+    assert "Sparkle-LICENSE.txt" in build_script
+
+
+def test_sparkle_nested_services_are_signed_in_official_order():
+    sign_script = (ROOT / "packaging" / "macos" / "sign_sparkle.sh").read_text()
+    ordered_targets = [
+        "Installer.xpc",
+        "Downloader.xpc",
+        "Autoupdate",
+        "Updater.app",
+        'sign_target "$FRAMEWORK"',
+    ]
+
+    positions = [sign_script.index(target) for target in ordered_targets]
+    assert positions == sorted(positions)
+    assert "--preserve-metadata=entitlements" in sign_script
+
+
+def test_release_workflow_publishes_signed_sparkle_appcast():
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+
+    assert "SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}" in workflow
+    assert '"$sparkle_root/bin/generate_appcast"' in workflow
+    assert "--ed-key-file -" in workflow
+    assert "gh release upload sparkle-feed" in workflow
