@@ -21,7 +21,7 @@ from .config import (
 from .core.audio_recorder import AudioRecorder
 from .core.hotkey_manager import HotkeyManager
 from .core.recording_store import RecordingStore
-from .core.text_polisher import TextPolisher
+from .core.text_polisher import TextPolisher, build_polish_prompt_presets
 from .diagnostics import ensure_runtime_debug_dir_env, export_support_bundle
 from .dictionary import get_dictionary, reload_dictionary
 from .environment_check import is_accessibility_trusted, run_environment_checks
@@ -350,6 +350,7 @@ class VocalMoreApp(rumps.App):
             llm_models=LLM_MODEL_CATALOG,
             devices=devices,
             dictionary=dictionary,
+            polish_prompt_presets=build_polish_prompt_presets(),
             version=__version__,
             initial_tab=initial_tab,
             focus_recording_id=focus_recording_id,

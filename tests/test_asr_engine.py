@@ -564,10 +564,10 @@ def test_batch_realtime_uses_adaptive_response_start_timeout_for_long_audio(
     assert text == "长音频 transcript"
 
 
-def test_streaming_long_audio_bypasses_realtime_and_uses_offline_batch(
+def test_streaming_long_audio_uses_realtime_transcript_without_inline_response(
     tmp_path, monkeypatch
 ):
-    """Realtime-long stop should bypass realtime response waits for very long audio."""
+    """Realtime-long stop should use the already streamed transcript for long audio."""
     from vocal_more.config import Config, reload_config
     asr_engine = importlib.import_module("vocal_more.core.asr_engine")
 
@@ -605,6 +605,12 @@ def test_streaming_long_audio_bypasses_realtime_and_uses_offline_batch(
 
         def commit(self):
             captured["commit_called"] = True
+            captured["callback"].on_event(
+                {
+                    "type": "conversation.item.input_audio_transcription.completed",
+                    "transcript": "long realtime result",
+                }
+            )
 
         def create_response(self, instructions=None, output_modalities=None):
             captured["create_response_called"] = True
@@ -616,36 +622,20 @@ def test_streaming_long_audio_bypasses_realtime_and_uses_offline_batch(
     monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
 
     engine = asr_engine.ASREngine()
-    offline_calls = []
-
-    def fake_transcribe(audio_data, model_override=None, language_override=None):
-        offline_calls.append(
-            {
-                "audio_size": len(audio_data),
-                "model_override": model_override,
-                "language_override": language_override,
-            }
-        )
-        return "long offline result"
-
-    engine._batch_fallback.transcribe = fake_transcribe
+    engine._batch_fallback.transcribe = MagicMock(return_value="long offline result")
+    engine._schedule_warm_close = MagicMock()
 
     engine.start()
     long_audio_seconds = 270
     pcm_data = b"\x01\x00" * (16000 * long_audio_seconds)
     text = engine.stop(pcm_data=pcm_data)
 
-    assert text == "long offline result"
-    assert captured["commit_called"] is False
+    assert text == "long realtime result"
+    assert captured["commit_called"] is True
     assert captured["create_response_called"] is False
-    assert captured["closed"] is True
-    assert offline_calls == [
-        {
-            "audio_size": len(pcm_data),
-            "model_override": "qwen3.5-omni-plus",
-            "language_override": None,
-        }
-    ]
+    assert captured["closed"] is False
+    engine._schedule_warm_close.assert_called_once()
+    engine._batch_fallback.transcribe.assert_not_called()
 
 
 def test_omni_offline_long_audio_is_chunked_and_joined(tmp_path, monkeypatch):

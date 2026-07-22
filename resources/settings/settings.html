@@ -290,6 +290,36 @@
 
       <div class="form-separator"></div>
 
+      <div class="prompt-editor-card">
+        <div class="prompt-editor-heading">
+          <div>
+            <div class="section-label" data-i18n="polish_custom_prompts_title">Custom Prompts</div>
+            <div class="form-hint" data-i18n="polish_custom_prompts_hint">Override one prompt fragment at a time. Drafts are kept when you switch back to the system preset.</div>
+          </div>
+          <select id="prompt_override_source" class="prompt-source-select polish-control" aria-label="Prompt source">
+            <option value="system" data-i18n="polish_prompt_source_system">System Preset</option>
+            <option value="custom" data-i18n="polish_prompt_source_custom">Custom</option>
+          </select>
+        </div>
+
+        <div class="prompt-category-tabs" role="tablist" aria-label="Prompt category">
+          <button type="button" class="prompt-category-btn polish-control active" data-prompt-category="output_type" data-i18n="polish_prompt_category_output">Output</button>
+          <button type="button" class="prompt-category-btn polish-control" data-prompt-category="level" data-i18n="polish_prompt_category_level">Level</button>
+          <button type="button" class="prompt-category-btn polish-control" data-prompt-category="structured" data-i18n="polish_prompt_category_structure">Structure</button>
+          <button type="button" class="prompt-category-btn polish-control" data-prompt-category="tone" data-i18n="polish_prompt_category_tone">Tone</button>
+          <button type="button" class="prompt-category-btn polish-control" data-prompt-category="persona" data-i18n="polish_prompt_category_persona">Persona</button>
+        </div>
+
+        <textarea id="prompt_override_text" class="prompt-editor-text polish-control" rows="8" spellcheck="false" aria-label="Custom polish prompt"></textarea>
+
+        <div class="prompt-editor-footer">
+          <span class="form-hint" id="prompt_editor_hint" data-i18n="polish_prompt_system_hint">Previewing the prompt for the selected preset.</span>
+          <button type="button" id="prompt_restore_preset" class="btn prompt-restore-btn polish-control" data-i18n="polish_prompt_restore_preset">Reload Preset</button>
+        </div>
+      </div>
+
+      <div class="form-separator"></div>
+
       <div class="form-group">
         <div class="form-row">
           <span class="form-label" data-i18n="polish_llm_model_label">LLM Model</span>
@@ -408,6 +438,9 @@ let _pendingDelete = null;
 let _lastDeviceRefreshAt = 0;
 let _activeSliderIds = new Set();
 let _focusRecordingId = null;
+let _polishPromptPresets = {};
+let _activePromptCategory = 'output_type';
+let _promptOverrideSaveTimer = null;
 
 const AUDIO_PRESETS = {
   whisper: {
@@ -510,6 +543,19 @@ const UI_TRANSLATIONS = {
     polish_persona_bilingual: 'Bilingual',
     polish_persona_professional: 'Professional',
     polish_persona_chat: 'Chat',
+    polish_custom_prompts_title: 'Custom Prompts',
+    polish_custom_prompts_hint: 'Override one prompt fragment at a time. Drafts are kept when you switch back to the system preset.',
+    polish_prompt_source_system: 'System Preset',
+    polish_prompt_source_custom: 'Custom',
+    polish_prompt_category_output: 'Output',
+    polish_prompt_category_level: 'Level',
+    polish_prompt_category_structure: 'Structure',
+    polish_prompt_category_tone: 'Tone',
+    polish_prompt_category_persona: 'Persona',
+    polish_prompt_system_hint: 'Previewing the prompt for the selected preset.',
+    polish_prompt_custom_hint: 'This custom fragment replaces the selected category in the final polish prompt.',
+    polish_prompt_structured_inactive_hint: 'Saved as a custom fragment. It takes effect when Structured Output is enabled.',
+    polish_prompt_restore_preset: 'Reload Preset',
     polish_llm_model_label: 'LLM Model',
     polish_temperature_label: 'Temperature',
     polish_enable_thinking_label: 'Enable Thinking',
@@ -655,6 +701,19 @@ const UI_TRANSLATIONS = {
     polish_persona_bilingual: '双语',
     polish_persona_professional: '专业',
     polish_persona_chat: '聊天',
+    polish_custom_prompts_title: '自定义 Prompt',
+    polish_custom_prompts_hint: '逐项覆盖系统 Prompt；切回系统预设后仍会保留自定义草稿。',
+    polish_prompt_source_system: '系统预设',
+    polish_prompt_source_custom: '自定义',
+    polish_prompt_category_output: '输出类型',
+    polish_prompt_category_level: '强度',
+    polish_prompt_category_structure: '结构',
+    polish_prompt_category_tone: '语气',
+    polish_prompt_category_persona: '人设',
+    polish_prompt_system_hint: '正在预览当前选项对应的系统 Prompt。',
+    polish_prompt_custom_hint: '这段自定义内容会替换最终润色 Prompt 中对应的部分。',
+    polish_prompt_structured_inactive_hint: '自定义内容已保存，开启“结构化输出”后生效。',
+    polish_prompt_restore_preset: '重新载入预设',
     polish_llm_model_label: 'LLM 模型',
     polish_temperature_label: '温度',
     polish_enable_thinking_label: '启用思考',
@@ -1044,6 +1103,7 @@ function loadAll(data) {
   _config = data.config || {};
   _asrModels = data.asr_models || [];
   _llmModels = data.llm_models || [];
+  _polishPromptPresets = data.polish_prompt_presets || {};
   _devices = data.devices || [];
   _dictEntries = data.dictionary || [];
   _focusRecordingId = data.focusRecordingId || data.focus_recording_id || null;
@@ -1248,6 +1308,121 @@ function selectedAsrHandlesInlinePolish() {
   return !!(model && model.handles_inline_polish);
 }
 
+function polishPromptOverrides() {
+  if (!_config.llm) _config.llm = {};
+  if (!_config.llm.prompt_overrides || typeof _config.llm.prompt_overrides !== 'object') {
+    _config.llm.prompt_overrides = {};
+  }
+  return _config.llm.prompt_overrides;
+}
+
+function promptPresetKey(category) {
+  const llm = _config.llm || {};
+  const keys = {
+    output_type: llm.polish_mode || 'dictation',
+    level: llm.level || 'minimal',
+    structured: 'enabled',
+    tone: llm.tone || 'neutral',
+    persona: llm.persona || 'default',
+  };
+  return keys[category] || '';
+}
+
+function currentPromptPreset(category) {
+  const categoryPresets = _polishPromptPresets[category] || {};
+  return categoryPresets[promptPresetKey(category)] || '';
+}
+
+function promptOverride(category) {
+  const value = polishPromptOverrides()[category];
+  if (!value || typeof value !== 'object') {
+    return { enabled: false, prompt: '' };
+  }
+  return {
+    enabled: !!value.enabled,
+    prompt: typeof value.prompt === 'string' ? value.prompt : '',
+  };
+}
+
+function persistPromptOverrides() {
+  if (_promptOverrideSaveTimer !== null) {
+    clearTimeout(_promptOverrideSaveTimer);
+    _promptOverrideSaveTimer = null;
+  }
+  const snapshot = JSON.parse(JSON.stringify(polishPromptOverrides()));
+  setConfig('llm.prompt_overrides', snapshot);
+}
+
+function persistPromptOverridesSoon() {
+  if (_promptOverrideSaveTimer !== null) clearTimeout(_promptOverrideSaveTimer);
+  _promptOverrideSaveTimer = setTimeout(persistPromptOverrides, 450);
+}
+
+function renderPromptEditor() {
+  const override = promptOverride(_activePromptCategory);
+  const source = document.getElementById('prompt_override_source');
+  const editor = document.getElementById('prompt_override_text');
+  const restore = document.getElementById('prompt_restore_preset');
+  const hint = document.getElementById('prompt_editor_hint');
+  const nextValue = override.enabled ? override.prompt : currentPromptPreset(_activePromptCategory);
+
+  source.value = override.enabled ? 'custom' : 'system';
+  if (editor.value !== nextValue) editor.value = nextValue;
+  editor.readOnly = !override.enabled;
+  restore.hidden = !override.enabled;
+
+  if (override.enabled && _activePromptCategory === 'structured' && !(_config.llm || {}).structured) {
+    hint.textContent = t('polish_prompt_structured_inactive_hint');
+  } else {
+    hint.textContent = t(override.enabled ? 'polish_prompt_custom_hint' : 'polish_prompt_system_hint');
+  }
+
+  document.querySelectorAll('.prompt-category-btn').forEach(button => {
+    const category = button.dataset.promptCategory;
+    button.classList.toggle('active', category === _activePromptCategory);
+    button.classList.toggle('custom', promptOverride(category).enabled);
+  });
+}
+
+function selectPromptCategory(category) {
+  if (_promptOverrideSaveTimer !== null) persistPromptOverrides();
+  _activePromptCategory = category;
+  renderPromptEditor();
+}
+
+function setPromptOverrideSource(source) {
+  const overrides = polishPromptOverrides();
+  const existing = promptOverride(_activePromptCategory);
+  if (source === 'custom') {
+    overrides[_activePromptCategory] = {
+      enabled: true,
+      prompt: existing.prompt || currentPromptPreset(_activePromptCategory),
+    };
+  } else {
+    overrides[_activePromptCategory] = {
+      enabled: false,
+      prompt: existing.prompt,
+    };
+  }
+  persistPromptOverrides();
+  renderPromptEditor();
+  if (source === 'custom') document.getElementById('prompt_override_text').focus();
+}
+
+function restoreCurrentPromptPreset() {
+  polishPromptOverrides()[_activePromptCategory] = {
+    enabled: true,
+    prompt: currentPromptPreset(_activePromptCategory),
+  };
+  persistPromptOverrides();
+  renderPromptEditor();
+  document.getElementById('prompt_override_text').focus();
+}
+
+function refreshPromptEditorForCategory(category) {
+  if (_activePromptCategory === category) renderPromptEditor();
+}
+
 function renderPolish() {
   const llm = _config.llm || {};
   const enabled = _config.enable_polish !== false;
@@ -1258,6 +1433,7 @@ function renderPolish() {
   document.getElementById('llm_structured').checked = !!llm.structured;
   document.getElementById('llm_tone').value = llm.tone || 'neutral';
   document.getElementById('llm_persona').value = llm.persona || 'default';
+  renderPromptEditor();
 
   // LLM model dropdown
   const sel = document.getElementById('llm_model');
@@ -1479,19 +1655,45 @@ document.getElementById('enable_polish').addEventListener('change', function() {
 });
 document.getElementById('llm_polish_mode').addEventListener('change', function() {
   setConfig('llm.polish_mode', this.value);
+  refreshPromptEditorForCategory('output_type');
 });
 document.getElementById('llm_level').addEventListener('change', function() {
   setConfig('llm.level', this.value);
+  refreshPromptEditorForCategory('level');
 });
 document.getElementById('llm_structured').addEventListener('change', function() {
   setConfig('llm.structured', this.checked);
+  refreshPromptEditorForCategory('structured');
 });
 document.getElementById('llm_tone').addEventListener('change', function() {
   setConfig('llm.tone', this.value);
+  refreshPromptEditorForCategory('tone');
 });
 document.getElementById('llm_persona').addEventListener('change', function() {
   setConfig('llm.persona', this.value);
+  refreshPromptEditorForCategory('persona');
 });
+document.querySelectorAll('.prompt-category-btn').forEach(button => {
+  button.addEventListener('click', function() {
+    selectPromptCategory(this.dataset.promptCategory);
+  });
+});
+document.getElementById('prompt_override_source').addEventListener('change', function() {
+  setPromptOverrideSource(this.value);
+});
+document.getElementById('prompt_override_text').addEventListener('input', function() {
+  polishPromptOverrides()[_activePromptCategory] = {
+    enabled: true,
+    prompt: this.value,
+  };
+  document.getElementById('prompt_override_source').value = 'custom';
+  document.querySelector(`.prompt-category-btn[data-prompt-category="${_activePromptCategory}"]`)?.classList.add('custom');
+  persistPromptOverridesSoon();
+});
+document.getElementById('prompt_override_text').addEventListener('blur', function() {
+  if (_promptOverrideSaveTimer !== null) persistPromptOverrides();
+});
+document.getElementById('prompt_restore_preset').addEventListener('click', restoreCurrentPromptPreset);
 document.getElementById('llm_model').addEventListener('change', function() {
   setConfig('llm.model', this.value);
   updateThinkingAvailability();
@@ -2352,6 +2554,7 @@ function collectFormState() {
       structured: !!document.getElementById('llm_structured')?.checked,
       tone: document.getElementById('llm_tone')?.value || 'neutral',
       persona: document.getElementById('llm_persona')?.value || 'default',
+      prompt_overrides: JSON.parse(JSON.stringify(polishPromptOverrides())),
     },
     hotkey: {
       active_hotkeys: activeHotkeys,

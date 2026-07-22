@@ -36,6 +36,10 @@ def test_settings_bridge_rejects_unknown_config_keys():
     assert bridge.parse(
         {"action": "setConfig", "key": "llm.polish_mode", "value": "prompt"}
     ) == {"action": "set_config", "key": "llm.polish_mode", "value": "prompt"}
+    overrides = {"tone": {"enabled": True, "prompt": "Keep it warm"}}
+    assert bridge.parse(
+        {"action": "setConfig", "key": "llm.prompt_overrides", "value": overrides}
+    ) == {"action": "set_config", "key": "llm.prompt_overrides", "value": overrides}
 
 
 def test_settings_bridge_sanitizes_sync_form_state_payload():
@@ -50,7 +54,12 @@ def test_settings_bridge_sanitizes_sync_form_state_payload():
                 "api_key": "sk-test",
                 "legacy_mode": True,
                 "audio": {"gain": 3.0, "debug_path": "/tmp/private"},
-                "llm": {"level": "strong", "polish_mode": "prompt", "unknown": True},
+                "llm": {
+                    "level": "strong",
+                    "polish_mode": "prompt",
+                    "prompt_overrides": {"tone": {"enabled": True, "prompt": "warm"}},
+                    "unknown": True,
+                },
                 "hotkey": "not-a-dict",
             },
         }
@@ -61,7 +70,11 @@ def test_settings_bridge_sanitizes_sync_form_state_payload():
         "payload": {
             "api_key": "sk-test",
             "audio": {"gain": 3.0},
-            "llm": {"level": "strong", "polish_mode": "prompt"},
+            "llm": {
+                "level": "strong",
+                "polish_mode": "prompt",
+                "prompt_overrides": {"tone": {"enabled": True, "prompt": "warm"}},
+            },
         },
     }
 

@@ -27,6 +27,16 @@ def test_html_settings_has_dedicated_omni_llm_gating_logic():
     assert "renderPolish();" in html
 
 
+def test_html_settings_can_edit_each_polish_prompt_category():
+    html = SETTINGS_HTML.read_text(encoding="utf-8")
+
+    for category in ("output_type", "level", "structured", "tone", "persona"):
+        assert f'data-prompt-category="{category}"' in html
+    assert 'id="prompt_override_source"' in html
+    assert 'id="prompt_override_text"' in html
+    assert "prompt_overrides: JSON.parse(JSON.stringify(polishPromptOverrides()))" in html
+
+
 def test_html_settings_has_mixed_chinese_english_language_option():
     """Recognition settings should expose a mixed Chinese/English option."""
     html = SETTINGS_HTML.read_text(encoding="utf-8")

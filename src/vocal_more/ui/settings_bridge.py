@@ -44,6 +44,7 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
         "structured",
         "tone",
         "persona",
+        "prompt_overrides",
     },
     "hotkey": {
         "primary_key",

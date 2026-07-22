@@ -18,7 +18,7 @@ from .config import (
 )
 from .core.audio_recorder import AudioRecorder
 from .core.recording_store import RecordingStore
-from .core.text_polisher import TextPolisher
+from .core.text_polisher import TextPolisher, build_polish_prompt_presets
 from .dictionary import get_dictionary, reload_dictionary
 from .infrastructure.pricing import merge_billing
 from .localization import t
@@ -113,6 +113,7 @@ class RPCHandler:
             "config": self.config.to_public_dict(),
             "llm_models": LLM_MODEL_CATALOG,
             "asr_models": ASR_MODEL_CATALOG,
+            "polish_prompt_presets": build_polish_prompt_presets(),
         }
 
     def _handle_get_config(self, params: dict) -> dict:

@@ -95,6 +95,7 @@ def test_config_new_fields_defaults():
     assert config.llm.max_tokens == 1024
     assert config.llm.polish_mode == "dictation"
     assert config.llm.structured is False
+    assert config.llm.prompt_overrides == {}
     assert config.hotkey.active_hotkeys == ["fn"]
     assert config.ui.language == "zh"
 
@@ -119,12 +120,39 @@ def test_config_repository_round_trips_app_config(tmp_path):
     config.apply_update("asr.model", "qwen3.5-omni-plus")
     config.apply_update("llm.structured", True)
     config.apply_update("llm.polish_mode", "prompt")
+    config.apply_update(
+        "llm.prompt_overrides",
+        {
+            "tone": {"enabled": True, "prompt": "保持温暖但简洁"},
+            "unknown": {"enabled": True, "prompt": "ignored"},
+        },
+    )
     config.apply_update("hotkey.active_hotkeys", ["fn"])
 
     repo.save(config)
     loaded = repo.load()
 
     assert loaded == config
+
+
+def test_custom_polish_prompt_config_is_sanitized():
+    from vocal_more.config import Config
+
+    config = Config()
+    config.apply_update(
+        "llm.prompt_overrides",
+        {
+            "level": {"enabled": "true", "prompt": "保留所有技术细节"},
+            "persona": {"enabled": False, "prompt": "草稿"},
+            "unknown": {"enabled": True, "prompt": "discarded"},
+            "tone": {"enabled": True, "prompt": 42},
+        },
+    )
+
+    assert config.llm.prompt_overrides == {
+        "level": {"enabled": True, "prompt": "保留所有技术细节"},
+        "persona": {"enabled": False, "prompt": "草稿"},
+    }
 
 
 def test_config_repository_backs_up_unreadable_yaml_before_fallback(tmp_path):

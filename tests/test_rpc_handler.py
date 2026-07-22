@@ -68,6 +68,13 @@ def test_initialize_includes_model_catalogs(handler):
     result = handler.dispatch("initialize", {})
     assert "llm_models" in result
     assert "asr_models" in result
+    assert set(result["polish_prompt_presets"]) == {
+        "output_type",
+        "level",
+        "structured",
+        "tone",
+        "persona",
+    }
 
     # Verify structure of LLM catalog entries
     llm_models = result["llm_models"]

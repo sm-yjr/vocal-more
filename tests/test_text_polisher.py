@@ -273,6 +273,67 @@ def test_prompt_polish_mode_builds_task_prompt_instructions():
     assert "不要补充用户没有说出的业务事实" in prompt
 
 
+def test_custom_prompt_fragments_override_each_dictation_category():
+    from vocal_more.config import LLMConfig
+    from vocal_more.core.text_polisher import build_polish_system_prompt
+
+    markers = {
+        "output_type": "CUSTOM OUTPUT TYPE",
+        "level": "CUSTOM LEVEL",
+        "structured": "CUSTOM STRUCTURE",
+        "tone": "CUSTOM TONE",
+        "persona": "CUSTOM PERSONA",
+    }
+    config = LLMConfig(
+        structured=True,
+        prompt_overrides={
+            category: {"enabled": True, "prompt": marker}
+            for category, marker in markers.items()
+        },
+    )
+
+    prompt = build_polish_system_prompt(config)
+
+    for marker in markers.values():
+        assert marker in prompt
+
+
+def test_disabled_custom_prompt_keeps_draft_without_affecting_runtime_prompt():
+    from vocal_more.config import LLMConfig
+    from vocal_more.core.text_polisher import build_polish_system_prompt
+
+    prompt = build_polish_system_prompt(
+        LLMConfig(
+            tone="gentle",
+            prompt_overrides={
+                "tone": {"enabled": False, "prompt": "SAVED TONE DRAFT"},
+            },
+        )
+    )
+
+    assert "SAVED TONE DRAFT" not in prompt
+    assert "更温和、委婉" in prompt
+
+
+def test_custom_prompt_fragments_apply_to_omni_prompt_output_mode():
+    from vocal_more.config import LLMConfig
+    from vocal_more.core.text_polisher import build_omni_inline_polish_instructions
+
+    prompt = build_omni_inline_polish_instructions(
+        LLMConfig(
+            polish_mode="prompt",
+            prompt_overrides={
+                "output_type": {"enabled": True, "prompt": "CUSTOM PROMPT SHAPE"},
+                "persona": {"enabled": True, "prompt": "CUSTOM PROMPT PERSONA"},
+            },
+        )
+    )
+
+    assert "CUSTOM PROMPT SHAPE" in prompt
+    assert "CUSTOM PROMPT PERSONA" in prompt
+    assert "GPT-5.5" not in prompt
+
+
 def test_prompt_polish_mode_routes_text_polisher_messages(tmp_path, monkeypatch):
     from vocal_more.config import Config, reload_config
     from vocal_more.core.text_polisher import TextPolisher

@@ -2377,6 +2377,7 @@ class ASREngine:
             self._session_model_id,
             audio_duration_seconds,
         )
+        skip_inline_response = bool(pcm_data and is_omni and direct_offline_model)
         response_start_timeout = min(
             max(timeout, INLINE_RESPONSE_START_TIMEOUT_SECONDS),
             _adaptive_response_start_timeout(audio_duration_seconds),
@@ -2385,38 +2386,6 @@ class ASREngine:
             audio_duration_seconds,
             base_timeout=timeout,
         )
-
-        if pcm_data and is_omni and direct_offline_model:
-            print(
-                "[StreamingASR] Long recording "
-                f"({audio_duration_seconds:.1f}s) bypassing realtime response for "
-                f"{self._session_model_id}; using {direct_offline_model} directly"
-            )
-            if self._callback:
-                self._callback.mark_client_event(
-                    "client.fallback.started",
-                    reason="long_audio_direct_offline",
-                )
-            self._log_fallback(
-                "long_audio_direct_offline",
-                duration_s=round(audio_duration_seconds, 2),
-                offline_model=direct_offline_model,
-            )
-            self._cancel_warm_close()
-            stale = self._drop_conversation()
-            self._close_conversation(stale)
-            self._finish_active_trace(
-                pcm_data,
-                result_source="batch_fallback",
-                fallback_reason="long_audio_direct_offline",
-            )
-            self._is_running = False
-            result = self._batch_fallback.transcribe(
-                pcm_data,
-                model_override=direct_offline_model,
-            )
-            self._last_metering = self._batch_fallback.get_last_metering()
-            return result
 
         if self._conversation:
             try:
@@ -2428,8 +2397,20 @@ class ASREngine:
 
             should_request_response = bool(
                 self._callback
+                and not skip_inline_response
                 and _should_start_inline_response_now(model_info, self._callback)
             )
+            if skip_inline_response:
+                print(
+                    "[StreamingASR] Long recording "
+                    f"({audio_duration_seconds:.1f}s) using realtime transcript; "
+                    "skipping inline response"
+                )
+                if self._callback:
+                    self._callback.mark_client_event(
+                        "client.response.skipped",
+                        reason="long_audio_realtime_transcript",
+                    )
             if should_request_response:
                 try:
                     response_requested = True

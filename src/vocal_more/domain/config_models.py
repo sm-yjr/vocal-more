@@ -58,6 +58,14 @@ LEGACY_BUILT_IN_HOTKEYS = (
 VALID_DEFAULT_MODES = ("walkie_talkie", "realtime_long", "meeting")
 ASRLanguage = Literal["zh", "en", "auto"]
 PolishMode = Literal["dictation", "prompt"]
+POLISH_PROMPT_OVERRIDE_CATEGORIES = (
+    "output_type",
+    "level",
+    "structured",
+    "tone",
+    "persona",
+)
+MAX_CUSTOM_POLISH_PROMPT_LENGTH = 20_000
 HOTKEY_ALIASES = {
     "printscreen": "f13",
     "print_screen": "f13",
@@ -103,6 +111,7 @@ class LLMConfig:
     structured: bool = False
     tone: Literal["neutral", "gentle", "direct"] = "neutral"
     persona: Literal["default", "technical", "bilingual", "professional", "chat"] = "default"
+    prompt_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -217,6 +226,26 @@ def _parse_polish_mode(raw: object) -> PolishMode:
     if raw in ("dictation", "prompt"):
         return raw
     return "dictation"
+
+
+def _parse_prompt_overrides(raw: object) -> dict[str, dict[str, Any]]:
+    """Normalize editable polish prompt overrides from config or the settings UI."""
+    if not isinstance(raw, dict):
+        return {}
+
+    result: dict[str, dict[str, Any]] = {}
+    for category in POLISH_PROMPT_OVERRIDE_CATEGORIES:
+        item = raw.get(category)
+        if not isinstance(item, dict):
+            continue
+        prompt = item.get("prompt")
+        if not isinstance(prompt, str):
+            continue
+        prompt = prompt[:MAX_CUSTOM_POLISH_PROMPT_LENGTH]
+        enabled = parse_bool(item.get("enabled"), False)
+        if prompt or enabled:
+            result[category] = {"enabled": enabled, "prompt": prompt}
+    return result
 
 
 def _parse_default_mode(raw: object) -> str:
@@ -444,6 +473,8 @@ class AppConfig:
             self.llm.tone = _parse_tone(str(value))
         elif field_name == "persona":
             self.llm.persona = _parse_persona(str(value))
+        elif field_name == "prompt_overrides":
+            self.llm.prompt_overrides = _parse_prompt_overrides(value)
         else:
             raise ValueError(f"Unknown config key: llm.{field_name}")
 
@@ -507,6 +538,10 @@ class AppConfig:
                 "structured": self.llm.structured,
                 "tone": self.llm.tone,
                 "persona": self.llm.persona,
+                "prompt_overrides": {
+                    category: dict(override)
+                    for category, override in self.llm.prompt_overrides.items()
+                },
             },
             "hotkey": {
                 "primary_key": self.hotkey.primary_key,
@@ -549,6 +584,8 @@ __all__ = [
     "HotkeyConfig",
     "LEGACY_BUILT_IN_HOTKEYS",
     "LLMConfig",
+    "MAX_CUSTOM_POLISH_PROMPT_LENGTH",
+    "POLISH_PROMPT_OVERRIDE_CATEGORIES",
     "UIConfig",
     "VALID_DEFAULT_MODES",
     "VALID_HOTKEYS",
@@ -558,6 +595,7 @@ __all__ = [
     "_parse_level",
     "_parse_llm_model",
     "_parse_persona",
+    "_parse_prompt_overrides",
     "_parse_tone",
     "_validate_custom_key",
     "asr_model_handles_inline_polish",
