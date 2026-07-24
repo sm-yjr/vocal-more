@@ -1975,7 +1975,11 @@ class ASREngine:
         return conversation
 
     def _run_warm_keeper_loop(self) -> None:
-        while not self._warm_keeper_stop.wait(WARM_KEEPER_CHECK_INTERVAL_SECONDS):
+        # Hold the stop event this keeper was started with: _stop_warm_keeper
+        # replaces the attribute after an abandoned join, and reading the fresh
+        # (unset) event here would keep an abandoned keeper looping forever.
+        stop_event = self._warm_keeper_stop
+        while not stop_event.wait(WARM_KEEPER_CHECK_INTERVAL_SECONDS):
             with self._lock:
                 if self._is_running:
                     return
@@ -2018,7 +2022,7 @@ class ASREngine:
                     if (
                         self._is_running
                         or generation != self._warm_generation
-                        or self._warm_keeper_stop.is_set()
+                        or stop_event.is_set()
                     ):
                         abandoned = True
                     else:

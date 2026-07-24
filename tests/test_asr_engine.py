@@ -1849,6 +1849,69 @@ def test_start_abandons_late_warm_keeper_reconnect(monkeypatch):
     assert engine._conversation is original
 
 
+def test_abandoned_warm_keeper_exits_after_failed_reconnect(monkeypatch):
+    """An abandoned keeper must exit when its reconnect fails."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    class FirstPassStop:
+        def __init__(self):
+            self._event = threading.Event()
+            self.initial_check_complete = threading.Event()
+
+        def wait(self, timeout):
+            if not self.initial_check_complete.is_set():
+                self.initial_check_complete.set()
+                return False
+            return self._event.wait(timeout)
+
+        def is_set(self):
+            return self._event.is_set()
+
+        def set(self):
+            self._event.set()
+
+    class IdleConversation:
+        def __init__(self):
+            self.ws = SimpleNamespace(sock=SimpleNamespace(connected=False))
+
+        def close(self):
+            return None
+
+    connect_started = threading.Event()
+    allow_connect = threading.Event()
+
+    class FailingConversation:
+        def __init__(self, model, url, callback):
+            self.callback = callback
+            self.ws = SimpleNamespace(sock=SimpleNamespace(connected=False))
+
+        def connect(self):
+            connect_started.set()
+            assert allow_connect.wait(timeout=2.0)
+            raise RuntimeError("reconnect failed")
+
+        def close(self):
+            return None
+
+    engine = asr_engine.ASREngine()
+    engine._conversation = IdleConversation()
+    engine._conversation_model_id = "qwen3.5-omni-plus-realtime"
+    engine._warm_session_idle_since = asr_engine.time.monotonic()
+    engine._warm_keeper_stop = FirstPassStop()
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FailingConversation)
+
+    keeper = threading.Thread(target=engine._run_warm_keeper_loop, daemon=True)
+    engine._warm_keeper_thread = keeper
+    keeper.start()
+    assert connect_started.wait(timeout=1.0)
+
+    engine._stop_warm_keeper()
+    allow_connect.set()
+    keeper.join(timeout=1.0)
+
+    assert keeper.is_alive() is False
+
+
 def test_warm_keeper_closes_connection_after_maximum_idle_time(monkeypatch):
     """The keeper should release an unused connection after ten minutes."""
     import vocal_more.core.asr_engine as asr_engine
