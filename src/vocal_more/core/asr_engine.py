@@ -1841,6 +1841,7 @@ class ASREngine:
         self._conversation_model_id: Optional[str] = None
         self._warm_keeper_stop = threading.Event()
         self._warm_keeper_thread: Optional[threading.Thread] = None
+        self._warm_generation = 0
         self._warm_session_idle_since: Optional[float] = None
         self._active_trace: Optional[ASRDebugTrace] = None
         self._trace_warm_reused = False
@@ -1941,18 +1942,37 @@ class ASREngine:
         with self._lock:
             keeper = self._warm_keeper_thread
             self._warm_keeper_stop.set()
+            self._warm_generation += 1
         if keeper is not None and keeper is not threading.current_thread():
-            keeper.join()
+            keeper.join(timeout=0.25)
         with self._lock:
             if keeper is self._warm_keeper_thread:
                 self._warm_keeper_thread = None
                 self._warm_keeper_stop = threading.Event()
+
+    def _establish_conversation(
+        self,
+        model_id: str,
+        model_info: Optional[dict],
+        callback: StreamingASRCallback,
+    ) -> OmniRealtimeConversation:
+        conversation = OmniRealtimeConversation(
+            model=model_id,
+            url="wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
+            callback=callback,
+        )
+        conversation.connect()
+        conversation.update_session(**_build_session_kwargs(model_info))
+        if not callback.wait_for_session_updated(timeout=10.0):
+            raise Exception("session.updated timeout")
+        return conversation
 
     def _run_warm_keeper_loop(self) -> None:
         while not self._warm_keeper_stop.wait(WARM_KEEPER_CHECK_INTERVAL_SECONDS):
             with self._lock:
                 if self._is_running:
                     return
+                generation = self._warm_generation
                 idle_since = self._warm_session_idle_since
                 conversation = self._conversation
                 model_id = self._conversation_model_id
@@ -1970,31 +1990,44 @@ class ASREngine:
                 return
 
             replacement: Optional[OmniRealtimeConversation] = None
+            replacement_callback: Optional[StreamingASRCallback] = None
+            previous_callback: Optional[StreamingASRCallback] = None
             try:
-                if self._callback:
-                    self._callback.reset()
-                replacement = OmniRealtimeConversation(
-                    model=model_id,
-                    url="wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
-                    callback=self._callback,
+                replacement_callback = StreamingASRCallback(
+                    on_partial=self.on_partial_result,
+                    on_final=self.on_final_result,
+                    on_error=self.on_error,
+                    on_complete=lambda: None,
                 )
-                replacement.connect()
-                replacement.update_session(**_build_session_kwargs(model_info))
-                if self._callback is None or not self._callback.wait_for_session_updated(timeout=10.0):
-                    raise Exception("warm keeper session.updated timeout")
+                replacement = self._establish_conversation(
+                    model_id,
+                    model_info,
+                    replacement_callback,
+                )
                 with self._lock:
-                    if self._is_running or self._warm_keeper_stop.is_set():
+                    if (
+                        self._is_running
+                        or generation != self._warm_generation
+                        or self._warm_keeper_stop.is_set()
+                    ):
                         return
                     stale = self._conversation
+                    previous_callback = self._callback
                     self._conversation = replacement
+                    self._callback = replacement_callback
                     self._conversation_model_id = model_id
                     self._session_ready = True
                     replacement = None
+                    replacement_callback = None
                 self._close_conversation(stale)
+                if previous_callback:
+                    previous_callback.close()
             except Exception:
                 pass
             finally:
                 self._close_conversation(replacement)
+                if replacement_callback:
+                    replacement_callback.close()
 
     def _start_warm_keeper(self, model_info: Optional[dict]) -> None:
         if not _supports_warm_realtime_session(model_info):
@@ -2203,7 +2236,8 @@ class ASREngine:
                 if self._callback:
                     self._callback.reset()
 
-                if self._can_reuse_warm_session(model_info):
+                reusing_warm_session = self._can_reuse_warm_session(model_info)
+                if reusing_warm_session:
                     print("[StreamingASR] Reusing warm realtime session")
                     self._trace_warm_reused = True
                     if self._callback:
@@ -2212,20 +2246,20 @@ class ASREngine:
                     if self._conversation is not None:
                         stale = self._drop_conversation()
                         self._close_conversation(stale)
-                    self._conversation = OmniRealtimeConversation(
-                        model=self._session_model_id,
-                        url="wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
-                        callback=self._callback,
+                    self._conversation = self._establish_conversation(
+                        self._session_model_id,
+                        model_info,
+                        self._callback,
                     )
-                    self._conversation.connect()
                     self._conversation_model_id = self._session_model_id
 
-                session_kwargs = _build_session_kwargs(model_info)
-                self._conversation.update_session(**session_kwargs)
+                if reusing_warm_session:
+                    session_kwargs = _build_session_kwargs(model_info)
+                    self._conversation.update_session(**session_kwargs)
 
-                if not self._callback.wait_for_session_updated(timeout=10.0):
-                    print("[StreamingASR] Timeout waiting for session.updated")
-                    raise Exception("session.updated timeout")
+                    if not self._callback.wait_for_session_updated(timeout=10.0):
+                        print("[StreamingASR] Timeout waiting for session.updated")
+                        raise Exception("session.updated timeout")
 
                 with self._lock:
                     self._session_ready = True

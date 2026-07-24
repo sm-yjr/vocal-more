@@ -1736,15 +1736,16 @@ def test_warm_keeper_reconnects_a_dead_idle_conversation(monkeypatch):
             return None
 
     class FakeConversation:
-        def __init__(self, connected):
+        def __init__(self, connected, callback=None):
             self.ws = SimpleNamespace(sock=SimpleNamespace(connected=connected))
             self.closed = False
+            self.callback = callback
 
         def connect(self):
             self.ws.sock.connected = True
 
         def update_session(self, **_kwargs):
-            return None
+            self.callback.on_event({"type": "session.updated"})
 
         def close(self):
             self.closed = True
@@ -1758,7 +1759,11 @@ def test_warm_keeper_reconnects_a_dead_idle_conversation(monkeypatch):
     engine._warm_keeper_stop = FakeStop()
     engine._callback = MagicMock()
     engine._callback.wait_for_session_updated.return_value = True
-    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", lambda **_kwargs: FakeConversation(False))
+    monkeypatch.setattr(
+        asr_engine,
+        "OmniRealtimeConversation",
+        lambda **kwargs: FakeConversation(False, kwargs["callback"]),
+    )
     monkeypatch.setattr(asr_engine.time, "monotonic", lambda: 1.0)
 
     engine._run_warm_keeper_loop()
@@ -1766,6 +1771,82 @@ def test_warm_keeper_reconnects_a_dead_idle_conversation(monkeypatch):
     assert original.closed is True
     assert engine._conversation is not original
     assert engine._conversation.ws.sock.connected is True
+
+
+def test_start_abandons_late_warm_keeper_reconnect(monkeypatch):
+    """A stopped keeper must not publish a connection that completes late."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    class FirstPassStop:
+        def __init__(self):
+            self._event = threading.Event()
+            self.entered = threading.Event()
+
+        def wait(self, timeout):
+            if not self.entered.is_set():
+                self.entered.set()
+                return False
+            return self._event.wait(timeout)
+
+        def is_set(self):
+            return self._event.is_set()
+
+        def set(self):
+            self._event.set()
+
+    class IdleConversation:
+        def __init__(self):
+            self.ws = SimpleNamespace(sock=SimpleNamespace(connected=False))
+
+        def close(self):
+            return None
+
+    connect_started = threading.Event()
+    allow_connect = threading.Event()
+    replacements = []
+
+    class SlowConversation:
+        def __init__(self, model, url, callback):
+            self.callback = callback
+            self.closed = False
+            self.ws = SimpleNamespace(sock=SimpleNamespace(connected=False))
+            replacements.append(self)
+
+        def connect(self):
+            connect_started.set()
+            assert allow_connect.wait(timeout=2.0)
+            self.ws.sock.connected = True
+
+        def update_session(self, **_kwargs):
+            self.callback.on_event({"type": "session.updated"})
+
+        def close(self):
+            self.closed = True
+
+    engine = asr_engine.ASREngine()
+    original = IdleConversation()
+    engine._conversation = original
+    engine._conversation_model_id = "qwen3.5-omni-plus-realtime"
+    engine._warm_session_idle_since = asr_engine.time.monotonic()
+    engine._warm_keeper_stop = FirstPassStop()
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", SlowConversation)
+
+    keeper = threading.Thread(target=engine._run_warm_keeper_loop, daemon=True)
+    engine._warm_keeper_thread = keeper
+    keeper.start()
+    assert connect_started.wait(timeout=1.0)
+
+    monkeypatch.setattr(engine, "_connect", MagicMock())
+    started_at = asr_engine.time.monotonic()
+    engine.start()
+    assert asr_engine.time.monotonic() - started_at < 1.0
+
+    allow_connect.set()
+    keeper.join(timeout=1.0)
+
+    assert keeper.is_alive() is False
+    assert replacements[0].closed is True
+    assert engine._conversation is original
 
 
 def test_warm_keeper_closes_connection_after_maximum_idle_time(monkeypatch):
