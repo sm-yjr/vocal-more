@@ -1780,11 +1780,11 @@ def test_start_abandons_late_warm_keeper_reconnect(monkeypatch):
     class FirstPassStop:
         def __init__(self):
             self._event = threading.Event()
-            self.entered = threading.Event()
+            self.initial_check_complete = threading.Event()
 
         def wait(self, timeout):
-            if not self.entered.is_set():
-                self.entered.set()
+            if not self.initial_check_complete.is_set():
+                self.initial_check_complete.set()
                 return False
             return self._event.wait(timeout)
 
