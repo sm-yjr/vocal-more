@@ -1942,12 +1942,16 @@ class ASREngine:
     def _stop_warm_keeper(self) -> None:
         with self._lock:
             keeper = self._warm_keeper_thread
-            self._warm_keeper_stop.set()
+            stop_event = self._warm_keeper_stop
+            stop_event.set()
             self._warm_generation += 1
         if keeper is not None and keeper is not threading.current_thread():
             keeper.join(timeout=WARM_KEEPER_SHUTDOWN_TIMEOUT_SECONDS)
         with self._lock:
-            if keeper is self._warm_keeper_thread:
+            if (
+                keeper is self._warm_keeper_thread
+                and stop_event is self._warm_keeper_stop
+            ):
                 self._warm_keeper_thread = None
                 self._warm_keeper_stop = threading.Event()
 
@@ -1993,6 +1997,7 @@ class ASREngine:
             replacement: Optional[OmniRealtimeConversation] = None
             replacement_callback: Optional[StreamingASRCallback] = None
             previous_callback: Optional[StreamingASRCallback] = None
+            abandoned = False
             try:
                 replacement_callback = StreamingASRCallback(
                     on_partial=self.on_partial_result,
@@ -2013,15 +2018,22 @@ class ASREngine:
                         or generation != self._warm_generation
                         or self._warm_keeper_stop.is_set()
                     ):
-                        return
-                    stale = self._conversation
-                    previous_callback = self._callback
-                    self._conversation = replacement
-                    self._callback = replacement_callback
-                    self._conversation_model_id = model_id
-                    self._session_ready = True
+                        abandoned = True
+                    else:
+                        stale = self._conversation
+                        previous_callback = self._callback
+                        self._conversation = replacement
+                        self._callback = replacement_callback
+                        self._conversation_model_id = model_id
+                        self._session_ready = True
+                        replacement = None
+                        replacement_callback = None
+                if abandoned:
+                    self._close_conversation(replacement)
                     replacement = None
+                    replacement_callback.close()
                     replacement_callback = None
+                    return
                 self._close_conversation(stale)
                 if previous_callback:
                     previous_callback.close()
