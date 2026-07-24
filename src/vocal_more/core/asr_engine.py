@@ -2013,8 +2013,8 @@ class ASREngine:
                     replacement_callback,
                 )
                 with self._lock:
-                    # start() invalidates an in-flight keeper reconnect before
-                    # it may replace the callback used by its own connection.
+                    # If start() invalidated this reconnect, do not overwrite
+                    # the callback used by its active connection.
                     if (
                         self._is_running
                         or generation != self._warm_generation
