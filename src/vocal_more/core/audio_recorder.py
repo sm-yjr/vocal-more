@@ -45,7 +45,7 @@ class AudioRecorder:
         Args:
             sample_rate: Sample rate in Hz (default from config: 16000)
             channels: Number of audio channels (default from config: 1)
-            blocksize: Number of frames per buffer (default from config: 1600)
+            blocksize: Number of frames per buffer (default from config: 640)
             on_audio_chunk: Callback for real-time audio chunks
             on_audio_level: Callback for real-time audio RMS level (0.0~1.0)
             device: Input device name (None = from config, then system default)
@@ -95,13 +95,18 @@ class AudioRecorder:
 
         # 1. High-pass filter: remove <80Hz rumble (fans, hum, plosives)
         if highpass_filter:
-            mono = indata[:, 0].copy()
-            for i in range(len(mono)):
-                x = mono[i]
-                self._hp_prev_out = self._hp_alpha * (self._hp_prev_out + x - self._hp_prev_in)
-                self._hp_prev_in = x
-                mono[i] = self._hp_prev_out
-            filtered = mono.reshape(-1, 1)
+            samples = indata[:, 0].tolist()
+            alpha = self._hp_alpha
+            prev_in = self._hp_prev_in
+            prev_out = self._hp_prev_out
+            out = [0.0] * len(samples)
+            for i, x in enumerate(samples):
+                prev_out = alpha * (prev_out + x - prev_in)
+                prev_in = x
+                out[i] = prev_out
+            self._hp_prev_in = prev_in
+            self._hp_prev_out = prev_out
+            filtered = np.asarray(out, dtype=np.float32).reshape(-1, 1)
         else:
             filtered = indata
 

@@ -50,6 +50,75 @@ def test_audio_callback_returns_early_when_not_recording():
     assert recorder._audio_buffer == []
 
 
+def test_highpass_filter_matches_previous_sample_by_sample_implementation():
+    """The callback's list loop must retain the original IIR filter math."""
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    samples = np.array([[0.25], [-0.5], [0.75], [0.125]], dtype=np.float32)
+    recorder = AudioRecorder(sample_rate=16000, channels=1, blocksize=len(samples))
+    recorder._gain = 1.0
+    recorder._highpass_filter = True
+    recorder._soft_limiter = False
+    recorder._is_recording = True
+    actual = []
+    recorder.on_audio_chunk = actual.append
+
+    recorder._audio_callback(samples, len(samples), {}, 0)
+
+    prev_in = prev_out = 0.0
+    expected = []
+    for x in samples[:, 0]:
+        prev_out = recorder._hp_alpha * (prev_out + x - prev_in)
+        prev_in = x
+        expected.append(prev_out)
+    expected_pcm = (np.asarray(expected, dtype=np.float32) * 32767).astype(np.int16)
+    actual_pcm = np.frombuffer(actual[0], dtype=np.int16)
+
+    assert np.max(np.abs(actual_pcm.astype(np.int32) - expected_pcm.astype(np.int32))) <= 1
+
+
+def test_highpass_filter_is_continuous_across_callback_blocks():
+    """Filter state must produce the same result for whole and split signals."""
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    signal = np.array([[0.1], [0.3], [-0.2], [0.5], [-0.4], [0.2]], dtype=np.float32)
+
+    def filter_chunks(chunks):
+        recorder = AudioRecorder()
+        recorder._gain = 1.0
+        recorder._highpass_filter = True
+        recorder._soft_limiter = False
+        recorder._is_recording = True
+        output = []
+        recorder.on_audio_chunk = output.append
+        for chunk in chunks:
+            recorder._audio_callback(chunk, len(chunk), {}, 0)
+        return np.concatenate([np.frombuffer(chunk, dtype=np.int16) for chunk in output])
+
+    assert np.array_equal(filter_chunks([signal]), filter_chunks([signal[:2], signal[2:]]))
+
+
+def test_highpass_filter_rejects_dc_and_passes_high_frequency_signal():
+    """The first-order filter should attenuate DC while retaining rapid changes."""
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    recorder = AudioRecorder()
+    recorder._gain = 1.0
+    recorder._highpass_filter = True
+    recorder._soft_limiter = False
+    recorder._is_recording = True
+    output = []
+    recorder.on_audio_chunk = output.append
+    dc = np.ones((1600, 1), dtype=np.float32) * 0.5
+    recorder._audio_callback(dc, len(dc), {}, 0)
+    dc_output = np.frombuffer(output.pop(), dtype=np.int16).astype(np.float32) / 32767
+    recorder._audio_callback(np.tile([[0.5], [-0.5]], (400, 1)).astype(np.float32), 800, {}, 0)
+    high_output = np.frombuffer(output.pop(), dtype=np.int16).astype(np.float32) / 32767
+
+    assert abs(dc_output[-1]) < 0.001
+    assert np.sqrt(np.mean(high_output**2)) > 0.2
+
+
 def test_audio_recorder_reinitializes_portaudio_once_on_recoverable_start_failure(monkeypatch):
     """A wedged PortAudio backend should get one reset-and-retry before giving up."""
     import vocal_more.core.audio_recorder as audio_recorder_module

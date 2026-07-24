@@ -89,12 +89,14 @@ OMNI_OFFLINE_SILENCE_RMS_THRESHOLD = 0.015
 INLINE_RESPONSE_START_TIMEOUT_SECONDS = 3.0
 INLINE_RESPONSE_TRANSCRIPT_TIMEOUT_SECONDS = 5.0
 INLINE_RESPONSE_LATE_START_GRACE_SECONDS = 1.0
-WARM_SESSION_TTL_SECONDS = 15.0
+WARM_KEEPER_CHECK_INTERVAL_SECONDS = 5.0
+WARM_KEEPER_MAX_IDLE_SECONDS = 600.0
+WARM_KEEPER_SHUTDOWN_TIMEOUT_SECONDS = 0.25
 MAX_ADAPTIVE_RESPONSE_START_TIMEOUT_SECONDS = 20.0
 MAX_ADAPTIVE_RESPONSE_COMPLETE_TIMEOUT_SECONDS = 90.0
 STREAMING_AUDIO_QUEUE_TARGET_SECONDS = 6.4
 STREAMING_AUDIO_QUEUE_MIN_CHUNKS = 8
-STREAMING_AUDIO_QUEUE_MAX_CHUNKS = 64
+STREAMING_AUDIO_QUEUE_MAX_CHUNKS = 160
 MIN_AUDIO_QUEUE_DRAIN_TIMEOUT_SECONDS = 2.0
 MAX_AUDIO_QUEUE_DRAIN_TIMEOUT_SECONDS = 10.0
 AUDIO_QUEUE_DRAIN_HEADROOM_SECONDS = 1.0
@@ -1838,7 +1840,10 @@ class ASREngine:
         self._batch_fallback = BatchASREngine()
         self._session_model_id = self.config.asr.model
         self._conversation_model_id: Optional[str] = None
-        self._warm_close_timer: Optional[threading.Timer] = None
+        self._warm_keeper_stop = threading.Event()
+        self._warm_keeper_thread: Optional[threading.Thread] = None
+        self._warm_generation = 0
+        self._warm_session_idle_since: Optional[float] = None
         self._active_trace: Optional[ASRDebugTrace] = None
         self._trace_warm_reused = False
         self._last_metering: dict[str, Any] | None = None
@@ -1918,14 +1923,6 @@ class ASREngine:
         details = " ".join(f"{key}={value}" for key, value in fields.items())
         print(f"[StreamingASRFallback] {details}")
 
-    def _cancel_warm_close(self) -> None:
-        timer: Optional[threading.Timer] = None
-        with self._lock:
-            timer = self._warm_close_timer
-            self._warm_close_timer = None
-        if timer is not None:
-            timer.cancel()
-
     def _close_conversation(self, conversation: Optional[OmniRealtimeConversation]) -> None:
         if conversation is None:
             return
@@ -1942,17 +1939,136 @@ class ASREngine:
             self._session_ready = False
         return conversation
 
-    def _close_warm_session_if_idle(self) -> None:
-        conversation = None
+    def _stop_warm_keeper(self) -> None:
         with self._lock:
-            self._warm_close_timer = None
-            if self._is_running:
+            keeper = self._warm_keeper_thread
+            stop_event = self._warm_keeper_stop
+            stop_event.set()
+            self._warm_generation += 1
+        if keeper is not None and keeper is not threading.current_thread():
+            keeper.join(timeout=WARM_KEEPER_SHUTDOWN_TIMEOUT_SECONDS)
+            if keeper.is_alive():
+                print("[StreamingASR] Warm keeper shutdown timed out; abandoning reconnect")
+        with self._lock:
+            if (
+                keeper is self._warm_keeper_thread
+                and stop_event is self._warm_keeper_stop
+            ):
+                self._warm_keeper_thread = None
+                self._warm_keeper_stop = threading.Event()
+
+    def _establish_conversation(
+        self,
+        model_id: str,
+        model_info: Optional[dict],
+        callback: StreamingASRCallback,
+    ) -> OmniRealtimeConversation:
+        conversation = OmniRealtimeConversation(
+            model=model_id,
+            url="wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
+            callback=callback,
+        )
+        conversation.connect()
+        conversation.update_session(**_build_session_kwargs(model_info))
+        if not callback.wait_for_session_updated(timeout=10.0):
+            raise Exception("session.updated timeout")
+        return conversation
+
+    def _run_warm_keeper_loop(self) -> None:
+        # Hold the stop event this keeper was started with: _stop_warm_keeper
+        # replaces the attribute after an abandoned join, and reading the fresh
+        # (unset) event here would keep an abandoned keeper looping forever.
+        stop_event = self._warm_keeper_stop
+        while not stop_event.wait(WARM_KEEPER_CHECK_INTERVAL_SECONDS):
+            with self._lock:
+                if self._is_running:
+                    return
+                generation = self._warm_generation
+                idle_since = self._warm_session_idle_since
+                conversation = self._conversation
+                model_id = self._conversation_model_id
+
+            if idle_since is None or time.monotonic() - idle_since >= WARM_KEEPER_MAX_IDLE_SECONDS:
+                stale = self._drop_conversation()
+                self._close_conversation(stale)
                 return
-            conversation = self._conversation
-            self._conversation = None
-            self._conversation_model_id = None
-            self._session_ready = False
-        self._close_conversation(conversation)
+
+            if _conversation_socket_connected(conversation):
+                continue
+
+            model_info = get_asr_model_info(model_id)
+            if not _supports_warm_realtime_session(model_info):
+                return
+
+            replacement: Optional[OmniRealtimeConversation] = None
+            replacement_callback: Optional[StreamingASRCallback] = None
+            previous_callback: Optional[StreamingASRCallback] = None
+            abandoned = False
+            try:
+                replacement_callback = StreamingASRCallback(
+                    on_partial=self.on_partial_result,
+                    on_final=self.on_final_result,
+                    on_error=self.on_error,
+                    on_complete=lambda: None,
+                )
+                replacement = self._establish_conversation(
+                    model_id,
+                    model_info,
+                    replacement_callback,
+                )
+                with self._lock:
+                    # If start() invalidated this reconnect, do not overwrite
+                    # the callback used by its active connection.
+                    if (
+                        self._is_running
+                        or generation != self._warm_generation
+                        or stop_event.is_set()
+                    ):
+                        abandoned = True
+                    else:
+                        stale = self._conversation
+                        previous_callback = self._callback
+                        self._conversation = replacement
+                        self._callback = replacement_callback
+                        self._conversation_model_id = model_id
+                        self._session_ready = True
+                        replacement = None
+                        replacement_callback = None
+                if abandoned:
+                    self._close_conversation(replacement)
+                    replacement = None
+                    if replacement_callback:
+                        replacement_callback.close()
+                        replacement_callback = None
+                    return
+                self._close_conversation(stale)
+                if previous_callback:
+                    previous_callback.close()
+            except Exception as exc:
+                print(f"[StreamingASR] Warm keeper reconnect failed: {exc}")
+            finally:
+                self._close_conversation(replacement)
+                if replacement_callback:
+                    replacement_callback.close()
+
+    def _start_warm_keeper(self, model_info: Optional[dict]) -> None:
+        if not _supports_warm_realtime_session(model_info):
+            return
+        with self._lock:
+            if self._is_running or self._conversation is None:
+                return
+            self._warm_session_idle_since = time.monotonic()
+            keeper = self._warm_keeper_thread
+            if keeper is not None and keeper.is_alive():
+                return
+            self._warm_keeper_stop = threading.Event()
+            keeper = _THREAD_CLASS(
+                target=self._run_warm_keeper_loop,
+                name="vocal-more-asr-warm-keeper",
+                daemon=True,
+            )
+            self._warm_keeper_thread = keeper
+        keeper.start()
 
     def _mark_streaming_degraded(self, reason: str) -> None:
         with self._lock:
@@ -2048,19 +2164,6 @@ class ASREngine:
                     if self._pending_audio_chunks == 0:
                         self._audio_queue_drained.notify_all()
 
-    def _schedule_warm_close(self) -> None:
-        self._cancel_warm_close()
-        timer = threading.Timer(
-            WARM_SESSION_TTL_SECONDS,
-            self._close_warm_session_if_idle,
-        )
-        timer.daemon = True
-        with self._lock:
-            if self._is_running or self._conversation is None:
-                return
-            self._warm_close_timer = timer
-        timer.start()
-
     def _can_reuse_warm_session(self, model_info: Optional[dict]) -> bool:
         return should_reuse_warm_session(
             supports_warm_session=_supports_warm_realtime_session(model_info),
@@ -2090,12 +2193,13 @@ class ASREngine:
             chunk_ms=round(_streaming_audio_chunk_duration_seconds(self.config) * 1000, 2),
         )
 
+        self._stop_warm_keeper()
         self._is_running = True
         self._accepting_audio = True
         self._session_ready = False
         self._connect_failed = False
         self._connect_done = threading.Event()
-        self._cancel_warm_close()
+        self._warm_session_idle_since = None
         self._trace_warm_reused = False
         self._last_metering = None
         self._clear_audio_queue()
@@ -2137,7 +2241,7 @@ class ASREngine:
         if not drop_idle_session or self._is_running:
             return
 
-        self._cancel_warm_close()
+        self._stop_warm_keeper()
         stale = self._drop_conversation()
         self._close_conversation(stale)
 
@@ -2154,7 +2258,8 @@ class ASREngine:
                 if self._callback:
                     self._callback.reset()
 
-                if self._can_reuse_warm_session(model_info):
+                reusing_warm_session = self._can_reuse_warm_session(model_info)
+                if reusing_warm_session:
                     print("[StreamingASR] Reusing warm realtime session")
                     self._trace_warm_reused = True
                     if self._callback:
@@ -2163,20 +2268,20 @@ class ASREngine:
                     if self._conversation is not None:
                         stale = self._drop_conversation()
                         self._close_conversation(stale)
-                    self._conversation = OmniRealtimeConversation(
-                        model=self._session_model_id,
-                        url="wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
-                        callback=self._callback,
+                    self._conversation = self._establish_conversation(
+                        self._session_model_id,
+                        model_info,
+                        self._callback,
                     )
-                    self._conversation.connect()
                     self._conversation_model_id = self._session_model_id
 
-                session_kwargs = _build_session_kwargs(model_info)
-                self._conversation.update_session(**session_kwargs)
+                if reusing_warm_session:
+                    session_kwargs = _build_session_kwargs(model_info)
+                    self._conversation.update_session(**session_kwargs)
 
-                if not self._callback.wait_for_session_updated(timeout=10.0):
-                    print("[StreamingASR] Timeout waiting for session.updated")
-                    raise Exception("session.updated timeout")
+                    if not self._callback.wait_for_session_updated(timeout=10.0):
+                        print("[StreamingASR] Timeout waiting for session.updated")
+                        raise Exception("session.updated timeout")
 
                 with self._lock:
                     self._session_ready = True
@@ -2280,7 +2385,6 @@ class ASREngine:
             self._log_fallback(degraded_reason, degraded=True)
             self._is_running = False
             self._clear_audio_queue()
-            self._cancel_warm_close()
             stale = self._drop_conversation()
             self._close_conversation(stale)
             if pcm_data:
@@ -2336,7 +2440,6 @@ class ASREngine:
             self._log_fallback("audio_drain_timeout", drain_timeout=round(drain_timeout, 2))
             self._is_running = False
             self._clear_audio_queue()
-            self._cancel_warm_close()
             stale = self._drop_conversation()
             self._close_conversation(stale)
             if pcm_data:
@@ -2499,7 +2602,7 @@ class ASREngine:
                 _supports_warm_realtime_session(model_info)
                 and not response_fallback_reason
             ):
-                self._schedule_warm_close()
+                self._start_warm_keeper(model_info)
             else:
                 stale = self._drop_conversation()
                 self._close_conversation(stale)
@@ -2554,7 +2657,7 @@ class ASREngine:
         self._is_running = False
         self._accepting_audio = False
         self._clear_audio_queue()
-        self._cancel_warm_close()
+        self._stop_warm_keeper()
         stale = self._drop_conversation()
         self._close_conversation(stale)
         self._active_trace = None

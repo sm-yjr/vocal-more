@@ -623,7 +623,7 @@ def test_streaming_long_audio_uses_realtime_transcript_without_inline_response(
 
     engine = asr_engine.ASREngine()
     engine._batch_fallback.transcribe = MagicMock(return_value="long offline result")
-    engine._schedule_warm_close = MagicMock()
+    engine._start_warm_keeper = MagicMock()
 
     engine.start()
     long_audio_seconds = 270
@@ -634,7 +634,7 @@ def test_streaming_long_audio_uses_realtime_transcript_without_inline_response(
     assert captured["commit_called"] is True
     assert captured["create_response_called"] is False
     assert captured["closed"] is False
-    engine._schedule_warm_close.assert_called_once()
+    engine._start_warm_keeper.assert_called_once()
     engine._batch_fallback.transcribe.assert_not_called()
 
 
@@ -876,19 +876,19 @@ def test_refresh_api_key_drops_idle_warm_session(monkeypatch):
 
     engine = asr_engine.ASREngine()
     conversation = MagicMock()
-    timer = MagicMock()
+    keeper = MagicMock()
 
     engine.config.api_key = "updated-key"
     engine._conversation = conversation
     engine._conversation_model_id = engine.config.asr.model
     engine._session_ready = True
-    engine._warm_close_timer = timer
+    engine._warm_keeper_thread = keeper
     engine._is_running = False
 
     engine.refresh_api_key()
 
     assert asr_engine.dashscope.api_key == "updated-key"
-    timer.cancel.assert_called_once()
+    keeper.join.assert_called_once()
     conversation.close.assert_called_once()
     assert engine._conversation is None
     assert engine._conversation_model_id is None
@@ -901,17 +901,17 @@ def test_refresh_runtime_config_drops_idle_warm_session(monkeypatch):
 
     engine = asr_engine.ASREngine()
     conversation = MagicMock()
-    timer = MagicMock()
+    keeper = MagicMock()
 
     engine._conversation = conversation
     engine._conversation_model_id = engine.config.asr.model
     engine._session_ready = True
-    engine._warm_close_timer = timer
+    engine._warm_keeper_thread = keeper
     engine._is_running = False
 
     engine.refresh_runtime_config(drop_idle_session=True)
 
-    timer.cancel.assert_called_once()
+    keeper.join.assert_called_once()
     conversation.close.assert_called_once()
     assert engine._conversation is None
     assert engine._conversation_model_id is None
@@ -1653,32 +1653,12 @@ def test_streaming_omni_inline_polish_returns_response_text(tmp_path, monkeypatc
     reload_config()
 
     captured = {"append_count": 0, "closed": False}
-    timers = []
-
     class ImmediateThread:
         def __init__(self, target=None, daemon=None):
             self._target = target
 
         def start(self):
             self._target()
-
-    class FakeTimer:
-        def __init__(self, interval, callback):
-            self.interval = interval
-            self.callback = callback
-            self.daemon = False
-            self.started = False
-            self.canceled = False
-            timers.append(self)
-
-        def start(self):
-            self.started = True
-
-        def cancel(self):
-            self.canceled = True
-
-        def fire(self):
-            self.callback()
 
     class FakeConversation:
         def __init__(self, model, url, callback):
@@ -1712,7 +1692,6 @@ def test_streaming_omni_inline_polish_returns_response_text(tmp_path, monkeypatc
             captured["closed"] = True
 
     monkeypatch.setattr(asr_engine.threading, "Thread", ImmediateThread)
-    monkeypatch.setattr(asr_engine.threading, "Timer", FakeTimer)
     monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
 
     engine = asr_engine.ASREngine()
@@ -1723,10 +1702,245 @@ def test_streaming_omni_inline_polish_returns_response_text(tmp_path, monkeypatc
     assert captured["update_kwargs"]["instructions"]
     assert captured["append_count"] >= 1
     assert captured["closed"] is False
-    assert timers[-1].started is True
-    timers[-1].fire()
-    assert captured["closed"] is True
+    assert engine._warm_keeper_thread is not None
     assert text == "这个方案已经确认了，可以开始执行。"
+
+
+def test_streaming_audio_queue_preserves_target_duration_with_40ms_blocks():
+    """40 ms callback blocks must retain the 6.4-second warm-up buffer."""
+    import vocal_more.core.asr_engine as asr_engine
+    from vocal_more.domain.config_models import AppConfig
+
+    config = AppConfig()
+    config.audio.blocksize = 640
+
+    assert asr_engine._streaming_audio_queue_max_chunks(config) == 160
+
+
+def test_warm_keeper_reconnects_a_dead_idle_conversation(monkeypatch):
+    """The keeper should replace a dead socket before the next recording starts."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    class FakeStop:
+        def __init__(self):
+            self.wait_calls = 0
+
+        def wait(self, _timeout):
+            self.wait_calls += 1
+            return self.wait_calls > 1
+
+        def is_set(self):
+            return False
+
+        def set(self):
+            return None
+
+    class FakeConversation:
+        def __init__(self, connected, callback=None):
+            self.ws = SimpleNamespace(sock=SimpleNamespace(connected=connected))
+            self.closed = False
+            self.callback = callback
+
+        def connect(self):
+            self.ws.sock.connected = True
+
+        def update_session(self, **_kwargs):
+            self.callback.on_event({"type": "session.updated"})
+
+        def close(self):
+            self.closed = True
+            self.ws.sock.connected = False
+
+    engine = asr_engine.ASREngine()
+    original = FakeConversation(connected=False)
+    engine._conversation = original
+    engine._conversation_model_id = "qwen3.5-omni-plus-realtime"
+    engine._warm_session_idle_since = 0.0
+    engine._warm_keeper_stop = FakeStop()
+    engine._callback = MagicMock()
+    engine._callback.wait_for_session_updated.return_value = True
+    monkeypatch.setattr(
+        asr_engine,
+        "OmniRealtimeConversation",
+        lambda **kwargs: FakeConversation(False, kwargs["callback"]),
+    )
+    monkeypatch.setattr(asr_engine.time, "monotonic", lambda: 1.0)
+
+    engine._run_warm_keeper_loop()
+
+    assert original.closed is True
+    assert engine._conversation is not original
+    assert engine._conversation.ws.sock.connected is True
+
+
+def test_start_abandons_late_warm_keeper_reconnect(monkeypatch):
+    """A stopped keeper must not publish a connection that completes late."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    class FirstPassStop:
+        def __init__(self):
+            self._event = threading.Event()
+            self.initial_check_complete = threading.Event()
+
+        def wait(self, timeout):
+            if not self.initial_check_complete.is_set():
+                self.initial_check_complete.set()
+                return False
+            return self._event.wait(timeout)
+
+        def is_set(self):
+            return self._event.is_set()
+
+        def set(self):
+            self._event.set()
+
+    class IdleConversation:
+        def __init__(self):
+            self.ws = SimpleNamespace(sock=SimpleNamespace(connected=False))
+
+        def close(self):
+            return None
+
+    connect_started = threading.Event()
+    allow_connect = threading.Event()
+    replacements = []
+
+    class SlowConversation:
+        def __init__(self, model, url, callback):
+            self.callback = callback
+            self.closed = False
+            self.ws = SimpleNamespace(sock=SimpleNamespace(connected=False))
+            replacements.append(self)
+
+        def connect(self):
+            connect_started.set()
+            assert allow_connect.wait(timeout=2.0)
+            self.ws.sock.connected = True
+
+        def update_session(self, **_kwargs):
+            self.callback.on_event({"type": "session.updated"})
+
+        def close(self):
+            self.closed = True
+
+    engine = asr_engine.ASREngine()
+    original = IdleConversation()
+    engine._conversation = original
+    engine._conversation_model_id = "qwen3.5-omni-plus-realtime"
+    engine._warm_session_idle_since = asr_engine.time.monotonic()
+    engine._warm_keeper_stop = FirstPassStop()
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", SlowConversation)
+
+    keeper = threading.Thread(target=engine._run_warm_keeper_loop, daemon=True)
+    engine._warm_keeper_thread = keeper
+    keeper.start()
+    assert connect_started.wait(timeout=1.0)
+
+    monkeypatch.setattr(engine, "_connect", MagicMock())
+    started_at = asr_engine.time.monotonic()
+    engine.start()
+    assert asr_engine.time.monotonic() - started_at < 1.0
+
+    allow_connect.set()
+    keeper.join(timeout=1.0)
+
+    assert keeper.is_alive() is False
+    assert replacements[0].closed is True
+    assert engine._conversation is original
+
+
+def test_abandoned_warm_keeper_exits_after_failed_reconnect(monkeypatch):
+    """An abandoned keeper must exit when its reconnect fails."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    class FirstPassStop:
+        def __init__(self):
+            self._event = threading.Event()
+            self.initial_check_complete = threading.Event()
+
+        def wait(self, timeout):
+            if not self.initial_check_complete.is_set():
+                self.initial_check_complete.set()
+                return False
+            return self._event.wait(timeout)
+
+        def is_set(self):
+            return self._event.is_set()
+
+        def set(self):
+            self._event.set()
+
+    class IdleConversation:
+        def __init__(self):
+            self.ws = SimpleNamespace(sock=SimpleNamespace(connected=False))
+
+        def close(self):
+            return None
+
+    connect_started = threading.Event()
+    allow_connect = threading.Event()
+
+    class FailingConversation:
+        def __init__(self, model, url, callback):
+            self.callback = callback
+            self.ws = SimpleNamespace(sock=SimpleNamespace(connected=False))
+
+        def connect(self):
+            connect_started.set()
+            assert allow_connect.wait(timeout=2.0)
+            raise RuntimeError("reconnect failed")
+
+        def close(self):
+            return None
+
+    engine = asr_engine.ASREngine()
+    engine._conversation = IdleConversation()
+    engine._conversation_model_id = "qwen3.5-omni-plus-realtime"
+    engine._warm_session_idle_since = asr_engine.time.monotonic()
+    engine._warm_keeper_stop = FirstPassStop()
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FailingConversation)
+
+    keeper = threading.Thread(target=engine._run_warm_keeper_loop, daemon=True)
+    engine._warm_keeper_thread = keeper
+    keeper.start()
+    assert connect_started.wait(timeout=1.0)
+
+    engine._stop_warm_keeper()
+    allow_connect.set()
+    keeper.join(timeout=1.0)
+
+    assert keeper.is_alive() is False
+
+
+def test_warm_keeper_closes_connection_after_maximum_idle_time(monkeypatch):
+    """The keeper should release an unused connection after ten minutes."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    class FakeStop:
+        def wait(self, _timeout):
+            return False
+
+        def is_set(self):
+            return False
+
+        def set(self):
+            return None
+
+    conversation = MagicMock()
+    engine = asr_engine.ASREngine()
+    engine._conversation = conversation
+    engine._warm_session_idle_since = 0.0
+    engine._warm_keeper_stop = FakeStop()
+    monkeypatch.setattr(
+        asr_engine.time,
+        "monotonic",
+        lambda: asr_engine.WARM_KEEPER_MAX_IDLE_SECONDS,
+    )
+
+    engine._run_warm_keeper_loop()
+
+    conversation.close.assert_called_once()
+    assert engine._conversation is None
 
 
 def test_streaming_queue_backpressure_falls_back_to_batch(tmp_path, monkeypatch):
@@ -2367,7 +2581,7 @@ def test_streaming_omni_recovers_if_response_starts_during_transcript_wait(
     assert text == "能听到吗？"
 
 
-def test_streaming_engine_reuses_warm_omni_session_within_ttl(tmp_path, monkeypatch):
+def test_streaming_engine_reuses_warm_omni_session(tmp_path, monkeypatch):
     """A second short utterance should reuse the existing Omni realtime socket."""
     from vocal_more.config import Config, reload_config
     asr_engine = importlib.import_module("vocal_more.core.asr_engine")
@@ -2387,7 +2601,6 @@ def test_streaming_engine_reuses_warm_omni_session_within_ttl(tmp_path, monkeypa
 
     reload_config()
 
-    timers = []
     captured = {"instances": 0, "update_calls": 0, "closed": 0}
 
     class ImmediateThread:
@@ -2396,24 +2609,6 @@ def test_streaming_engine_reuses_warm_omni_session_within_ttl(tmp_path, monkeypa
 
         def start(self):
             self._target()
-
-    class FakeTimer:
-        def __init__(self, interval, callback):
-            self.interval = interval
-            self.callback = callback
-            self.daemon = False
-            self.started = False
-            self.canceled = False
-            timers.append(self)
-
-        def start(self):
-            self.started = True
-
-        def cancel(self):
-            self.canceled = True
-
-        def fire(self):
-            self.callback()
 
     class FakeConversation:
         def __init__(self, model, url, callback):
@@ -2442,7 +2637,6 @@ def test_streaming_engine_reuses_warm_omni_session_within_ttl(tmp_path, monkeypa
             captured["closed"] += 1
 
     monkeypatch.setattr(asr_engine.threading, "Thread", ImmediateThread)
-    monkeypatch.setattr(asr_engine.threading, "Timer", FakeTimer)
     monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
 
     engine = asr_engine.ASREngine()
@@ -2453,7 +2647,7 @@ def test_streaming_engine_reuses_warm_omni_session_within_ttl(tmp_path, monkeypa
     assert captured["instances"] == 1
     assert captured["update_calls"] == 1
     assert captured["closed"] == 0
-    assert timers[0].started is True
+    assert engine._warm_keeper_thread is not None
 
     engine.start()
     engine.send_audio(b"\x01\x00" * 1600)
@@ -2461,11 +2655,7 @@ def test_streaming_engine_reuses_warm_omni_session_within_ttl(tmp_path, monkeypa
 
     assert captured["instances"] == 1
     assert captured["update_calls"] == 2
-    assert timers[0].canceled is True
     assert captured["closed"] == 0
-
-    timers[-1].fire()
-    assert captured["closed"] == 1
 
 
 def test_streaming_engine_reconnects_instead_of_reusing_stale_warm_socket(

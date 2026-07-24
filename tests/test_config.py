@@ -23,7 +23,7 @@ def test_config_load(tmp_path, monkeypatch):
 
     assert config.audio.sample_rate == 16000
     assert config.audio.channels == 1
-    assert config.audio.blocksize == 1600
+    assert config.audio.blocksize == 640
     assert config.audio.input_device is None
     assert config.asr.backend == "realtime_ws"
     assert config.asr.model == "qwen3.5-omni-flash-realtime"
@@ -40,6 +40,20 @@ def test_config_load(tmp_path, monkeypatch):
     assert config.hotkey.active_hotkeys == ["fn"]
     assert config.ui.language == "zh"
     assert config.default_mode == "realtime_long"
+
+
+def test_legacy_default_audio_blocksize_migrates_to_low_latency_default(tmp_path, monkeypatch):
+    """A persisted historical default should not override the new default."""
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    config_path.write_text("audio:\n  blocksize: 1600\n", encoding="utf-8")
+
+    config = Config.load()
+
+    assert config.audio.blocksize == 640
 
 
 def test_config_get_config_dir():
