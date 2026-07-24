@@ -1981,10 +1981,10 @@ class ASREngine:
                 replacement.connect()
                 replacement.update_session(**_build_session_kwargs(model_info))
                 if self._callback is None or not self._callback.wait_for_session_updated(timeout=10.0):
-                    raise Exception("session.updated timeout")
+                    raise Exception("warm keeper session.updated timeout")
                 with self._lock:
                     if self._is_running or self._warm_keeper_stop.is_set():
-                        break
+                        return
                     stale = self._conversation
                     self._conversation = replacement
                     self._conversation_model_id = model_id
