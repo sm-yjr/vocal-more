@@ -1947,6 +1947,8 @@ class ASREngine:
             self._warm_generation += 1
         if keeper is not None and keeper is not threading.current_thread():
             keeper.join(timeout=WARM_KEEPER_SHUTDOWN_TIMEOUT_SECONDS)
+            if keeper.is_alive():
+                print("[StreamingASR] Warm keeper shutdown timed out; abandoning reconnect")
         with self._lock:
             if (
                 keeper is self._warm_keeper_thread
@@ -2031,14 +2033,15 @@ class ASREngine:
                 if abandoned:
                     self._close_conversation(replacement)
                     replacement = None
-                    replacement_callback.close()
-                    replacement_callback = None
+                    if replacement_callback:
+                        replacement_callback.close()
+                        replacement_callback = None
                     return
                 self._close_conversation(stale)
                 if previous_callback:
                     previous_callback.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[StreamingASR] Warm keeper reconnect failed: {exc}")
             finally:
                 self._close_conversation(replacement)
                 if replacement_callback:
