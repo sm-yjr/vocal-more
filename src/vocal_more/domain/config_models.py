@@ -78,7 +78,7 @@ class AudioConfig:
 
     sample_rate: int = 16000
     channels: int = 1
-    blocksize: int = 1600
+    blocksize: int = 640
     input_device: Optional[str] = None
     gain: float = 2.0
     highpass_filter: bool = True
@@ -389,6 +389,12 @@ class AppConfig:
                 maximum=MAX_AUDIO_CHANNELS,
             )
         elif field_name == "blocksize":
+            # 1600 was the historical default. Treat it as an unset value when
+            # loading saved settings so existing users receive the lower-latency
+            # default without overriding deliberate custom block sizes.
+            if str(value).strip() == "1600":
+                self.audio.blocksize = AudioConfig().blocksize
+                return
             self.audio.blocksize = clamp_int(
                 value,
                 default=self.audio.blocksize,
