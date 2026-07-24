@@ -91,6 +91,7 @@ INLINE_RESPONSE_TRANSCRIPT_TIMEOUT_SECONDS = 5.0
 INLINE_RESPONSE_LATE_START_GRACE_SECONDS = 1.0
 WARM_KEEPER_CHECK_INTERVAL_SECONDS = 5.0
 WARM_KEEPER_MAX_IDLE_SECONDS = 600.0
+WARM_KEEPER_SHUTDOWN_TIMEOUT_SECONDS = 0.25
 MAX_ADAPTIVE_RESPONSE_START_TIMEOUT_SECONDS = 20.0
 MAX_ADAPTIVE_RESPONSE_COMPLETE_TIMEOUT_SECONDS = 90.0
 STREAMING_AUDIO_QUEUE_TARGET_SECONDS = 6.4
@@ -1944,7 +1945,7 @@ class ASREngine:
             self._warm_keeper_stop.set()
             self._warm_generation += 1
         if keeper is not None and keeper is not threading.current_thread():
-            keeper.join(timeout=0.25)
+            keeper.join(timeout=WARM_KEEPER_SHUTDOWN_TIMEOUT_SECONDS)
         with self._lock:
             if keeper is self._warm_keeper_thread:
                 self._warm_keeper_thread = None
@@ -2005,6 +2006,8 @@ class ASREngine:
                     replacement_callback,
                 )
                 with self._lock:
+                    # start() invalidates an in-flight keeper reconnect before
+                    # it may replace the callback used by its own connection.
                     if (
                         self._is_running
                         or generation != self._warm_generation
