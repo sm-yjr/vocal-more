@@ -58,6 +58,16 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "notification_diagnostics_exported_title": "Diagnostics Exported",
         "notification_diagnostics_exported_body": "Saved to {path}",
         "notification_diagnostics_export_failed_title": "Diagnostics Export Failed",
+        "notification_dictionary_learning_applied_title": (
+            "Dictionary Updated Automatically"
+        ),
+        "notification_dictionary_learning_applied_body": (
+            "Added “{term}”. You can undo this in Dictionary settings."
+        ),
+        "notification_dictionary_learning_review_title": "Dictionary Review Needed",
+        "notification_dictionary_learning_review_body": (
+            "Review the suggested term “{term}” in Dictionary settings."
+        ),
         "mode_microphone_unavailable": "Could not start microphone: {details}",
         "mode_microphone_device_changed": (
             "Microphone changed or became unavailable. Re-select the input device and try again."
@@ -143,6 +153,14 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "notification_diagnostics_exported_title": "诊断包已导出",
         "notification_diagnostics_exported_body": "已保存到 {path}",
         "notification_diagnostics_export_failed_title": "导出诊断包失败",
+        "notification_dictionary_learning_applied_title": "已自动添加词条",
+        "notification_dictionary_learning_applied_body": (
+            "已添加“{term}”，可在词典设置中撤销。"
+        ),
+        "notification_dictionary_learning_review_title": "词条需要确认",
+        "notification_dictionary_learning_review_body": (
+            "请在词典设置中确认建议词条“{term}”。"
+        ),
         "mode_microphone_unavailable": "无法启动麦克风：{details}",
         "mode_microphone_device_changed": (
             "麦克风设备似乎已变更，请重新选择输入设备或重新连接麦克风后再试。"

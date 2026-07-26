@@ -26,6 +26,7 @@ class MenuAppDependencies:
     hotkey_manager: object
     runtime: RuntimeFacade
     settings_window: object
+    dictionary_learning: object | None = None
 
 
 @dataclass
@@ -39,6 +40,7 @@ class RPCHandlerDependencies:
     current_mode: object
     command_coordinator: object
     runtime: RuntimeFacade
+    dictionary_learning: object | None = None
 
 
 @dataclass
@@ -82,8 +84,17 @@ def build_menu_app_dependencies(
     settings_window_factory,
     command_coordinator_factory=DictationCommandCoordinator,
     runtime_factory=RuntimeFacade,
+    dictionary_learning_factory=None,
 ) -> MenuAppDependencies:
     config = config or get_config()
+    if dictionary_learning_factory is None:
+        from .dictionary_learning import build_dictionary_learning_runtime
+
+        dictionary_learning_factory = build_dictionary_learning_runtime
+    dictionary_learning = dictionary_learning_factory(config=config)
+    set_learning_callback = getattr(dictionary_learning, "set_on_change", None)
+    if callable(set_learning_callback):
+        set_learning_callback(app._on_dictionary_learning_change)
     text_polisher = text_polisher_factory() if config.api_key else None
     capsule = capsule_factory(
         on_cancel=app._on_capsule_cancel,
@@ -100,6 +111,7 @@ def build_menu_app_dependencies(
         text_polisher=text_polisher,
         on_audio_level=app._on_audio_level,
         recording_store=recording_store,
+        dictionary_learning=dictionary_learning,
     )
     realtime_long = realtime_long_factory(
         on_state_change=app._on_state_change,
@@ -110,6 +122,7 @@ def build_menu_app_dependencies(
         text_polisher=text_polisher,
         on_audio_level=app._on_audio_level,
         recording_store=recording_store,
+        dictionary_learning=dictionary_learning,
     )
     meeting = meeting_factory(
         on_state_change=app._on_state_change,
@@ -151,6 +164,7 @@ def build_menu_app_dependencies(
         on_set_custom_key=getattr(hotkey_manager, "set_custom_key", None),
         on_apply_interface_language=app._apply_interface_language,
         on_refresh_environment_status=app._refresh_environment_status,
+        on_refresh_dictionary_learning=dictionary_learning.wake,
     )
 
     settings_window = settings_window_factory(
@@ -161,6 +175,9 @@ def build_menu_app_dependencies(
         on_set_active_hotkeys=app._on_settings_set_hotkeys,
         on_add_dict_entry=app._on_settings_add_dict,
         on_remove_dict_entry=app._on_settings_remove_dict,
+        on_approve_dictionary_learning=app._on_settings_approve_dictionary_learning,
+        on_reject_dictionary_learning=app._on_settings_reject_dictionary_learning,
+        on_undo_dictionary_learning=app._on_settings_undo_dictionary_learning,
         on_refresh_devices=app._on_settings_refresh_devices,
         on_open_config_file=app._on_settings_open_config,
         on_open_dict_file=app._on_settings_open_dict,
@@ -183,6 +200,7 @@ def build_menu_app_dependencies(
         hotkey_manager=hotkey_manager,
         runtime=runtime,
         settings_window=settings_window,
+        dictionary_learning=dictionary_learning,
     )
 
 
@@ -198,8 +216,22 @@ def build_rpc_handler_dependencies(
     meeting_factory,
     command_coordinator_factory=DictationCommandCoordinator,
     runtime_factory=RuntimeFacade,
+    dictionary_learning_factory=None,
 ) -> RPCHandlerDependencies:
     config = config or get_config()
+    if dictionary_learning_factory is None:
+        from .dictionary_learning import build_dictionary_learning_runtime
+
+        dictionary_learning_factory = build_dictionary_learning_runtime
+    dictionary_learning = dictionary_learning_factory(config=config)
+    set_learning_callback = getattr(dictionary_learning, "set_on_change", None)
+    if callable(set_learning_callback):
+        set_learning_callback(
+            lambda change: send_notification(
+                "dictionary_learning_changed",
+                change,
+            )
+        )
     recording_store = recording_store_factory()
     text_polisher = text_polisher_factory() if config.api_key else None
 
@@ -212,6 +244,7 @@ def build_rpc_handler_dependencies(
         text_polisher=text_polisher,
         on_audio_level=handler._on_audio_level,
         recording_store=recording_store,
+        dictionary_learning=dictionary_learning,
     )
     realtime_long = realtime_long_factory(
         on_state_change=handler._on_state_change,
@@ -222,6 +255,7 @@ def build_rpc_handler_dependencies(
         text_polisher=text_polisher,
         on_audio_level=handler._on_audio_level,
         recording_store=recording_store,
+        dictionary_learning=dictionary_learning,
     )
     meeting = meeting_factory(
         on_state_change=handler._on_state_change,
@@ -244,6 +278,7 @@ def build_rpc_handler_dependencies(
         get_current_mode=lambda: getattr(handler, "_current_mode", None),
         set_current_mode=lambda mode: setattr(handler, "_current_mode", mode),
         on_refresh_text_polisher=handler._refresh_text_polisher,
+        on_refresh_dictionary_learning=dictionary_learning.wake,
     )
 
     return RPCHandlerDependencies(
@@ -256,6 +291,7 @@ def build_rpc_handler_dependencies(
         current_mode=current_mode,
         command_coordinator=command_coordinator,
         runtime=runtime,
+        dictionary_learning=dictionary_learning,
     )
 
 

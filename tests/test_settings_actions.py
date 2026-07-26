@@ -40,6 +40,17 @@ def test_settings_bridge_rejects_unknown_config_keys():
     assert bridge.parse(
         {"action": "setConfig", "key": "llm.prompt_overrides", "value": overrides}
     ) == {"action": "set_config", "key": "llm.prompt_overrides", "value": overrides}
+    assert bridge.parse(
+        {
+            "action": "setConfig",
+            "key": "dictionary_learning.enabled",
+            "value": True,
+        }
+    ) == {
+        "action": "set_config",
+        "key": "dictionary_learning.enabled",
+        "value": True,
+    }
 
 
 def test_settings_bridge_sanitizes_sync_form_state_payload():
@@ -61,6 +72,11 @@ def test_settings_bridge_sanitizes_sync_form_state_payload():
                     "unknown": True,
                 },
                 "hotkey": "not-a-dict",
+                "dictionary_learning": {
+                    "enabled": True,
+                    "excluded_bundle_ids": ["com.1password.1password"],
+                    "unknown": "ignored",
+                },
             },
         }
     )
@@ -74,6 +90,10 @@ def test_settings_bridge_sanitizes_sync_form_state_payload():
                 "level": "strong",
                 "polish_mode": "prompt",
                 "prompt_overrides": {"tone": {"enabled": True, "prompt": "warm"}},
+            },
+            "dictionary_learning": {
+                "enabled": True,
+                "excluded_bundle_ids": ["com.1password.1password"],
             },
         },
     }
@@ -124,6 +144,40 @@ def test_settings_action_dispatcher_routes_sync_form_state():
     )
 
     assert calls == [("sync", {"audio": {"gain": 3.0}})]
+
+
+def test_settings_bridge_and_dispatcher_route_dictionary_learning_actions():
+    from vocal_more.ui.settings_actions import SettingsActionDispatcher
+    from vocal_more.ui.settings_bridge import SettingsBridge
+
+    bridge = SettingsBridge()
+    calls: list[tuple[str, str]] = []
+    dispatcher = SettingsActionDispatcher(
+        on_approve_dictionary_learning=lambda job_id: calls.append(
+            ("approve", job_id)
+        ),
+        on_reject_dictionary_learning=lambda job_id: calls.append(
+            ("reject", job_id)
+        ),
+        on_undo_dictionary_learning=lambda job_id: calls.append(
+            ("undo", job_id)
+        ),
+    )
+
+    for browser_action, normalized_action in (
+        ("approveDictionaryLearning", "approve_dictionary_learning"),
+        ("rejectDictionaryLearning", "reject_dictionary_learning"),
+        ("undoDictionaryLearning", "undo_dictionary_learning"),
+    ):
+        message = bridge.parse({"action": browser_action, "id": "job-1"})
+        assert message == {"action": normalized_action, "id": "job-1"}
+        dispatcher.dispatch(message)
+
+    assert calls == [
+        ("approve", "job-1"),
+        ("reject", "job-1"),
+        ("undo", "job-1"),
+    ]
 
 
 def test_settings_action_dispatcher_routes_mic_test_actions():

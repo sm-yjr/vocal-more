@@ -6,6 +6,29 @@ The active codebase is the **Python app** (`src/vocal_more/`). All new features,
 - **Tests**: `tests/`
 - **Frontend assets**: `resources/` (HTML/CSS/JS for the floating capsule and settings UI, loaded by the Python app via WebView)
 
+## Engineering Workflow
+
+### Verification
+
+- Install development dependencies with `uv sync --group dev`.
+- Run the full test suite with `uv run python -m pytest -q`.
+- After completing and verifying each feature, build a macOS test DMG with `packaging/macos/build_dmg.sh` and report its path, signing/notarization status, and SHA-256 checksum so the user can install and test it.
+- Treat `pyproject.toml` as the version source of truth. The macOS bundle metadata and artifact names derive from it through `packaging/macos/read_version.py`; keep the editable `vocal-more` entry in `uv.lock` aligned.
+- A version-only change should not rewrite unrelated registry metadata in `uv.lock`. If it does, verify the local `uv` version before accepting the diff.
+- Read `docs/concurrency-runtime-model.md` before changing worker ownership, queues, shutdown behavior, or background runtimes.
+
+### Licensing
+
+- The project is licensed under `GPL-3.0-only`. Preserve both the root `LICENSE` file and the SPDX expression in `pyproject.toml`; do not change this to `GPL-3.0-or-later` without explicit authorization.
+- Every official macOS distribution must include the project license in both `Vocal More.app/Contents/Resources/LICENSE.txt` and the DMG root. Keep third-party notices, such as `Sparkle-LICENSE.txt`, separate.
+
+### macOS Releases
+
+- Official releases are built by `.github/workflows/release.yml` from a version tag (`vX.Y.Z` or `X.Y.Z`) that exactly matches `pyproject.toml`.
+- Do not consider a release complete until the workflow has passed tests, Developer ID signing, notarization and stapling, artifact verification, GitHub Release upload, and signed Sparkle appcast publication.
+- Use `docs/release.md` for prerequisites and secret names. Never commit certificate material, notarization credentials, or the Sparkle private key.
+- `VOCAL_MORE_ALLOW_UNSIGNED_DMG=1` is for local packaging checks only; never publish that unsigned artifact as an official release.
+
 ## Design Context
 
 ### Users

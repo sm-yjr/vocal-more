@@ -56,6 +56,10 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
     "ui": {
         "language",
     },
+    "dictionary_learning": {
+        "enabled",
+        "excluded_bundle_ids",
+    },
 }
 
 _ALLOWED_CONFIG_KEYS = set(_ALLOWED_TOP_LEVEL_CONFIG_KEYS)
@@ -195,6 +199,24 @@ class SettingsBridge:
         if term is None:
             return None
         return {"action": "remove_dict_entry", "term": term}
+
+    def _normalize_approveDictionaryLearning(
+        self,
+        body: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        return _recording_action("approve_dictionary_learning", body)
+
+    def _normalize_rejectDictionaryLearning(
+        self,
+        body: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        return _recording_action("reject_dictionary_learning", body)
+
+    def _normalize_undoDictionaryLearning(
+        self,
+        body: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        return _recording_action("undo_dictionary_learning", body)
 
     def _normalize_refreshDevices(self, body: dict[str, Any]) -> dict[str, Any]:
         return {"action": "refresh_devices"}

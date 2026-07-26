@@ -140,6 +140,30 @@ These are non-realtime helper pools:
 
 They are bounded and have explicit `close()` paths.
 
+### 11. Dictionary edit observer owns the post-paste window
+
+Automatic dictionary learning has one single-worker observer executor. It:
+
+- captures the exact focused Accessibility element before paste
+- polls only that same element for at most 15 seconds
+- cancels the previous observation when a new paste starts
+- writes qualifying evidence to SQLite
+
+It never calls DashScope and never blocks a mode-local finish executor.
+
+### 12. Dictionary learning queue owns deferred classification
+
+A separate single-worker queue drains persisted learning jobs. It starts lazily
+only when automatic learning is enabled and a user API key exists. It owns:
+
+- `qwen3.7-plus` JSON-mode calls
+- exponential retry scheduling
+- validated dictionary mutations
+- review, reject, and undo transitions
+
+It does not use the DashScope Batch API. UI changes are emitted as intents and
+marshaled to the main thread.
+
 ## Ownership Rules
 
 ### Rule 1: UI only on the main thread
@@ -211,3 +235,6 @@ Outbound realtime queue sizing and drain timeout now scale with chunk duration, 
 - If a new realtime path touches audio, preserve the rule that the PortAudio callback never blocks on network operations.
 - If a late callback could affect user-visible state, tie it to a session token or another invalidation mechanism.
 - If a new realtime SDK event path is added, keep SDK-managed threads as thin event producers and route consequences through one owned worker.
+- If automatic dictionary learning changes, keep edit observation and model
+  classification on their separate owners, and preserve both explicit
+  shutdown paths.

@@ -123,3 +123,81 @@ def test_dictation_workflow_reports_empty_transcript_as_failure():
     keyboard.paste_text.assert_not_called()
     assert result.error_message == "empty transcript"
     assert result.error_code == "empty_transcription"
+
+
+def test_dictation_workflow_wraps_paste_with_best_effort_dictionary_observation():
+    from vocal_more.application.dictation_workflow import DictationWorkflow
+
+    calls: list[str] = []
+    asr = MagicMock()
+    asr.stop.return_value = "阿里云白练"
+    keyboard = MagicMock()
+    keyboard.paste_text.side_effect = lambda _text: calls.append("paste")
+    learner = MagicMock()
+    learner.prepare_paste.side_effect = lambda **_: (
+        calls.append("prepare") or "ticket"
+    )
+    learner.observe_after_paste.side_effect = lambda _ticket: calls.append("observe")
+    config = SimpleNamespace(
+        enable_polish=False,
+        auto_paste=True,
+        asr=SimpleNamespace(language="zh"),
+    )
+    workflow = DictationWorkflow(
+        config=config,
+        asr_engine=asr,
+        keyboard=keyboard,
+        normalize_text=lambda text: text,
+        dictionary_learning=learner,
+    )
+
+    result = workflow.finish_recording(
+        b"pcm",
+        mode_name="walkie_talkie",
+        asr_model="qwen3-asr-flash",
+        text_polisher=None,
+        messages=_messages(),
+    )
+
+    assert calls == ["prepare", "paste", "observe"]
+    learner.prepare_paste.assert_called_once_with(
+        raw_text="阿里云白练",
+        pasted_text="阿里云白练",
+        recording_id=None,
+        mode_name="walkie_talkie",
+    )
+    assert result.pasted is True
+
+
+def test_dictionary_observer_failure_does_not_block_paste():
+    from vocal_more.application.dictation_workflow import DictationWorkflow
+
+    asr = MagicMock()
+    asr.stop.return_value = "正常听写"
+    keyboard = MagicMock()
+    learner = MagicMock()
+    learner.prepare_paste.side_effect = RuntimeError("AX unavailable")
+    config = SimpleNamespace(
+        enable_polish=False,
+        auto_paste=True,
+        asr=SimpleNamespace(language="zh"),
+    )
+    workflow = DictationWorkflow(
+        config=config,
+        asr_engine=asr,
+        keyboard=keyboard,
+        normalize_text=lambda text: text,
+        dictionary_learning=learner,
+    )
+
+    result = workflow.finish_recording(
+        b"pcm",
+        mode_name="walkie_talkie",
+        asr_model="qwen3-asr-flash",
+        text_polisher=None,
+        messages=_messages(),
+    )
+
+    keyboard.paste_text.assert_called_once_with("正常听写")
+    learner.observe_after_paste.assert_not_called()
+    assert result.pasted is True

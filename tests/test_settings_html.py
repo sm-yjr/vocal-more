@@ -115,3 +115,17 @@ def test_recording_history_copy_button_is_primary_action():
     assert "background: var(--accent)" in copy_rule.group(1)
     assert "color: #fff" in copy_rule.group(1)
     assert "background: var(--accent)" not in retry_rule.group(1)
+
+
+def test_dictionary_settings_disclose_cloud_learning_and_allow_exclusions():
+    html = SETTINGS_HTML.read_text(encoding="utf-8")
+
+    assert 'id="dictionary_learning_enabled"' in html
+    assert 'id="dictionary_learning_excluded_apps"' in html
+    assert "dictionary_learning_privacy_hint" in html
+    assert "dictionary_learning.enabled" in html
+    assert "dictionary_learning.excluded_bundle_ids" in html
+    assert 'id="dict_learning_records"' in html
+    assert "approveDictionaryLearning" in html
+    assert "rejectDictionaryLearning" in html
+    assert "undoDictionaryLearning" in html

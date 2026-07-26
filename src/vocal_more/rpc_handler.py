@@ -64,6 +64,11 @@ class RPCHandler:
         self._current_mode = dependencies.current_mode
         self._command_coordinator = dependencies.command_coordinator
         self._runtime = dependencies.runtime
+        self._dictionary_learning = getattr(
+            dependencies,
+            "dictionary_learning",
+            None,
+        )
         self._background_tasks = BackgroundExecutor(
             max_workers=2,
             thread_name_prefix="vocal-more-rpc-tasks",
@@ -176,7 +181,7 @@ class RPCHandler:
         dictionary = get_dictionary()
         return [
             {"term": e.term, "aliases": e.aliases}
-            for e in dictionary.entries
+            for e in dictionary.snapshot_entries()
         ]
 
     def _handle_add_dict_entry(self, params: dict) -> dict:
@@ -405,6 +410,14 @@ class RPCHandler:
         background_tasks = getattr(self, "_background_tasks", None)
         if background_tasks is not None:
             background_tasks.close(wait=False, cancel_futures=True)
+        dictionary_learning = getattr(self, "_dictionary_learning", None)
+        if dictionary_learning is not None:
+            set_on_change = getattr(dictionary_learning, "set_on_change", None)
+            if callable(set_on_change):
+                set_on_change(None)
+            close_learning = getattr(dictionary_learning, "close", None)
+            if callable(close_learning):
+                close_learning()
         for mode in getattr(self, "_modes", {}).values():
             close = getattr(mode, "close", None)
             if callable(close):

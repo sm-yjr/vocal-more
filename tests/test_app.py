@@ -1203,3 +1203,64 @@ def test_run_shows_app_started_notification_before_entering_event_loop(tmp_path,
     app._refresh_environment_status.assert_called_once_with(show_notification=True)
     app._show_app_started_notification.assert_called_once_with()
     assert run_calls == ["run"]
+
+
+def test_dictionary_learning_success_notification_requires_real_automatic_change(
+    tmp_path, monkeypatch
+):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+    notifications: list[tuple[tuple, dict]] = []
+    monkeypatch.setattr(
+        app_module.rumps,
+        "notification",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._settings_window = None
+
+    app._handle_dictionary_learning_change(
+        {
+            "status": "applied",
+            "source": "automatic",
+            "dictionary_changed": False,
+            "term": "阿里云百炼",
+        }
+    )
+    app._handle_dictionary_learning_change(
+        {
+            "status": "applied",
+            "source": "review",
+            "dictionary_changed": True,
+            "term": "阿里云百炼",
+        }
+    )
+    app._handle_dictionary_learning_change(
+        {
+            "status": "applied",
+            "source": "automatic",
+            "dictionary_changed": True,
+            "term": "阿里云百炼",
+        }
+    )
+
+    assert len(notifications) == 1
+    args, kwargs = notifications[0]
+    assert args == (
+        "Vocal-More",
+        "已自动添加词条",
+        "已添加“阿里云百炼”，可在词典设置中撤销。",
+    )
+    assert kwargs == {"icon": app._get_logo_path()}

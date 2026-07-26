@@ -18,6 +18,9 @@ class SettingsActionDispatcher:
         on_set_active_hotkeys: Optional[Callable[[list[str]], None]] = None,
         on_add_dict_entry: Optional[Callable[[str, list[str]], None]] = None,
         on_remove_dict_entry: Optional[Callable[[str], None]] = None,
+        on_approve_dictionary_learning: Optional[Callable[[str], None]] = None,
+        on_reject_dictionary_learning: Optional[Callable[[str], None]] = None,
+        on_undo_dictionary_learning: Optional[Callable[[str], None]] = None,
         on_refresh_devices: Optional[Callable[[], None]] = None,
         on_open_config_file: Optional[Callable[[], None]] = None,
         on_open_dict_file: Optional[Callable[[], None]] = None,
@@ -37,6 +40,9 @@ class SettingsActionDispatcher:
         self._on_set_active_hotkeys = on_set_active_hotkeys
         self._on_add_dict_entry = on_add_dict_entry
         self._on_remove_dict_entry = on_remove_dict_entry
+        self._on_approve_dictionary_learning = on_approve_dictionary_learning
+        self._on_reject_dictionary_learning = on_reject_dictionary_learning
+        self._on_undo_dictionary_learning = on_undo_dictionary_learning
         self._on_refresh_devices = on_refresh_devices
         self._on_open_config_file = on_open_config_file
         self._on_open_dict_file = on_open_dict_file
@@ -57,6 +63,9 @@ class SettingsActionDispatcher:
             "set_active_hotkeys": self._dispatch_set_active_hotkeys,
             "add_dict_entry": self._dispatch_add_dict_entry,
             "remove_dict_entry": self._dispatch_remove_dict_entry,
+            "approve_dictionary_learning": self._dispatch_approve_dictionary_learning,
+            "reject_dictionary_learning": self._dispatch_reject_dictionary_learning,
+            "undo_dictionary_learning": self._dispatch_undo_dictionary_learning,
             "refresh_devices": self._dispatch_refresh_devices,
             "open_config_file": self._dispatch_open_config_file,
             "open_dict_file": self._dispatch_open_dict_file,
@@ -121,6 +130,21 @@ class SettingsActionDispatcher:
         term = message.get("term", "")
         if term and self._on_remove_dict_entry is not None:
             self._on_remove_dict_entry(term)
+
+    def _dispatch_approve_dictionary_learning(self, message: dict[str, Any]) -> None:
+        job_id = message.get("id", "")
+        if job_id and self._on_approve_dictionary_learning is not None:
+            self._on_approve_dictionary_learning(job_id)
+
+    def _dispatch_reject_dictionary_learning(self, message: dict[str, Any]) -> None:
+        job_id = message.get("id", "")
+        if job_id and self._on_reject_dictionary_learning is not None:
+            self._on_reject_dictionary_learning(job_id)
+
+    def _dispatch_undo_dictionary_learning(self, message: dict[str, Any]) -> None:
+        job_id = message.get("id", "")
+        if job_id and self._on_undo_dictionary_learning is not None:
+            self._on_undo_dictionary_learning(job_id)
 
     def _dispatch_refresh_devices(self, message: dict[str, Any]) -> None:
         if self._on_refresh_devices is not None:

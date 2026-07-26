@@ -119,6 +119,9 @@ class SettingsWindow:
         on_set_active_hotkeys: Optional[Callable[[list[str]], None]] = None,
         on_add_dict_entry: Optional[Callable[[str, list[str]], None]] = None,
         on_remove_dict_entry: Optional[Callable[[str], None]] = None,
+        on_approve_dictionary_learning: Optional[Callable[[str], None]] = None,
+        on_reject_dictionary_learning: Optional[Callable[[str], None]] = None,
+        on_undo_dictionary_learning: Optional[Callable[[str], None]] = None,
         on_refresh_devices: Optional[Callable[[], None]] = None,
         on_open_config_file: Optional[Callable[[], None]] = None,
         on_open_dict_file: Optional[Callable[[], None]] = None,
@@ -132,6 +135,9 @@ class SettingsWindow:
         self._on_set_active_hotkeys = on_set_active_hotkeys
         self._on_add_dict_entry = on_add_dict_entry
         self._on_remove_dict_entry = on_remove_dict_entry
+        self._on_approve_dictionary_learning = on_approve_dictionary_learning
+        self._on_reject_dictionary_learning = on_reject_dictionary_learning
+        self._on_undo_dictionary_learning = on_undo_dictionary_learning
         self._on_refresh_devices = on_refresh_devices
         self._on_open_config_file = on_open_config_file
         self._on_open_dict_file = on_open_dict_file
@@ -365,6 +371,7 @@ class SettingsWindow:
         version: str = "",
         initial_tab: str = "",
         focus_recording_id: str = "",
+        dictionary_learning_records: list | None = None,
     ) -> None:
         """Show the settings window and populate with data."""
         # Bring app to front
@@ -384,6 +391,7 @@ class SettingsWindow:
             "llm_models": llm_models,
             "devices": devices,
             "dictionary": dictionary,
+            "dictionary_learning_records": dictionary_learning_records or [],
             "polish_prompt_presets": polish_prompt_presets or {},
             "recordings": self._recording_store.list_recordings() if self._recording_store else [],
             "initial_tab": initial_tab,
@@ -430,6 +438,11 @@ class SettingsWindow:
         json_str = json.dumps(entries)
         self._eval_js(f"loadDictionary({json_str})")
 
+    def update_dictionary_learning(self, records: list) -> None:
+        """Update automatic-learning review and undo records."""
+        json_str = json.dumps(records)
+        self._eval_js(f"loadDictionaryLearning({json_str})")
+
     def _build_action_dispatcher(self) -> SettingsActionDispatcher:
         return SettingsActionDispatcher(
             on_set_config=self._on_set_config,
@@ -439,6 +452,9 @@ class SettingsWindow:
             on_set_active_hotkeys=self._on_set_active_hotkeys,
             on_add_dict_entry=self._on_add_dict_entry,
             on_remove_dict_entry=self._on_remove_dict_entry,
+            on_approve_dictionary_learning=self._on_approve_dictionary_learning,
+            on_reject_dictionary_learning=self._on_reject_dictionary_learning,
+            on_undo_dictionary_learning=self._on_undo_dictionary_learning,
             on_refresh_devices=self._on_refresh_devices,
             on_open_config_file=self._on_open_config_file,
             on_open_dict_file=self._on_open_dict_file,

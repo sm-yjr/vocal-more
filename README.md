@@ -10,6 +10,7 @@ A macOS voice recognition application that runs in the menu bar, supporting real
 - Text polishing with selectable LLM models (Qwen 3.5 Plus, Qwen 3.6 Plus)
 - `enable_thinking` toggle for LLM chain-of-thought reasoning
 - Auto-paste transcribed text to cursor position
+- Optional automatic dictionary learning from edits made after a paste
 - Configurable shortcut keys (Fn, Double Cmd, F13-F20, or custom key)
 
 ## Requirements
@@ -58,8 +59,20 @@ hotkey:
   custom_key: ""  # record a custom key in Settings > Shortcuts
 ui:
   language: "zh"
+dictionary_learning:
+  enabled: false  # opt in: sends bounded before/after text to DashScope
+  excluded_bundle_ids:
+    - "com.1password.1password"
 default_mode: "realtime_long"
 ```
+
+Automatic dictionary learning observes the same editable field for 15 seconds
+after Vocal More pastes text. Multiple edits are coalesced into one final-state
+comparison scoped to the pasted segment. Plausible corrections are queued
+locally and classified in the background by `qwen3.7-plus` using JSON mode and
+the API key above. Password fields are skipped, Batch API is not used, and the
+Dictionary settings page can approve, reject, or undo learning decisions. A
+macOS notification confirms only an actual automatic term or alias addition.
 
 ## Models
 

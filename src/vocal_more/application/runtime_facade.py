@@ -35,6 +35,7 @@ class RuntimeFacade:
         on_set_custom_key: Callable[[dict | None], None] | None = None,
         on_apply_interface_language: Callable[[], None] | None = None,
         on_refresh_environment_status: Callable[[], None] | None = None,
+        on_refresh_dictionary_learning: Callable[[], None] | None = None,
     ) -> None:
         self.config = config
         self._modes = modes
@@ -45,6 +46,7 @@ class RuntimeFacade:
         self._on_set_custom_key = on_set_custom_key
         self._on_apply_interface_language = on_apply_interface_language
         self._on_refresh_environment_status = on_refresh_environment_status
+        self._on_refresh_dictionary_learning = on_refresh_dictionary_learning
 
     @property
     def current_mode_name(self) -> str:
@@ -85,6 +87,12 @@ class RuntimeFacade:
 
         if "ui.language" in changed_keys and self._on_apply_interface_language is not None:
             self._on_apply_interface_language()
+
+        if (
+            "api_key" in changed_keys
+            or any(key.startswith("dictionary_learning.") for key in changed_keys)
+        ) and self._on_refresh_dictionary_learning is not None:
+            self._on_refresh_dictionary_learning()
 
         if "default_mode" in changed_keys:
             self._select_default_mode_when_safe()

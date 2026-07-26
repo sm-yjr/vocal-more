@@ -20,6 +20,10 @@ class AppPaths:
     def dictionary_path(self) -> Path:
         return self.base_dir / "dictionary.yaml"
 
+    @property
+    def dictionary_learning_path(self) -> Path:
+        return self.base_dir / "dictionary-learning.sqlite3"
+
 
 def default_data_dir() -> Path:
     """Return the default per-user data directory."""

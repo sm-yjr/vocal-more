@@ -32,6 +32,7 @@ def _build_runtime_facade():
         "set_custom_key": MagicMock(),
         "apply_interface_language": MagicMock(),
         "refresh_environment_status": MagicMock(),
+        "refresh_dictionary_learning": MagicMock(),
     }
 
     facade = RuntimeFacade(
@@ -47,6 +48,7 @@ def _build_runtime_facade():
         on_set_custom_key=callbacks["set_custom_key"],
         on_apply_interface_language=callbacks["apply_interface_language"],
         on_refresh_environment_status=callbacks["refresh_environment_status"],
+        on_refresh_dictionary_learning=callbacks["refresh_dictionary_learning"],
     )
 
     return facade, config, walkie, realtime, current_mode, callbacks
@@ -107,3 +109,12 @@ def test_runtime_facade_refreshes_asr_runtime_for_asr_and_llm_changes():
     callbacks["refresh_environment_status"].assert_called_once()
     walkie._asr.refresh_runtime_config.assert_called_once_with(drop_idle_session=True)
     realtime._asr.refresh_runtime_config.assert_called_once_with(drop_idle_session=True)
+
+
+def test_runtime_facade_wakes_dictionary_learning_for_privacy_or_key_changes():
+    facade, config, walkie, realtime, current_mode, callbacks = _build_runtime_facade()
+
+    facade.apply_update("dictionary_learning.enabled", True)
+    facade.apply_update("api_key", "updated-key")
+
+    assert callbacks["refresh_dictionary_learning"].call_count == 2

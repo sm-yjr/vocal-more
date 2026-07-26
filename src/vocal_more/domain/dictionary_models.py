@@ -16,6 +16,15 @@ class DictEntry:
     aliases: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class DictionaryMutation:
+    """The exact dictionary changes made by one automatic-learning job."""
+
+    term: str
+    term_created: bool
+    aliases_added: list[str] = field(default_factory=list)
+
+
 def normalize_term(value: object) -> str:
     if value is None:
         return ""
@@ -190,6 +199,7 @@ def normalize_text_entries(text: str, entries: Iterable[DictEntry]) -> str:
 
 __all__ = [
     "DictEntry",
+    "DictionaryMutation",
     "build_asr_corpus_text",
     "format_entries_for_prompt",
     "iter_alias_values",

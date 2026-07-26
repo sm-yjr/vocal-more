@@ -34,6 +34,7 @@ class RealtimeLongMode(BaseMode):
         text_polisher: Optional[object] = None,
         on_audio_level: Optional[Callable[[float], None]] = None,
         recording_store: Optional[object] = None,
+        dictionary_learning: Optional[object] = None,
     ):
         super().__init__(
             on_state_change,
@@ -63,6 +64,7 @@ class RealtimeLongMode(BaseMode):
             keyboard=self._keyboard,
             recording_store=self._recording_store,
             normalize_text=normalize_terms,
+            dictionary_learning=dictionary_learning,
         )
 
         self._processing_executor = BackgroundExecutor(

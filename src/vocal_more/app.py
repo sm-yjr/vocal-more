@@ -114,6 +114,11 @@ class VocalMoreApp(rumps.App):
         self._hotkey_manager = dependencies.hotkey_manager
         self._runtime = dependencies.runtime
         self._settings_window = dependencies.settings_window
+        self._dictionary_learning = getattr(
+            dependencies,
+            "dictionary_learning",
+            None,
+        )
         self._main_thread_timers: set[NSTimer] = set()
         self._hotkey_permission_retry_timer: Optional[NSTimer] = None
         self._status_menu_delegate = None
@@ -376,6 +381,11 @@ class VocalMoreApp(rumps.App):
             version=__version__,
             initial_tab=initial_tab,
             focus_recording_id=focus_recording_id,
+            dictionary_learning_records=(
+                self._dictionary_learning.list_recent()
+                if self._dictionary_learning is not None
+                else []
+            ),
         )
 
     def _quit_app(self, _) -> None:
@@ -387,6 +397,14 @@ class VocalMoreApp(rumps.App):
             command_name="quit_cancel",
         )
         self._capsule.hide()
+        dictionary_learning = getattr(self, "_dictionary_learning", None)
+        if dictionary_learning is not None:
+            set_on_change = getattr(dictionary_learning, "set_on_change", None)
+            if callable(set_on_change):
+                set_on_change(None)
+            close_learning = getattr(dictionary_learning, "close", None)
+            if callable(close_learning):
+                close_learning()
         self._settings_window.close()
         for mode in self._all_modes():
             close = getattr(mode, "close", None)
@@ -461,6 +479,64 @@ class VocalMoreApp(rumps.App):
         get_dictionary().remove_entry(term)
         self._settings_window.update_dictionary(self._get_dict_entries())
         print(f"[Settings] Removed dict entry: {term}")
+
+    def _refresh_dictionary_learning_settings(self) -> None:
+        learning = getattr(self, "_dictionary_learning", None)
+        if learning is None:
+            return
+        self._settings_window.update_dictionary(self._get_dict_entries())
+        self._settings_window.update_dictionary_learning(learning.list_recent())
+
+    def _on_settings_approve_dictionary_learning(self, job_id: str) -> None:
+        if self._dictionary_learning and self._dictionary_learning.approve(job_id):
+            self._refresh_dictionary_learning_settings()
+
+    def _on_settings_reject_dictionary_learning(self, job_id: str) -> None:
+        if self._dictionary_learning and self._dictionary_learning.reject(job_id):
+            self._refresh_dictionary_learning_settings()
+
+    def _on_settings_undo_dictionary_learning(self, job_id: str) -> None:
+        if self._dictionary_learning and self._dictionary_learning.undo(job_id):
+            self._refresh_dictionary_learning_settings()
+
+    def _on_dictionary_learning_change(self, change: dict) -> None:
+        """Marshal background learning results onto the AppKit main thread."""
+        self._run_on_main_thread(
+            lambda: self._handle_dictionary_learning_change(change)
+        )
+
+    def _handle_dictionary_learning_change(self, change: dict) -> None:
+        settings = getattr(self, "_settings_window", None)
+        if settings is not None and settings.is_visible():
+            self._refresh_dictionary_learning_settings()
+
+        status = change.get("status")
+        if status not in ("applied", "review"):
+            return
+        if status == "applied" and (
+            change.get("source") != "automatic"
+            or not change.get("dictionary_changed")
+        ):
+            return
+        term = str(change.get("term", ""))
+        try:
+            rumps.notification(
+                "Vocal-More",
+                self._t(
+                    "notification_dictionary_learning_applied_title"
+                    if status == "applied"
+                    else "notification_dictionary_learning_review_title"
+                ),
+                self._t(
+                    "notification_dictionary_learning_applied_body"
+                    if status == "applied"
+                    else "notification_dictionary_learning_review_body",
+                    term=term,
+                ),
+                icon=self._get_logo_path(),
+            )
+        except RuntimeError:
+            print(f"[DictionaryLearning] {status}: {term}")
 
     def _on_settings_refresh_devices(self) -> None:
         """Handle device refresh request from settings window."""
@@ -990,7 +1066,7 @@ class VocalMoreApp(rumps.App):
         dictionary = get_dictionary()
         return [
             {"term": e.term, "aliases": e.aliases}
-            for e in dictionary.entries
+            for e in dictionary.snapshot_entries()
         ]
 
     # ── Hotkey callbacks ──────────────────────────────────────

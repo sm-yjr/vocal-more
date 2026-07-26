@@ -132,6 +132,14 @@ class UIConfig:
     language: UILanguage = "zh"
 
 
+@dataclass
+class DictionaryLearningConfig:
+    """Privacy-sensitive automatic dictionary-learning settings."""
+
+    enabled: bool = False
+    excluded_bundle_ids: list[str] = field(default_factory=list)
+
+
 def _validate_custom_key(raw: object) -> Optional[dict]:
     return normalize_custom_key(raw)
 
@@ -264,6 +272,24 @@ def _parse_ui_language(raw: object) -> UILanguage:
     return normalize_ui_language(raw)
 
 
+def _parse_excluded_bundle_ids(raw: object) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        bundle_id = item.strip()[:255]
+        if not bundle_id or bundle_id in seen:
+            continue
+        seen.add(bundle_id)
+        result.append(bundle_id)
+        if len(result) >= 100:
+            break
+    return result
+
+
 @dataclass
 class AppConfig:
     """Main application configuration."""
@@ -274,6 +300,9 @@ class AppConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     ui: UIConfig = field(default_factory=UIConfig)
+    dictionary_learning: DictionaryLearningConfig = field(
+        default_factory=DictionaryLearningConfig
+    )
     enable_polish: bool = True
     auto_paste: bool = True
     default_mode: str = "realtime_long"
@@ -289,7 +318,7 @@ class AppConfig:
             if key in data:
                 config.apply_update(key, data[key])
 
-        for section in ("audio", "asr", "llm", "hotkey", "ui"):
+        for section in ("audio", "asr", "llm", "hotkey", "ui", "dictionary_learning"):
             section_data = data.get(section)
             if not isinstance(section_data, dict):
                 continue
@@ -323,7 +352,7 @@ class AppConfig:
             if key in form_state:
                 self.apply_update(key, form_state[key])
 
-        for section in ("audio", "asr", "llm", "hotkey", "ui"):
+        for section in ("audio", "asr", "llm", "hotkey", "ui", "dictionary_learning"):
             section_data = form_state.get(section)
             if not isinstance(section_data, dict):
                 continue
@@ -370,6 +399,8 @@ class AppConfig:
             self._apply_hotkey_update(field_name, value)
         elif section == "ui":
             self._apply_ui_update(field_name, value)
+        elif section == "dictionary_learning":
+            self._apply_dictionary_learning_update(field_name, value)
         else:
             raise ValueError(f"Unknown config section: {section}")
 
@@ -513,6 +544,25 @@ class AppConfig:
         else:
             raise ValueError(f"Unknown config key: ui.{field_name}")
 
+    def _apply_dictionary_learning_update(
+        self,
+        field_name: str,
+        value: Any,
+    ) -> None:
+        if field_name == "enabled":
+            self.dictionary_learning.enabled = parse_bool(
+                value,
+                self.dictionary_learning.enabled,
+            )
+        elif field_name == "excluded_bundle_ids":
+            self.dictionary_learning.excluded_bundle_ids = (
+                _parse_excluded_bundle_ids(value)
+            )
+        else:
+            raise ValueError(
+                f"Unknown config key: dictionary_learning.{field_name}"
+            )
+
     def to_dict(self) -> dict:
         return {
             "api_key": self.api_key,
@@ -559,6 +609,12 @@ class AppConfig:
             "ui": {
                 "language": self.ui.language,
             },
+            "dictionary_learning": {
+                "enabled": self.dictionary_learning.enabled,
+                "excluded_bundle_ids": list(
+                    self.dictionary_learning.excluded_bundle_ids
+                ),
+            },
             "enable_polish": self.enable_polish,
             "auto_paste": self.auto_paste,
             "default_mode": self.default_mode,
@@ -586,6 +642,7 @@ __all__ = [
     "ASRLanguage",
     "AppConfig",
     "AudioConfig",
+    "DictionaryLearningConfig",
     "HOTKEY_ALIASES",
     "HotkeyConfig",
     "LEGACY_BUILT_IN_HOTKEYS",

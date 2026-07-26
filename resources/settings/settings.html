@@ -378,6 +378,34 @@
         Custom terms improve ASR accuracy for proper nouns. Click &times; to remove a term.
       </div>
 
+      <div class="form-group">
+        <div class="form-row">
+          <span class="form-label" data-i18n="dictionary_learning_label">Automatic Learning</span>
+          <label class="toggle">
+            <input type="checkbox" id="dictionary_learning_enabled">
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="form-hint" data-i18n="dictionary_learning_privacy_hint">
+          After a paste, observe edits for 15 seconds and send the necessary before/after text to DashScope qwen3.7-plus. Password fields are never collected.
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label data-i18n="dictionary_learning_excluded_apps_label">Excluded App Bundle IDs</label>
+        <input type="text" id="dictionary_learning_excluded_apps" placeholder="com.1password.1password, com.apple.Terminal" style="width:100%" data-i18n-placeholder="dictionary_learning_excluded_apps_placeholder">
+        <div class="form-hint" data-i18n="dictionary_learning_excluded_apps_hint">Comma-separated bundle IDs. Edits in these apps stay local and are not queued.</div>
+      </div>
+
+      <div class="form-separator"></div>
+
+      <div class="section-label" data-i18n="dictionary_learning_activity_label">Automatic Learning Activity</div>
+      <div id="dict_learning_records">
+        <span class="empty-state" data-i18n="dictionary_learning_activity_empty">No automatic learning decisions yet.</span>
+      </div>
+
+      <div class="form-separator"></div>
+
       <div class="dict-tags" id="dict_tags">
         <span class="empty-state" data-i18n="dictionary_empty">No terms added yet.</span>
       </div>
@@ -427,6 +455,7 @@ let _asrModels = [];
 let _llmModels = [];
 let _devices = [];
 let _dictEntries = [];
+let _dictLearningRecords = [];
 let _isCapturingKey = false;
 let _syncFormTimer = null;
 let _micTestState = 'idle';
@@ -573,6 +602,19 @@ const UI_TRANSLATIONS = {
     shortcuts_unsupported_key: 'Unsupported key',
     shortcut_hotkey_fn: 'Fn Key (Hold / Toggle)',
     dictionary_hint: 'Custom terms improve ASR accuracy for proper nouns. Click × to remove a term.',
+    dictionary_learning_label: 'Automatic Learning',
+    dictionary_learning_privacy_hint: 'After a paste, observe edits for 15 seconds and send the necessary before/after text to DashScope qwen3.7-plus. Password fields are never collected.',
+    dictionary_learning_excluded_apps_label: 'Excluded App Bundle IDs',
+    dictionary_learning_excluded_apps_placeholder: 'com.1password.1password, com.apple.Terminal',
+    dictionary_learning_excluded_apps_hint: 'Comma-separated bundle IDs. Edits in these apps stay local and are not queued.',
+    dictionary_learning_activity_label: 'Automatic Learning Activity',
+    dictionary_learning_activity_empty: 'No automatic learning decisions yet.',
+    dictionary_learning_pending: 'Needs review',
+    dictionary_learning_added: 'Added automatically',
+    dictionary_learning_reverted: 'Reverted',
+    dictionary_learning_approve: 'Add',
+    dictionary_learning_reject: 'Ignore',
+    dictionary_learning_undo: 'Undo',
     dictionary_empty: 'No terms added yet.',
     dictionary_term_label: 'Term',
     dictionary_term_placeholder: 'e.g. DashScope',
@@ -731,6 +773,19 @@ const UI_TRANSLATIONS = {
     shortcuts_unsupported_key: '不支持的按键',
     shortcut_hotkey_fn: 'Fn 键（按住 / 切换）',
     dictionary_hint: '自定义词条可以提升专有名词的识别准确率。点击 × 删除词条。',
+    dictionary_learning_label: '自动学习词典',
+    dictionary_learning_privacy_hint: '粘贴后观察 15 秒内的修改，并将必要的修改前后文本发送给 DashScope qwen3.7-plus。密码输入框永远不会被采集。',
+    dictionary_learning_excluded_apps_label: '排除的 App Bundle ID',
+    dictionary_learning_excluded_apps_placeholder: 'com.1password.1password, com.apple.Terminal',
+    dictionary_learning_excluded_apps_hint: '使用逗号分隔。在这些 App 中的修改不会进入学习队列。',
+    dictionary_learning_activity_label: '自动学习记录',
+    dictionary_learning_activity_empty: '还没有自动学习记录。',
+    dictionary_learning_pending: '需要确认',
+    dictionary_learning_added: '已自动添加',
+    dictionary_learning_reverted: '已撤销',
+    dictionary_learning_approve: '添加',
+    dictionary_learning_reject: '忽略',
+    dictionary_learning_undo: '撤销',
     dictionary_empty: '还没有添加词条。',
     dictionary_term_label: '词条',
     dictionary_term_placeholder: '例如 DashScope',
@@ -1106,6 +1161,7 @@ function loadAll(data) {
   _polishPromptPresets = data.polish_prompt_presets || {};
   _devices = data.devices || [];
   _dictEntries = data.dictionary || [];
+  _dictLearningRecords = data.dictionary_learning_records || [];
   _focusRecordingId = data.focusRecordingId || data.focus_recording_id || null;
 
   _recordings = data.recordings || [];
@@ -1134,6 +1190,7 @@ function updateConfig(key, value) {
   }
   else if (section === 'llm') renderPolish();
   else if (section === 'hotkey') renderShortcuts();
+  else if (section === 'dictionary_learning') renderDictionary();
   else renderGeneral();
 }
 
@@ -1150,6 +1207,11 @@ function loadDevices(devices, selectedDevice) {
 function loadDictionary(entries) {
   _dictEntries = entries;
   renderDictionary();
+}
+
+function loadDictionaryLearning(records) {
+  _dictLearningRecords = records || [];
+  renderDictionaryLearning();
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1540,6 +1602,15 @@ function renderShortcuts() {
 }
 
 function renderDictionary() {
+  const learning = _config.dictionary_learning || {};
+  const learningToggle = document.getElementById('dictionary_learning_enabled');
+  const excludedApps = document.getElementById('dictionary_learning_excluded_apps');
+  if (learningToggle) learningToggle.checked = learning.enabled === true;
+  if (excludedApps && document.activeElement !== excludedApps) {
+    excludedApps.value = (learning.excluded_bundle_ids || []).join(', ');
+  }
+  renderDictionaryLearning();
+
   const container = document.getElementById('dict_tags');
   if (!_dictEntries || _dictEntries.length === 0) {
     container.innerHTML = `<span class="empty-state">${t('dictionary_empty')}</span>`;
@@ -1577,6 +1648,75 @@ function renderDictionary() {
   });
 }
 
+function renderDictionaryLearning() {
+  const container = document.getElementById('dict_learning_records');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!_dictLearningRecords || _dictLearningRecords.length === 0) {
+    const empty = document.createElement('span');
+    empty.className = 'empty-state';
+    empty.textContent = t('dictionary_learning_activity_empty');
+    container.appendChild(empty);
+    return;
+  }
+
+  _dictLearningRecords.forEach(record => {
+    const row = document.createElement('div');
+    row.className = 'form-row';
+
+    const label = document.createElement('span');
+    label.className = 'form-label';
+    const aliases = (record.aliases || []).join(', ');
+    const stateKey = record.status === 'review'
+      ? 'dictionary_learning_pending'
+      : (record.status === 'reverted'
+          ? 'dictionary_learning_reverted'
+          : 'dictionary_learning_added');
+    label.textContent = `${record.term} ← ${aliases} · ${t(stateKey)}`;
+    row.appendChild(label);
+
+    const actions = document.createElement('span');
+    if (record.status === 'review') {
+      actions.appendChild(dictionaryLearningButton(
+        t('dictionary_learning_approve'),
+        () => approveDictionaryLearning(record.id)
+      ));
+      actions.appendChild(dictionaryLearningButton(
+        t('dictionary_learning_reject'),
+        () => rejectDictionaryLearning(record.id)
+      ));
+    } else if (record.status === 'applied') {
+      actions.appendChild(dictionaryLearningButton(
+        t('dictionary_learning_undo'),
+        () => undoDictionaryLearning(record.id)
+      ));
+    }
+    row.appendChild(actions);
+    container.appendChild(row);
+  });
+}
+
+function dictionaryLearningButton(label, callback) {
+  const button = document.createElement('button');
+  button.className = 'btn';
+  button.type = 'button';
+  button.textContent = label;
+  button.addEventListener('click', callback);
+  return button;
+}
+
+function approveDictionaryLearning(id) {
+  postMsg({ action: 'approveDictionaryLearning', id: id });
+}
+
+function rejectDictionaryLearning(id) {
+  postMsg({ action: 'rejectDictionaryLearning', id: id });
+}
+
+function undoDictionaryLearning(id) {
+  postMsg({ action: 'undoDictionaryLearning', id: id });
+}
+
 /* ══════════════════════════════════════════════════════════
    Event Handlers
    ══════════════════════════════════════════════════════════ */
@@ -1605,6 +1745,17 @@ document.getElementById('ui_language').addEventListener('change', function() {
 });
 document.getElementById('auto_paste').addEventListener('change', function() {
   setConfig('auto_paste', this.checked);
+});
+
+document.getElementById('dictionary_learning_enabled').addEventListener('change', function() {
+  setConfig('dictionary_learning.enabled', this.checked);
+});
+document.getElementById('dictionary_learning_excluded_apps').addEventListener('change', function() {
+  const bundleIds = this.value
+    .split(/[,，\n]+/)
+    .map(value => value.trim())
+    .filter(Boolean);
+  setConfig('dictionary_learning.excluded_bundle_ids', bundleIds);
 });
 
 // ── Audio ──
@@ -2560,6 +2711,13 @@ function collectFormState() {
       active_hotkeys: activeHotkeys,
       double_tap_threshold: _config.hotkey?.double_tap_threshold || 0.3,
       custom_key: _config.hotkey?.custom_key || null,
+    },
+    dictionary_learning: {
+      enabled: !!document.getElementById('dictionary_learning_enabled')?.checked,
+      excluded_bundle_ids: (document.getElementById('dictionary_learning_excluded_apps')?.value || '')
+        .split(/[,，\n]+/)
+        .map(value => value.trim())
+        .filter(Boolean),
     },
   };
 }

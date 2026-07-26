@@ -34,12 +34,14 @@ class DictationWorkflow:
         keyboard,
         recording_store=None,
         normalize_text: Callable[[str], str] | None = None,
+        dictionary_learning=None,
     ) -> None:
         self.config = config
         self._asr_engine = asr_engine
         self._keyboard = keyboard
         self._recording_store = recording_store
         self._normalize_text = normalize_text or (lambda text: text)
+        self._dictionary_learning = dictionary_learning
 
     def finish_recording(
         self,
@@ -127,8 +129,32 @@ class DictationWorkflow:
 
             pasted = False
             if self.config.auto_paste and not _aborted():
+                learning_ticket = None
+                if self._dictionary_learning is not None:
+                    try:
+                        learning_ticket = self._dictionary_learning.prepare_paste(
+                            raw_text=raw_text,
+                            pasted_text=final_text,
+                            recording_id=recording_id,
+                            mode_name=mode_name,
+                        )
+                    except Exception as exc:
+                        print(
+                            "[DictationWorkflow] Dictionary observation "
+                            f"preparation failed: {exc}"
+                        )
                 self._keyboard.paste_text(final_text)
                 pasted = True
+                if learning_ticket is not None:
+                    try:
+                        self._dictionary_learning.observe_after_paste(
+                            learning_ticket
+                        )
+                    except Exception as exc:
+                        print(
+                            "[DictationWorkflow] Dictionary observation "
+                            f"startup failed: {exc}"
+                        )
 
             return DictationWorkflowResult(
                 raw_text=raw_text,

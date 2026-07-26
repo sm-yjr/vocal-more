@@ -62,7 +62,9 @@ OPTIONS = {
         "yaml",
     ],
     "includes": [
+        "ApplicationServices",
         "AppKit",
+        "CoreFoundation",
         "Foundation",
         "Quartz",
         "WebKit",

@@ -112,6 +112,8 @@ def test_config_new_fields_defaults():
     assert config.llm.prompt_overrides == {}
     assert config.hotkey.active_hotkeys == ["fn"]
     assert config.ui.language == "zh"
+    assert config.dictionary_learning.enabled is False
+    assert config.dictionary_learning.excluded_bundle_ids == []
 
 
 def test_meeting_is_valid_default_mode():
@@ -142,11 +144,40 @@ def test_config_repository_round_trips_app_config(tmp_path):
         },
     )
     config.apply_update("hotkey.active_hotkeys", ["fn"])
+    config.apply_update("dictionary_learning.enabled", True)
+    config.apply_update(
+        "dictionary_learning.excluded_bundle_ids",
+        ["com.1password.1password", " com.apple.Terminal "],
+    )
 
     repo.save(config)
     loaded = repo.load()
 
     assert loaded == config
+
+
+def test_dictionary_learning_config_sanitizes_exclusions():
+    from vocal_more.config import Config
+
+    config = Config()
+    config.apply_form_state(
+        {
+            "dictionary_learning": {
+                "enabled": "true",
+                "excluded_bundle_ids": [
+                    " com.1password.1password ",
+                    "",
+                    "com.1password.1password",
+                    42,
+                ],
+            }
+        }
+    )
+
+    assert config.dictionary_learning.enabled is True
+    assert config.dictionary_learning.excluded_bundle_ids == [
+        "com.1password.1password"
+    ]
 
 
 def test_custom_polish_prompt_config_is_sanitized():
