@@ -32,6 +32,7 @@ fi
 rm -rf "$STAGING" "$DMG"
 mkdir -p "$STAGING"
 ditto "$APP" "$STAGING/Vocal More.app"
+ditto "$ROOT/LICENSE" "$STAGING/LICENSE.txt"
 ln -s /Applications "$STAGING/Applications"
 
 hdiutil create \

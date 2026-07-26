@@ -109,3 +109,8 @@ python scripts/eval_dictation.py
 ```
 
 For one-off ASR debugging, set `VOCAL_MORE_DEBUG_DIR=/tmp/vocal-more-debug` before launching the app. Each transcription will save the source WAV plus a JSON event trace with partial transcripts, final transcripts, corpus text, and timing data.
+
+## License
+
+Vocal-More is free software licensed under the GNU General Public License
+version 3 only (`GPL-3.0-only`). See [LICENSE](LICENSE) for the full terms.

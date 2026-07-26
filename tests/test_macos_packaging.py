@@ -85,6 +85,14 @@ def test_sparkle_dependency_is_pinned_and_checksum_verified():
     assert "Sparkle-LICENSE.txt" in build_script
 
 
+def test_distribution_includes_project_license():
+    build_script = (ROOT / "packaging" / "macos" / "build_app.sh").read_text()
+    dmg_script = (ROOT / "packaging" / "macos" / "build_dmg.sh").read_text()
+
+    assert '"$APP/Contents/Resources/LICENSE.txt"' in build_script
+    assert '"$STAGING/LICENSE.txt"' in dmg_script
+
+
 def test_sparkle_nested_services_are_signed_in_official_order():
     sign_script = (ROOT / "packaging" / "macos" / "sign_sparkle.sh").read_text()
     ordered_targets = [

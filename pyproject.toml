@@ -1,8 +1,9 @@
 [project]
 name = "vocal-more"
-version = "0.2.6"
+version = "0.2.7"
 description = "macOS voice recognition app with real-time ASR and text polishing"
 readme = "README.md"
+license = "GPL-3.0-only"
 requires-python = ">=3.10"
 dependencies = [
     "rumps>=0.4.0",

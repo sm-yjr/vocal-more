@@ -12,3 +12,13 @@ def read_project_version(project_root: Path) -> str:
     )
     assert match is not None
     return match.group(1)
+
+
+def read_project_license(project_root: Path) -> str:
+    match = re.search(
+        r'^license\s*=\s*"([^"]+)"',
+        (project_root / "pyproject.toml").read_text(encoding="utf-8"),
+        flags=re.MULTILINE,
+    )
+    assert match is not None
+    return match.group(1)
