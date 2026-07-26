@@ -2,6 +2,7 @@
 
 Vocal-More ships macOS builds from version tags through GitHub Actions. Pushing
 a tag such as `v0.2.2` or `0.2.2` starts `.github/workflows/release.yml`.
+The current release runner is Apple Silicon, so official DMGs are arm64-only.
 
 The workflow checks that the tag version matches `pyproject.toml`, runs tests,
 imports the Developer ID certificate, builds a signed DMG, notarizes and

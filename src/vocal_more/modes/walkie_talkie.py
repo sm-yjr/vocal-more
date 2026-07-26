@@ -35,6 +35,7 @@ class WalkieTalkieMode(BaseMode):
         on_audio_level: Optional[Callable[[float], None]] = None,
         recording_store: Optional[object] = None,
         dictionary_learning: Optional[object] = None,
+        context_personalization: Optional[object] = None,
     ):
         super().__init__(
             on_state_change,
@@ -48,6 +49,8 @@ class WalkieTalkieMode(BaseMode):
         self.config = get_config()
         self.text_polisher = text_polisher
         self._recording_store = recording_store
+        self._context_personalization = context_personalization
+        self._active_app_context = None
 
         self._asr = ASREngine(
             on_partial_result=self._on_asr_partial,
@@ -75,6 +78,28 @@ class WalkieTalkieMode(BaseMode):
         self._recording_asr_model = self.config.asr.model
         self._active_session_token = 0
 
+    def _prepare_app_context(self) -> str:
+        self._active_app_context = None
+        instruction = ""
+        if self._context_personalization is not None:
+            try:
+                self._active_app_context = self._context_personalization.capture()
+                instruction = self._context_personalization.instruction(
+                    self._active_app_context
+                )
+            except Exception as exc:
+                print(f"[WalkieTalkie] Context capture failed: {exc}")
+        setter = getattr(self.text_polisher, "set_context_instruction", None)
+        if callable(setter):
+            setter(instruction)
+        return instruction
+
+    def _clear_app_context(self) -> None:
+        setter = getattr(self.text_polisher, "set_context_instruction", None)
+        if callable(setter):
+            setter("")
+        self._active_app_context = None
+
     @property
     def name(self) -> str:
         return "Walkie-Talkie"
@@ -90,6 +115,7 @@ class WalkieTalkieMode(BaseMode):
 
         self._active_session_token = self._begin_session()
         self._recording_asr_model = self.config.asr.model
+        context_instruction = self._prepare_app_context()
         self._set_state(ModeState.STARTING)
 
         try:
@@ -100,7 +126,10 @@ class WalkieTalkieMode(BaseMode):
             return
 
         try:
-            self._asr.start()  # Non-blocking: WebSocket connects in background
+            if context_instruction:
+                self._asr.start(context_instruction=context_instruction)
+            else:
+                self._asr.start()  # Non-blocking: WebSocket connects in background
         except Exception as exc:
             print(f"[WalkieTalkie] Failed to start realtime ASR: {exc}")
             try:
@@ -131,6 +160,7 @@ class WalkieTalkieMode(BaseMode):
             else:
                 self.on_error(t(self.config.ui.language, "mode_asr_error", details=str(exc)))
         self._set_state(ModeState.FAILED)
+        self._clear_app_context()
         self._set_state(ModeState.IDLE)
 
     def on_hotkey_released(self) -> None:
@@ -145,6 +175,7 @@ class WalkieTalkieMode(BaseMode):
             self._asr.stop()
             if self.on_error:
                 self.on_error(t(self.config.ui.language, "mode_recording_too_short"))
+            self._clear_app_context()
             self._set_state(ModeState.IDLE)
             return
 
@@ -208,10 +239,21 @@ class WalkieTalkieMode(BaseMode):
                 should_abort=lambda: not self._is_active_session(session_token),
             )
             if self._is_active_session(session_token):
+                if (
+                    getattr(result, "pasted", False)
+                    and self._context_personalization is not None
+                ):
+                    try:
+                        self._context_personalization.record_success(
+                            self._active_app_context
+                        )
+                    except Exception as exc:
+                        print(f"[WalkieTalkie] Context profile update failed: {exc}")
                 if getattr(result, "error_message", None):
                     self._set_state(ModeState.FAILED)
                 self._emit_workflow_result(result)
         finally:
+            self._clear_app_context()
             if self._is_active_session(session_token):
                 self._set_state(ModeState.IDLE)
 
@@ -236,6 +278,7 @@ class WalkieTalkieMode(BaseMode):
                 pass
 
         self._recording_asr_model = self.config.asr.model
+        self._clear_app_context()
         self._set_state(ModeState.IDLE)
 
     def close(self) -> None:

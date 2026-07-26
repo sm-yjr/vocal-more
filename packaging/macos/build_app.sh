@@ -5,6 +5,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_PYTHON="${VOCAL_MORE_BUILD_PYTHON:-}"
 BUILD_VENV="$ROOT/packaging/macos/.venv-py2app"
 
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm is required to build the React settings frontend." >&2
+  exit 1
+fi
+
+npm --prefix "$ROOT/frontend/settings" ci
+npm --prefix "$ROOT/frontend/settings" run build
+
 rm -rf build dist
 rm -rf "$ROOT/packaging/macos/build" "$ROOT/packaging/macos/dist"
 
@@ -54,6 +62,7 @@ mkdir -p "$APP/Contents/Frameworks"
 ditto "$SPARKLE_ROOT/Sparkle.framework" "$SPARKLE_FRAMEWORK"
 ditto "$SPARKLE_ROOT/LICENSE" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
 ditto "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE.txt"
+ditto "$ROOT/resources/settings/SHADCN-UI-LICENSE.txt" "$APP/Contents/Resources/Shadcn-UI-LICENSE.txt"
 
 if [[ "${VOCAL_MORE_SKIP_ADHOC_SIGN:-0}" != "1" ]]; then
   "$ROOT/packaging/macos/sign_sparkle.sh" "$SPARKLE_FRAMEWORK" - 0

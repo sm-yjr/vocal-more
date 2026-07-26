@@ -52,11 +52,18 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
         "double_tap_threshold",
         "active_hotkeys",
         "custom_key",
+        "custom_keys",
     },
     "ui": {
         "language",
+        "onboarding_completed",
+        "advanced_settings",
     },
     "dictionary_learning": {
+        "enabled",
+        "excluded_bundle_ids",
+    },
+    "context_personalization": {
         "enabled",
         "excluded_bundle_ids",
     },
@@ -181,6 +188,20 @@ class SettingsBridge:
             return None
         return {"action": "set_active_hotkeys", "hotkeys": hotkeys}
 
+    def _normalize_resetContextProfile(
+        self,
+        body: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        del body
+        return {"action": "reset_context_profile"}
+
+    def _normalize_compactRecordingHistory(
+        self,
+        body: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        del body
+        return {"action": "compact_recording_history"}
+
     def _normalize_addDictEntry(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
         term = _non_empty_string(body.get("term"))
         if term is None:
@@ -220,6 +241,15 @@ class SettingsBridge:
 
     def _normalize_refreshDevices(self, body: dict[str, Any]) -> dict[str, Any]:
         return {"action": "refresh_devices"}
+
+    def _normalize_refreshEnvironment(self, body: dict[str, Any]) -> dict[str, Any]:
+        return {"action": "refresh_environment"}
+
+    def _normalize_openAccessibilitySettings(
+        self,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {"action": "open_accessibility_settings"}
 
     def _normalize_openConfigFile(self, body: dict[str, Any]) -> dict[str, Any]:
         return {"action": "open_config_file"}

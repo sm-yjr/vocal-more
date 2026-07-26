@@ -123,6 +123,7 @@ class HotkeyConfig:
     double_tap_threshold: float = 0.3
     active_hotkeys: list[str] = field(default_factory=lambda: ["fn"])
     custom_key: Optional[dict] = None
+    custom_keys: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -130,6 +131,8 @@ class UIConfig:
     """UI configuration."""
 
     language: UILanguage = "zh"
+    onboarding_completed: bool = False
+    advanced_settings: bool = False
 
 
 @dataclass
@@ -140,8 +143,33 @@ class DictionaryLearningConfig:
     excluded_bundle_ids: list[str] = field(default_factory=list)
 
 
+@dataclass
+class ContextPersonalizationConfig:
+    """Coarse app-category personalization with no content collection."""
+
+    enabled: bool = True
+    excluded_bundle_ids: list[str] = field(default_factory=list)
+
+
 def _validate_custom_key(raw: object) -> Optional[dict]:
     return normalize_custom_key(raw)
+
+
+def _parse_custom_keys(raw: object) -> list[dict]:
+    if not isinstance(raw, list):
+        return []
+
+    result: list[dict] = []
+    seen_codes: set[int] = set()
+    for item in raw:
+        key = _validate_custom_key(item)
+        if key is None or key["key_code"] in seen_codes:
+            continue
+        seen_codes.add(key["key_code"])
+        result.append(key)
+        if len(result) >= 8:
+            break
+    return result
 
 
 def _parse_builtin_hotkey(raw: object) -> str:
@@ -303,6 +331,9 @@ class AppConfig:
     dictionary_learning: DictionaryLearningConfig = field(
         default_factory=DictionaryLearningConfig
     )
+    context_personalization: ContextPersonalizationConfig = field(
+        default_factory=ContextPersonalizationConfig
+    )
     enable_polish: bool = True
     auto_paste: bool = True
     default_mode: str = "realtime_long"
@@ -313,12 +344,22 @@ class AppConfig:
             return cls()
 
         config = cls()
+        ui_data = data.get("ui")
+        legacy_existing_config = bool(data)
 
         for key in ("api_key", "enable_polish", "auto_paste", "default_mode"):
             if key in data:
                 config.apply_update(key, data[key])
 
-        for section in ("audio", "asr", "llm", "hotkey", "ui", "dictionary_learning"):
+        for section in (
+            "audio",
+            "asr",
+            "llm",
+            "hotkey",
+            "ui",
+            "dictionary_learning",
+            "context_personalization",
+        ):
             section_data = data.get(section)
             if not isinstance(section_data, dict):
                 continue
@@ -327,6 +368,21 @@ class AppConfig:
                     config.apply_update(f"{section}.{field_name}", value)
                 except ValueError:
                     continue
+
+        # Existing installations predate the guided setup and advanced-mode
+        # split. Preserve their current workflow instead of interrupting them
+        # with onboarding or hiding controls after an upgrade. A fresh config
+        # is represented by an empty input and retains the new-user defaults.
+        if legacy_existing_config and (
+            not isinstance(ui_data, dict)
+            or "onboarding_completed" not in ui_data
+        ):
+            config.ui.onboarding_completed = True
+        if legacy_existing_config and (
+            not isinstance(ui_data, dict)
+            or "advanced_settings" not in ui_data
+        ):
+            config.ui.advanced_settings = True
 
         return config
 
@@ -352,7 +408,15 @@ class AppConfig:
             if key in form_state:
                 self.apply_update(key, form_state[key])
 
-        for section in ("audio", "asr", "llm", "hotkey", "ui", "dictionary_learning"):
+        for section in (
+            "audio",
+            "asr",
+            "llm",
+            "hotkey",
+            "ui",
+            "dictionary_learning",
+            "context_personalization",
+        ):
             section_data = form_state.get(section)
             if not isinstance(section_data, dict):
                 continue
@@ -364,6 +428,10 @@ class AppConfig:
         prioritized_fields: list[str] = []
         if section == "asr":
             prioritized_fields = ["backend", "model"]
+        elif section == "hotkey":
+            # Read the compatibility field first so the plural field remains
+            # authoritative even if a hand-edited YAML file changes key order.
+            prioritized_fields = ["custom_key", "custom_keys"]
 
         seen = set()
         for field_name in prioritized_fields:
@@ -401,6 +469,8 @@ class AppConfig:
             self._apply_ui_update(field_name, value)
         elif section == "dictionary_learning":
             self._apply_dictionary_learning_update(field_name, value)
+        elif section == "context_personalization":
+            self._apply_context_personalization_update(field_name, value)
         else:
             raise ValueError(f"Unknown config section: {section}")
 
@@ -535,12 +605,34 @@ class AppConfig:
             self.hotkey.active_hotkeys = _parse_hotkeys(value if isinstance(value, list) else [])
         elif field_name == "custom_key":
             self.hotkey.custom_key = _validate_custom_key(value)
+            self.hotkey.custom_keys = (
+                [self.hotkey.custom_key]
+                if self.hotkey.custom_key is not None
+                else []
+            )
+        elif field_name == "custom_keys":
+            self.hotkey.custom_keys = _parse_custom_keys(value)
+            self.hotkey.custom_key = (
+                self.hotkey.custom_keys[0]
+                if self.hotkey.custom_keys
+                else None
+            )
         else:
             raise ValueError(f"Unknown config key: hotkey.{field_name}")
 
     def _apply_ui_update(self, field_name: str, value: Any) -> None:
         if field_name == "language":
             self.ui.language = _parse_ui_language(value)
+        elif field_name == "onboarding_completed":
+            self.ui.onboarding_completed = parse_bool(
+                value,
+                self.ui.onboarding_completed,
+            )
+        elif field_name == "advanced_settings":
+            self.ui.advanced_settings = parse_bool(
+                value,
+                self.ui.advanced_settings,
+            )
         else:
             raise ValueError(f"Unknown config key: ui.{field_name}")
 
@@ -561,6 +653,25 @@ class AppConfig:
         else:
             raise ValueError(
                 f"Unknown config key: dictionary_learning.{field_name}"
+            )
+
+    def _apply_context_personalization_update(
+        self,
+        field_name: str,
+        value: Any,
+    ) -> None:
+        if field_name == "enabled":
+            self.context_personalization.enabled = parse_bool(
+                value,
+                self.context_personalization.enabled,
+            )
+        elif field_name == "excluded_bundle_ids":
+            self.context_personalization.excluded_bundle_ids = (
+                _parse_excluded_bundle_ids(value)
+            )
+        else:
+            raise ValueError(
+                f"Unknown config key: context_personalization.{field_name}"
             )
 
     def to_dict(self) -> dict:
@@ -605,14 +716,31 @@ class AppConfig:
                 "double_tap_threshold": self.hotkey.double_tap_threshold,
                 "active_hotkeys": self.hotkey.active_hotkeys,
                 "custom_key": self.hotkey.custom_key,
+                "custom_keys": (
+                    list(self.hotkey.custom_keys)
+                    if self.hotkey.custom_keys
+                    else (
+                        [self.hotkey.custom_key]
+                        if self.hotkey.custom_key is not None
+                        else []
+                    )
+                ),
             },
             "ui": {
                 "language": self.ui.language,
+                "onboarding_completed": self.ui.onboarding_completed,
+                "advanced_settings": self.ui.advanced_settings,
             },
             "dictionary_learning": {
                 "enabled": self.dictionary_learning.enabled,
                 "excluded_bundle_ids": list(
                     self.dictionary_learning.excluded_bundle_ids
+                ),
+            },
+            "context_personalization": {
+                "enabled": self.context_personalization.enabled,
+                "excluded_bundle_ids": list(
+                    self.context_personalization.excluded_bundle_ids
                 ),
             },
             "enable_polish": self.enable_polish,
@@ -642,6 +770,7 @@ __all__ = [
     "ASRLanguage",
     "AppConfig",
     "AudioConfig",
+    "ContextPersonalizationConfig",
     "DictionaryLearningConfig",
     "HOTKEY_ALIASES",
     "HotkeyConfig",

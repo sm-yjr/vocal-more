@@ -458,3 +458,41 @@ def test_stronger_levels_do_more_cleanup_than_minimal():
     assert "在 minimal 基线之上" in LEVEL_INSTRUCTIONS["balanced"]
     assert "口头填充词" in LEVEL_INSTRUCTIONS["balanced"]
     assert "在 balanced 基线之上" in LEVEL_INSTRUCTIONS["strong"]
+
+
+def test_context_instruction_is_appended_without_app_identity():
+    from vocal_more.config import LLMConfig
+    from vocal_more.core.text_polisher import (
+        build_omni_inline_polish_instructions,
+        build_polish_system_prompt,
+    )
+
+    context_instruction = (
+        "当前是开发场景。保护代码、命令、API 名、路径和英文标识符。"
+    )
+
+    second_stage = build_polish_system_prompt(
+        LLMConfig(),
+        context_instruction=context_instruction,
+    )
+    inline = build_omni_inline_polish_instructions(
+        LLMConfig(),
+        context_instruction=context_instruction,
+    )
+
+    assert context_instruction in second_stage
+    assert context_instruction in inline
+    assert "com.microsoft.VSCode" not in second_stage
+    assert "com.microsoft.VSCode" not in inline
+
+
+def test_text_polisher_uses_per_session_context_instruction():
+    from vocal_more.core.text_polisher import TextPolisher
+
+    polisher = TextPolisher()
+    polisher.set_context_instruction("当前是即时沟通场景。保留自然聊天语气。")
+
+    messages = polisher._build_messages("你好")
+
+    assert "当前是即时沟通场景" in messages[0]["content"]
+    assert messages[1] == {"role": "user", "content": "你好"}

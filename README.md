@@ -5,18 +5,20 @@ A macOS voice recognition application that runs in the menu bar, supporting real
 ## Features
 
 - **Walkie-Talkie Mode**: Hold trigger key to record, release to transcribe and paste
-- **Real-time Long Mode**: Press trigger key to start recording, press again to stop and polish
+- **Real-time Long Mode**: Hold and release, or tap once for hands-free dictation and tap again to stop
 - Real-time ASR with selectable models (Qwen-3-ASR, Qwen-3.5-Omni Realtime)
 - Text polishing with selectable LLM models (Qwen 3.5 Plus, Qwen 3.6 Plus)
+- Privacy-bound output adaptation by coarse foreground-app category
 - `enable_thinking` toggle for LLM chain-of-thought reasoning
 - Auto-paste transcribed text to cursor position
 - Optional automatic dictionary learning from edits made after a paste
-- Configurable shortcut keys (Fn, Double Cmd, F13-F20, or custom key)
+- Fn plus up to eight configurable physical shortcut keys
+- Verified lossless FLAC archiving for older recording history
 
 ## Requirements
 
-- macOS
-- Python 3.10+
+- macOS on Apple Silicon for the official DMG
+- Python 3.10+ for source installations
 - DashScope API key
 
 ## Installation
@@ -56,13 +58,17 @@ llm:
   max_tokens: 1024
 hotkey:
   active_hotkeys: ["fn"]
-  custom_key: ""  # record a custom key in Settings > Shortcuts
+  custom_keys: []  # record up to eight physical keys in Settings > Shortcuts
 ui:
   language: "zh"
 dictionary_learning:
   enabled: false  # opt in: sends bounded before/after text to DashScope
   excluded_bundle_ids:
     - "com.1password.1password"
+context_personalization:
+  enabled: true
+  excluded_bundle_ids:
+    - "com.example.private"
 default_mode: "realtime_long"
 ```
 
@@ -73,6 +79,21 @@ locally and classified in the background by `qwen3.7-plus` using JSON mode and
 the API key above. Password fields are skipped, Batch API is not used, and the
 Dictionary settings page can approve, reject, or undo learning decisions. A
 macOS notification confirms only an actual automatic term or alias addition.
+
+Context personalization reads the frontmost app bundle ID at hotkey press,
+maps it locally to Development, Messaging, Writing, or General, then discards
+the app identity. Only the abstract category rule can reach the selected
+model, and the local profile stores aggregate category counts only. See
+[docs/context-personalization.md](docs/context-personalization.md) for the
+exact data and failure boundaries.
+
+Recording history keeps the newest three entries as WAV and archives older
+successful or failed entries as FLAC in a background worker. Vocal More
+decodes each candidate and verifies its PCM SHA-256 and audio parameters
+before changing the index or deleting the WAV. Playback, retry transcription,
+support bundles, and deletion remain format-transparent. See
+[docs/recording-history-compression.md](docs/recording-history-compression.md)
+for the migration, failure rules, and measured performance.
 
 ## Models
 
@@ -103,23 +124,33 @@ The app will appear in your menu bar. Grant the required permissions:
 - Release to transcribe and paste
 
 ### Real-time Long Mode (Default)
-- Press trigger key once to start recording (real-time transcription appears as you speak)
-- Press trigger key again to stop and polish the text
+- Hold the trigger key and release to finish, or tap once for hands-free
+  dictation and tap again to stop
 
 ## Shortcuts
 
-Built-in options: Fn, Double Cmd, F13-F20.
+The built-in trigger is Fn. All configured triggers use the same gesture:
+hold and release, or tap once for hands-free dictation and tap again to stop.
 
-### Custom Shortcut
-In Settings > Shortcuts, you can record a custom single-key trigger in addition to the built-in options (Fn, Double Cmd, F13-F20).
+### Additional Shortcut Keys
+In Settings > Shortcuts, you can bind up to eight physical keys to the same
+dictation action. Duplicate bindings are ignored.
 
 ## Evaluation
 
-Add WAV samples under `eval/audio/`, set `disabled: false` in `eval/manifest.yaml`, then run:
+Generate and validate the local calibration corpus:
 
 ```bash
-python scripts/eval_dictation.py
+scripts/generate_benchmark_audio.sh
+uv run python scripts/benchmark_report.py validate --manifest eval/manifest.yaml
 ```
+
+Run the paced realtime benchmark and build a report with
+`scripts/run_dictation_benchmark.py` and `scripts/benchmark_report.py`.
+See [docs/benchmarking.md](docs/benchmarking.md) for trace levels, privacy
+boundaries, deterministic app replay, semantic review, and valid Typeless
+comparison rules. The current end-to-end calibration report is
+[docs/benchmarks/2026-07-27-app-replay.md](docs/benchmarks/2026-07-27-app-replay.md).
 
 For one-off ASR debugging, set `VOCAL_MORE_DEBUG_DIR=/tmp/vocal-more-debug` before launching the app. Each transcription will save the source WAV plus a JSON event trace with partial transcripts, final transcripts, corpus text, and timing data.
 

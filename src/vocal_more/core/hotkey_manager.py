@@ -79,7 +79,14 @@ class HotkeyManager:
         self.on_escape_pressed = on_escape_pressed
 
         self._active_hotkeys: list[str] = list(self.config.hotkey.active_hotkeys)
-        self._custom_key: Optional[dict] = self.config.hotkey.custom_key
+        self._custom_keys: list[dict] = list(
+            self.config.hotkey.custom_keys
+            or (
+                [self.config.hotkey.custom_key]
+                if self.config.hotkey.custom_key is not None
+                else []
+            )
+        )
 
         self._tap = None
         self._run_loop_source = None
@@ -111,10 +118,10 @@ class HotkeyManager:
                 else:
                     self._regular_lookup.add(keycode)
 
-        if self._custom_key:
-            keycode = self._custom_key["key_code"]
-            if self._custom_key["is_modifier"]:
-                self._modifier_lookup[keycode] = self._custom_key["flag_mask"]
+        for custom_key in self._custom_keys:
+            keycode = custom_key["key_code"]
+            if custom_key["is_modifier"]:
+                self._modifier_lookup[keycode] = custom_key["flag_mask"]
             else:
                 self._regular_lookup.add(keycode)
 
@@ -124,6 +131,20 @@ class HotkeyManager:
             if keycode in self._modifier_lookup
         }
         self._held_keys.intersection_update(self._regular_lookup)
+
+    def _has_pressed_hotkey(self) -> bool:
+        """Return whether any configured physical trigger is currently held."""
+        return any(self._key_states.values()) or bool(self._held_keys)
+
+    def _emit_hotkey_transition(self, was_pressed: bool) -> None:
+        """Emit one logical edge for the aggregate set of physical triggers."""
+        is_pressed = self._has_pressed_hotkey()
+        if is_pressed and not was_pressed:
+            if self.on_fn_pressed:
+                self._enqueue_event(HotkeyEvent.FN_PRESSED)
+        elif was_pressed and not is_pressed:
+            if self.on_fn_released:
+                self._enqueue_event(HotkeyEvent.FN_RELEASED)
 
     def _event_callback(self, proxy, event_type, event, refcon):
         """Callback for CGEventTap events.
@@ -142,14 +163,22 @@ class HotkeyManager:
                 pressed = bool(flags & flag_mask)
                 prev = self._key_states.get(keycode, False)
 
+                # Quartz sends a flags-changed event for the physical key but
+                # exposes only an aggregate flag for left/right variants. If
+                # this configured key was already down, its next event is its
+                # release even when an unconfigured sibling keeps the shared
+                # aggregate flag set.
+                if pressed and prev:
+                    pressed = False
+
                 if pressed and not prev:
+                    was_pressed = self._has_pressed_hotkey()
                     self._key_states[keycode] = True
-                    if self.on_fn_pressed:
-                        self._enqueue_event(HotkeyEvent.FN_PRESSED)
+                    self._emit_hotkey_transition(was_pressed)
                 elif not pressed and prev:
+                    was_pressed = self._has_pressed_hotkey()
                     self._key_states[keycode] = False
-                    if self.on_fn_released:
-                        self._enqueue_event(HotkeyEvent.FN_RELEASED)
+                    self._emit_hotkey_transition(was_pressed)
 
                 # Consume modifier hotkey events so they don't reach the focused app
                 return None
@@ -158,9 +187,9 @@ class HotkeyManager:
             # Handle regular keys (F13-F20, etc.) — ignore key repeat
             if keycode in self._regular_lookup:
                 if keycode not in self._held_keys:
+                    was_pressed = self._has_pressed_hotkey()
                     self._held_keys.add(keycode)
-                    if self.on_fn_pressed:
-                        self._enqueue_event(HotkeyEvent.FN_PRESSED)
+                    self._emit_hotkey_transition(was_pressed)
                 # Consume both initial press and repeats
                 return None
 
@@ -171,9 +200,9 @@ class HotkeyManager:
         elif event_type == kCGEventKeyUp:
             if keycode in self._regular_lookup:
                 if keycode in self._held_keys:
+                    was_pressed = self._has_pressed_hotkey()
                     self._held_keys.discard(keycode)
-                    if self.on_fn_released:
-                        self._enqueue_event(HotkeyEvent.FN_RELEASED)
+                    self._emit_hotkey_transition(was_pressed)
                 # Consume key-up too
                 return None
 
@@ -322,15 +351,18 @@ class HotkeyManager:
         self._update_lookup_tables()
 
     def set_custom_key(self, custom_key: Optional[dict]) -> None:
-        """Update the custom hotkey at runtime. No restart needed."""
-        self._custom_key = custom_key
+        """Update the legacy single custom hotkey without a restart."""
+        self._custom_keys = [custom_key] if custom_key is not None else []
+        self._update_lookup_tables()
+
+    def set_custom_keys(self, custom_keys: list[dict]) -> None:
+        """Replace all custom bindings for the dictation action."""
+        self._custom_keys = list(custom_keys)
         self._update_lookup_tables()
 
     def is_fn_pressed(self) -> bool:
         """Check if any hold-type hotkey is currently pressed."""
-        if self._key_states.get(FN_KEYCODE, False):
-            return True
-        return bool(self._held_keys)
+        return self._has_pressed_hotkey()
 
 
 if __name__ == "__main__":

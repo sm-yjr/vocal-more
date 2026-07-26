@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-07-26T17:42:52.432429+00:00",
+  "environment": {
+    "macos": "27.0",
+    "architecture": "arm64",
+    "python": "3.13.2",
+    "codec": "/usr/bin/afconvert FLAC"
+  },
+  "fixture": {
+    "path": "eval/generated/normal_zh.wav",
+    "sha256": "693c0179d921071f0c02eb909919f5be2669b3131b5c2f5c1fb44027127fa74c",
+    "duration_seconds": 2.815,
+    "channels": 1,
+    "sample_width_bytes": 2,
+    "sample_rate_hz": 16000,
+    "frame_count": 45037
+  },
+  "iterations": 7,
+  "compression": {
+    "source_bytes": 90152,
+    "stored_bytes": 60177,
+    "bytes_saved": 29975,
+    "stored_percent": 66.75,
+    "saved_percent": 33.25,
+    "pcm_and_parameters_exact_every_iteration": true,
+    "encode_ms": {
+      "min": 33.525,
+      "p50": 34.79,
+      "p95": 39.383,
+      "max": 40.877
+    },
+    "verified_round_trip_ms": {
+      "min": 67.868,
+      "p50": 68.872,
+      "p95": 73.348,
+      "max": 74.705
+    }
+  },
+  "foreground_terminal_update_ms": {
+    "without_auto_compaction": {
+      "min": 0.27,
+      "p50": 0.308,
+      "p95": 0.371,
+      "max": 0.376
+    },
+    "with_background_scheduling": {
+      "min": 0.487,
+      "p50": 0.634,
+      "p95": 0.935,
+      "max": 1.005
+    },
+    "paired_delta": {
+      "min": 0.203,
+      "p50": 0.286,
+      "p95": 0.653,
+      "max": 0.735
+    },
+    "background_archive_completed_every_iteration": true
+  }
+}

@@ -994,6 +994,26 @@ def test_omni_inline_polish_uses_response_text_output(tmp_path, monkeypatch):
     assert text == "这个方案已经确认了，可以开始执行。"
 
 
+def test_omni_session_prompt_includes_abstract_app_context():
+    from vocal_more.config import get_asr_model_info, get_config
+    from vocal_more.core.asr_engine import _build_session_kwargs
+
+    config = get_config()
+    config.enable_polish = True
+    model_info = get_asr_model_info("qwen3.5-omni-flash-realtime")
+
+    kwargs = _build_session_kwargs(
+        model_info,
+        config=config,
+        context_instruction=(
+            "当前是开发场景。保护代码、命令、API 名、路径和英文标识符。"
+        ),
+    )
+
+    assert "当前是开发场景" in kwargs["instructions"]
+    assert "com.microsoft.VSCode" not in kwargs["instructions"]
+
+
 def test_omni_inline_polish_handles_short_text_when_enabled(tmp_path, monkeypatch):
     """With polish enabled, Omni should still request a final response for short text."""
     from vocal_more.config import Config, reload_config

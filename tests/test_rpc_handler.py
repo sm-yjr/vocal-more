@@ -26,10 +26,17 @@ def handler(tmp_path, monkeypatch):
     monkeypatch.setattr(dict_mod, "_dictionary", None)
 
     rpc_module = importlib.import_module("vocal_more.rpc_handler")
+    from vocal_more.core.recording_store import RecordingStore
+
+    recording_store = RecordingStore(
+        recordings_dir=str(tmp_path / "recordings"),
+        auto_compact=False,
+    )
 
     # Mock heavy I/O components
     with (
         patch.object(rpc_module, "TextPolisher", return_value=MagicMock()),
+        patch.object(rpc_module, "RecordingStore", return_value=recording_store),
         patch("vocal_more.modes.walkie_talkie.ASREngine", return_value=MagicMock()),
         patch("vocal_more.modes.walkie_talkie.AudioRecorder", return_value=MagicMock()),
         patch("vocal_more.modes.walkie_talkie.KeyboardSimulator", return_value=MagicMock()),
@@ -53,6 +60,18 @@ def test_dispatch_initialize(handler):
     assert result["current_mode"] == "realtime_long"
     assert "config" in result
     assert "audio" in result["config"]
+
+
+def test_close_closes_owned_recording_store():
+    from vocal_more.rpc_handler import RPCHandler
+
+    rpc = RPCHandler.__new__(RPCHandler)
+    rpc._recording_store = MagicMock()
+    rpc._modes = {}
+
+    rpc.close()
+
+    rpc._recording_store.close.assert_called_once_with()
 
 
 def test_initialize_does_not_expose_api_key(handler):

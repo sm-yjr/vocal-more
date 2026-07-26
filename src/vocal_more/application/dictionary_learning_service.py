@@ -39,19 +39,50 @@ class DictionaryLearningProcessor:
         *,
         source: str,
         dictionary_changed: bool,
+        job=None,
     ) -> None:
+        if self._on_change is None:
+            return
+        try:
+            change = {
+                "id": job_id,
+                "status": status,
+                "term": decision.term,
+                "aliases": list(decision.aliases),
+                "confidence": decision.confidence,
+                "source": source,
+                "dictionary_changed": dictionary_changed,
+            }
+            if (
+                job is not None
+                and status == "applied"
+                and job.candidate_count > 1
+            ):
+                change["suppress_notification"] = True
+            self._on_change(change)
+        except Exception as exc:
+            print(f"[DictionaryLearning] Change callback failed: {exc}")
+
+    def _emit_observation_summary(self, job) -> None:
+        try:
+            terms = self._repository.claim_observation_notification(
+                job.observation_id
+            )
+        except Exception as exc:
+            print(f"[DictionaryLearning] Notification claim failed: {exc}")
+            return
+        if terms is None or job.candidate_count <= 1 or not terms:
+            return
         if self._on_change is None:
             return
         try:
             self._on_change(
                 {
-                    "id": job_id,
-                    "status": status,
-                    "term": decision.term,
-                    "aliases": list(decision.aliases),
-                    "confidence": decision.confidence,
-                    "source": source,
-                    "dictionary_changed": dictionary_changed,
+                    "id": job.observation_id,
+                    "status": "applied_group",
+                    "terms": terms,
+                    "source": "automatic",
+                    "dictionary_changed": True,
                 }
             )
         except Exception as exc:
@@ -85,6 +116,7 @@ class DictionaryLearningProcessor:
                     dictionary_changed=bool(
                         job.term_created or job.aliases_added
                     ),
+                    job=job,
                 )
             except Exception as exc:
                 self._repository.schedule_retry(
@@ -92,6 +124,7 @@ class DictionaryLearningProcessor:
                     error=str(exc),
                     now=timestamp,
                 )
+            self._emit_observation_summary(job)
             return True
 
         try:
@@ -110,12 +143,15 @@ class DictionaryLearningProcessor:
                 )
             else:
                 self._repository.mark_failed(job.id, error=str(exc), now=timestamp)
+            self._emit_observation_summary(job)
             return True
         except DictionaryLearningResponseError as exc:
             self._repository.mark_failed(job.id, error=str(exc), now=timestamp)
+            self._emit_observation_summary(job)
             return True
         except Exception as exc:
             self._repository.mark_failed(job.id, error=str(exc), now=timestamp)
+            self._emit_observation_summary(job)
             return True
 
         if decision.action == "add":
@@ -146,6 +182,7 @@ class DictionaryLearningProcessor:
                     dictionary_changed=bool(
                         mutation.term_created or mutation.aliases_added
                     ),
+                    job=job,
                 )
             except Exception as exc:
                 self._repository.schedule_retry(
@@ -153,6 +190,7 @@ class DictionaryLearningProcessor:
                     error=str(exc),
                     now=timestamp,
                 )
+            self._emit_observation_summary(job)
         elif decision.action == "review":
             self._repository.finish(
                 job.id,
@@ -166,7 +204,9 @@ class DictionaryLearningProcessor:
                 decision,
                 source="automatic",
                 dictionary_changed=False,
+                job=job,
             )
+            self._emit_observation_summary(job)
         else:
             self._repository.finish(
                 job.id,
@@ -174,6 +214,7 @@ class DictionaryLearningProcessor:
                 result=decision,
                 now=timestamp,
             )
+            self._emit_observation_summary(job)
         return True
 
     def undo(self, job_id: str) -> bool:

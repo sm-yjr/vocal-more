@@ -6,6 +6,86 @@ from types import SimpleNamespace
 import yaml
 
 
+def _build_realtime_long_context_harness(
+    tmp_path,
+    monkeypatch,
+    *,
+    context_personalization,
+    config_payload=None,
+    recorder_start_error=None,
+):
+    from vocal_more.config import Config, reload_config
+
+    RealtimeLongMode = importlib.import_module(
+        "vocal_more.modes.realtime_long"
+    ).RealtimeLongMode
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    with open(config_path, "w") as f:
+        yaml.dump(config_payload or {}, f)
+    reload_config()
+
+    observed = {
+        "asr_start_kwargs": [],
+        "asr_stop_calls": 0,
+        "errors": [],
+        "pasted": [],
+        "polisher_contexts": [],
+        "results": [],
+    }
+
+    class FakeASREngine:
+        def start(self, **kwargs):
+            observed["asr_start_kwargs"].append(kwargs)
+
+        def stop(self, pcm_data=None):
+            observed["asr_stop_calls"] += 1
+            return "使用 get_config 读取配置"
+
+        def send_audio(self, _chunk):
+            return None
+
+    class FakeRecorder:
+        def __init__(self, on_audio_level=None, on_audio_chunk=None):
+            self.on_audio_chunk = on_audio_chunk
+
+        def start(self):
+            if recorder_start_error is not None:
+                raise recorder_start_error
+
+        def stop(self):
+            return b"\x01\x00" * 4000
+
+    class FakePolisher:
+        def set_context_instruction(self, instruction):
+            observed["polisher_contexts"].append(instruction)
+
+        def polish(self, text):
+            return SimpleNamespace(polished_text=text)
+
+    monkeypatch.setattr(
+        "vocal_more.modes.realtime_long.ASREngine",
+        lambda **kwargs: FakeASREngine(),
+    )
+    monkeypatch.setattr("vocal_more.modes.realtime_long.AudioRecorder", FakeRecorder)
+    monkeypatch.setattr(
+        "vocal_more.modes.realtime_long.KeyboardSimulator",
+        lambda: SimpleNamespace(
+            paste_text=lambda text: observed["pasted"].append(text)
+        ),
+    )
+
+    mode = RealtimeLongMode(
+        on_result=observed["results"].append,
+        on_error=observed["errors"].append,
+        text_polisher=FakePolisher(),
+        context_personalization=context_personalization,
+    )
+    return mode, observed
+
+
 def test_walkie_talkie_emits_explicit_lifecycle_states(tmp_path, monkeypatch):
     """Walkie-talkie should surface the richer lifecycle state sequence."""
     from vocal_more.config import Config, reload_config
@@ -62,6 +142,300 @@ def test_walkie_talkie_emits_explicit_lifecycle_states(tmp_path, monkeypatch):
         ModeState.PROCESSING,
         ModeState.IDLE,
     ]
+
+
+def test_walkie_talkie_applies_and_records_private_app_context(tmp_path, monkeypatch):
+    from vocal_more.config import Config, reload_config
+    from vocal_more.domain.app_context import AppContext
+
+    WalkieTalkieMode = importlib.import_module(
+        "vocal_more.modes.walkie_talkie"
+    ).WalkieTalkieMode
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    with open(config_path, "w") as f:
+        yaml.dump({"enable_polish": True, "auto_paste": True}, f)
+    reload_config()
+
+    captured = {"asr_context": None, "polisher_contexts": [], "recorded": []}
+    context = AppContext(
+        category="development",
+        bundle_id="com.microsoft.VSCode",
+    )
+
+    class FakeContextService:
+        def capture(self):
+            return context
+
+        def instruction(self, _context):
+            return "当前是开发场景。保护代码、命令、API 名、路径和英文标识符。"
+
+        def record_success(self, used_context):
+            captured["recorded"].append(used_context)
+
+    class FakeASREngine:
+        def start(self, *, context_instruction=""):
+            captured["asr_context"] = context_instruction
+
+        def stop(self, pcm_data=None):
+            return "使用 get_config 读取配置"
+
+        def send_audio(self, _chunk):
+            return None
+
+    class FakeRecorder:
+        def __init__(self, on_audio_level=None, on_audio_chunk=None):
+            pass
+
+        def start(self):
+            return None
+
+        def stop(self):
+            return b"\x01\x00" * 4000
+
+    class FakePolisher:
+        def set_context_instruction(self, instruction):
+            captured["polisher_contexts"].append(instruction)
+
+    monkeypatch.setattr(
+        "vocal_more.modes.walkie_talkie.ASREngine",
+        lambda **kwargs: FakeASREngine(),
+    )
+    monkeypatch.setattr("vocal_more.modes.walkie_talkie.AudioRecorder", FakeRecorder)
+    monkeypatch.setattr(
+        "vocal_more.modes.walkie_talkie.KeyboardSimulator",
+        lambda: SimpleNamespace(paste_text=lambda _text: None),
+    )
+
+    mode = WalkieTalkieMode(
+        text_polisher=FakePolisher(),
+        context_personalization=FakeContextService(),
+    )
+    mode.on_hotkey_pressed()
+    mode.on_hotkey_released()
+    mode._processing_thread.join(timeout=2)
+
+    assert "当前是开发场景" in captured["asr_context"]
+    assert captured["polisher_contexts"][0].startswith("当前是开发场景")
+    assert captured["polisher_contexts"][-1] == ""
+    assert captured["recorded"] == [context]
+
+
+def test_default_realtime_long_applies_private_context_and_records_success(
+    tmp_path, monkeypatch
+):
+    from vocal_more.application.context_personalization import (
+        ContextPersonalizationService,
+    )
+    from vocal_more.domain.config_models import ContextPersonalizationConfig
+
+    recorded = []
+
+    class TrackingRepository:
+        def increment(self, context):
+            recorded.append(context)
+
+    service = ContextPersonalizationService(
+        config=ContextPersonalizationConfig(enabled=True),
+        app_provider=lambda: "com.microsoft.VSCode",
+        repository=TrackingRepository(),
+    )
+    mode, observed = _build_realtime_long_context_harness(
+        tmp_path,
+        monkeypatch,
+        context_personalization=service,
+    )
+
+    assert mode.config.default_mode == "realtime_long"
+
+    mode.on_hotkey_pressed()
+    mode.on_hotkey_pressed()
+    mode._processing_thread.join(timeout=2)
+
+    assert observed["errors"] == []
+    assert observed["pasted"] == ["使用 get_config 读取配置"]
+    assert observed["results"] == ["使用 get_config 读取配置"]
+    assert len(observed["asr_start_kwargs"]) == 1
+    context_instruction = observed["asr_start_kwargs"][0]["context_instruction"]
+    assert "当前是开发场景" in context_instruction
+    assert "com.microsoft" not in context_instruction
+    assert "VSCode" not in context_instruction
+    assert observed["polisher_contexts"] == [context_instruction, ""]
+    assert [context.category for context in recorded] == ["development"]
+    assert mode._active_app_context is None
+    mode.close()
+
+
+def test_realtime_long_does_not_record_context_without_auto_paste(
+    tmp_path, monkeypatch
+):
+    from vocal_more.application.context_personalization import (
+        ContextPersonalizationService,
+    )
+    from vocal_more.domain.config_models import ContextPersonalizationConfig
+
+    recorded = []
+
+    class TrackingRepository:
+        def increment(self, context):
+            recorded.append(context)
+
+    service = ContextPersonalizationService(
+        config=ContextPersonalizationConfig(enabled=True),
+        app_provider=lambda: "com.apple.Notes",
+        repository=TrackingRepository(),
+    )
+    mode, observed = _build_realtime_long_context_harness(
+        tmp_path,
+        monkeypatch,
+        context_personalization=service,
+        config_payload={"auto_paste": False, "enable_polish": False},
+    )
+
+    mode.on_hotkey_pressed()
+    mode.on_hotkey_pressed()
+    mode._processing_thread.join(timeout=2)
+
+    assert observed["results"] == ["使用 get_config 读取配置"]
+    assert observed["pasted"] == []
+    assert recorded == []
+    assert observed["polisher_contexts"][-1] == ""
+    assert mode._active_app_context is None
+    mode.close()
+
+
+def test_realtime_long_clears_context_when_microphone_start_fails(
+    tmp_path, monkeypatch
+):
+    from vocal_more.application.context_personalization import (
+        ContextPersonalizationService,
+    )
+    from vocal_more.domain.config_models import ContextPersonalizationConfig
+
+    service = ContextPersonalizationService(
+        config=ContextPersonalizationConfig(enabled=True),
+        app_provider=lambda: "com.microsoft.VSCode",
+        repository=None,
+    )
+    mode, observed = _build_realtime_long_context_harness(
+        tmp_path,
+        monkeypatch,
+        context_personalization=service,
+        recorder_start_error=RuntimeError("device busy"),
+    )
+
+    mode.on_hotkey_pressed()
+
+    assert observed["asr_start_kwargs"] == []
+    assert observed["polisher_contexts"][0].startswith("当前是开发场景")
+    assert observed["polisher_contexts"][-1] == ""
+    assert mode._active_app_context is None
+    mode.close()
+
+
+def test_realtime_long_cancel_clears_context_without_recording(
+    tmp_path, monkeypatch
+):
+    from vocal_more.application.context_personalization import (
+        ContextPersonalizationService,
+    )
+    from vocal_more.domain.config_models import ContextPersonalizationConfig
+
+    recorded = []
+
+    class TrackingRepository:
+        def increment(self, context):
+            recorded.append(context)
+
+    service = ContextPersonalizationService(
+        config=ContextPersonalizationConfig(enabled=True),
+        app_provider=lambda: "com.microsoft.VSCode",
+        repository=TrackingRepository(),
+    )
+    mode, observed = _build_realtime_long_context_harness(
+        tmp_path,
+        monkeypatch,
+        context_personalization=service,
+    )
+
+    mode.on_hotkey_pressed()
+    mode.cancel()
+
+    assert observed["pasted"] == []
+    assert recorded == []
+    assert observed["polisher_contexts"][-1] == ""
+    assert mode._active_app_context is None
+    mode.close()
+
+
+def test_realtime_long_transcribes_when_app_provider_raises(tmp_path, monkeypatch):
+    from vocal_more.application.context_personalization import (
+        ContextPersonalizationService,
+    )
+    from vocal_more.domain.config_models import ContextPersonalizationConfig
+
+    def failing_provider():
+        raise RuntimeError("workspace unavailable")
+
+    service = ContextPersonalizationService(
+        config=ContextPersonalizationConfig(enabled=True),
+        app_provider=failing_provider,
+        repository=None,
+    )
+    mode, observed = _build_realtime_long_context_harness(
+        tmp_path,
+        monkeypatch,
+        context_personalization=service,
+        config_payload={"enable_polish": False},
+    )
+
+    mode.on_hotkey_pressed()
+    mode.on_hotkey_pressed()
+    mode._processing_thread.join(timeout=2)
+
+    assert observed["asr_start_kwargs"] == [{}]
+    assert observed["pasted"] == ["使用 get_config 读取配置"]
+    assert observed["results"] == ["使用 get_config 读取配置"]
+    assert observed["errors"] == []
+    mode.close()
+
+
+def test_realtime_long_transcribes_when_context_repository_raises(
+    tmp_path, monkeypatch
+):
+    from vocal_more.application.context_personalization import (
+        ContextPersonalizationService,
+    )
+    from vocal_more.domain.config_models import ContextPersonalizationConfig
+
+    class FailingRepository:
+        def increment(self, _context):
+            raise OSError("profile is read-only")
+
+    service = ContextPersonalizationService(
+        config=ContextPersonalizationConfig(enabled=True),
+        app_provider=lambda: "com.microsoft.VSCode",
+        repository=FailingRepository(),
+    )
+    mode, observed = _build_realtime_long_context_harness(
+        tmp_path,
+        monkeypatch,
+        context_personalization=service,
+        config_payload={"enable_polish": False},
+    )
+
+    mode.on_hotkey_pressed()
+    mode.on_hotkey_pressed()
+    mode._processing_thread.join(timeout=2)
+
+    assert observed["pasted"] == ["使用 get_config 读取配置"]
+    assert observed["results"] == ["使用 get_config 读取配置"]
+    assert observed["errors"] == []
+    assert observed["polisher_contexts"][-1] == ""
+    assert mode._active_app_context is None
+    mode.close()
 
 
 def test_walkie_talkie_start_failure_marks_failed_then_idle(tmp_path, monkeypatch):

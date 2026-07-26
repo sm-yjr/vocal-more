@@ -22,6 +22,8 @@ class SettingsActionDispatcher:
         on_reject_dictionary_learning: Optional[Callable[[str], None]] = None,
         on_undo_dictionary_learning: Optional[Callable[[str], None]] = None,
         on_refresh_devices: Optional[Callable[[], None]] = None,
+        on_refresh_environment: Optional[Callable[[], None]] = None,
+        on_open_accessibility_settings: Optional[Callable[[], None]] = None,
         on_open_config_file: Optional[Callable[[], None]] = None,
         on_open_dict_file: Optional[Callable[[], None]] = None,
         on_open_external: Optional[Callable[[str], None]] = None,
@@ -31,6 +33,8 @@ class SettingsActionDispatcher:
         on_delete_recording: Optional[Callable[[str], None]] = None,
         on_play_recording: Optional[Callable[[str], None]] = None,
         on_copy_transcript: Optional[Callable[[str], None]] = None,
+        on_reset_context_profile: Optional[Callable[[], None]] = None,
+        on_compact_recording_history: Optional[Callable[[], None]] = None,
         mic_test_controller: object | None = None,
     ) -> None:
         self._on_set_config = on_set_config
@@ -44,6 +48,8 @@ class SettingsActionDispatcher:
         self._on_reject_dictionary_learning = on_reject_dictionary_learning
         self._on_undo_dictionary_learning = on_undo_dictionary_learning
         self._on_refresh_devices = on_refresh_devices
+        self._on_refresh_environment = on_refresh_environment
+        self._on_open_accessibility_settings = on_open_accessibility_settings
         self._on_open_config_file = on_open_config_file
         self._on_open_dict_file = on_open_dict_file
         self._on_open_external = on_open_external
@@ -53,6 +59,8 @@ class SettingsActionDispatcher:
         self._on_delete_recording = on_delete_recording
         self._on_play_recording = on_play_recording
         self._on_copy_transcript = on_copy_transcript
+        self._on_reset_context_profile = on_reset_context_profile
+        self._on_compact_recording_history = on_compact_recording_history
         self._mic_test_controller = mic_test_controller
 
         self._handlers = {
@@ -67,6 +75,8 @@ class SettingsActionDispatcher:
             "reject_dictionary_learning": self._dispatch_reject_dictionary_learning,
             "undo_dictionary_learning": self._dispatch_undo_dictionary_learning,
             "refresh_devices": self._dispatch_refresh_devices,
+            "refresh_environment": self._dispatch_refresh_environment,
+            "open_accessibility_settings": self._dispatch_open_accessibility_settings,
             "open_config_file": self._dispatch_open_config_file,
             "open_dict_file": self._dispatch_open_dict_file,
             "open_external": self._dispatch_open_external,
@@ -76,6 +86,8 @@ class SettingsActionDispatcher:
             "delete_recording": self._dispatch_delete_recording,
             "play_recording": self._dispatch_play_recording,
             "copy_transcript": self._dispatch_copy_transcript,
+            "reset_context_profile": self._dispatch_reset_context_profile,
+            "compact_recording_history": self._dispatch_compact_recording_history,
             "start_mic_test": self._dispatch_start_mic_test,
             "stop_mic_test": self._dispatch_stop_mic_test,
             "play_mic_test": self._dispatch_play_mic_test,
@@ -150,6 +162,17 @@ class SettingsActionDispatcher:
         if self._on_refresh_devices is not None:
             self._on_refresh_devices()
 
+    def _dispatch_refresh_environment(self, message: dict[str, Any]) -> None:
+        if self._on_refresh_environment is not None:
+            self._on_refresh_environment()
+
+    def _dispatch_open_accessibility_settings(
+        self,
+        message: dict[str, Any],
+    ) -> None:
+        if self._on_open_accessibility_settings is not None:
+            self._on_open_accessibility_settings()
+
     def _dispatch_open_config_file(self, message: dict[str, Any]) -> None:
         if self._on_open_config_file is not None:
             self._on_open_config_file()
@@ -191,6 +214,16 @@ class SettingsActionDispatcher:
         rec_id = message.get("id", "")
         if rec_id and self._on_copy_transcript is not None:
             self._on_copy_transcript(rec_id)
+
+    def _dispatch_reset_context_profile(self, message: dict[str, Any]) -> None:
+        del message
+        if self._on_reset_context_profile is not None:
+            self._on_reset_context_profile()
+
+    def _dispatch_compact_recording_history(self, message: dict[str, Any]) -> None:
+        del message
+        if self._on_compact_recording_history is not None:
+            self._on_compact_recording_history()
 
     def _dispatch_start_mic_test(self, message: dict[str, Any]) -> None:
         if self._mic_test_controller is not None:

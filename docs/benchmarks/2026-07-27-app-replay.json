@@ -1,0 +1,462 @@
+{
+  "schema_version": 1,
+  "system": {
+    "id": "vocal-more",
+    "version": "0.2.8",
+    "model": "qwen3.5-omni-plus-realtime",
+    "transport": "live_app"
+  },
+  "trace_level": "live_end_to_end",
+  "conditions": {
+    "timestamp_utc": "2026-07-26T17:06:15.732978+00:00",
+    "os": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "hardware": "MacBook Pro arm64",
+    "network": "current-connection-unmeasured",
+    "sample_rate_hz": 16000,
+    "repetitions": 1,
+    "audio_delivery": "deterministic_wav_replay"
+  },
+  "suite_id": "vocal-more-synthetic-calibration-v1",
+  "truth_version": "2026-07-26",
+  "manifest_fingerprint": "47dbbb404eb5491774ddc83fc93bfedf922b6bed1742fd1842721d4659ed30c4",
+  "coverage": [
+    "ambient_noise",
+    "en",
+    "fillers",
+    "list",
+    "mixed",
+    "normal_volume",
+    "proper_noun",
+    "repetition",
+    "self_correction",
+    "whisper",
+    "zh"
+  ],
+  "sample_count": 9,
+  "metrics": {
+    "cer": 0.400943,
+    "wer": 0.333333,
+    "term_recall": 0.666667,
+    "term_total": 3,
+    "failure_rate": 0.0,
+    "fallback_rate": 0.0,
+    "first_feedback_ms": {
+      "count": 9,
+      "p50": 27.99,
+      "p95": 40.87,
+      "mean": 30.36
+    },
+    "first_partial_ms": {
+      "count": 9,
+      "p50": 4409.54,
+      "p95": 5893.73,
+      "mean": 4898.32
+    },
+    "speech_end_to_insert_ms": {
+      "count": 9,
+      "p50": 570.35,
+      "p95": 597.43,
+      "mean": 565.74
+    },
+    "stop_to_result_ms": {},
+    "semantic_score": {
+      "count": 9,
+      "p50": 5.0,
+      "p95": 5.0,
+      "mean": 4.89
+    },
+    "human_preferences": {}
+  },
+  "metrics_by_tag": {
+    "ambient_noise": {
+      "sample_count": 1,
+      "cer": 0.0,
+      "wer": 0.0,
+      "term_recall": 0.0,
+      "failure_rate": 0.0,
+      "fallback_rate": 0.0
+    },
+    "en": {
+      "sample_count": 3,
+      "cer": 0.644068,
+      "wer": 1.0,
+      "term_recall": 0.0,
+      "failure_rate": 0.0,
+      "fallback_rate": 0.0
+    },
+    "fillers": {
+      "sample_count": 1,
+      "cer": 0.066667,
+      "wer": 0.066667,
+      "term_recall": 0.0,
+      "failure_rate": 0.0,
+      "fallback_rate": 0.0
+    },
+    "list": {
+      "sample_count": 1,
+      "cer": 0.0,
+      "wer": 0.0,
+      "term_recall": 0.0,
+      "failure_rate": 0.0,
+      "fallback_rate": 0.0
+    },
+    "mixed": {
+      "sample_count": 1,
+      "cer": 0.064516,
+      "wer": 0.2,
+      "term_recall": 0.666667,
+      "failure_rate": 0.0,
+      "fallback_rate": 0.0
+    },
+    "normal_volume": {
+      "sample_count": 7,
+      "cer": 0.534591,
+      "wer": 0.410256,
+      "term_recall": 0.666667,
+      "failure_rate": 0.0,
+      "fallback_rate": 0.0
+    },
+    "proper_noun": {
+      "sample_count": 1,
+      "cer": 0.064516,
+      "wer": 0.2,
+      "term_recall": 0.666667,
+      "failure_rate": 0.0,
+      "fallback_rate": 0.0
+    },
+    "repetition": {
+      "sample_count": 1,
+      "cer": 1.0,
+      "wer": 1.333333,
+      "term_recall": 0.0,
+      "failure_rate": 0.0,
+      "fallback_rate": 0.0
+    },
+    "self_correction": {
+      "sample_count": 1,
+      "cer": 0.4,
+      "wer": 0.4,
+      "term_recall": 0.0,
+      "failure_rate": 0.0,
+      "fallback_rate": 0.0
+    },
+    "whisper": {
+      "sample_count": 1,
+      "cer": 0.0,
+      "wer": 0.0,
+      "term_recall": 0.0,
+      "failure_rate": 0.0,
+      "fallback_rate": 0.0
+    },
+    "zh": {
+      "sample_count": 5,
+      "cer": 0.111111,
+      "wer": 0.111111,
+      "term_recall": 0.0,
+      "failure_rate": 0.0,
+      "fallback_rate": 0.0
+    }
+  },
+  "sample_rows": [
+    {
+      "sample_id": "normal_zh",
+      "language": "zh",
+      "tags": [
+        "normal_volume",
+        "zh"
+      ],
+      "source": "synthetic_tts",
+      "status": "success",
+      "hypothesis": "今天下午三点提交设计稿。",
+      "result_source": "",
+      "fallback_reason": "",
+      "timings_ms": {
+        "first_feedback": 26.156,
+        "first_partial": 4376.464,
+        "speech_end_to_insert": 582.3770000000004,
+        "stop_to_result": null
+      },
+      "cer": 0.0,
+      "wer": 0.0,
+      "term_recall": 0.0,
+      "char_edits": 0,
+      "reference_chars": 11,
+      "word_edits": 0,
+      "reference_words": 11,
+      "term_hits": 0,
+      "term_total": 0,
+      "failed": false,
+      "fallback": false,
+      "semantic_score": 5,
+      "human_preference": null
+    },
+    {
+      "sample_id": "normal_en",
+      "language": "en",
+      "tags": [
+        "normal_volume",
+        "en"
+      ],
+      "source": "synthetic_tts",
+      "status": "success",
+      "hypothesis": "请在周五前查看延迟报告。",
+      "result_source": "",
+      "fallback_reason": "",
+      "timings_ms": {
+        "first_feedback": 40.072,
+        "first_partial": 4409.544,
+        "speech_end_to_insert": 548.9520000000002,
+        "stop_to_result": null
+      },
+      "cer": 1.0,
+      "wer": 1.571429,
+      "term_recall": 0.0,
+      "char_edits": 40,
+      "reference_chars": 40,
+      "word_edits": 11,
+      "reference_words": 7,
+      "term_hits": 0,
+      "term_total": 0,
+      "failed": false,
+      "fallback": false,
+      "semantic_score": 5,
+      "human_preference": null
+    },
+    {
+      "sample_id": "mixed_terms",
+      "language": "mixed",
+      "tags": [
+        "normal_volume",
+        "mixed",
+        "proper_noun"
+      ],
+      "source": "synthetic_tts",
+      "status": "success",
+      "hypothesis": "请在 GitHub 合并 Vocal Mode Pull Request。",
+      "result_source": "",
+      "fallback_reason": "",
+      "timings_ms": {
+        "first_feedback": 24.656,
+        "first_partial": 5460.73,
+        "speech_end_to_insert": 607.1199999999999,
+        "stop_to_result": null
+      },
+      "cer": 0.064516,
+      "wer": 0.2,
+      "term_recall": 0.666667,
+      "char_edits": 2,
+      "reference_chars": 31,
+      "word_edits": 2,
+      "reference_words": 10,
+      "term_hits": 2,
+      "term_total": 3,
+      "failed": false,
+      "fallback": false,
+      "semantic_score": 4,
+      "human_preference": null
+    },
+    {
+      "sample_id": "whisper_zh",
+      "language": "zh",
+      "tags": [
+        "whisper",
+        "zh"
+      ],
+      "source": "synthetic_low_gain",
+      "status": "success",
+      "hypothesis": "轻声输入也应该保持清晰。",
+      "result_source": "",
+      "fallback_reason": "",
+      "timings_ms": {
+        "first_feedback": 34.395,
+        "first_partial": 4393.917,
+        "speech_end_to_insert": 543.4309999999996,
+        "stop_to_result": null
+      },
+      "cer": 0.0,
+      "wer": 0.0,
+      "term_recall": 0.0,
+      "char_edits": 0,
+      "reference_chars": 11,
+      "word_edits": 0,
+      "reference_words": 11,
+      "term_hits": 0,
+      "term_total": 0,
+      "failed": false,
+      "fallback": false,
+      "semantic_score": 5,
+      "human_preference": null
+    },
+    {
+      "sample_id": "ambient_noise_en",
+      "language": "en",
+      "tags": [
+        "ambient_noise",
+        "en"
+      ],
+      "source": "synthetic_tts_pink_noise",
+      "status": "success",
+      "hypothesis": "Background noise should not change this sentence.",
+      "result_source": "",
+      "fallback_reason": "",
+      "timings_ms": {
+        "first_feedback": 27.99,
+        "first_partial": 4376.66,
+        "speech_end_to_insert": 570.3510000000001,
+        "stop_to_result": null
+      },
+      "cer": 0.0,
+      "wer": 0.0,
+      "term_recall": 0.0,
+      "char_edits": 0,
+      "reference_chars": 42,
+      "word_edits": 0,
+      "reference_words": 7,
+      "term_hits": 0,
+      "term_total": 0,
+      "failed": false,
+      "fallback": false,
+      "semantic_score": 5,
+      "human_preference": null
+    },
+    {
+      "sample_id": "fillers_zh",
+      "language": "zh",
+      "tags": [
+        "normal_volume",
+        "zh",
+        "fillers"
+      ],
+      "source": "synthetic_tts",
+      "status": "success",
+      "hypothesis": "我们先检查麦克风，然后测试转写。",
+      "result_source": "",
+      "fallback_reason": "",
+      "timings_ms": {
+        "first_feedback": 26.588,
+        "first_partial": 5907.08,
+        "speech_end_to_insert": 543.8850000000002,
+        "stop_to_result": null
+      },
+      "cer": 0.066667,
+      "wer": 0.066667,
+      "term_recall": 0.0,
+      "char_edits": 1,
+      "reference_chars": 15,
+      "word_edits": 1,
+      "reference_words": 15,
+      "term_hits": 0,
+      "term_total": 0,
+      "failed": false,
+      "fallback": false,
+      "semantic_score": 5,
+      "human_preference": null
+    },
+    {
+      "sample_id": "repetition_en",
+      "language": "en",
+      "tags": [
+        "normal_volume",
+        "en",
+        "repetition"
+      ],
+      "source": "synthetic_tts",
+      "status": "success",
+      "hypothesis": "我说的是周二，周二上午十点。",
+      "result_source": "",
+      "fallback_reason": "",
+      "timings_ms": {
+        "first_feedback": 23.925,
+        "first_partial": 4406.011,
+        "speech_end_to_insert": 582.8989999999999,
+        "stop_to_result": null
+      },
+      "cer": 1.0,
+      "wer": 1.333333,
+      "term_recall": 0.0,
+      "char_edits": 36,
+      "reference_chars": 36,
+      "word_edits": 12,
+      "reference_words": 9,
+      "term_hits": 0,
+      "term_total": 0,
+      "failed": false,
+      "fallback": false,
+      "semantic_score": 5,
+      "human_preference": null
+    },
+    {
+      "sample_id": "self_correction_zh",
+      "language": "zh",
+      "tags": [
+        "normal_volume",
+        "zh",
+        "self_correction"
+      ],
+      "source": "synthetic_tts",
+      "status": "success",
+      "hypothesis": "会议安排在周四下午。",
+      "result_source": "",
+      "fallback_reason": "",
+      "timings_ms": {
+        "first_feedback": 28.02,
+        "first_partial": 5873.702,
+        "speech_end_to_insert": 538.9659999999994,
+        "stop_to_result": null
+      },
+      "cer": 0.4,
+      "wer": 0.4,
+      "term_recall": 0.0,
+      "char_edits": 6,
+      "reference_chars": 15,
+      "word_edits": 6,
+      "reference_words": 15,
+      "term_hits": 0,
+      "term_total": 0,
+      "failed": false,
+      "fallback": false,
+      "semantic_score": 5,
+      "human_preference": null
+    },
+    {
+      "sample_id": "list_zh",
+      "language": "zh",
+      "tags": [
+        "normal_volume",
+        "zh",
+        "list"
+      ],
+      "source": "synthetic_tts",
+      "status": "success",
+      "hypothesis": "购物清单：咖啡、牛奶和苹果。",
+      "result_source": "",
+      "fallback_reason": "",
+      "timings_ms": {
+        "first_feedback": 41.397,
+        "first_partial": 4880.803,
+        "speech_end_to_insert": 573.6949999999997,
+        "stop_to_result": null
+      },
+      "cer": 0.0,
+      "wer": 0.0,
+      "term_recall": 0.0,
+      "char_edits": 0,
+      "reference_chars": 11,
+      "word_edits": 0,
+      "reference_words": 11,
+      "term_hits": 0,
+      "term_total": 0,
+      "failed": false,
+      "fallback": false,
+      "semantic_score": 5,
+      "human_preference": null
+    }
+  ],
+  "semantic_review": {
+    "reviewer": {
+      "type": "model",
+      "id": "codex-gpt-5"
+    },
+    "rubric": "只评估参考文本中的事实、实体、动作、时间、否定和列表项目是否保留：1=几乎完全丢失，3=主旨保留但有重要缺失，5=语义完整。语言保持、标点和文风不计入此分数，它们由 CER/WER 和样本明细单独审查。"
+  }
+}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 import sqlite3
 import threading
@@ -10,6 +11,7 @@ import time
 import uuid
 
 from ..domain.dictionary_learning_models import (
+    CURRENT_PROMPT_VERSION,
     DictionaryLearningEvidence,
     DictionaryLearningJob,
     ValidatedDictionaryDecision,
@@ -71,8 +73,12 @@ class DictionaryLearningRepository:
                     result_json TEXT,
                     term_created INTEGER NOT NULL DEFAULT 0,
                     aliases_added_json TEXT NOT NULL DEFAULT '[]',
+                    observation_id TEXT NOT NULL DEFAULT '',
+                    candidate_index INTEGER NOT NULL DEFAULT 0,
+                    candidate_count INTEGER NOT NULL DEFAULT 1,
+                    notification_emitted INTEGER NOT NULL DEFAULT 0,
                     model TEXT NOT NULL DEFAULT 'qwen3.7-plus',
-                    prompt_version INTEGER NOT NULL DEFAULT 1
+                    prompt_version INTEGER NOT NULL DEFAULT 2
                 )
                 """
             )
@@ -92,10 +98,36 @@ class DictionaryLearningRepository:
                     "ALTER TABLE dictionary_learning_jobs "
                     "ADD COLUMN prompt_version INTEGER NOT NULL DEFAULT 1"
                 )
+            if "observation_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE dictionary_learning_jobs "
+                    "ADD COLUMN observation_id TEXT NOT NULL DEFAULT ''"
+                )
+            if "candidate_index" not in columns:
+                connection.execute(
+                    "ALTER TABLE dictionary_learning_jobs "
+                    "ADD COLUMN candidate_index INTEGER NOT NULL DEFAULT 0"
+                )
+            if "candidate_count" not in columns:
+                connection.execute(
+                    "ALTER TABLE dictionary_learning_jobs "
+                    "ADD COLUMN candidate_count INTEGER NOT NULL DEFAULT 1"
+                )
+            if "notification_emitted" not in columns:
+                connection.execute(
+                    "ALTER TABLE dictionary_learning_jobs "
+                    "ADD COLUMN notification_emitted INTEGER NOT NULL DEFAULT 0"
+                )
             connection.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_dictionary_learning_due
                 ON dictionary_learning_jobs(status, next_retry_at, created_at)
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_dictionary_learning_observation
+                ON dictionary_learning_jobs(observation_id, candidate_index)
                 """
             )
             connection.execute(
@@ -120,28 +152,70 @@ class DictionaryLearningRepository:
         *,
         now: float | None = None,
     ) -> DictionaryLearningJob:
+        return self.enqueue_many([evidence], now=now)[0]
+
+    def enqueue_many(
+        self,
+        evidences: list[DictionaryLearningEvidence],
+        *,
+        now: float | None = None,
+    ) -> list[DictionaryLearningJob]:
+        """Persist every candidate from one observation in one transaction."""
         self._ensure_initialized()
+        if not evidences:
+            return []
         timestamp = time.time() if now is None else now
-        job_id = str(uuid.uuid4())
+        observation_ids = {
+            evidence.observation_id
+            for evidence in evidences
+            if evidence.observation_id
+        }
+        if len(observation_ids) > 1:
+            raise ValueError("candidate evidences must share one observation_id")
+        observation_id = (
+            next(iter(observation_ids))
+            if observation_ids
+            else str(uuid.uuid4())
+        )
+        candidate_count = len(evidences)
+        rows: list[tuple[object, ...]] = []
+        job_ids: list[str] = []
+        for index, evidence in enumerate(evidences):
+            candidate = replace(
+                evidence,
+                observation_id=observation_id,
+                candidate_index=index,
+                candidate_count=candidate_count,
+            )
+            job_id = str(uuid.uuid4())
+            job_ids.append(job_id)
+            rows.append(
+                (
+                    job_id,
+                    json.dumps(candidate.to_dict(), ensure_ascii=False),
+                    timestamp,
+                    timestamp,
+                    timestamp,
+                    observation_id,
+                    index,
+                    candidate_count,
+                    CURRENT_PROMPT_VERSION,
+                )
+            )
         with self._lock, self._connect() as connection:
-            connection.execute(
+            connection.executemany(
                 """
                 INSERT INTO dictionary_learning_jobs (
                     id, evidence_json, status, created_at, updated_at,
-                    attempt_count, next_retry_at
-                ) VALUES (?, ?, 'pending', ?, ?, 0, ?)
+                    attempt_count, next_retry_at, observation_id,
+                    candidate_index, candidate_count, prompt_version
+                ) VALUES (?, ?, 'pending', ?, ?, 0, ?, ?, ?, ?, ?)
                 """,
-                (
-                    job_id,
-                    json.dumps(evidence.to_dict(), ensure_ascii=False),
-                    timestamp,
-                    timestamp,
-                    timestamp,
-                ),
+                rows,
             )
-        job = self.get(job_id)
-        assert job is not None
-        return job
+        jobs = [self.get(job_id) for job_id in job_ids]
+        assert all(job is not None for job in jobs)
+        return [job for job in jobs if job is not None]
 
     def claim_next(self, *, now: float | None = None) -> DictionaryLearningJob | None:
         self._ensure_initialized()
@@ -153,7 +227,7 @@ class DictionaryLearningRepository:
                 SELECT id
                 FROM dictionary_learning_jobs
                 WHERE status IN ('pending', 'retry') AND next_retry_at <= ?
-                ORDER BY created_at ASC
+                ORDER BY created_at ASC, candidate_index ASC, id ASC
                 LIMIT 1
                 """,
                 (timestamp,),
@@ -302,6 +376,57 @@ class DictionaryLearningRepository:
                 (timestamp, job_id),
             )
 
+    def claim_observation_notification(
+        self,
+        observation_id: str,
+    ) -> list[str] | None:
+        """Claim one completed observation and return real dictionary changes."""
+        self._ensure_initialized()
+        if not observation_id:
+            return None
+        terminal_statuses = {"applied", "review", "ignored", "failed", "reverted"}
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM dictionary_learning_jobs
+                WHERE observation_id = ?
+                ORDER BY candidate_index ASC, created_at ASC, id ASC
+                """,
+                (observation_id,),
+            ).fetchall()
+            if (
+                not rows
+                or any(bool(row["notification_emitted"]) for row in rows)
+                or any(str(row["status"]) not in terminal_statuses for row in rows)
+                or len(rows) != max(int(row["candidate_count"]) for row in rows)
+            ):
+                connection.commit()
+                return None
+            connection.execute(
+                """
+                UPDATE dictionary_learning_jobs
+                SET notification_emitted = 1
+                WHERE observation_id = ?
+                """,
+                (observation_id,),
+            )
+            connection.commit()
+
+        terms: list[str] = []
+        for row in rows:
+            changed = bool(row["term_created"]) or bool(
+                json.loads(row["aliases_added_json"] or "[]")
+            )
+            if row["status"] != "applied" or not changed or not row["result_json"]:
+                continue
+            result = json.loads(row["result_json"])
+            term = str(result.get("term", "")).strip()
+            if term and term not in terms:
+                terms.append(term)
+        return terms
+
     def get(self, job_id: str) -> DictionaryLearningJob | None:
         self._ensure_initialized()
         with self._lock, self._connect() as connection:
@@ -373,6 +498,10 @@ class DictionaryLearningRepository:
             result=result,
             term_created=bool(row["term_created"]),
             aliases_added=list(json.loads(row["aliases_added_json"] or "[]")),
+            observation_id=str(row["observation_id"]),
+            candidate_index=int(row["candidate_index"]),
+            candidate_count=int(row["candidate_count"]),
+            notification_emitted=bool(row["notification_emitted"]),
             model=str(row["model"]),
             prompt_version=int(row["prompt_version"]),
         )

@@ -51,6 +51,28 @@ def test_settings_bridge_rejects_unknown_config_keys():
         "key": "dictionary_learning.enabled",
         "value": True,
     }
+    assert bridge.parse(
+        {
+            "action": "setConfig",
+            "key": "ui.onboarding_completed",
+            "value": True,
+        }
+    ) == {
+        "action": "set_config",
+        "key": "ui.onboarding_completed",
+        "value": True,
+    }
+    assert bridge.parse(
+        {
+            "action": "setConfig",
+            "key": "ui.advanced_settings",
+            "value": True,
+        }
+    ) == {
+        "action": "set_config",
+        "key": "ui.advanced_settings",
+        "value": True,
+    }
 
 
 def test_settings_bridge_sanitizes_sync_form_state_payload():
@@ -144,6 +166,28 @@ def test_settings_action_dispatcher_routes_sync_form_state():
     )
 
     assert calls == [("sync", {"audio": {"gain": 3.0}})]
+
+
+def test_settings_bridge_and_dispatcher_route_onboarding_environment_actions():
+    from vocal_more.ui.settings_actions import SettingsActionDispatcher
+    from vocal_more.ui.settings_bridge import SettingsBridge
+
+    bridge = SettingsBridge()
+    calls: list[str] = []
+    dispatcher = SettingsActionDispatcher(
+        on_refresh_environment=lambda: calls.append("refresh"),
+        on_open_accessibility_settings=lambda: calls.append("accessibility"),
+    )
+
+    for browser_action, normalized_action in (
+        ("refreshEnvironment", "refresh_environment"),
+        ("openAccessibilitySettings", "open_accessibility_settings"),
+    ):
+        message = bridge.parse({"action": browser_action})
+        assert message == {"action": normalized_action}
+        dispatcher.dispatch(message)
+
+    assert calls == ["refresh", "accessibility"]
 
 
 def test_settings_bridge_and_dispatcher_route_dictionary_learning_actions():
@@ -243,3 +287,35 @@ def test_settings_bridge_and_dispatcher_route_meeting_notes_action():
     dispatcher.dispatch(message)
 
     assert calls == ["rec-1"]
+
+
+def test_settings_bridge_and_dispatcher_reset_context_profile():
+    from vocal_more.ui.settings_actions import SettingsActionDispatcher
+    from vocal_more.ui.settings_bridge import SettingsBridge
+
+    calls = []
+    dispatcher = SettingsActionDispatcher(
+        on_reset_context_profile=lambda: calls.append("reset")
+    )
+
+    message = SettingsBridge().parse({"action": "resetContextProfile"})
+    dispatcher.dispatch(message)
+
+    assert message == {"action": "reset_context_profile"}
+    assert calls == ["reset"]
+
+
+def test_settings_bridge_and_dispatcher_compact_recording_history():
+    from vocal_more.ui.settings_actions import SettingsActionDispatcher
+    from vocal_more.ui.settings_bridge import SettingsBridge
+
+    calls = []
+    dispatcher = SettingsActionDispatcher(
+        on_compact_recording_history=lambda: calls.append("compact")
+    )
+
+    message = SettingsBridge().parse({"action": "compactRecordingHistory"})
+    dispatcher.dispatch(message)
+
+    assert message == {"action": "compact_recording_history"}
+    assert calls == ["compact"]

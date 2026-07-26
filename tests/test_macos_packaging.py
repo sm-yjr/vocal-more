@@ -100,6 +100,33 @@ def test_distribution_includes_project_license():
     assert '"$STAGING/LICENSE.txt"' in dmg_script
 
 
+def test_distribution_includes_shadcn_ui_license_separately():
+    build_script = (ROOT / "packaging" / "macos" / "build_app.sh").read_text()
+
+    assert (
+        '"$ROOT/resources/settings/SHADCN-UI-LICENSE.txt" '
+        '"$APP/Contents/Resources/Shadcn-UI-LICENSE.txt"'
+    ) in build_script
+
+
+def test_packaging_rebuilds_settings_frontend_before_py2app():
+    build_script = (ROOT / "packaging" / "macos" / "build_app.sh").read_text()
+
+    assert 'npm --prefix "$ROOT/frontend/settings" ci' in build_script
+    assert 'npm --prefix "$ROOT/frontend/settings" run build' in build_script
+
+
+def test_release_workflow_tests_and_builds_settings_frontend():
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+
+    assert "actions/setup-node@v4" in workflow
+    assert "npm ci" in workflow
+    assert "npm test" in workflow
+    assert "npm run typecheck" in workflow
+    assert "npm run lint" in workflow
+    assert "npm run build" in workflow
+
+
 def test_sparkle_nested_services_are_signed_in_official_order():
     sign_script = (ROOT / "packaging" / "macos" / "sign_sparkle.sh").read_text()
     ordered_targets = [

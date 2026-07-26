@@ -69,6 +69,11 @@ class RPCHandler:
             "dictionary_learning",
             None,
         )
+        self._context_personalization = getattr(
+            dependencies,
+            "context_personalization",
+            None,
+        )
         self._background_tasks = BackgroundExecutor(
             max_workers=2,
             thread_name_prefix="vocal-more-rpc-tasks",
@@ -422,6 +427,10 @@ class RPCHandler:
             close = getattr(mode, "close", None)
             if callable(close):
                 close()
+        recording_store = getattr(self, "_recording_store", None)
+        close_recordings = getattr(recording_store, "close", None)
+        if callable(close_recordings):
+            close_recordings()
 
     def _handle_hotkey_pressed_command(self) -> None:
         self._current_mode.on_hotkey_pressed()

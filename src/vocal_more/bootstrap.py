@@ -27,6 +27,7 @@ class MenuAppDependencies:
     runtime: RuntimeFacade
     settings_window: object
     dictionary_learning: object | None = None
+    context_personalization: object | None = None
 
 
 @dataclass
@@ -41,6 +42,7 @@ class RPCHandlerDependencies:
     command_coordinator: object
     runtime: RuntimeFacade
     dictionary_learning: object | None = None
+    context_personalization: object | None = None
 
 
 @dataclass
@@ -85,6 +87,7 @@ def build_menu_app_dependencies(
     command_coordinator_factory=DictationCommandCoordinator,
     runtime_factory=RuntimeFacade,
     dictionary_learning_factory=None,
+    context_personalization_factory=None,
 ) -> MenuAppDependencies:
     config = config or get_config()
     if dictionary_learning_factory is None:
@@ -92,6 +95,13 @@ def build_menu_app_dependencies(
 
         dictionary_learning_factory = build_dictionary_learning_runtime
     dictionary_learning = dictionary_learning_factory(config=config)
+    if context_personalization_factory is None:
+        from .application.context_personalization import (
+            build_context_personalization_service,
+        )
+
+        context_personalization_factory = build_context_personalization_service
+    context_personalization = context_personalization_factory(config=config)
     set_learning_callback = getattr(dictionary_learning, "set_on_change", None)
     if callable(set_learning_callback):
         set_learning_callback(app._on_dictionary_learning_change)
@@ -112,6 +122,7 @@ def build_menu_app_dependencies(
         on_audio_level=app._on_audio_level,
         recording_store=recording_store,
         dictionary_learning=dictionary_learning,
+        context_personalization=context_personalization,
     )
     realtime_long = realtime_long_factory(
         on_state_change=app._on_state_change,
@@ -123,6 +134,7 @@ def build_menu_app_dependencies(
         on_audio_level=app._on_audio_level,
         recording_store=recording_store,
         dictionary_learning=dictionary_learning,
+        context_personalization=context_personalization,
     )
     meeting = meeting_factory(
         on_state_change=app._on_state_change,
@@ -162,6 +174,7 @@ def build_menu_app_dependencies(
         on_refresh_text_polisher=app._refresh_text_polisher,
         on_set_active_hotkeys=getattr(hotkey_manager, "set_active_hotkeys", None),
         on_set_custom_key=getattr(hotkey_manager, "set_custom_key", None),
+        on_set_custom_keys=getattr(hotkey_manager, "set_custom_keys", None),
         on_apply_interface_language=app._apply_interface_language,
         on_refresh_environment_status=app._refresh_environment_status,
         on_refresh_dictionary_learning=dictionary_learning.wake,
@@ -179,10 +192,13 @@ def build_menu_app_dependencies(
         on_reject_dictionary_learning=app._on_settings_reject_dictionary_learning,
         on_undo_dictionary_learning=app._on_settings_undo_dictionary_learning,
         on_refresh_devices=app._on_settings_refresh_devices,
+        on_refresh_environment=app._on_settings_refresh_environment,
+        on_open_accessibility_settings=app._on_settings_open_accessibility_settings,
         on_open_config_file=app._on_settings_open_config,
         on_open_dict_file=app._on_settings_open_dict,
         on_open_external=app._on_settings_open_external,
         recording_store=recording_store,
+        context_personalization=context_personalization,
     )
 
     return MenuAppDependencies(
@@ -201,6 +217,7 @@ def build_menu_app_dependencies(
         runtime=runtime,
         settings_window=settings_window,
         dictionary_learning=dictionary_learning,
+        context_personalization=context_personalization,
     )
 
 
@@ -217,6 +234,7 @@ def build_rpc_handler_dependencies(
     command_coordinator_factory=DictationCommandCoordinator,
     runtime_factory=RuntimeFacade,
     dictionary_learning_factory=None,
+    context_personalization_factory=None,
 ) -> RPCHandlerDependencies:
     config = config or get_config()
     if dictionary_learning_factory is None:
@@ -224,6 +242,13 @@ def build_rpc_handler_dependencies(
 
         dictionary_learning_factory = build_dictionary_learning_runtime
     dictionary_learning = dictionary_learning_factory(config=config)
+    if context_personalization_factory is None:
+        from .application.context_personalization import (
+            build_context_personalization_service,
+        )
+
+        context_personalization_factory = build_context_personalization_service
+    context_personalization = context_personalization_factory(config=config)
     set_learning_callback = getattr(dictionary_learning, "set_on_change", None)
     if callable(set_learning_callback):
         set_learning_callback(
@@ -245,6 +270,7 @@ def build_rpc_handler_dependencies(
         on_audio_level=handler._on_audio_level,
         recording_store=recording_store,
         dictionary_learning=dictionary_learning,
+        context_personalization=context_personalization,
     )
     realtime_long = realtime_long_factory(
         on_state_change=handler._on_state_change,
@@ -256,6 +282,7 @@ def build_rpc_handler_dependencies(
         on_audio_level=handler._on_audio_level,
         recording_store=recording_store,
         dictionary_learning=dictionary_learning,
+        context_personalization=context_personalization,
     )
     meeting = meeting_factory(
         on_state_change=handler._on_state_change,
@@ -292,6 +319,7 @@ def build_rpc_handler_dependencies(
         command_coordinator=command_coordinator,
         runtime=runtime,
         dictionary_learning=dictionary_learning,
+        context_personalization=context_personalization,
     )
 
 

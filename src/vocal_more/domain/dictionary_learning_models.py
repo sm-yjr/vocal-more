@@ -27,6 +27,7 @@ AUTO_ADD_CONFIDENCE = 0.90
 REVIEW_CONFIDENCE = 0.70
 MAX_LEARNED_TERM_LENGTH = 60
 MAX_EVIDENCE_TEXT_LENGTH = 8_000
+CURRENT_PROMPT_VERSION = 2
 
 _NUMERIC_OR_DATE_RE = re.compile(
     r"^[零〇一二两三四五六七八九十百千万亿\d年月日号点时分秒"
@@ -47,6 +48,15 @@ class DictionaryLearningEvidence:
     app_name: str = ""
     mode_name: str = ""
     recording_id: str | None = None
+    observation_id: str = ""
+    candidate_index: int = 0
+    candidate_count: int = 1
+    candidate_before_text: str = ""
+    candidate_after_text: str = ""
+    candidate_before_change_start: int | None = None
+    candidate_before_change_end: int | None = None
+    candidate_after_change_start: int | None = None
+    candidate_after_change_end: int | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -68,6 +78,27 @@ class DictionaryLearningEvidence:
                 str(payload["recording_id"])[:512]
                 if payload.get("recording_id") is not None
                 else None
+            ),
+            observation_id=str(payload.get("observation_id", ""))[:128],
+            candidate_index=max(0, int(payload.get("candidate_index", 0))),
+            candidate_count=max(1, int(payload.get("candidate_count", 1))),
+            candidate_before_text=str(
+                payload.get("candidate_before_text", "")
+            )[:MAX_EVIDENCE_TEXT_LENGTH],
+            candidate_after_text=str(
+                payload.get("candidate_after_text", "")
+            )[:MAX_EVIDENCE_TEXT_LENGTH],
+            candidate_before_change_start=_optional_nonnegative_int(
+                payload.get("candidate_before_change_start")
+            ),
+            candidate_before_change_end=_optional_nonnegative_int(
+                payload.get("candidate_before_change_end")
+            ),
+            candidate_after_change_start=_optional_nonnegative_int(
+                payload.get("candidate_after_change_start")
+            ),
+            candidate_after_change_end=_optional_nonnegative_int(
+                payload.get("candidate_after_change_end")
             ),
         )
 
@@ -142,8 +173,12 @@ class DictionaryLearningJob:
     result: ValidatedDictionaryDecision | None = None
     term_created: bool = False
     aliases_added: list[str] = field(default_factory=list)
+    observation_id: str = ""
+    candidate_index: int = 0
+    candidate_count: int = 1
+    notification_emitted: bool = False
     model: str = "qwen3.7-plus"
-    prompt_version: int = 1
+    prompt_version: int = CURRENT_PROMPT_VERSION
 
 
 def _ignore(reason_code: str) -> ValidatedDictionaryDecision:
@@ -152,6 +187,34 @@ def _ignore(reason_code: str) -> ValidatedDictionaryDecision:
 
 def _contains_lexical_content(value: str) -> bool:
     return any(char.isalnum() for char in value)
+
+
+def _optional_nonnegative_int(value: object) -> int | None:
+    if value is None:
+        return None
+    return max(0, int(value))
+
+
+def _occurrence_overlaps_change(
+    value: str,
+    scope: str,
+    change_start: int | None,
+    change_end: int | None,
+) -> bool:
+    if value not in scope:
+        return False
+    if change_start is None or change_end is None:
+        return True
+    cursor = scope.find(value)
+    while cursor >= 0:
+        occurrence_end = cursor + len(value)
+        if change_start == change_end:
+            if cursor <= change_start <= occurrence_end:
+                return True
+        elif cursor < change_end and occurrence_end > change_start:
+            return True
+        cursor = scope.find(value, cursor + 1)
+    return False
 
 
 def _is_numeric_or_date_change(term: str, aliases: Iterable[str]) -> bool:
@@ -214,8 +277,28 @@ def validate_decision(
         return _ignore("non_lexical_mapping")
     if any(mark in term for mark in ("\n", "\r", "。", "！", "？", "!", "?")):
         return _ignore("sentence_sized_term")
+    if (
+        evidence.candidate_after_text
+        and not _occurrence_overlaps_change(
+            term,
+            evidence.candidate_after_text,
+            evidence.candidate_after_change_start,
+            evidence.candidate_after_change_end,
+        )
+    ):
+        return _ignore("term_not_in_candidate")
     if term not in evidence.edited_text:
         return _ignore("term_not_in_edited_text")
+    if evidence.candidate_before_text and any(
+        not _occurrence_overlaps_change(
+            alias,
+            evidence.candidate_before_text,
+            evidence.candidate_before_change_start,
+            evidence.candidate_before_change_end,
+        )
+        for alias in aliases
+    ):
+        return _ignore("alias_not_in_candidate")
     if any(
         alias not in evidence.pasted_text and alias not in evidence.raw_text
         for alias in aliases
@@ -246,6 +329,7 @@ def validate_decision(
 
 __all__ = [
     "AUTO_ADD_CONFIDENCE",
+    "CURRENT_PROMPT_VERSION",
     "DictionaryLearningDecision",
     "DictionaryLearningEvidence",
     "DictionaryLearningJob",

@@ -33,6 +33,7 @@ class RuntimeFacade:
         on_refresh_text_polisher: Callable[[], None] | None = None,
         on_set_active_hotkeys: Callable[[list[str]], None] | None = None,
         on_set_custom_key: Callable[[dict | None], None] | None = None,
+        on_set_custom_keys: Callable[[list[dict]], None] | None = None,
         on_apply_interface_language: Callable[[], None] | None = None,
         on_refresh_environment_status: Callable[[], None] | None = None,
         on_refresh_dictionary_learning: Callable[[], None] | None = None,
@@ -44,6 +45,7 @@ class RuntimeFacade:
         self._on_refresh_text_polisher = on_refresh_text_polisher
         self._on_set_active_hotkeys = on_set_active_hotkeys
         self._on_set_custom_key = on_set_custom_key
+        self._on_set_custom_keys = on_set_custom_keys
         self._on_apply_interface_language = on_apply_interface_language
         self._on_refresh_environment_status = on_refresh_environment_status
         self._on_refresh_dictionary_learning = on_refresh_dictionary_learning
@@ -84,6 +86,12 @@ class RuntimeFacade:
 
         if "hotkey.custom_key" in changed_keys and self._on_set_custom_key is not None:
             self._on_set_custom_key(self.config.hotkey.custom_key)
+
+        if (
+            "hotkey.custom_keys" in changed_keys
+            and self._on_set_custom_keys is not None
+        ):
+            self._on_set_custom_keys(self.config.hotkey.custom_keys)
 
         if "ui.language" in changed_keys and self._on_apply_interface_language is not None:
             self._on_apply_interface_language()

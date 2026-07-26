@@ -1,23 +1,79 @@
+schema_version: 1
+suite_id: vocal-more-synthetic-calibration-v1
+truth_version: "2026-07-26"
+description: >
+  本地生成的管线校准集。它覆盖产品要求的语言和话语现象，但不代表真实人声，
+  尤其不能替代真人耳语、办公室噪声或 Typeless 同音频对照。
+
 samples:
-  - id: clean_zh_example
-    audio: eval/audio/clean_zh_example.wav
-    reference_text: 这是一个完整的中文句子。
+  - id: normal_zh
+    audio: generated/normal_zh.wav
+    reference_text: 今天下午三点提交设计稿。
+    language: zh
+    source: synthetic_tts
     expected_terms: []
-    group: clean_zh
-    disabled: true
+    tags: [normal_volume, zh]
 
-  - id: term_mixed_example
-    audio: eval/audio/term_mixed_example.wav
-    reference_text: Vocal More 已经接入阿里云百炼。
-    expected_terms:
-      - Vocal More
-      - 阿里云百炼
-    group: term_mixed
-    disabled: true
-
-  - id: pause_noise_example
-    audio: eval/audio/pause_noise_example.wav
-    reference_text: 首先确认录音，其次确认识别。
+  - id: normal_en
+    audio: generated/normal_en.wav
+    reference_text: Please review the latency report before Friday.
+    language: en
+    source: synthetic_tts
     expected_terms: []
-    group: pause_noise
-    disabled: true
+    tags: [normal_volume, en]
+
+  - id: mixed_terms
+    audio: generated/mixed_terms.wav
+    reference_text: 请在 GitHub 合并 Vocal More 的 pull request。
+    language: mixed
+    source: synthetic_tts
+    expected_terms: [GitHub, Vocal More, pull request]
+    tags: [normal_volume, mixed, proper_noun]
+
+  - id: whisper_zh
+    audio: generated/whisper_zh.wav
+    reference_text: 轻声输入也应该保持清晰。
+    language: zh
+    source: synthetic_low_gain
+    expected_terms: []
+    tags: [whisper, zh]
+
+  - id: ambient_noise_en
+    audio: generated/ambient_noise_en.wav
+    reference_text: Background noise should not change this sentence.
+    language: en
+    source: synthetic_tts_pink_noise
+    expected_terms: []
+    tags: [ambient_noise, en]
+
+  - id: fillers_zh
+    audio: generated/fillers_zh.wav
+    reference_text: 嗯，我们先检查麦克风，然后测试转写。
+    language: zh
+    source: synthetic_tts
+    expected_terms: []
+    tags: [normal_volume, zh, fillers]
+
+  - id: repetition_en
+    audio: generated/repetition_en.wav
+    reference_text: I said Tuesday, Tuesday at ten in the morning.
+    language: en
+    source: synthetic_tts
+    expected_terms: []
+    tags: [normal_volume, en, repetition]
+
+  - id: self_correction_zh
+    audio: generated/self_correction_zh.wav
+    reference_text: 会议安排在周三，不对，改到周四下午。
+    language: zh
+    source: synthetic_tts
+    expected_terms: []
+    tags: [normal_volume, zh, self_correction]
+
+  - id: list_zh
+    audio: generated/list_zh.wav
+    reference_text: 购物清单：咖啡、牛奶和苹果。
+    language: zh
+    source: synthetic_tts
+    expected_terms: []
+    tags: [normal_volume, zh, list]

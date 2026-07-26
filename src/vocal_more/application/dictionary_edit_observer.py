@@ -14,6 +14,10 @@ from ..domain.dictionary_learning_models import (
     DictionaryLearningEvidence,
     MAX_EVIDENCE_TEXT_LENGTH,
 )
+from .dictionary_learning_candidates import (
+    MAX_CANDIDATES_PER_OBSERVATION,
+    edit_statistics,
+)
 
 
 _ZERO_WIDTH_RE = re.compile("[\u200b\u200c\u200d\ufeff]")
@@ -40,11 +44,11 @@ def _is_plausible_edit(baseline: str, edited: str) -> bool:
     if len(edited) < len(baseline) * 0.20:
         return False
 
-    start, baseline_end, edited_end = _change_bounds(baseline, edited)
-    removed = baseline_end - start
-    added = edited_end - start
+    removed, added, hunk_count = edit_statistics(baseline, edited)
     changed = removed + added
 
+    if hunk_count == 0 or hunk_count > MAX_CANDIDATES_PER_OBSERVATION:
+        return False
     if removed > len(baseline) * 0.50:
         return False
     if changed > max(4, len(baseline) * 2):
@@ -240,6 +244,25 @@ class DictionaryEditObserver:
 
             current = self._provider.capture_focused()
             if current is None or not ticket.original.is_same_target(current):
+                final = self._capture_original_target(ticket)
+                if (
+                    final is not None
+                    and ticket.original.is_same_target(final)
+                ):
+                    if final.is_secure:
+                        return None
+                    normalized = _normalize_ax_text(final.value)
+                    if not normalized:
+                        return None
+                    current_pasted = _project_span_after_edit(
+                        baseline_text,
+                        normalized,
+                        pasted_start,
+                        pasted_end,
+                    )
+                    if current_pasted != latest_pasted:
+                        latest_pasted = current_pasted
+                        last_relevant_change_at = observed_at
                 focus_committed = True
                 break
             if current.is_secure:
@@ -283,6 +306,18 @@ class DictionaryEditObserver:
             mode_name=ticket.mode_name,
             recording_id=ticket.recording_id,
         )
+
+    def _capture_original_target(
+        self,
+        ticket: PasteObservation,
+    ) -> FocusedTextSnapshot | None:
+        capture_target = getattr(self._provider, "capture_target", None)
+        if not callable(capture_target):
+            return None
+        try:
+            return capture_target(ticket.original)
+        except Exception:
+            return None
 
     def _wait_for_pasted_baseline(
         self,

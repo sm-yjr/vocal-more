@@ -149,6 +149,7 @@ def _build_session_kwargs(
     model_info: Optional[dict],
     config=None,
     language_override: Optional[str] = None,
+    context_instruction: str = "",
 ) -> dict:
     config = config or get_config()
     session_kwargs: dict = dict(
@@ -164,7 +165,8 @@ def _build_session_kwargs(
         ]
         if config.enable_polish and model_info.get("handles_inline_polish"):
             session_kwargs["instructions"] = build_omni_inline_polish_instructions(
-                config.llm
+                config.llm,
+                context_instruction=context_instruction,
             )
     else:
         session_kwargs["transcription_params"] = _build_transcription_params(
@@ -628,6 +630,7 @@ class BatchASREngine:
         self.config = get_config()
         _apply_dashscope_api_key(self.config)
         self._last_metering: dict[str, Any] | None = None
+        self._context_instruction = ""
 
     def _frame_bytes(self) -> int:
         return _batch_frame_bytes(self.config.audio.channels)
@@ -713,10 +716,14 @@ class BatchASREngine:
         *,
         model: str,
         language_override: Optional[str],
+        context_instruction: str = "",
     ) -> str:
         chunks = self._split_audio_for_batch(audio_data)
         if len(chunks) <= 1:
-            return self._transcribe_omni_offline(audio_data, model_override=model)
+            kwargs = {"model_override": model}
+            if context_instruction:
+                kwargs["context_instruction"] = context_instruction
+            return self._transcribe_omni_offline(audio_data, **kwargs)
 
         print(
             f"[BatchASR] Long audio detected for {model}; "
@@ -732,12 +739,14 @@ class BatchASREngine:
                 f"({duration_seconds:.1f}s, {len(chunk)} bytes)"
             )
             try:
-                chunk_text = self.transcribe(
-                    chunk,
-                    model_override=model,
-                    language_override=language_override,
-                    allow_chunking=False,
-                )
+                kwargs = {
+                    "model_override": model,
+                    "language_override": language_override,
+                    "allow_chunking": False,
+                }
+                if context_instruction:
+                    kwargs["context_instruction"] = context_instruction
+                chunk_text = self.transcribe(chunk, **kwargs)
             except Exception as exc:
                 raise RuntimeError(
                     f"Chunk {index}/{len(chunks)} transcription failed: {exc}"
@@ -755,6 +764,7 @@ class BatchASREngine:
         language_override: Optional[str] = None,
         *,
         allow_chunking: bool = True,
+        context_instruction: str = "",
     ) -> str:
         """Transcribe complete audio data.
 
@@ -779,12 +789,14 @@ class BatchASREngine:
                     f"({audio_duration_seconds:.1f}s) bypassing realtime_ws for {model}; "
                     f"using {fallback_model} directly"
                 )
-                return self.transcribe(
-                    audio_data,
-                    model_override=fallback_model,
-                    language_override=language_override,
-                    allow_chunking=True,
-                )
+                kwargs = {
+                    "model_override": fallback_model,
+                    "language_override": language_override,
+                    "allow_chunking": True,
+                }
+                if context_instruction:
+                    kwargs["context_instruction"] = context_instruction
+                return self.transcribe(audio_data, **kwargs)
 
         if transport == "short_file":
             if self._supports_short_file(audio_data):
@@ -800,18 +812,25 @@ class BatchASREngine:
             if allow_chunking:
                 chunks = self._split_audio_for_batch(audio_data)
                 if len(chunks) > 1:
-                    return self._transcribe_chunked_audio(
-                        audio_data,
-                        model=model,
-                        language_override=language_override,
-                    )
-            return self._transcribe_omni_offline(audio_data, model_override=model)
+                    kwargs = {
+                        "model": model,
+                        "language_override": language_override,
+                    }
+                    if context_instruction:
+                        kwargs["context_instruction"] = context_instruction
+                    return self._transcribe_chunked_audio(audio_data, **kwargs)
+            kwargs = {"model_override": model}
+            if context_instruction:
+                kwargs["context_instruction"] = context_instruction
+            return self._transcribe_omni_offline(audio_data, **kwargs)
 
-        return self._transcribe_realtime_ws(
-            audio_data,
-            model_override=model,
-            language_override=language_override,
-        )
+        kwargs = {
+            "model_override": model,
+            "language_override": language_override,
+        }
+        if context_instruction:
+            kwargs["context_instruction"] = context_instruction
+        return self._transcribe_realtime_ws(audio_data, **kwargs)
 
     def transcribe_with_system_prompt(
         self,
@@ -905,6 +924,7 @@ class BatchASREngine:
         transcript_text: str,
         reason: str,
         trace: Optional[ASRDebugTrace] = None,
+        context_instruction: str = "",
     ) -> tuple[str, str]:
         fallback_model = _get_omni_offline_fallback_model(model)
         if fallback_model and audio_data:
@@ -914,8 +934,11 @@ class BatchASREngine:
                 f"({_format_trace_ids(trace)})"
             )
             try:
+                kwargs = {"model_override": fallback_model}
+                if context_instruction:
+                    kwargs["context_instruction"] = context_instruction
                 return (
-                    self.transcribe(audio_data, model_override=fallback_model),
+                    self.transcribe(audio_data, **kwargs),
                     "omni_offline_fallback",
                 )
             except Exception as exc:
@@ -928,7 +951,9 @@ class BatchASREngine:
                 f"({_format_trace_ids(trace)})"
             )
             try:
-                polished = TextPolisher().polish(transcript_text)
+                polisher = TextPolisher()
+                polisher.set_context_instruction(context_instruction)
+                polished = polisher.polish(transcript_text)
                 source = "polisher_fallback" if polished.used_llm else "transcript"
                 return polished.polished_text.strip(), source
             except Exception as exc:
@@ -941,6 +966,7 @@ class BatchASREngine:
         audio_data: bytes,
         model_override: Optional[str] = None,
         language_override: Optional[str] = None,
+        context_instruction: str = "",
     ) -> str:
         model = model_override or self.config.asr.model
         print(f"[BatchASR] Starting transcription, audio size: {len(audio_data)} bytes")
@@ -994,6 +1020,7 @@ class BatchASREngine:
                 model_info,
                 config=self.config,
                 language_override=language_override,
+                context_instruction=context_instruction,
             )
             conversation.update_session(**session_kwargs)
 
@@ -1208,6 +1235,7 @@ class BatchASREngine:
         audio_data: bytes,
         model_override: Optional[str] = None,
         system_prompt: Optional[str] = None,
+        context_instruction: str = "",
     ) -> str:
         model = model_override or self.config.asr.model
         print(f"[BatchASR] Starting Omni offline transcription, audio size: {len(audio_data)} bytes")
@@ -1232,7 +1260,10 @@ class BatchASREngine:
             if system_prompt is not None:
                 prompt = system_prompt
             elif self.config.enable_polish:
-                prompt = build_omni_inline_polish_instructions(self.config.llm)
+                prompt = build_omni_inline_polish_instructions(
+                    self.config.llm,
+                    context_instruction=context_instruction,
+                )
             else:
                 prompt = "请将以下音频准确转录为文字，直接输出转录结果。"
 
@@ -1923,6 +1954,12 @@ class ASREngine:
         details = " ".join(f"{key}={value}" for key, value in fields.items())
         print(f"[StreamingASRFallback] {details}")
 
+    def _transcribe_batch_fallback(self, pcm_data: bytes) -> str:
+        kwargs = {}
+        if self._context_instruction:
+            kwargs["context_instruction"] = self._context_instruction
+        return self._batch_fallback.transcribe(pcm_data, **kwargs)
+
     def _close_conversation(self, conversation: Optional[OmniRealtimeConversation]) -> None:
         if conversation is None:
             return
@@ -1962,6 +1999,7 @@ class ASREngine:
         model_id: str,
         model_info: Optional[dict],
         callback: StreamingASRCallback,
+        context_instruction: str = "",
     ) -> OmniRealtimeConversation:
         conversation = OmniRealtimeConversation(
             model=model_id,
@@ -1969,7 +2007,12 @@ class ASREngine:
             callback=callback,
         )
         conversation.connect()
-        conversation.update_session(**_build_session_kwargs(model_info))
+        conversation.update_session(
+            **_build_session_kwargs(
+                model_info,
+                context_instruction=context_instruction,
+            )
+        )
         if not callback.wait_for_session_updated(timeout=10.0):
             raise Exception("session.updated timeout")
         return conversation
@@ -2174,12 +2217,13 @@ class ASREngine:
             ),
         )
 
-    def start(self) -> None:
+    def start(self, *, context_instruction: str = "") -> None:
         """Start the ASR session. Non-blocking — session setup runs in background."""
         if self._is_running:
             return
 
         _apply_dashscope_api_key(self.config)
+        self._context_instruction = str(context_instruction or "").strip()
         self._session_model_id = self.config.asr.model
         model_info = get_asr_model_info(self._session_model_id)
         transport = model_info["transport"] if model_info else self.config.asr.backend
@@ -2272,11 +2316,15 @@ class ASREngine:
                         self._session_model_id,
                         model_info,
                         self._callback,
+                        self._context_instruction,
                     )
                     self._conversation_model_id = self._session_model_id
 
                 if reusing_warm_session:
-                    session_kwargs = _build_session_kwargs(model_info)
+                    session_kwargs = _build_session_kwargs(
+                        model_info,
+                        context_instruction=self._context_instruction,
+                    )
                     self._conversation.update_session(**session_kwargs)
 
                     if not self._callback.wait_for_session_updated(timeout=10.0):
@@ -2369,7 +2417,7 @@ class ASREngine:
                 fallback_reason="connect_timeout",
             )
             if pcm_data:
-                result = self._batch_fallback.transcribe(pcm_data)
+                result = self._transcribe_batch_fallback(pcm_data)
                 self._last_metering = self._batch_fallback.get_last_metering()
                 return result
             return ""
@@ -2398,7 +2446,7 @@ class ASREngine:
                     result_source="batch_fallback",
                     fallback_reason=degraded_reason,
                 )
-                result = self._batch_fallback.transcribe(pcm_data)
+                result = self._transcribe_batch_fallback(pcm_data)
                 self._last_metering = self._batch_fallback.get_last_metering()
                 return result
             self._finish_active_trace(
@@ -2424,7 +2472,7 @@ class ASREngine:
                     result_source="batch_fallback",
                     fallback_reason="connect_failed",
                 )
-                result = self._batch_fallback.transcribe(pcm_data)
+                result = self._transcribe_batch_fallback(pcm_data)
                 self._last_metering = self._batch_fallback.get_last_metering()
                 return result
             self._finish_active_trace(
@@ -2453,7 +2501,7 @@ class ASREngine:
                     result_source="batch_fallback",
                     fallback_reason="audio_drain_timeout",
                 )
-                result = self._batch_fallback.transcribe(pcm_data)
+                result = self._transcribe_batch_fallback(pcm_data)
                 self._last_metering = self._batch_fallback.get_last_metering()
                 return result
             self._finish_active_trace(
@@ -2588,6 +2636,7 @@ class ASREngine:
                         transcript_result,
                         response_fallback_reason,
                         trace=self._active_trace,
+                        context_instruction=self._context_instruction,
                     )
 
             if not is_omni:
@@ -2626,7 +2675,7 @@ class ASREngine:
                 response_requested=response_requested,
                 fallback_reason="empty_result",
             )
-            result = self._batch_fallback.transcribe(pcm_data)
+            result = self._transcribe_batch_fallback(pcm_data)
             self._last_metering = self._batch_fallback.get_last_metering()
         else:
             self._finish_active_trace(
@@ -2663,6 +2712,7 @@ class ASREngine:
         self._active_trace = None
         self._trace_warm_reused = False
         self._last_metering = None
+        self._context_instruction = ""
         with self._lock:
             self._audio_queue_high_watermark = 0
         if self._callback:

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "manifest_fingerprint": "47dbbb404eb5491774ddc83fc93bfedf922b6bed1742fd1842721d4659ed30c4",
+  "reviewer": {
+    "type": "model",
+    "id": "codex-gpt-5"
+  },
+  "rubric": "只评估参考文本中的事实、实体、动作、时间、否定和列表项目是否保留：1=几乎完全丢失，3=主旨保留但有重要缺失，5=语义完整。语言保持、标点和文风不计入此分数，它们由 CER/WER 和样本明细单独审查。",
+  "samples": {
+    "normal_zh": {
+      "semantic_score": 5
+    },
+    "normal_en": {
+      "semantic_score": 5
+    },
+    "mixed_terms": {
+      "semantic_score": 5
+    },
+    "whisper_zh": {
+      "semantic_score": 5
+    },
+    "ambient_noise_en": {
+      "semantic_score": 4
+    },
+    "fillers_zh": {
+      "semantic_score": 5
+    },
+    "repetition_en": {
+      "semantic_score": 5
+    },
+    "self_correction_zh": {
+      "semantic_score": 5
+    },
+    "list_zh": {
+      "semantic_score": 5
+    }
+  }
+}

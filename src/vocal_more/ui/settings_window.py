@@ -123,10 +123,13 @@ class SettingsWindow:
         on_reject_dictionary_learning: Optional[Callable[[str], None]] = None,
         on_undo_dictionary_learning: Optional[Callable[[str], None]] = None,
         on_refresh_devices: Optional[Callable[[], None]] = None,
+        on_refresh_environment: Optional[Callable[[], None]] = None,
+        on_open_accessibility_settings: Optional[Callable[[], None]] = None,
         on_open_config_file: Optional[Callable[[], None]] = None,
         on_open_dict_file: Optional[Callable[[], None]] = None,
         on_open_external: Optional[Callable[[str], None]] = None,
         recording_store: Optional[object] = None,
+        context_personalization: Optional[object] = None,
     ):
         self._on_set_config = on_set_config
         self._on_set_asr_model = on_set_asr_model
@@ -139,10 +142,13 @@ class SettingsWindow:
         self._on_reject_dictionary_learning = on_reject_dictionary_learning
         self._on_undo_dictionary_learning = on_undo_dictionary_learning
         self._on_refresh_devices = on_refresh_devices
+        self._on_refresh_environment = on_refresh_environment
+        self._on_open_accessibility_settings = on_open_accessibility_settings
         self._on_open_config_file = on_open_config_file
         self._on_open_dict_file = on_open_dict_file
         self._on_open_external = on_open_external
         self._recording_store = recording_store
+        self._context_personalization = context_personalization
 
         self._window: Optional[NSWindow] = None
         self._webview: Optional[WKWebView] = None
@@ -372,6 +378,7 @@ class SettingsWindow:
         initial_tab: str = "",
         focus_recording_id: str = "",
         dictionary_learning_records: list | None = None,
+        environment_checks: list | None = None,
     ) -> None:
         """Show the settings window and populate with data."""
         # Bring app to front
@@ -392,8 +399,15 @@ class SettingsWindow:
             "devices": devices,
             "dictionary": dictionary,
             "dictionary_learning_records": dictionary_learning_records or [],
+            "context_profile": (
+                self._context_personalization.summary()
+                if self._context_personalization is not None
+                else {"counts": {}, "total": 0}
+            ),
+            "environment_checks": environment_checks or [],
             "polish_prompt_presets": polish_prompt_presets or {},
             "recordings": self._recording_store.list_recordings() if self._recording_store else [],
+            "recording_storage": self._recording_storage_summary(),
             "initial_tab": initial_tab,
             "focus_recording_id": focus_recording_id,
             "focusRecordingId": focus_recording_id,
@@ -433,6 +447,10 @@ class SettingsWindow:
         selected_json = json.dumps(selected_device)
         self._eval_js(f"loadDevices({json_str}, {selected_json})")
 
+    def update_environment_checks(self, checks: list) -> None:
+        """Refresh prerequisite status shown by the guided setup."""
+        self._eval_js(f"loadEnvironmentChecks({json.dumps(checks)})")
+
     def update_dictionary(self, entries: list) -> None:
         """Update the dictionary in the UI (while window is open)."""
         json_str = json.dumps(entries)
@@ -456,6 +474,8 @@ class SettingsWindow:
             on_reject_dictionary_learning=self._on_reject_dictionary_learning,
             on_undo_dictionary_learning=self._on_undo_dictionary_learning,
             on_refresh_devices=self._on_refresh_devices,
+            on_refresh_environment=self._on_refresh_environment,
+            on_open_accessibility_settings=self._on_open_accessibility_settings,
             on_open_config_file=self._on_open_config_file,
             on_open_dict_file=self._on_open_dict_file,
             on_open_external=self._on_open_external,
@@ -465,6 +485,8 @@ class SettingsWindow:
             on_delete_recording=self._handle_delete_recording,
             on_play_recording=self._handle_play_recording,
             on_copy_transcript=self._handle_copy_transcript,
+            on_reset_context_profile=self._handle_reset_context_profile,
+            on_compact_recording_history=self._handle_compact_recording_history,
             mic_test_controller=self._mic_test_controller,
         )
 
@@ -498,6 +520,47 @@ class SettingsWindow:
         recordings = self._recording_store.list_recordings()
         json_str = json.dumps(recordings, ensure_ascii=False)
         self._eval_js(f"loadRecordings({json_str})")
+
+    def _recording_storage_summary(self) -> dict:
+        summary = getattr(self._recording_store, "storage_summary", None)
+        if not callable(summary):
+            return {}
+        try:
+            result = summary()
+        except Exception:
+            return {}
+        return result if isinstance(result, dict) else {}
+
+    def _handle_reset_context_profile(self) -> None:
+        if self._context_personalization is None:
+            return
+        self._context_personalization.reset()
+        summary = self._context_personalization.summary()
+        self._eval_js(f"loadContextProfile({json.dumps(summary)})")
+
+    def _handle_compact_recording_history(self) -> None:
+        if self._recording_store is None:
+            return
+        compact = getattr(self._recording_store, "compact_history", None)
+        if not callable(compact):
+            return
+        self._eval_js("recordingCompactionStarted()")
+
+        def _compact():
+            try:
+                result = compact(keep_recent=3)
+                summary = self._recording_store.storage_summary()
+                self._eval_js(
+                    f"recordingCompactionComplete({json.dumps(summary)}, "
+                    f"{json.dumps(result)})"
+                )
+                self._handle_get_recordings()
+            except Exception as exc:
+                self._eval_js(
+                    f"recordingCompactionFailed({json.dumps(str(exc))})"
+                )
+
+        self._background_tasks.submit(_compact)
 
     def _handle_retry_transcription(self, rec_id: str) -> None:
         if not self._recording_store:

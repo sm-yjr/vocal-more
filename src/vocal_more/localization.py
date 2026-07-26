@@ -64,6 +64,12 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "notification_dictionary_learning_applied_body": (
             "Added “{term}”. You can undo this in Dictionary settings."
         ),
+        "notification_dictionary_learning_applied_group_title": (
+            "Added {count} Dictionary Terms"
+        ),
+        "notification_dictionary_learning_applied_group_body": (
+            "Added “{terms}”. You can undo them separately in Dictionary settings."
+        ),
         "notification_dictionary_learning_review_title": "Dictionary Review Needed",
         "notification_dictionary_learning_review_body": (
             "Review the suggested term “{term}” in Dictionary settings."
@@ -156,6 +162,12 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "notification_dictionary_learning_applied_title": "已自动添加词条",
         "notification_dictionary_learning_applied_body": (
             "已添加“{term}”，可在词典设置中撤销。"
+        ),
+        "notification_dictionary_learning_applied_group_title": (
+            "已自动添加 {count} 个词条"
+        ),
+        "notification_dictionary_learning_applied_group_body": (
+            "已添加“{terms}”，可在词典设置中分别撤销。"
         ),
         "notification_dictionary_learning_review_title": "词条需要确认",
         "notification_dictionary_learning_review_body": (

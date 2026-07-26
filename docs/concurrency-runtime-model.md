@@ -137,6 +137,12 @@ These are non-realtime helper pools:
 
 - RPC retry transcription executor
 - settings window retry transcription executor
+- recording-store archive executor
+
+The recording-store archive executor is a single owned worker. It converts
+older terminal WAV files to lossless FLAC outside the dictation finish path,
+keeps the three newest recordings uncompressed, and closes explicitly with the
+recording store during app or RPC shutdown.
 
 They are bounded and have explicit `close()` paths.
 

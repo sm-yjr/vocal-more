@@ -30,6 +30,7 @@ def _build_runtime_facade():
         "refresh_text_polisher": MagicMock(),
         "set_active_hotkeys": MagicMock(),
         "set_custom_key": MagicMock(),
+        "set_custom_keys": MagicMock(),
         "apply_interface_language": MagicMock(),
         "refresh_environment_status": MagicMock(),
         "refresh_dictionary_learning": MagicMock(),
@@ -46,6 +47,7 @@ def _build_runtime_facade():
         on_refresh_text_polisher=callbacks["refresh_text_polisher"],
         on_set_active_hotkeys=callbacks["set_active_hotkeys"],
         on_set_custom_key=callbacks["set_custom_key"],
+        on_set_custom_keys=callbacks["set_custom_keys"],
         on_apply_interface_language=callbacks["apply_interface_language"],
         on_refresh_environment_status=callbacks["refresh_environment_status"],
         on_refresh_dictionary_learning=callbacks["refresh_dictionary_learning"],
@@ -72,6 +74,29 @@ def test_runtime_facade_updates_config_and_reports_changed_keys():
     callbacks["set_active_hotkeys"].assert_called_once_with(["fn"])
     walkie._recorder.set_gain.assert_called_once_with(4.0)
     realtime._recorder.set_gain.assert_called_once_with(4.0)
+
+
+def test_runtime_facade_applies_multiple_custom_hotkeys_without_restart():
+    facade, config, walkie, realtime, current_mode, callbacks = _build_runtime_facade()
+    keys = [
+        {
+            "key_code": 111,
+            "display_name": "F12",
+            "is_modifier": False,
+            "flag_mask": 0,
+        },
+        {
+            "key_code": 103,
+            "display_name": "F11",
+            "is_modifier": False,
+            "flag_mask": 0,
+        },
+    ]
+
+    facade.apply_update("hotkey.custom_keys", keys)
+
+    assert config.hotkey.custom_keys == keys
+    callbacks["set_custom_keys"].assert_called_once_with(keys)
 
 
 def test_runtime_facade_switches_default_mode_only_when_idle():

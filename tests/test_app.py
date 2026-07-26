@@ -1006,6 +1006,165 @@ def test_hotkey_callbacks_enqueue_serial_commands(tmp_path, monkeypatch):
     assert app._command_coordinator.submit.call_count == 6
 
 
+def test_realtime_hotkey_quick_tap_latches_then_second_press_finishes(
+    tmp_path, monkeypatch
+):
+    from vocal_more.config import Config
+    from vocal_more.domain.hotkey_gestures import HotkeyGestureController
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    mode = MagicMock(state=app_module.ModeState.IDLE)
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._walkie_talkie = object()
+    app._realtime_long = mode
+    app._current_mode = mode
+    app._capsule = MagicMock()
+    app._hotkey_gesture_controller = HotkeyGestureController(
+        hold_threshold=0.35
+    )
+
+    app._handle_fn_pressed_command(10.0)
+    mode.state = app_module.ModeState.RECORDING
+    app._handle_fn_released_command(10.1)
+
+    assert mode.on_hotkey_pressed.call_count == 1
+    mode.on_hotkey_released.assert_not_called()
+
+    app._handle_fn_pressed_command(11.0)
+
+    assert mode.on_hotkey_pressed.call_count == 2
+
+
+def test_realtime_hotkey_hold_finishes_on_release(tmp_path, monkeypatch):
+    from vocal_more.config import Config
+    from vocal_more.domain.hotkey_gestures import HotkeyGestureController
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    mode = MagicMock(state=app_module.ModeState.IDLE)
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._walkie_talkie = object()
+    app._realtime_long = mode
+    app._current_mode = mode
+    app._capsule = MagicMock()
+    app._hotkey_gesture_controller = HotkeyGestureController(
+        hold_threshold=0.35
+    )
+
+    app._handle_fn_pressed_command(20.0)
+    mode.state = app_module.ModeState.RECORDING
+    app._handle_fn_released_command(20.6)
+
+    assert mode.on_hotkey_pressed.call_count == 2
+    mode.on_hotkey_released.assert_not_called()
+
+
+def test_live_benchmark_marks_trigger_speech_end_partial_and_insert(
+    tmp_path, monkeypatch
+):
+    from vocal_more.config import Config
+    from vocal_more.domain.hotkey_gestures import HotkeyGestureController
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    mode = MagicMock(state=app_module.ModeState.IDLE, name="Real-time Long")
+    mode._recorder.benchmark_audio_delivery = "deterministic_wav_replay"
+    trace = MagicMock()
+    trace.active = False
+    trace.begin.side_effect = lambda **_kwargs: setattr(trace, "active", True)
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._walkie_talkie = object()
+    app._realtime_long = mode
+    app._current_mode = mode
+    app._capsule = MagicMock()
+    app._hotkey_gesture_controller = HotkeyGestureController(
+        hold_threshold=0.35
+    )
+    app._benchmark_trace = trace
+    app._run_on_main_thread = lambda callback: callback()
+    app._show_result_notification = MagicMock()
+
+    app._handle_fn_pressed_command(10.0)
+    trace.begin.assert_called_once()
+    assert (
+        trace.begin.call_args.kwargs["metadata"]["audio_delivery"]
+        == "deterministic_wav_replay"
+    )
+    mode.state = app_module.ModeState.RECORDING
+    app._handle_fn_released_command(10.6)
+    trace.mark.assert_any_call("speech_end", at=10.6)
+
+    app._on_partial_result("private transcript")
+    trace.mark.assert_any_call("first_partial")
+    app._on_result("private transcript")
+
+    trace.finish.assert_called_once_with(
+        status="success",
+        insert_completed=True,
+    )
+
+
+def test_live_benchmark_write_failure_does_not_block_result_delivery(
+    tmp_path, monkeypatch
+):
+    """Opt-in benchmark telemetry must remain best-effort."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    trace = MagicMock(active=True)
+    trace.finish.side_effect = OSError("trace directory is read-only")
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._benchmark_trace = trace
+    app._run_on_main_thread = lambda callback: callback()
+    app._show_result_notification = MagicMock()
+
+    app._on_result("result still delivered")
+
+    app._show_result_notification.assert_called_once_with(
+        "result still delivered"
+    )
+
+
 def test_escape_pressed_cancels_processing_mode(tmp_path, monkeypatch):
     """Escape should cancel a stuck processing session through the shared path."""
     from vocal_more.config import Config
@@ -1192,6 +1351,7 @@ def test_run_shows_app_started_notification_before_entering_event_loop(tmp_path,
 
     app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
     app.config = Config()
+    app.config.ui.onboarding_completed = True
     app._hotkey_manager = MagicMock()
     app._hotkey_manager.start.return_value = True
     app._refresh_environment_status = MagicMock()
@@ -1203,6 +1363,34 @@ def test_run_shows_app_started_notification_before_entering_event_loop(tmp_path,
     app._refresh_environment_status.assert_called_once_with(show_notification=True)
     app._show_app_started_notification.assert_called_once_with()
     assert run_calls == ["run"]
+
+
+def test_run_opens_setup_automatically_for_a_fresh_install(tmp_path, monkeypatch):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+    monkeypatch.setattr(app_module.rumps.App, "run", lambda self: None, raising=False)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._hotkey_manager = MagicMock()
+    app._hotkey_manager.start.return_value = True
+    app._refresh_environment_status = MagicMock()
+    app._show_app_started_notification = MagicMock()
+    app._show_settings = MagicMock()
+
+    app.run()
+
+    app._show_settings.assert_called_once_with()
 
 
 def test_dictionary_learning_success_notification_requires_real_automatic_change(
@@ -1262,5 +1450,60 @@ def test_dictionary_learning_success_notification_requires_real_automatic_change
         "Vocal-More",
         "已自动添加词条",
         "已添加“阿里云百炼”，可在词典设置中撤销。",
+    )
+    assert kwargs == {"icon": app._get_logo_path()}
+
+
+def test_dictionary_learning_multiple_terms_emit_one_summary_notification(
+    tmp_path, monkeypatch
+):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+    notifications: list[tuple[tuple, dict]] = []
+    monkeypatch.setattr(
+        app_module.rumps,
+        "notification",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._settings_window = None
+
+    for term in ("FanUI", "Shadcn/ui"):
+        app._handle_dictionary_learning_change(
+            {
+                "status": "applied",
+                "source": "automatic",
+                "dictionary_changed": True,
+                "suppress_notification": True,
+                "term": term,
+            }
+        )
+    app._handle_dictionary_learning_change(
+        {
+            "status": "applied_group",
+            "source": "automatic",
+            "dictionary_changed": True,
+            "terms": ["FanUI", "Shadcn/ui"],
+        }
+    )
+
+    assert len(notifications) == 1
+    args, kwargs = notifications[0]
+    assert args == (
+        "Vocal-More",
+        "已自动添加 2 个词条",
+        "已添加“FanUI”、“Shadcn/ui”，可在词典设置中分别撤销。",
     )
     assert kwargs == {"icon": app._get_logo_path()}

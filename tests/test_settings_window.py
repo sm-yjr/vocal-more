@@ -58,3 +58,23 @@ def test_update_devices_can_sync_selected_device_to_frontend():
     window.update_devices([{"name": "Built-in Mic"}], None)
 
     assert calls == ['loadDevices([{"name": "Built-in Mic"}], null)']
+
+
+def test_update_environment_checks_syncs_onboarding_readiness():
+    calls = []
+
+    window = SettingsWindow.__new__(SettingsWindow)
+    window._eval_js = lambda script: calls.append(script)
+
+    window.update_environment_checks(
+        [
+            {"key": "accessibility", "status": "ok", "details": "trusted"},
+            {"key": "hotkey_listener", "status": "ok", "details": "running"},
+        ]
+    )
+
+    assert calls == [
+        'loadEnvironmentChecks([{"key": "accessibility", "status": "ok", '
+        '"details": "trusted"}, {"key": "hotkey_listener", "status": "ok", '
+        '"details": "running"}])'
+    ]

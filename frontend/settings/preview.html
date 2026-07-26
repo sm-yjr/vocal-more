@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <title>Vocal More Settings Preview</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      const { makeInitData } = await import("./src/test/fixtures.ts")
+      const data = makeInitData()
+      const tab = new URLSearchParams(window.location.search).get("tab")
+      if (tab) data.initial_tab = tab
+      window._initData = data
+      await import("./src/main.tsx")
+    </script>
+  </body>
+</html>

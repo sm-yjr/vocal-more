@@ -244,7 +244,18 @@ def normalize_structured_list_spacing(text: str, llm_config: Optional[LLMConfig]
     return "\n".join(formatted_lines).strip()
 
 
-def build_polish_system_prompt(llm_config: Optional[LLMConfig] = None) -> str:
+def _context_prompt_block(context_instruction: str) -> str:
+    instruction = str(context_instruction or "").strip()
+    if not instruction:
+        return ""
+    return f"\n\n当前使用场景（仅为本地映射出的抽象类别）：\n{instruction}"
+
+
+def build_polish_system_prompt(
+    llm_config: Optional[LLMConfig] = None,
+    *,
+    context_instruction: str = "",
+) -> str:
     """Build the shared polish system prompt for second-stage LLM calls."""
     llm_config = llm_config or get_config().llm
     if llm_config.polish_mode == "prompt":
@@ -260,7 +271,7 @@ def build_polish_system_prompt(llm_config: Optional[LLMConfig] = None) -> str:
 你需要把口语化输入转换成任务式 Prompt，供下游 LLM 直接执行。
 必须保持用户原始意图，不补充用户没有说出的业务事实。
 
-{output_instructions}{modifier_block}
+{output_instructions}{modifier_block}{_context_prompt_block(context_instruction)}
 
 请直接输出处理后的 Prompt，不要添加任何解释或说明。"""
 
@@ -269,12 +280,16 @@ def build_polish_system_prompt(llm_config: Optional[LLMConfig] = None) -> str:
 你需要根据给定的润色强度、语气和表达人格来整理文本。
 在任何情况下都必须保持原意，不补充原文没有的信息。
 
-{_build_polish_rule_block(llm_config)}
+{_build_polish_rule_block(llm_config)}{_context_prompt_block(context_instruction)}
 
 请直接输出处理后的文本，不要添加任何解释或说明。"""
 
 
-def build_omni_inline_polish_instructions(llm_config: Optional[LLMConfig] = None) -> str:
+def build_omni_inline_polish_instructions(
+    llm_config: Optional[LLMConfig] = None,
+    *,
+    context_instruction: str = "",
+) -> str:
     """Build the shared prompt used when Omni directly returns the final text."""
     from ..dictionary import get_dictionary
 
@@ -294,7 +309,7 @@ def build_omni_inline_polish_instructions(llm_config: Optional[LLMConfig] = None
 你会收到用户口述的音频内容。请先准确理解用户说的话，再把口语化输入转换成任务式 Prompt，供下游 LLM 直接执行。
 你的唯一任务是把用户刚才说出的指令整理成最终 Prompt。
 
-{output_instructions}{modifier_block}{extra}
+{output_instructions}{modifier_block}{extra}{_context_prompt_block(context_instruction)}
 
 请只输出最终 Prompt，不要解释过程，不要添加前缀，不要复述任务。"""
 
@@ -303,7 +318,7 @@ def build_omni_inline_polish_instructions(llm_config: Optional[LLMConfig] = None
 你会收到用户口述的音频内容。请先准确理解用户说的话，再直接输出最终整理后的文本。
 你不是在回答问题，也不是在和用户对话；你的唯一任务是把用户刚才说出的内容整理成最终可直接使用的文本。
 
-{_build_polish_rule_block(llm_config)}{extra}
+{_build_polish_rule_block(llm_config)}{extra}{_context_prompt_block(context_instruction)}
 
 请只输出最终整理后的文本，不要解释过程，不要添加前缀，不要复述任务。"""
 
@@ -339,11 +354,22 @@ class TextPolisher:
         if self.config.api_key:
             dashscope.api_key = self.config.api_key
         self._last_metering: dict | None = None
+        self._context_instruction = ""
+
+    def set_context_instruction(self, instruction: str) -> None:
+        """Set the abstract per-session context rule."""
+        self._context_instruction = str(instruction or "").strip()
 
     def _build_messages(self, text: str) -> list[dict]:
         """Build system + user messages for the LLM call."""
         return [
-            {"role": "system", "content": build_polish_system_prompt(self.config.llm)},
+            {
+                "role": "system",
+                "content": build_polish_system_prompt(
+                    self.config.llm,
+                    context_instruction=self._context_instruction,
+                ),
+            },
             {"role": "user", "content": text},
         ]
 

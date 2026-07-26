@@ -3,6 +3,7 @@
 import os
 import subprocess
 import threading
+import time
 from typing import Any, Optional
 
 import dashscope
@@ -14,6 +15,7 @@ from . import __version__
 from .application.dictation_command_coordinator import DictationCommandCoordinator
 from .application.runtime_facade import RuntimeFacade
 from .bootstrap import build_menu_app_dependencies
+from .benchmarking import live_trace_recorder_from_env
 from .config import (
     ASR_MODEL_CATALOG,
     LLM_MODEL_CATALOG,
@@ -24,6 +26,7 @@ from .core.recording_store import RecordingStore
 from .core.text_polisher import TextPolisher, build_polish_prompt_presets
 from .diagnostics import ensure_runtime_debug_dir_env, export_support_bundle
 from .dictionary import get_dictionary, reload_dictionary
+from .domain.hotkey_gestures import HotkeyGestureAction, HotkeyGestureController
 from .environment_check import is_accessibility_trusted, run_environment_checks
 from .localization import t
 from .modes.base_mode import BaseMode, ModeState
@@ -112,11 +115,18 @@ class VocalMoreApp(rumps.App):
         self._current_mode = dependencies.current_mode
         self._command_coordinator = dependencies.command_coordinator
         self._hotkey_manager = dependencies.hotkey_manager
+        self._hotkey_gesture_controller = HotkeyGestureController()
+        self._benchmark_trace = live_trace_recorder_from_env()
         self._runtime = dependencies.runtime
         self._settings_window = dependencies.settings_window
         self._dictionary_learning = getattr(
             dependencies,
             "dictionary_learning",
+            None,
+        )
+        self._context_personalization = getattr(
+            dependencies,
+            "context_personalization",
             None,
         )
         self._main_thread_timers: set[NSTimer] = set()
@@ -367,6 +377,7 @@ class VocalMoreApp(rumps.App):
         focus_recording_id: str = "",
     ) -> None:
         """Open settings, optionally navigating to a specific record."""
+        self._refresh_environment_status()
         devices = self._list_devices()
         self._clear_missing_configured_microphone(devices)
         self._populate_microphone_device_menu(self._quick_microphone_item, devices)
@@ -386,6 +397,10 @@ class VocalMoreApp(rumps.App):
                 if self._dictionary_learning is not None
                 else []
             ),
+            environment_checks=[
+                check.to_dict()
+                for check in getattr(self, "_environment_checks", [])
+            ],
         )
 
     def _quit_app(self, _) -> None:
@@ -410,6 +425,9 @@ class VocalMoreApp(rumps.App):
             close = getattr(mode, "close", None)
             if callable(close):
                 close()
+        close_recordings = getattr(self._recording_store, "close", None)
+        if callable(close_recordings):
+            close_recordings()
         self._close_command_coordinator()
         rumps.quit_application()
 
@@ -511,7 +529,34 @@ class VocalMoreApp(rumps.App):
             self._refresh_dictionary_learning_settings()
 
         status = change.get("status")
-        if status not in ("applied", "review"):
+        if status not in ("applied", "review", "applied_group"):
+            return
+        if status == "applied" and change.get("suppress_notification"):
+            return
+        if status == "applied_group":
+            terms = [
+                str(term).strip()
+                for term in change.get("terms", [])
+                if str(term).strip()
+            ]
+            if not terms:
+                return
+            separator = "”、“" if self.config.ui.language == "zh" else "”, “"
+            try:
+                rumps.notification(
+                    "Vocal-More",
+                    self._t(
+                        "notification_dictionary_learning_applied_group_title",
+                        count=len(terms),
+                    ),
+                    self._t(
+                        "notification_dictionary_learning_applied_group_body",
+                        terms=separator.join(terms),
+                    ),
+                    icon=self._get_logo_path(),
+                )
+            except RuntimeError:
+                print(f"[DictionaryLearning] applied: {', '.join(terms)}")
             return
         if status == "applied" and (
             change.get("source") != "automatic"
@@ -542,6 +587,27 @@ class VocalMoreApp(rumps.App):
         """Handle device refresh request from settings window."""
         self._refresh_microphone_status_menu(update_settings_window=True)
         self._refresh_environment_status()
+
+    def _on_settings_refresh_environment(self) -> None:
+        """Re-check onboarding prerequisites and refresh the visible checklist."""
+        self._refresh_environment_status()
+        self._settings_window.update_environment_checks(
+            [
+                check.to_dict()
+                for check in getattr(self, "_environment_checks", [])
+            ]
+        )
+
+    def _on_settings_open_accessibility_settings(self) -> None:
+        """Open the exact macOS privacy pane needed by global hotkeys."""
+        subprocess.run(
+            [
+                "open",
+                "x-apple.systempreferences:com.apple.preference.security"
+                "?Privacy_Accessibility",
+            ],
+            check=False,
+        )
 
     def _on_settings_open_config(self) -> None:
         """Open config file in default editor."""
@@ -1025,6 +1091,7 @@ class VocalMoreApp(rumps.App):
             on_refresh_text_polisher=self._refresh_text_polisher,
             on_set_active_hotkeys=getattr(hotkey_manager, "set_active_hotkeys", None),
             on_set_custom_key=getattr(hotkey_manager, "set_custom_key", None),
+            on_set_custom_keys=getattr(hotkey_manager, "set_custom_keys", None),
             on_apply_interface_language=self._apply_interface_language,
             on_refresh_environment_status=self._refresh_environment_status,
         )
@@ -1073,24 +1140,73 @@ class VocalMoreApp(rumps.App):
 
     def _on_fn_pressed(self) -> None:
         """Handle Fn key pressed."""
+        event_time = time.monotonic()
         self._get_command_coordinator().submit(
-            self._handle_fn_pressed_command,
+            lambda: self._handle_fn_pressed_command(event_time),
             command_name="fn_pressed",
         )
 
-    def _handle_fn_pressed_command(self) -> None:
+    def _get_hotkey_gesture_controller(self) -> HotkeyGestureController:
+        controller = getattr(self, "_hotkey_gesture_controller", None)
+        if controller is None:
+            controller = HotkeyGestureController()
+            self._hotkey_gesture_controller = controller
+        return controller
+
+    def _uses_unified_dictation_gesture(self) -> bool:
+        return self._current_mode is getattr(self, "_realtime_long", None)
+
+    def _handle_fn_pressed_command(
+        self,
+        event_time: float | None = None,
+    ) -> None:
+        command_time = time.monotonic() if event_time is None else event_time
+        if self._uses_unified_dictation_gesture():
+            action = self._get_hotkey_gesture_controller().on_pressed(
+                command_time,
+                self._current_mode.state,
+            )
+            if action == HotkeyGestureAction.START:
+                self._begin_live_benchmark_trace(command_time)
+                self._capsule.show(self._capsule_mode_for_current_mode())
+                self._current_mode.on_hotkey_pressed()
+            elif action == HotkeyGestureAction.STOP:
+                self._mark_live_benchmark_trace("speech_end", at=command_time)
+                self._current_mode.on_hotkey_pressed()
+            return
+
         if self._current_mode.state == ModeState.IDLE:
+            self._begin_live_benchmark_trace(command_time)
             self._capsule.show(self._capsule_mode_for_current_mode())
+        elif self._current_mode.state == ModeState.RECORDING:
+            self._mark_live_benchmark_trace("speech_end", at=command_time)
         self._current_mode.on_hotkey_pressed()
 
     def _on_fn_released(self) -> None:
         """Handle Fn key released."""
+        event_time = time.monotonic()
         self._get_command_coordinator().submit(
-            self._handle_fn_released_command,
+            lambda: self._handle_fn_released_command(event_time),
             command_name="fn_released",
         )
 
-    def _handle_fn_released_command(self) -> None:
+    def _handle_fn_released_command(
+        self,
+        event_time: float | None = None,
+    ) -> None:
+        command_time = time.monotonic() if event_time is None else event_time
+        if self._uses_unified_dictation_gesture():
+            action = self._get_hotkey_gesture_controller().on_released(
+                command_time,
+                self._current_mode.state,
+            )
+            if action == HotkeyGestureAction.STOP:
+                self._mark_live_benchmark_trace("speech_end", at=command_time)
+                self._current_mode.on_hotkey_pressed()
+            return
+
+        if self._current_mode.state == ModeState.RECORDING:
+            self._mark_live_benchmark_trace("speech_end", at=command_time)
         self._current_mode.on_hotkey_released()
 
     def _on_double_cmd(self) -> None:
@@ -1102,7 +1218,10 @@ class VocalMoreApp(rumps.App):
 
     def _handle_double_cmd_command(self) -> None:
         if self._current_mode.state == ModeState.IDLE:
+            self._begin_live_benchmark_trace(time.monotonic())
             self._capsule.show(self._capsule_mode_for_current_mode())
+        elif self._current_mode.state == ModeState.RECORDING:
+            self._mark_live_benchmark_trace("speech_end")
         self._current_mode.on_hotkey_pressed()
 
     def _on_escape_pressed(self) -> None:
@@ -1156,6 +1275,14 @@ class VocalMoreApp(rumps.App):
             ModeState.FAILED: "hidden",
         }.get(state, "hidden")
         self._capsule.update_state(capsule_state)
+        if state in (ModeState.STARTING, ModeState.RECORDING):
+            self._mark_live_benchmark_trace("first_feedback")
+        elif state == ModeState.FAILED:
+            self._finish_live_benchmark_trace(status="failed")
+        elif state == ModeState.IDLE:
+            trace = getattr(self, "_benchmark_trace", None)
+            if trace is not None and trace.active:
+                self._finish_live_benchmark_trace(status="failed")
         if state in (ModeState.STOPPING, ModeState.PROCESSING, ModeState.CANCELLING):
             current_mode = getattr(self, "_current_mode", None)
             stage = (
@@ -1199,6 +1326,7 @@ class VocalMoreApp(rumps.App):
 
     def _handle_capsule_finish_command(self) -> None:
         if self._current_mode in (self._realtime_long, getattr(self, "_meeting", None)):
+            self._mark_live_benchmark_trace("speech_end")
             self._current_mode.on_hotkey_pressed()
 
     def _capsule_mode_for_current_mode(self) -> str:
@@ -1212,6 +1340,10 @@ class VocalMoreApp(rumps.App):
 
     def _on_result(self, text: str) -> None:
         """Handle final result."""
+        self._finish_live_benchmark_trace(
+            status="success",
+            insert_completed=bool(self.config.auto_paste),
+        )
         self._run_on_main_thread(lambda: self._show_result_notification(text))
 
     def _show_result_notification(self, text: str) -> None:
@@ -1230,6 +1362,67 @@ class VocalMoreApp(rumps.App):
         """Handle partial result — show streaming text in capsule."""
         if text and self._capsule:
             self._capsule.update_streaming_text(text)
+            self._mark_live_benchmark_trace("first_partial")
+
+    def _begin_live_benchmark_trace(self, started_at: float) -> None:
+        trace = getattr(self, "_benchmark_trace", None)
+        current_mode = getattr(self, "_current_mode", None)
+        if (
+            trace is None
+            or current_mode is getattr(self, "_meeting", None)
+            or trace.active
+        ):
+            return
+        try:
+            trace.begin(
+                started_at=started_at,
+                metadata={
+                    "app_version": __version__,
+                    "model": self.config.asr.model,
+                    "mode": getattr(current_mode, "name", "unknown"),
+                    "auto_paste": bool(self.config.auto_paste),
+                    "audio_delivery": getattr(
+                        getattr(current_mode, "_recorder", None),
+                        "benchmark_audio_delivery",
+                        "physical_microphone",
+                    ),
+                    "sample_id": os.environ.get(
+                        "VOCAL_MORE_BENCHMARK_SAMPLE_ID",
+                        "",
+                    ),
+                },
+            )
+        except Exception as exc:
+            print(f"[Benchmark] Failed to begin live trace: {exc}")
+
+    def _mark_live_benchmark_trace(
+        self,
+        event: str,
+        *,
+        at: float | None = None,
+    ) -> None:
+        trace = getattr(self, "_benchmark_trace", None)
+        if trace is not None and trace.active:
+            try:
+                trace.mark(event, at=at) if at is not None else trace.mark(event)
+            except Exception as exc:
+                print(f"[Benchmark] Failed to mark live trace event: {exc}")
+
+    def _finish_live_benchmark_trace(
+        self,
+        *,
+        status: str,
+        insert_completed: bool = False,
+    ) -> None:
+        trace = getattr(self, "_benchmark_trace", None)
+        if trace is not None and trace.active:
+            try:
+                trace.finish(
+                    status=status,
+                    insert_completed=insert_completed,
+                )
+            except Exception as exc:
+                print(f"[Benchmark] Failed to finish live trace: {exc}")
 
     def _on_meeting_result(self, recording_id: str) -> None:
         """Open the history view focused on a completed meeting recording."""
@@ -1283,6 +1476,8 @@ class VocalMoreApp(rumps.App):
             self._start_hotkey_permission_retry_timer()
         self._refresh_environment_status(show_notification=True)
         self._show_app_started_notification()
+        if not self.config.ui.onboarding_completed:
+            self._show_settings()
         super().run()
 
 

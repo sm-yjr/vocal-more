@@ -1,5 +1,7 @@
 """Tests for audio recorder callback behavior."""
 
+import wave
+
 import numpy as np
 import pytest
 import yaml
@@ -21,6 +23,100 @@ def _write_config_with_input_device(tmp_path, monkeypatch, device_name):
 
 def _fake_default_device(index=0):
     return type("FakeDefault", (), {"device": [index, None]})()
+
+
+def _write_pcm_wav(path, samples, *, sample_rate=16000):
+    with wave.open(str(path), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(sample_rate)
+        output.writeframes(np.asarray(samples, dtype=np.int16).tobytes())
+
+
+def test_benchmark_wav_replay_is_disabled_without_trace_opt_in(
+    tmp_path,
+    monkeypatch,
+):
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    audio_path = tmp_path / "sample.wav"
+    _write_pcm_wav(audio_path, [1000] * 640)
+    monkeypatch.setenv("VOCAL_MORE_BENCHMARK_AUDIO_FILE", str(audio_path))
+    monkeypatch.delenv("VOCAL_MORE_BENCHMARK_TRACE_DIR", raising=False)
+
+    recorder = AudioRecorder()
+
+    assert recorder.benchmark_audio_delivery == "physical_microphone"
+
+
+def test_benchmark_wav_replay_uses_real_audio_pipeline_without_portaudio(
+    tmp_path,
+    monkeypatch,
+):
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    samples = np.asarray([1000, -1000] * 640, dtype=np.int16)
+    audio_path = tmp_path / "sample.wav"
+    _write_pcm_wav(audio_path, samples)
+    monkeypatch.setenv("VOCAL_MORE_BENCHMARK_AUDIO_FILE", str(audio_path))
+    monkeypatch.setenv("VOCAL_MORE_BENCHMARK_TRACE_DIR", str(tmp_path / "traces"))
+    monkeypatch.setattr(
+        audio_recorder_module.sd,
+        "InputStream",
+        lambda **_kwargs: pytest.fail("PortAudio must not open during replay"),
+    )
+    chunks = []
+    levels = []
+    recorder = AudioRecorder(
+        sample_rate=16000,
+        channels=1,
+        blocksize=640,
+        on_audio_chunk=chunks.append,
+        on_audio_level=levels.append,
+    )
+    recorder._gain = 1.0
+    recorder._highpass_filter = False
+    recorder._soft_limiter = False
+
+    recorder.start()
+    assert recorder.wait_for_benchmark_replay(timeout=1)
+    actual = recorder.stop()
+
+    assert recorder.benchmark_audio_delivery == "deterministic_wav_replay"
+    assert len(chunks) == 2
+    assert levels
+    assert np.max(
+        np.abs(
+            np.frombuffer(actual, dtype=np.int16).astype(np.int32)
+            - samples.astype(np.int32)
+        )
+    ) <= 1
+
+
+def test_benchmark_wav_replay_rejects_incompatible_audio(
+    tmp_path,
+    monkeypatch,
+):
+    from vocal_more.core.audio_recorder import (
+        AudioRecorder,
+        AudioRecorderStartError,
+    )
+
+    audio_path = tmp_path / "stereo.wav"
+    with wave.open(str(audio_path), "wb") as output:
+        output.setnchannels(2)
+        output.setsampwidth(2)
+        output.setframerate(16000)
+        output.writeframes(b"\x00\x00" * 320)
+    monkeypatch.setenv("VOCAL_MORE_BENCHMARK_AUDIO_FILE", str(audio_path))
+    monkeypatch.setenv("VOCAL_MORE_BENCHMARK_TRACE_DIR", str(tmp_path / "traces"))
+    recorder = AudioRecorder()
+
+    with pytest.raises(AudioRecorderStartError, match="mono"):
+        recorder.start()
+
+    assert recorder.is_recording() is False
 
 
 def test_audio_callback_returns_early_when_not_recording():

@@ -112,8 +112,38 @@ def test_config_new_fields_defaults():
     assert config.llm.prompt_overrides == {}
     assert config.hotkey.active_hotkeys == ["fn"]
     assert config.ui.language == "zh"
+    assert config.ui.onboarding_completed is False
+    assert config.ui.advanced_settings is False
     assert config.dictionary_learning.enabled is False
     assert config.dictionary_learning.excluded_bundle_ids == []
+
+
+def test_existing_config_migrates_without_interrupting_established_users():
+    """Legacy users should keep the expert UI and should not be re-onboarded."""
+    from vocal_more.config import Config
+
+    config = Config.from_dict(
+        {
+            "api_key": "existing-key",
+            "ui": {"language": "zh"},
+        }
+    )
+
+    assert config.ui.onboarding_completed is True
+    assert config.ui.advanced_settings is True
+
+
+def test_productization_ui_flags_round_trip():
+    from vocal_more.config import Config
+
+    config = Config()
+    config.apply_update("ui.onboarding_completed", True)
+    config.apply_update("ui.advanced_settings", True)
+
+    restored = Config.from_dict(config.to_dict())
+
+    assert restored.ui.onboarding_completed is True
+    assert restored.ui.advanced_settings is True
 
 
 def test_meeting_is_valid_default_mode():
@@ -177,6 +207,41 @@ def test_dictionary_learning_config_sanitizes_exclusions():
     assert config.dictionary_learning.enabled is True
     assert config.dictionary_learning.excluded_bundle_ids == [
         "com.1password.1password"
+    ]
+
+
+def test_context_personalization_config_defaults_to_private_app_categories():
+    from vocal_more.domain.config_models import AppConfig
+
+    config = AppConfig.from_dict({})
+
+    assert config.context_personalization.enabled is True
+    assert config.context_personalization.excluded_bundle_ids == []
+    assert config.to_dict()["context_personalization"] == {
+        "enabled": True,
+        "excluded_bundle_ids": [],
+    }
+
+
+def test_context_personalization_config_sanitizes_exclusions():
+    from vocal_more.domain.config_models import AppConfig
+
+    config = AppConfig.from_dict(
+        {
+            "context_personalization": {
+                "enabled": "false",
+                "excluded_bundle_ids": [
+                    " com.example.private ",
+                    "com.example.private",
+                    42,
+                ],
+            }
+        }
+    )
+
+    assert config.context_personalization.enabled is False
+    assert config.context_personalization.excluded_bundle_ids == [
+        "com.example.private"
     ]
 
 
@@ -756,6 +821,7 @@ def test_custom_key_defaults_to_none():
 
     config = Config()
     assert config.hotkey.custom_key is None
+    assert config.hotkey.custom_keys == []
 
 
 def test_custom_key_roundtrip(tmp_path, monkeypatch):
@@ -781,6 +847,70 @@ def test_custom_key_roundtrip(tmp_path, monkeypatch):
     assert loaded.hotkey.custom_key["display_name"] == "Space"
     assert loaded.hotkey.custom_key["is_modifier"] is False
     assert loaded.hotkey.custom_key["flag_mask"] == 0
+    assert loaded.hotkey.custom_keys == [loaded.hotkey.custom_key]
+
+
+def test_multiple_custom_hotkeys_are_validated_deduplicated_and_bounded():
+    from vocal_more.config import Config
+
+    config = Config()
+    f12 = {
+        "key_code": 111,
+        "display_name": "F12",
+        "is_modifier": False,
+        "flag_mask": 0,
+    }
+    right_control = {
+        "key_code": 62,
+        "display_name": "Right Control",
+        "is_modifier": True,
+        "flag_mask": 0x40000,
+    }
+
+    config.apply_update(
+        "hotkey.custom_keys",
+        [
+            f12,
+            f12,
+            {"key_code": 999, "is_modifier": False, "flag_mask": 0},
+            right_control,
+        ],
+    )
+
+    assert config.hotkey.custom_keys == [f12, right_control]
+    assert config.hotkey.custom_key == f12
+    assert Config.from_dict(config.to_dict()).hotkey.custom_keys == [
+        f12,
+        right_control,
+    ]
+
+
+def test_custom_keys_take_precedence_over_legacy_field_regardless_of_yaml_order():
+    from vocal_more.config import Config
+
+    f12 = {
+        "key_code": 111,
+        "display_name": "F12",
+        "is_modifier": False,
+        "flag_mask": 0,
+    }
+    f11 = {
+        "key_code": 103,
+        "display_name": "F11",
+        "is_modifier": False,
+        "flag_mask": 0,
+    }
+
+    loaded = Config.from_dict(
+        {
+            "hotkey": {
+                "custom_keys": [f12, f11],
+                "custom_key": f12,
+            }
+        }
+    )
+
+    assert loaded.hotkey.custom_keys == [f12, f11]
 
 
 def test_custom_key_invalid_falls_back_to_none(tmp_path, monkeypatch):

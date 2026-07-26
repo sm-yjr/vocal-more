@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import threading
 import time
+import uuid
 
 from .background_executor import BackgroundExecutor
 from .dictionary_edit_observer import PasteObservation
+from .dictionary_learning_candidates import split_dictionary_learning_evidence
 
 
 class DictionaryLearningQueueWorker:
@@ -106,6 +108,7 @@ class AutomaticDictionaryLearningCoordinator:
         queue_worker,
         processor=None,
         executor=None,
+        observation_id_factory=None,
     ) -> None:
         self._config = config
         self._observer_factory = observer_factory
@@ -115,6 +118,9 @@ class AutomaticDictionaryLearningCoordinator:
         self._executor = executor or BackgroundExecutor(
             max_workers=1,
             thread_name_prefix="vocal-more-dictionary-observer",
+        )
+        self._observation_id_factory = observation_id_factory or (
+            lambda: str(uuid.uuid4())
         )
         self._lock = threading.Lock()
         self._active_cancel: threading.Event | None = None
@@ -178,8 +184,13 @@ class AutomaticDictionaryLearningCoordinator:
                 cancel_event=cancel_event,
             )
             if evidence is not None:
-                self._repository.enqueue(evidence)
-                self._queue_worker.wake()
+                candidates = split_dictionary_learning_evidence(
+                    evidence,
+                    observation_id=self._observation_id_factory(),
+                )
+                if candidates:
+                    self._repository.enqueue_many(candidates)
+                    self._queue_worker.wake()
         except Exception as exc:
             print(f"[DictionaryLearning] Edit observation failed: {exc}")
         finally:

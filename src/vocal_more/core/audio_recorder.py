@@ -1,7 +1,10 @@
 """Audio recording module using sounddevice."""
 
 import io
+import os
+from pathlib import Path
 import threading
+import time
 import wave
 from typing import Callable, Optional
 
@@ -66,6 +69,16 @@ class AudioRecorder:
         self._audio_buffer: list[bytes] = []
         self._is_recording = False
         self._lock = threading.Lock()
+        replay_path = os.environ.get("VOCAL_MORE_BENCHMARK_AUDIO_FILE", "").strip()
+        trace_dir = os.environ.get("VOCAL_MORE_BENCHMARK_TRACE_DIR", "").strip()
+        self._benchmark_replay_path = (
+            Path(replay_path).expanduser().resolve()
+            if replay_path and trace_dir
+            else None
+        )
+        self._benchmark_replay_thread: Optional[threading.Thread] = None
+        self._benchmark_replay_done = threading.Event()
+        self._benchmark_replay_stop = threading.Event()
 
         # High-pass filter state (1st-order IIR)
         # α = 1 / (1 + 2π·fc/fs)
@@ -168,6 +181,12 @@ class AudioRecorder:
         Returns:
             Raw PCM audio data (int16, mono, 16kHz)
         """
+        self._benchmark_replay_stop.set()
+        replay_thread = self._benchmark_replay_thread
+        if replay_thread is not None and replay_thread is not threading.current_thread():
+            replay_thread.join(timeout=1.0)
+        self._benchmark_replay_thread = None
+
         with self._lock:
             self._is_recording = False
 
@@ -182,6 +201,17 @@ class AudioRecorder:
 
         return audio_data
 
+    @property
+    def benchmark_audio_delivery(self) -> str:
+        """Describe the active input path without exposing the source filename."""
+        if self._benchmark_replay_path is not None:
+            return "deterministic_wav_replay"
+        return "physical_microphone"
+
+    def wait_for_benchmark_replay(self, timeout: float | None = None) -> bool:
+        """Wait for an opt-in deterministic replay to feed its final block."""
+        return self._benchmark_replay_done.wait(timeout)
+
     def is_recording(self) -> bool:
         """Check if currently recording."""
         with self._lock:
@@ -194,6 +224,10 @@ class AudioRecorder:
 
     def _start_stream_with_recovery(self) -> None:
         """Open the input stream, then rebuild PortAudio once if it is wedged."""
+        if self._benchmark_replay_path is not None:
+            self._start_benchmark_replay(self._benchmark_replay_path)
+            return
+
         if self._use_config_device:
             self._device_name = get_config().audio.input_device
         device_index = self._resolve_device()
@@ -217,6 +251,69 @@ class AudioRecorder:
                     device_change_detected=True,
                 ) from initial_error
             raise AudioRecorderStartError(str(initial_error)) from initial_error
+
+    def _start_benchmark_replay(self, path: Path) -> None:
+        """Feed a validated WAV through the normal gain/filter/chunk callbacks."""
+        try:
+            with wave.open(str(path), "rb") as source:
+                if source.getnchannels() != self.channels or self.channels != 1:
+                    raise AudioRecorderStartError(
+                        "Benchmark replay WAV must be mono"
+                    )
+                if source.getsampwidth() != 2:
+                    raise AudioRecorderStartError(
+                        "Benchmark replay WAV must use 16-bit PCM"
+                    )
+                if source.getframerate() != self.sample_rate:
+                    raise AudioRecorderStartError(
+                        f"Benchmark replay WAV must be {self.sample_rate} Hz"
+                    )
+                pcm_data = source.readframes(source.getnframes())
+        except AudioRecorderStartError:
+            raise
+        except (OSError, EOFError, wave.Error) as exc:
+            raise AudioRecorderStartError(
+                f"Cannot read benchmark replay WAV: {exc}"
+            ) from exc
+
+        if not pcm_data:
+            raise AudioRecorderStartError("Benchmark replay WAV is empty")
+
+        self._benchmark_replay_done.clear()
+        self._benchmark_replay_stop.clear()
+        self._benchmark_replay_thread = threading.Thread(
+            target=self._run_benchmark_replay,
+            args=(pcm_data,),
+            name="vocal-more-benchmark-wav-replay",
+            daemon=True,
+        )
+        self._benchmark_replay_thread.start()
+
+    def _run_benchmark_replay(self, pcm_data: bytes) -> None:
+        bytes_per_frame = self.channels * 2
+        block_bytes = self.blocksize * bytes_per_frame
+        started_at = time.monotonic()
+        try:
+            for offset in range(0, len(pcm_data), block_bytes):
+                target_seconds = (
+                    offset / bytes_per_frame / self.sample_rate
+                )
+                delay = target_seconds - (time.monotonic() - started_at)
+                if delay > 0 and self._benchmark_replay_stop.wait(delay):
+                    break
+                if self._benchmark_replay_stop.is_set():
+                    break
+
+                chunk = pcm_data[offset : offset + block_bytes]
+                samples = (
+                    np.frombuffer(chunk, dtype="<i2")
+                    .astype(np.float32)
+                    .reshape(-1, self.channels)
+                    / 32768.0
+                )
+                self._audio_callback(samples, len(samples), {}, 0)
+        finally:
+            self._benchmark_replay_done.set()
 
     def _open_stream_with_fallback(self, device_index: Optional[int]) -> None:
         try:

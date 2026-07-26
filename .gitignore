@@ -60,3 +60,5 @@ mic-test-*.png
 evolve/run.log
 evolve/eval_output.json
 results.tsv
+eval/generated/
+eval/runs/

@@ -21,8 +21,10 @@ dictation and edit context to DashScope.
    immediately before `Cmd+V`.
 2. A dedicated observer polls that exact element for up to 15 seconds and
    scopes changes to the text span introduced by the current paste.
-3. Intermediate edits are coalesced: the final state wins and one paste creates
-   at most one learning job. Returning to the pasted baseline creates no job.
+3. Intermediate edits are coalesced: the final state wins. The final diff is
+   split into at most five independently classifiable candidates, which are
+   queued atomically as sibling jobs. Returning to the pasted baseline creates
+   no job.
 4. Leaving the field commits the latest state. If focus remains in the field at
    the deadline, the last relevant edit must have been stable for at least
    500 ms.
@@ -107,11 +109,14 @@ tests:
 - focus leaving the original Accessibility target ends the window and commits
   the last observed state.
 
-One paste still produces at most one model decision. If a user corrects several
-different dictionary terms in the same pasted passage, the model is instructed
-to choose the strongest dictionary-worthy mapping; remaining corrections can
-be learned from later dictations. This deliberately favors predictable,
-reversible mutations over bulk inference.
+One paste may produce up to five sibling model decisions when it contains
+distant dictionary-worthy corrections. Nearby edit hunks are merged, repeated
+identical mappings are deduplicated, and punctuation-only changes are ignored.
+If the final diff contains more than five candidates, the whole observation is
+discarded instead of learning a truncated subset. Sibling jobs are enqueued
+atomically, validated and retried independently, remain independently
+reversible, and produce one grouped success notification after the group
+finishes.
 
 ## Persistence and Retry
 

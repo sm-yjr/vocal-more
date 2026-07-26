@@ -20,6 +20,22 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/settings/package-lock.json
+
+      - name: Test and build settings frontend
+        working-directory: frontend/settings
+        run: |
+          npm ci
+          npm test
+          npm run typecheck
+          npm run lint
+          npm run build
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
 
