@@ -22,6 +22,8 @@ class FocusedTextSnapshot:
     app_bundle_id: str
     app_name: str
     is_secure: bool
+    selection_start: int | None = None
+    selection_length: int | None = None
     _target_handle: object | None = field(
         default=None,
         repr=False,
@@ -99,6 +101,25 @@ class MacOSFocusedTextProvider:
             if not isinstance(value, str):
                 return None
 
+        selection_start = None
+        selection_length = None
+        if not is_secure:
+            selected_range_attribute = getattr(
+                api,
+                "kAXSelectedTextRangeAttribute",
+                None,
+            )
+            if selected_range_attribute is not None:
+                selected_range = self._copy_attribute(
+                    api,
+                    element,
+                    selected_range_attribute,
+                )
+                selection_start, selection_length = self._extract_text_range(
+                    api,
+                    selected_range,
+                )
+
         if expected is None:
             from AppKit import NSRunningApplication
 
@@ -123,8 +144,57 @@ class MacOSFocusedTextProvider:
             app_bundle_id=bundle_id,
             app_name=app_name,
             is_secure=is_secure,
+            selection_start=selection_start,
+            selection_length=selection_length,
             _target_handle=element,
         )
+
+    @staticmethod
+    def _extract_text_range(api, value) -> tuple[int | None, int | None]:
+        """Decode an AXSelectedTextRange value across PyObjC API shapes."""
+        if value is None:
+            return None, None
+
+        candidate = value
+        location = getattr(candidate, "location", None)
+        length = getattr(candidate, "length", None)
+        if location is None or length is None:
+            getter = getattr(api, "AXValueGetValue", None)
+            range_type = getattr(api, "kAXValueCFRangeType", None)
+            if not callable(getter) or range_type is None:
+                return None, None
+            try:
+                decoded = getter(value, range_type, None)
+            except Exception:
+                return None, None
+            if isinstance(decoded, tuple):
+                if len(decoded) == 2 and isinstance(decoded[0], bool):
+                    if not decoded[0]:
+                        return None, None
+                    candidate = decoded[1]
+                elif len(decoded) == 2 and all(
+                    isinstance(item, (int, float)) for item in decoded
+                ):
+                    candidate = decoded
+                elif decoded:
+                    candidate = decoded[-1]
+            else:
+                candidate = decoded
+            location = getattr(candidate, "location", None)
+            length = getattr(candidate, "length", None)
+            if (
+                (location is None or length is None)
+                and isinstance(candidate, tuple)
+                and len(candidate) == 2
+            ):
+                location, length = candidate
+
+        try:
+            start = max(0, int(location))
+            size = max(0, int(length))
+        except (TypeError, ValueError):
+            return None, None
+        return start, size
 
     def capture_focused(self) -> FocusedTextSnapshot | None:
         try:

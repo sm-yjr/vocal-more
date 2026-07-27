@@ -78,7 +78,7 @@ class DictionaryLearningRepository:
                     candidate_count INTEGER NOT NULL DEFAULT 1,
                     notification_emitted INTEGER NOT NULL DEFAULT 0,
                     model TEXT NOT NULL DEFAULT 'qwen3.7-plus',
-                    prompt_version INTEGER NOT NULL DEFAULT 2
+                    prompt_version INTEGER NOT NULL DEFAULT 3
                 )
                 """
             )

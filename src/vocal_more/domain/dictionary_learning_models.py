@@ -24,10 +24,10 @@ LearningJobStatus = Literal[
 ]
 
 AUTO_ADD_CONFIDENCE = 0.90
-REVIEW_CONFIDENCE = 0.70
+REVIEW_CONFIDENCE = 0.0
 MAX_LEARNED_TERM_LENGTH = 60
 MAX_EVIDENCE_TEXT_LENGTH = 8_000
-CURRENT_PROMPT_VERSION = 2
+CURRENT_PROMPT_VERSION = 3
 
 _NUMERIC_OR_DATE_RE = re.compile(
     r"^[零〇一二两三四五六七八九十百千万亿\d年月日号点时分秒"
@@ -310,14 +310,14 @@ def validate_decision(
         return _ignore("dictionary_conflict")
 
     action: ValidatedAction
-    if decision.decision == "review" or decision.confidence < AUTO_ADD_CONFIDENCE:
-        action = "review" if decision.confidence >= REVIEW_CONFIDENCE else "ignore"
-    else:
-        action = "add"
-
-    reason_code = decision.reason_code or (
-        "low_confidence" if action == "ignore" else "model_classification"
+    action = (
+        "add"
+        if decision.decision == "add"
+        and decision.confidence >= AUTO_ADD_CONFIDENCE
+        else "review"
     )
+
+    reason_code = decision.reason_code or "model_classification"
     return ValidatedDictionaryDecision(
         action=action,
         term=term if action != "ignore" else "",

@@ -366,6 +366,38 @@ describe("settings application", () => {
     })
   })
 
+  it("shows automatic-learning observation and analysis stages", async () => {
+    const user = userEvent.setup()
+    const data = makeInitData()
+    data.dictionary_learning_records = [
+      {
+        id: "observation:latest",
+        status: "monitoring",
+        app_name: "Notes",
+      },
+      {
+        id: "learn-pending",
+        term: "阿里云百炼",
+        aliases: ["阿里云白练"],
+        status: "processing",
+      },
+      {
+        id: "learn-ignored",
+        status: "ignored",
+      },
+    ]
+    renderApp(data)
+
+    await user.click(screen.getByRole("tab", { name: "词典" }))
+
+    expect(screen.getByText("正在监听修改 · Notes")).toBeVisible()
+    expect(screen.getByText("正在分析纠正")).toBeVisible()
+    expect(screen.getAllByText("未添加词条")).toHaveLength(1)
+    expect(
+      screen.queryByRole("button", { name: "添加" }),
+    ).not.toBeInTheDocument()
+  })
+
   it("switches interface copy immediately while notifying Python", async () => {
     const user = userEvent.setup()
     const { postMessage } = renderApp()

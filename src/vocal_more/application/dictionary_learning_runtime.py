@@ -94,6 +94,29 @@ class DictionaryLearningQueueWorker:
 class _PreparedObservation:
     observer: object
     ticket: PasteObservation
+    observation_id: str
+    created_at: float
+
+
+def _candidate_change_text(evidence, *, after: bool) -> str:
+    text = (
+        evidence.candidate_after_text
+        if after
+        else evidence.candidate_before_text
+    )
+    start = (
+        evidence.candidate_after_change_start
+        if after
+        else evidence.candidate_before_change_start
+    )
+    end = (
+        evidence.candidate_after_change_end
+        if after
+        else evidence.candidate_before_change_end
+    )
+    if start is None or end is None:
+        return ""
+    return text[start:end].strip()
 
 
 class AutomaticDictionaryLearningCoordinator:
@@ -124,6 +147,8 @@ class AutomaticDictionaryLearningCoordinator:
         )
         self._lock = threading.Lock()
         self._active_cancel: threading.Event | None = None
+        self._on_change = None
+        self._last_observation: dict | None = None
         self._closed = False
 
     def prepare_paste(
@@ -154,7 +179,29 @@ class AutomaticDictionaryLearningCoordinator:
         )
         if ticket is None:
             return None
-        return _PreparedObservation(observer=observer, ticket=ticket)
+        prepared = _PreparedObservation(
+            observer=observer,
+            ticket=ticket,
+            observation_id=self._observation_id_factory(),
+            created_at=time.time(),
+        )
+        with self._lock:
+            original = getattr(ticket, "original", None)
+            self._last_observation = {
+                "id": f"observation:{prepared.observation_id}",
+                "status": "monitoring",
+                "app_name": str(getattr(original, "app_name", "")),
+                "created_at": prepared.created_at,
+            }
+        self._emit_change(
+            {
+                "id": prepared.observation_id,
+                "status": "monitoring",
+                "source": "observation",
+                "dictionary_changed": False,
+            }
+        )
+        return prepared
 
     def observe_after_paste(
         self,
@@ -186,13 +233,42 @@ class AutomaticDictionaryLearningCoordinator:
             if evidence is not None:
                 candidates = split_dictionary_learning_evidence(
                     evidence,
-                    observation_id=self._observation_id_factory(),
+                    observation_id=prepared.observation_id,
                 )
                 if candidates:
-                    self._repository.enqueue_many(candidates)
+                    jobs = self._repository.enqueue_many(candidates)
+                    self._complete_observation(prepared, status=None)
+                    self._emit_change(
+                        {
+                            "id": prepared.observation_id,
+                            "status": "pending",
+                            "job_ids": [job.id for job in jobs],
+                            "source": "observation",
+                            "dictionary_changed": False,
+                        }
+                    )
                     self._queue_worker.wake()
+                    return
+            self._complete_observation(prepared, status="no_change")
+            self._emit_change(
+                {
+                    "id": prepared.observation_id,
+                    "status": "no_change",
+                    "source": "observation",
+                    "dictionary_changed": False,
+                }
+            )
         except Exception as exc:
             print(f"[DictionaryLearning] Edit observation failed: {exc}")
+            self._complete_observation(prepared, status="observation_failed")
+            self._emit_change(
+                {
+                    "id": prepared.observation_id,
+                    "status": "observation_failed",
+                    "source": "observation",
+                    "dictionary_changed": False,
+                }
+            )
         finally:
             with self._lock:
                 if self._active_cancel is cancel_event:
@@ -202,30 +278,89 @@ class AutomaticDictionaryLearningCoordinator:
         self._queue_worker.wake()
 
     def set_on_change(self, callback) -> None:
+        with self._lock:
+            self._on_change = callback
         if self._processor is not None:
             self._processor.set_on_change(callback)
 
     def list_recent(self, *, limit: int = 100) -> list[dict]:
         jobs = self._repository.list_jobs(
-            statuses=("applied", "review", "reverted"),
+            statuses=(
+                "pending",
+                "processing",
+                "applying",
+                "retry",
+                "applied",
+                "review",
+                "ignored",
+                "failed",
+                "reverted",
+            ),
             limit=limit,
         )
         records: list[dict] = []
         for job in jobs:
-            if job.result is None:
-                continue
-            records.append(
-                {
-                    "id": job.id,
-                    "status": job.status,
-                    "term": job.result.term,
-                    "aliases": list(job.result.aliases),
-                    "confidence": job.result.confidence,
-                    "reason_code": job.result.reason_code,
-                    "created_at": job.created_at,
-                }
+            result = job.result
+            before_text = _candidate_change_text(job.evidence, after=False)
+            after_text = _candidate_change_text(job.evidence, after=True)
+            record = {
+                "id": job.id,
+                "status": job.status,
+                "term": result.term if result is not None else after_text,
+                "aliases": (
+                    list(result.aliases)
+                    if result is not None
+                    else ([before_text] if before_text else [])
+                ),
+                "confidence": (
+                    result.confidence if result is not None else None
+                ),
+                "reason_code": (
+                    result.reason_code if result is not None else ""
+                ),
+                "before_text": before_text,
+                "after_text": after_text,
+                "created_at": job.created_at,
+            }
+            records.append(record)
+        with self._lock:
+            latest = (
+                dict(self._last_observation)
+                if self._last_observation is not None
+                else None
             )
+        if latest is not None:
+            records.insert(0, latest)
         return records
+
+    def _complete_observation(
+        self,
+        prepared: _PreparedObservation,
+        *,
+        status: str | None,
+    ) -> None:
+        with self._lock:
+            current = self._last_observation
+            expected_id = f"observation:{prepared.observation_id}"
+            if current is None or current.get("id") != expected_id:
+                return
+            if status is None:
+                self._last_observation = None
+                return
+            self._last_observation = {
+                **current,
+                "status": status,
+            }
+
+    def _emit_change(self, change: dict) -> None:
+        with self._lock:
+            callback = self._on_change
+        if callback is None:
+            return
+        try:
+            callback(change)
+        except Exception as exc:
+            print(f"[DictionaryLearning] Change callback failed: {exc}")
 
     def approve(self, job_id: str) -> bool:
         return bool(self._processor and self._processor.approve(job_id))

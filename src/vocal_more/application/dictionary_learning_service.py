@@ -35,7 +35,7 @@ class DictionaryLearningProcessor:
         self,
         job_id: str,
         status: str,
-        decision,
+        decision=None,
         *,
         source: str,
         dictionary_changed: bool,
@@ -47,9 +47,9 @@ class DictionaryLearningProcessor:
             change = {
                 "id": job_id,
                 "status": status,
-                "term": decision.term,
-                "aliases": list(decision.aliases),
-                "confidence": decision.confidence,
+                "term": getattr(decision, "term", ""),
+                "aliases": list(getattr(decision, "aliases", ())),
+                "confidence": getattr(decision, "confidence", None),
                 "source": source,
                 "dictionary_changed": dictionary_changed,
             }
@@ -124,6 +124,14 @@ class DictionaryLearningProcessor:
                     error=str(exc),
                     now=timestamp,
                 )
+                self._emit_change(
+                    job.id,
+                    "retry",
+                    job.result,
+                    source="automatic",
+                    dictionary_changed=False,
+                    job=job,
+                )
             self._emit_observation_summary(job)
             return True
 
@@ -141,16 +149,39 @@ class DictionaryLearningProcessor:
                     error=str(exc),
                     now=timestamp,
                 )
+                status = "retry"
             else:
                 self._repository.mark_failed(job.id, error=str(exc), now=timestamp)
+                status = "failed"
+            self._emit_change(
+                job.id,
+                status,
+                source="automatic",
+                dictionary_changed=False,
+                job=job,
+            )
             self._emit_observation_summary(job)
             return True
         except DictionaryLearningResponseError as exc:
             self._repository.mark_failed(job.id, error=str(exc), now=timestamp)
+            self._emit_change(
+                job.id,
+                "failed",
+                source="automatic",
+                dictionary_changed=False,
+                job=job,
+            )
             self._emit_observation_summary(job)
             return True
         except Exception as exc:
             self._repository.mark_failed(job.id, error=str(exc), now=timestamp)
+            self._emit_change(
+                job.id,
+                "failed",
+                source="automatic",
+                dictionary_changed=False,
+                job=job,
+            )
             self._emit_observation_summary(job)
             return True
 
@@ -190,6 +221,14 @@ class DictionaryLearningProcessor:
                     error=str(exc),
                     now=timestamp,
                 )
+                self._emit_change(
+                    job.id,
+                    "retry",
+                    decision,
+                    source="automatic",
+                    dictionary_changed=False,
+                    job=job,
+                )
             self._emit_observation_summary(job)
         elif decision.action == "review":
             self._repository.finish(
@@ -213,6 +252,14 @@ class DictionaryLearningProcessor:
                 status="ignored",
                 result=decision,
                 now=timestamp,
+            )
+            self._emit_change(
+                job.id,
+                "ignored",
+                decision,
+                source="automatic",
+                dictionary_changed=False,
+                job=job,
             )
             self._emit_observation_summary(job)
         return True

@@ -101,8 +101,9 @@ export function makeInitData(): SettingsInitData {
       {
         id: "learn-1",
         term: "shadcn",
-        aliases: [],
-        status: "pending",
+        aliases: ["shad cn"],
+        status: "review",
+        confidence: 0.62,
       },
     ],
     polish_prompt_presets: {

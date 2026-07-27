@@ -283,6 +283,16 @@ def test_decision_validation_routes_medium_confidence_to_review():
     assert result.aliases == ["阿里云白练"]
 
 
+def test_decision_validation_routes_low_confidence_candidate_to_review():
+    from vocal_more.domain.dictionary_learning_models import validate_decision
+
+    result = validate_decision(_decision(confidence=0.28), _evidence())
+
+    assert result.action == "review"
+    assert result.term == "阿里云百炼"
+    assert result.aliases == ["阿里云白练"]
+
+
 def test_sqlite_repository_persists_and_claims_due_jobs(tmp_path):
     from vocal_more.infrastructure.dictionary_learning_repository import (
         DictionaryLearningRepository,
@@ -300,7 +310,7 @@ def test_sqlite_repository_persists_and_claims_due_jobs(tmp_path):
     assert claimed.status == "processing"
     assert claimed.evidence == queued.evidence
     assert claimed.model == "qwen3.7-plus"
-    assert claimed.prompt_version == 2
+    assert claimed.prompt_version == 3
 
     reopened.schedule_retry(claimed.id, error="rate limited", now=100.0)
     assert reopened.claim_next(now=101.0) is None
@@ -327,7 +337,7 @@ def test_repository_enqueue_many_is_atomic_and_preserves_candidate_order(tmp_pat
     ]
     assert [job.candidate_index for job in jobs] == [0, 1]
     assert [job.candidate_count for job in jobs] == [2, 2]
-    assert [job.prompt_version for job in jobs] == [2, 2]
+    assert [job.prompt_version for job in jobs] == [3, 3]
     assert repository.claim_next(now=100.0).id == jobs[0].id
     assert repository.claim_next(now=100.0).id == jobs[1].id
 
@@ -1270,6 +1280,75 @@ def test_edit_observer_reads_final_correction_from_original_target_on_focus_chan
     assert provider.captured_targets == [original]
 
 
+def test_edit_observer_recovers_when_focus_moves_before_first_post_paste_poll():
+    from vocal_more.application.dictionary_edit_observer import DictionaryEditObserver
+
+    original = _snapshot("")
+    provider = _RetainedTargetProvider(
+        [
+            original,
+            _snapshot("另一个输入框", target_id="123:other"),
+        ],
+        retained_snapshot=_snapshot("今天用阿里云百炼测试。"),
+    )
+    clock, sleep = _fake_time()
+    observer = DictionaryEditObserver(
+        provider=provider,
+        observation_seconds=15.0,
+        poll_interval=0.25,
+        clock=clock,
+        sleep=sleep,
+    )
+
+    ticket = observer.prepare(
+        raw_text="今天用阿里云白练测试。",
+        pasted_text="今天用阿里云白练测试。",
+        recording_id="recording-fast-switch",
+        mode_name="walkie_talkie",
+    )
+    evidence = observer.observe(ticket)
+
+    assert evidence == _evidence(recording_id="recording-fast-switch")
+    assert provider.captured_targets == [original]
+
+
+def test_edit_observer_uses_selected_range_to_recover_fast_focus_switch():
+    from vocal_more.application.dictionary_edit_observer import DictionaryEditObserver
+
+    original = _snapshot(
+        "开头旧内容结尾",
+        selection_start=2,
+        selection_length=3,
+    )
+    provider = _RetainedTargetProvider(
+        [
+            original,
+            _snapshot("另一个输入框", target_id="123:other"),
+        ],
+        retained_snapshot=_snapshot("开头阿里云百炼结尾"),
+    )
+    clock, sleep = _fake_time()
+    observer = DictionaryEditObserver(
+        provider=provider,
+        poll_interval=0.25,
+        clock=clock,
+        sleep=sleep,
+    )
+
+    ticket = observer.prepare(
+        raw_text="阿里云白练",
+        pasted_text="阿里云白练",
+        recording_id=None,
+        mode_name="walkie_talkie",
+    )
+    evidence = observer.observe(ticket)
+
+    assert evidence is not None
+    assert evidence.original_text == "旧内容"
+    assert evidence.baseline_text == "阿里云白练"
+    assert evidence.edited_text == "阿里云百炼"
+
+
 def test_edit_observer_discards_retained_target_if_it_becomes_secure():
     from vocal_more.application.dictionary_edit_observer import DictionaryEditObserver
 
@@ -1680,6 +1759,65 @@ def test_macos_provider_rechecks_security_before_reading_retained_target(
     assert "value" not in requested
 
 
+def test_macos_provider_captures_selected_text_range(monkeypatch):
+    import AppKit
+
+    from vocal_more.core.accessibility_text import MacOSFocusedTextProvider
+
+    api = types.ModuleType("ApplicationServices")
+    api.kAXFocusedUIElementAttribute = "focused"
+    api.kAXRoleAttribute = "role"
+    api.kAXSubroleAttribute = "subrole"
+    api.kAXValueAttribute = "value"
+    api.kAXIdentifierAttribute = "identifier"
+    api.kAXSelectedTextRangeAttribute = "selected-range"
+    api.kAXValueCFRangeType = "cf-range"
+    api.AXUIElementCreateSystemWide = lambda: "system"
+
+    def copy_attribute(_element, attribute, _output):
+        values = {
+            "focused": "editor",
+            "role": "AXTextArea",
+            "subrole": "",
+            "identifier": "editor",
+            "value": "开头旧内容结尾",
+            "selected-range": "range-value",
+        }
+        return 0, values[attribute]
+
+    api.AXUIElementCopyAttributeValue = copy_attribute
+    api.AXUIElementGetPid = lambda _element, _output: (0, 123)
+    api.AXValueGetValue = lambda value, value_type, _output: (
+        True,
+        SimpleNamespace(location=2, length=3),
+    )
+    core_foundation = types.ModuleType("CoreFoundation")
+    core_foundation.CFHash = lambda _element: 456
+
+    class _RunningApplication:
+        @staticmethod
+        def runningApplicationWithProcessIdentifier_(_pid):
+            return SimpleNamespace(
+                bundleIdentifier=lambda: "com.apple.Notes",
+                localizedName=lambda: "Notes",
+            )
+
+    monkeypatch.setitem(sys.modules, "ApplicationServices", api)
+    monkeypatch.setitem(sys.modules, "CoreFoundation", core_foundation)
+    monkeypatch.setattr(
+        AppKit,
+        "NSRunningApplication",
+        _RunningApplication,
+        raising=False,
+    )
+
+    snapshot = MacOSFocusedTextProvider().capture_focused()
+
+    assert snapshot is not None
+    assert snapshot.selection_start == 2
+    assert snapshot.selection_length == 3
+
+
 def test_edit_observer_rejects_clear_and_large_rewrite():
     from vocal_more.application.dictionary_edit_observer import DictionaryEditObserver
 
@@ -1857,6 +1995,66 @@ def test_coordinator_atomically_queues_multiple_candidates_and_wakes_once():
         candidate.observation_id == "observation-multi"
         for candidate in queued
     )
+    queue_worker.wake.assert_called_once_with()
+
+
+def test_coordinator_exposes_monitoring_and_pending_pipeline_states(tmp_path):
+    from vocal_more.application.dictionary_learning_runtime import (
+        AutomaticDictionaryLearningCoordinator,
+    )
+    from vocal_more.infrastructure.dictionary_learning_repository import (
+        DictionaryLearningRepository,
+    )
+
+    config = SimpleNamespace(
+        api_key="user-key",
+        dictionary_learning=SimpleNamespace(
+            enabled=True,
+            excluded_bundle_ids=[],
+        ),
+    )
+    observer = MagicMock()
+    observer.prepare.return_value = SimpleNamespace(
+        original=_snapshot("", app_name="Notes")
+    )
+    observer.observe.return_value = _evidence()
+    repository = DictionaryLearningRepository(
+        database_path=tmp_path / "learning.sqlite3"
+    )
+    queue_worker = MagicMock()
+    changes: list[dict] = []
+    coordinator = AutomaticDictionaryLearningCoordinator(
+        config=config,
+        observer_factory=MagicMock(return_value=observer),
+        repository=repository,
+        queue_worker=queue_worker,
+        executor=_ImmediateExecutor(),
+        observation_id_factory=lambda: "observation-visible",
+    )
+    coordinator.set_on_change(changes.append)
+
+    prepared = coordinator.prepare_paste(
+        raw_text="今天用阿里云白练测试。",
+        pasted_text="今天用阿里云白练测试。",
+        recording_id="recording-visible",
+        mode_name="walkie_talkie",
+    )
+
+    monitoring = coordinator.list_recent()
+    assert monitoring[0]["status"] == "monitoring"
+    assert monitoring[0]["app_name"] == "Notes"
+
+    coordinator.observe_after_paste(prepared)
+
+    records = coordinator.list_recent()
+    assert len(records) == 1
+    assert records[0]["status"] == "pending"
+    assert records[0]["term"] == "百炼"
+    assert records[0]["aliases"] == ["白练"]
+    assert [change["status"] for change in changes] == [
+        "monitoring",
+        "pending",
+    ]
     queue_worker.wake.assert_called_once_with()
 
 

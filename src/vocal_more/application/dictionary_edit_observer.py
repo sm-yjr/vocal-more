@@ -34,6 +34,15 @@ class PasteObservation:
     mode_name: str
 
 
+@dataclass(frozen=True)
+class _PastedBaseline:
+    """A reconstructed paste baseline plus any edit already observed."""
+
+    baseline: FocusedTextSnapshot
+    current: FocusedTextSnapshot | None = None
+    focus_committed: bool = False
+
+
 def _normalize_ax_text(value: str) -> str:
     return _ZERO_WIDTH_RE.sub("", value.replace("\r\n", "\n").replace("\r", "\n"))
 
@@ -93,6 +102,66 @@ def _bounded_edit_context(before: str, after: str) -> tuple[str, str]:
     return (
         before[before_start : min(len(before), before_end + context_after)],
         after[after_start : min(len(after), after_end + context_after)],
+    )
+
+
+def _snapshot_with_value(
+    snapshot: FocusedTextSnapshot,
+    value: str,
+) -> FocusedTextSnapshot:
+    return FocusedTextSnapshot(
+        target_id=snapshot.target_id,
+        pid=snapshot.pid,
+        value=value,
+        role=snapshot.role,
+        subrole=snapshot.subrole,
+        app_bundle_id=snapshot.app_bundle_id,
+        app_name=snapshot.app_name,
+        is_secure=snapshot.is_secure,
+        selection_start=snapshot.selection_start,
+        selection_length=snapshot.selection_length,
+        _target_handle=snapshot._target_handle,
+    )
+
+
+def _expected_pasted_text(ticket: PasteObservation) -> str | None:
+    """Build the exact post-paste baseline from the pre-paste selection."""
+    original = _normalize_ax_text(ticket.original.value)
+    selection_start = ticket.original.selection_start
+    selection_length = ticket.original.selection_length
+    if selection_start is None or selection_length is None:
+        return None
+    if selection_start > len(original):
+        return None
+    selection_end = min(len(original), selection_start + selection_length)
+    return (
+        original[:selection_start]
+        + _normalize_ax_text(ticket.pasted_text)
+        + original[selection_end:]
+    )
+
+
+def _reconstruct_pasted_text(
+    ticket: PasteObservation,
+    observed_text: str,
+) -> str | None:
+    """Recover a baseline when focus moved before the first post-paste poll."""
+    expected = _expected_pasted_text(ticket)
+    if expected is not None:
+        return expected
+
+    original = _normalize_ax_text(ticket.original.value)
+    observed = _normalize_ax_text(observed_text)
+    if not observed or observed == original:
+        return None
+    change_start, original_end, _observed_end = _change_bounds(
+        original,
+        observed,
+    )
+    return (
+        original[:change_start]
+        + _normalize_ax_text(ticket.pasted_text)
+        + original[original_end:]
     )
 
 
@@ -212,12 +281,12 @@ class DictionaryEditObserver:
         if ticket is None:
             return None
         cancel_event = cancel_event or threading.Event()
-        baseline = self._wait_for_pasted_baseline(ticket, cancel_event)
-        if baseline is None:
+        baseline_capture = self._wait_for_pasted_baseline(ticket, cancel_event)
+        if baseline_capture is None:
             return None
 
         original_text = _normalize_ax_text(ticket.original.value)
-        baseline_text = _normalize_ax_text(baseline.value)
+        baseline_text = _normalize_ax_text(baseline_capture.baseline.value)
         pasted_span = _locate_pasted_span(
             original_text,
             baseline_text,
@@ -229,9 +298,25 @@ class DictionaryEditObserver:
         pasted_baseline = baseline_text[pasted_start:pasted_end]
         latest_pasted = pasted_baseline
         last_relevant_change_at: float | None = None
-        focus_committed = False
+        focus_committed = baseline_capture.focus_committed
+        if baseline_capture.current is not None:
+            if baseline_capture.current.is_secure:
+                return None
+            initial_text = _normalize_ax_text(baseline_capture.current.value)
+            if not initial_text:
+                return None
+            initial_pasted = _project_span_after_edit(
+                baseline_text,
+                initial_text,
+                pasted_start,
+                pasted_end,
+            )
+            if initial_pasted != latest_pasted:
+                latest_pasted = initial_pasted
+                last_relevant_change_at = self._clock()
+
         deadline = self._clock() + self._observation_seconds
-        while not cancel_event.is_set():
+        while not focus_committed and not cancel_event.is_set():
             remaining = deadline - self._clock()
             if remaining <= 0:
                 break
@@ -323,23 +408,50 @@ class DictionaryEditObserver:
         self,
         ticket: PasteObservation,
         cancel_event: threading.Event,
-    ) -> FocusedTextSnapshot | None:
+    ) -> _PastedBaseline | None:
         deadline = self._clock() + self._post_paste_timeout
         while not cancel_event.is_set():
             current = self._provider.capture_focused()
             if current is None or not ticket.original.is_same_target(current):
+                final = self._capture_original_target(ticket)
+                if final is None or final.is_secure:
+                    return None
+                normalized_final = _normalize_ax_text(final.value)
+                baseline_text = _reconstruct_pasted_text(
+                    ticket,
+                    normalized_final,
+                )
+                if baseline_text is None:
+                    return None
+                return _PastedBaseline(
+                    baseline=_snapshot_with_value(final, baseline_text),
+                    current=_snapshot_with_value(final, normalized_final),
+                    focus_committed=True,
+                )
+            if current.is_secure:
                 return None
             normalized = _normalize_ax_text(current.value)
-            if ticket.pasted_text in normalized:
-                return FocusedTextSnapshot(
-                    target_id=current.target_id,
-                    pid=current.pid,
-                    value=normalized,
-                    role=current.role,
-                    subrole=current.subrole,
-                    app_bundle_id=current.app_bundle_id,
-                    app_name=current.app_name,
-                    is_secure=current.is_secure,
+            expected = _expected_pasted_text(ticket)
+            if expected is not None and normalized != _normalize_ax_text(
+                ticket.original.value
+            ):
+                return _PastedBaseline(
+                    baseline=_snapshot_with_value(current, expected),
+                    current=(
+                        None
+                        if normalized == expected
+                        else _snapshot_with_value(current, normalized)
+                    ),
+                )
+            if _normalize_ax_text(ticket.pasted_text) in normalized:
+                return _PastedBaseline(
+                    baseline=_snapshot_with_value(current, normalized)
+                )
+            reconstructed = _reconstruct_pasted_text(ticket, normalized)
+            if reconstructed is not None:
+                return _PastedBaseline(
+                    baseline=_snapshot_with_value(current, reconstructed),
+                    current=_snapshot_with_value(current, normalized),
                 )
             if self._clock() >= deadline:
                 return None

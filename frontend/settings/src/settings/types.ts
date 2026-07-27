@@ -119,6 +119,12 @@ export interface DictionaryLearningRecord {
   term?: string
   aliases?: string[]
   status?: string
+  confidence?: number | null
+  reason_code?: string
+  before_text?: string
+  after_text?: string
+  app_name?: string
+  created_at?: number
   [key: string]: unknown
 }
 

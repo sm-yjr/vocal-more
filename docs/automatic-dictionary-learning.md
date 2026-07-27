@@ -27,7 +27,9 @@ dictation and edit context to DashScope.
    no job.
 4. Leaving the field commits the latest state. If focus remains in the field at
    the deadline, the last relevant edit must have been stable for at least
-   500 ms.
+   500 ms. If the user switches apps before the observer's first post-paste
+   poll, the baseline is reconstructed from the pre-paste selection and the
+   retained Accessibility element.
 5. Secure fields, excluded bundle IDs, clears, and large rewrites stop or
    discard the observation. Edits to pre-existing text outside the pasted span
    are ignored.
@@ -37,8 +39,10 @@ dictation and edit context to DashScope.
    DashScope API key.
 8. Deterministic local validation checks that the corrected term occurs in the
    edited text and every alias occurs in the pasted or raw text.
-9. Results at or above `0.90` confidence are added automatically. Results from
-   `0.70` through `0.89` wait for review. Lower-confidence results are ignored.
+9. Results at or above `0.90` confidence are added automatically. Every other
+   structurally valid candidate waits for review, including low-confidence
+   candidates. Model decisions that are clearly unrelated to reusable
+   vocabulary remain ignored.
 10. A macOS notification is shown only when automatic learning actually creates
     a term or adds at least one alias. Duplicate results and manually approved
     review items do not report an automatic-learning success.
@@ -78,8 +82,7 @@ The local validator rejects:
 - terms absent from the edited text;
 - number, date, or time changes;
 - punctuation-only mappings;
-- dictionary conflicts and alias cycles;
-- low-confidence model output.
+- dictionary conflicts and alias cycles.
 
 Model output never mutates the dictionary without passing these checks.
 
@@ -124,6 +127,11 @@ SQLite owns pending, processing, retry, applied, review, ignored, failed, and
 reverted states. Network and rate-limit failures retry with exponential
 backoff, up to five attempts. Invalid JSON and non-retryable request failures
 are marked failed.
+
+The settings page exposes the runtime pipeline instead of showing only final
+successes. It reports active observation, queued or processing corrections,
+review decisions, automatic additions, ignored decisions, retry/failure
+states, and the latest observation that produced no reusable correction.
 
 Jobs record the model and prompt version so a future prompt change remains
 auditable. Dictionary entries stay in the existing YAML format; SQLite stores
