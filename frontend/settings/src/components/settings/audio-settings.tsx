@@ -153,7 +153,7 @@ export function AudioSettings({
             <Slider
               aria-label={copy.softwareGain}
               min={-6}
-              max={30}
+              max={34}
               step={1}
               value={gainDb}
               onValueChange={(value) =>

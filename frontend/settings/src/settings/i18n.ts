@@ -65,7 +65,8 @@ const en = {
   normal: "Normal",
   noisy: "Noisy room",
   softwareGain: "Software gain",
-  softwareGainHint: "Amplify low-voice input. 0 dB means no amplification.",
+  softwareGainHint:
+    "Amplify low-voice input up to 50× (+34 dB). 0 dB means no amplification.",
   highpass: "High-pass filter",
   cutoff: "Cutoff frequency",
   highpassHint: "Remove fan, AC, rumble, and plosive energy below the cutoff.",
@@ -283,7 +284,7 @@ const zh: Copy = {
   normal: "普通说话",
   noisy: "嘈杂环境",
   softwareGain: "软件增益",
-  softwareGainHint: "放大轻声输入。0 dB 表示不放大。",
+  softwareGainHint: "轻声输入最高可放大 50 倍（+34 dB）。0 dB 表示不放大。",
   highpass: "高通滤波",
   cutoff: "截止频率",
   highpassHint: "去除风扇、空调、低频噪声和喷麦声。",

@@ -105,6 +105,11 @@ describe("settings application", () => {
     const { postMessage } = renderApp()
 
     await user.click(screen.getByRole("tab", { name: "音频" }))
+    const gainControl = screen.getByRole("group", { name: "软件增益" })
+    expect(gainControl.querySelector('input[type="range"]')).toHaveAttribute(
+      "max",
+      "34",
+    )
     await user.selectOptions(
       screen.getByRole("combobox", { name: "输入设备" }),
       "Studio Mic",

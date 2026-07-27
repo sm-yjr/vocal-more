@@ -449,7 +449,7 @@ def test_config_numeric_fields_are_clamped_to_supported_ranges():
     config.apply_update("audio.gain", -999)
     assert round(config.audio.gain, 6) == round(10 ** (-6 / 20), 6)
     config.apply_update("audio.gain", 999)
-    assert round(config.audio.gain, 6) == round(10 ** (30 / 20), 6)
+    assert config.audio.gain == 50.0
 
     config.apply_update("audio.highpass_freq", -1)
     assert config.audio.highpass_freq == 50
