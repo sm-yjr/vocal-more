@@ -9,6 +9,7 @@ import {
   Sparkles,
   Square,
 } from "lucide-react"
+import { useEffect } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -88,14 +89,19 @@ export function Onboarding({
     snapshot.devices.length > 0 && readiness(snapshot, "input_device")
   const accessibilityReady = readiness(snapshot, "accessibility")
   const hotkeyReady = readiness(snapshot, "hotkey_listener")
-  const firstRecordingReady =
-    mic.state === "done" && Boolean(mic.playbackBase64)
+  const firstRecordingReady = mic.state === "done"
   const canFinish =
     apiReady &&
     deviceReady &&
     accessibilityReady &&
     hotkeyReady &&
     firstRecordingReady
+
+  useEffect(() => {
+    if (mic.state === "done" && !mic.playbackBase64) {
+      sendAction("playMicTest")
+    }
+  }, [mic.state, mic.playbackBase64])
 
   function applyWhisperPreset() {
     for (const [key, value] of Object.entries(WHISPER_PRESET)) {
@@ -263,6 +269,7 @@ export function Onboarding({
             {mic.playbackBase64 ? (
               <audio
                 className="mt-3 h-8 w-full"
+                aria-label={copy.play}
                 controls
                 src={`data:audio/wav;base64,${mic.playbackBase64}`}
               />

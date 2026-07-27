@@ -61,6 +61,40 @@ describe("settings application", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("unlocks setup when the microphone test completes without requesting playback", () => {
+    const data = makeInitData()
+    data.config!.ui = {
+      language: "zh",
+      onboarding_completed: false,
+      advanced_settings: false,
+    }
+    const { postMessage, store } = renderApp(data)
+    const finish = screen.getByRole("button", { name: "完成设置" })
+
+    expect(finish).toBeDisabled()
+
+    act(() => {
+      store.micTestStarted()
+      store.micTestComplete()
+    })
+
+    expect(store.getSnapshot().micTest).toMatchObject({
+      state: "done",
+      playbackBase64: null,
+    })
+    expect(finish).toBeEnabled()
+    expect(postMessage).toHaveBeenCalledWith({
+      action: "playMicTest",
+    })
+
+    act(() => store.micTestPlayback("UklGRg=="))
+
+    expect(screen.getByLabelText("播放")).toHaveAttribute(
+      "src",
+      "data:audio/wav;base64,UklGRg==",
+    )
+  })
+
   it("keeps model and API controls behind an explicit advanced switch", async () => {
     const user = userEvent.setup()
     const data = makeInitData()

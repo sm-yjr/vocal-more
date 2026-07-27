@@ -89,6 +89,12 @@ export function AudioSettings({
     return () => window.clearTimeout(timer)
   }, [mic.state])
 
+  useEffect(() => {
+    if (mic.state === "done" && !mic.playbackBase64) {
+      sendAction("playMicTest")
+    }
+  }, [mic.state, mic.playbackBase64])
+
   function applyPreset(name: keyof typeof AUDIO_PRESETS) {
     for (const [key, value] of Object.entries(AUDIO_PRESETS[name])) {
       setConfig(store, `audio.${key}`, value)
@@ -287,6 +293,7 @@ export function AudioSettings({
               {mic.state === "done" && mic.playbackBase64 ? (
                 <audio
                   className="h-8 flex-1"
+                  aria-label={copy.play}
                   controls
                   src={`data:audio/wav;base64,${mic.playbackBase64}`}
                 />
