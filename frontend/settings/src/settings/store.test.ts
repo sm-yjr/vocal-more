@@ -23,6 +23,7 @@ describe("settings store", () => {
         highpass_filter: true,
         highpass_freq: 200,
         soft_limiter: true,
+        waveform_ceiling_dbfs: -6,
       },
       asr: {
         model: "qwen3-asr-flash-realtime",

@@ -146,6 +146,22 @@ def test_productization_ui_flags_round_trip():
     assert restored.ui.advanced_settings is True
 
 
+def test_waveform_ceiling_dbfs_is_configurable_and_bounded():
+    from vocal_more.config import Config
+
+    config = Config()
+    assert config.audio.waveform_ceiling_dbfs == -6.0
+
+    config.apply_update("audio.waveform_ceiling_dbfs", -18)
+    assert Config.from_dict(config.to_dict()).audio.waveform_ceiling_dbfs == -18.0
+
+    config.apply_update("audio.waveform_ceiling_dbfs", -999)
+    assert config.audio.waveform_ceiling_dbfs == -30.0
+
+    config.apply_update("audio.waveform_ceiling_dbfs", 999)
+    assert config.audio.waveform_ceiling_dbfs == 0.0
+
+
 def test_meeting_is_valid_default_mode():
     from vocal_more.config import Config
 
@@ -883,6 +899,61 @@ def test_multiple_custom_hotkeys_are_validated_deduplicated_and_bounded():
         f12,
         right_control,
     ]
+
+
+def test_multiple_custom_hotkeys_accept_integral_webview_numbers(
+    tmp_path,
+    monkeypatch,
+):
+    """WKWebView may bridge JavaScript key codes as integer-valued floats."""
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: config_path),
+    )
+
+    config = Config()
+    config.apply_update(
+        "hotkey.custom_keys",
+        [
+            {
+                "key_code": 111.0,
+                "display_name": "F12",
+                "is_modifier": False,
+                "flag_mask": 0.0,
+            },
+            {
+                "key_code": 103.0,
+                "display_name": "F11",
+                "is_modifier": False,
+                "flag_mask": 0.0,
+            },
+        ],
+    )
+
+    expected = [
+        {
+            "key_code": 111,
+            "display_name": "F12",
+            "is_modifier": False,
+            "flag_mask": 0,
+        },
+        {
+            "key_code": 103,
+            "display_name": "F11",
+            "is_modifier": False,
+            "flag_mask": 0,
+        },
+    ]
+    assert config.hotkey.custom_keys == expected
+
+    config.save()
+
+    assert Config.load().hotkey.custom_keys == expected
 
 
 def test_custom_keys_take_precedence_over_legacy_field_regardless_of_yaml_order():

@@ -43,6 +43,8 @@ Or create `~/.vocal-more/config.yaml`:
 api_key: "your-api-key"
 enable_polish: true
 auto_paste: true
+audio:
+  waveform_ceiling_dbfs: -6.0  # RMS level that fills the capsule waveform
 asr:
   model: "qwen3.5-omni-flash-realtime"  # see Models section
   # backend is auto-derived from the selected model

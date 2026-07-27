@@ -127,6 +127,29 @@ describe("settings application", () => {
     })
   })
 
+  it("calibrates the capsule waveform full-scale level in dBFS", async () => {
+    const user = userEvent.setup()
+    const { postMessage } = renderApp()
+
+    await user.click(screen.getByRole("tab", { name: "音频" }))
+    const calibration = screen.getByRole("group", {
+      name: "波形满幅电平",
+    })
+    const slider = calibration.querySelector('input[type="range"]')
+
+    expect(slider).toHaveAttribute("min", "-30")
+    expect(slider).toHaveAttribute("max", "0")
+    expect(slider).toHaveValue("-6")
+
+    fireEvent.keyDown(slider!, { key: "ArrowLeft" })
+
+    expect(postMessage).toHaveBeenCalledWith({
+      action: "setConfig",
+      key: "audio.waveform_ceiling_dbfs",
+      value: -7,
+    })
+  })
+
   it("binds multiple physical keys to the same dictation action", async () => {
     const user = userEvent.setup()
     const { postMessage } = renderApp()

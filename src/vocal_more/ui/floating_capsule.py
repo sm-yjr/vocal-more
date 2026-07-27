@@ -66,9 +66,9 @@ class FloatingCapsule:
         self._webview: Optional[WKWebView] = None
         self._current_mode: Optional[str] = None
 
-        # Thread-safe audio level: audio thread writes, main thread reads
-        self._latest_rms: float = 0.0
-        self._rms_lock = threading.Lock()
+        # Thread-safe calibrated level: audio thread writes, main thread reads
+        self._latest_audio_level: float = 0.0
+        self._audio_level_lock = threading.Lock()
         self._push_timer: Optional[NSTimer] = None
         self._hide_timer: Optional[NSTimer] = None
         self._push_count: int = 0  # for throttled debug logging
@@ -232,10 +232,10 @@ class FloatingCapsule:
             self._stop_push_timer()
             self._panel.setIgnoresMouseEvents_(True)
 
-    def update_audio_level(self, rms: float) -> None:
-        """Store latest RMS. Safe to call from any thread (audio thread)."""
-        with self._rms_lock:
-            self._latest_rms = rms
+    def update_audio_level(self, level: float) -> None:
+        """Store the latest calibrated 0–1 level from the audio thread."""
+        with self._audio_level_lock:
+            self._latest_audio_level = max(0.0, min(1.0, float(level)))
 
     def set_processing_stage(self, stage: str) -> None:
         """Update the capsule's processing phase label."""
@@ -248,32 +248,32 @@ class FloatingCapsule:
         self._run_on_main_thread(lambda: self._eval_js(f"updateStreamingText('{escaped}')"))
 
     def _start_push_timer(self) -> None:
-        """Start a main-thread timer to push RMS to JS at ~30fps."""
+        """Start a main-thread timer to push calibrated audio levels to JS at ~30fps."""
         self._stop_push_timer()
         # Create timer and add to MAIN run loop (not current thread's run loop)
         # so it fires correctly regardless of which thread calls show().
         self._push_timer = NSTimer.timerWithTimeInterval_repeats_block_(
-            0.033, True, lambda _: self._push_rms()
+            0.033, True, lambda _: self._push_audio_level()
         )
         NSRunLoop.mainRunLoop().addTimer_forMode_(
             self._push_timer, NSRunLoopCommonModes
         )
 
     def _stop_push_timer(self) -> None:
-        """Stop the RMS push timer."""
+        """Stop the calibrated audio-level push timer."""
         if self._push_timer:
             self._push_timer.invalidate()
             self._push_timer = None
 
-    def _push_rms(self) -> None:
-        """Read latest RMS and push to JS. Runs on main thread."""
-        with self._rms_lock:
-            rms = self._latest_rms
-        self._eval_js(f"updateAudioLevel({rms})")
+    def _push_audio_level(self) -> None:
+        """Read the calibrated level and push it to JS on the main thread."""
+        with self._audio_level_lock:
+            level = self._latest_audio_level
+        self._eval_js(f"updateAudioLevel({level})")
         # Throttled debug logging: print every 30th push (~1/sec at 30fps)
         self._push_count += 1
         if self._push_count % 30 == 1:
-            print(f"[Capsule] push_rms={rms:.4f}")
+            print(f"[Capsule] waveform_level={level:.4f}")
 
     def _eval_js(self, js: str) -> None:
         """Evaluate JavaScript in the WKWebView. Must be called from main thread."""

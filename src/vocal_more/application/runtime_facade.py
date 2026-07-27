@@ -8,6 +8,18 @@ from typing import Any, Callable
 from ..modes.base_mode import ModeState
 from ..runtime_config import flatten_config_keys, should_refresh_asr_runtime
 
+_MISSING = object()
+_VISUAL_ONLY_AUDIO_KEYS = {"audio.waveform_ceiling_dbfs"}
+
+
+def _config_snapshot_value(snapshot: dict[str, Any], key: str) -> Any:
+    value: Any = snapshot
+    for part in key.split("."):
+        if not isinstance(value, dict):
+            return _MISSING
+        value = value.get(part, _MISSING)
+    return value
+
 
 @dataclass
 class RuntimeUpdateResult:
@@ -64,20 +76,32 @@ class RuntimeFacade:
         return self._apply_runtime_config_keys(changed_keys)
 
     def apply_form_state(self, form_state: dict[str, Any]) -> RuntimeUpdateResult:
+        candidate_keys = flatten_config_keys(form_state)
+        before = self.config.to_dict()
         self.config.apply_form_state(form_state)
-        changed_keys = flatten_config_keys(form_state)
+        after = self.config.to_dict()
+        changed_keys = {
+            key
+            for key in candidate_keys
+            if _config_snapshot_value(before, key)
+            != _config_snapshot_value(after, key)
+        }
         return self._apply_runtime_config_keys(changed_keys)
 
     def _apply_runtime_config_keys(self, changed_keys: set[str]) -> RuntimeUpdateResult:
         result = RuntimeUpdateResult(changed_keys=set(changed_keys))
         if not changed_keys:
             return result
+        audio_runtime_changed = any(
+            key.startswith("audio.") and key not in _VISUAL_ONLY_AUDIO_KEYS
+            for key in changed_keys
+        )
 
         if "api_key" in changed_keys and self._on_refresh_text_polisher is not None:
             self._on_refresh_text_polisher()
             result.refresh_text_polisher = True
 
-        if any(key.startswith("audio.") for key in changed_keys):
+        if audio_runtime_changed:
             self._sync_audio_recorders()
             result.refresh_audio_recorders = True
 
@@ -110,7 +134,7 @@ class RuntimeFacade:
             result.refresh_asr_runtime = True
 
         if (
-            "api_key" in changed_keys or any(key.startswith("audio.") for key in changed_keys)
+            "api_key" in changed_keys or audio_runtime_changed
         ) and self._on_refresh_environment_status is not None:
             self._on_refresh_environment_status()
             result.refresh_environment_status = True

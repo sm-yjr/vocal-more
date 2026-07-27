@@ -267,16 +267,14 @@ let currentState = 'hidden';
 let currentMode = 'pushToTalk';
 const WAVEFORM_BASE_HEIGHT = 2;
 const WAVEFORM_HEIGHT_RANGE = 18;
-const WAVEFORM_NOISE_FLOOR = 0.006;
-const WAVEFORM_INPUT_RANGE = 0.07;
 const WAVEFORM_ATTACK = 0.42;
 const WAVEFORM_RELEASE = 0.14;
 
 // Smoothed levels per bar
 const smoothedLevels = new Array(NUM_BARS).fill(0);
 
-// Latest RMS from Python (written by updateAudioLevel, read by rAF loop)
-let latestRms = 0;
+// Latest calibrated 0–1 envelope from Python.
+let latestAudioLevel = 0;
 let rafId = null;
 
 // Pre-compute bell curve factors (Gaussian)
@@ -289,11 +287,8 @@ for (let i = 0; i < NUM_BARS; i++) {
 
 setInterfaceLanguage('en');
 
-function waveformDisplayLevel(rms) {
-  const gated = Math.max(0, rms - WAVEFORM_NOISE_FLOOR);
-  const normalized = Math.min(1.0, gated / WAVEFORM_INPUT_RANGE);
-  // Keep whisper-level input visible, but let stronger syllables open up much more.
-  return Math.min(1.0, normalized * (0.55 + normalized * 0.7));
+function waveformDisplayLevel(level) {
+  return Math.max(0, Math.min(1, Number(level) || 0));
 }
 
 // requestAnimationFrame render loop — 60fps smooth animation
@@ -303,7 +298,7 @@ function renderWaveform() {
     return;
   }
 
-  const displayLevel = waveformDisplayLevel(latestRms);
+  const displayLevel = waveformDisplayLevel(latestAudioLevel);
 
   for (let i = 0; i < NUM_BARS; i++) {
     const contourFactor = 0.82 + bellFactors[i] * 0.36;
@@ -408,10 +403,10 @@ function setProcessingStage(stage) {
 }
 
 /**
- * Receive audio level from Python. Just store it — rAF loop reads it.
+ * Receive the calibrated audio envelope from Python.
  */
-function updateAudioLevel(rms) {
-  latestRms = rms;
+function updateAudioLevel(level) {
+  latestAudioLevel = waveformDisplayLevel(level);
 }
 
 const streamingText = document.getElementById('streamingText');

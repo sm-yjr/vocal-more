@@ -56,7 +56,7 @@ def _build_runtime_facade():
     return facade, config, walkie, realtime, current_mode, callbacks
 
 
-def test_runtime_facade_updates_config_and_reports_changed_keys():
+def test_runtime_facade_reports_only_effective_form_state_changes():
     facade, config, walkie, realtime, current_mode, callbacks = _build_runtime_facade()
 
     result = facade.apply_form_state(
@@ -66,12 +66,12 @@ def test_runtime_facade_updates_config_and_reports_changed_keys():
         }
     )
 
-    assert result.changed_keys == {"audio.gain", "hotkey.active_hotkeys"}
+    assert result.changed_keys == {"audio.gain"}
     assert config.audio.gain == 4.0
     assert config.hotkey.active_hotkeys == ["fn"]
     assert result.refresh_audio_recorders is True
     assert result.refresh_asr_runtime is False
-    callbacks["set_active_hotkeys"].assert_called_once_with(["fn"])
+    callbacks["set_active_hotkeys"].assert_not_called()
     walkie._recorder.set_gain.assert_called_once_with(4.0)
     realtime._recorder.set_gain.assert_called_once_with(4.0)
 
@@ -97,6 +97,64 @@ def test_runtime_facade_applies_multiple_custom_hotkeys_without_restart():
 
     assert config.hotkey.custom_keys == keys
     callbacks["set_custom_keys"].assert_called_once_with(keys)
+
+
+def test_gain_form_sync_does_not_reset_existing_custom_hotkeys():
+    facade, config, walkie, realtime, current_mode, callbacks = _build_runtime_facade()
+    keys = [
+        {
+            "key_code": 111,
+            "display_name": "F12",
+            "is_modifier": False,
+            "flag_mask": 0,
+        },
+        {
+            "key_code": 103,
+            "display_name": "F11",
+            "is_modifier": False,
+            "flag_mask": 0,
+        },
+    ]
+    facade.apply_update("hotkey.custom_keys", keys)
+    callbacks["set_custom_key"].reset_mock()
+    callbacks["set_custom_keys"].reset_mock()
+
+    result = facade.apply_form_state(
+        {
+            "audio": {"gain": 4.0},
+            "hotkey": {
+                "active_hotkeys": ["fn"],
+                "custom_key": {
+                    **keys[0],
+                    "key_code": 111.0,
+                    "flag_mask": 0.0,
+                },
+                "custom_keys": [
+                    {**keys[0], "key_code": 111.0, "flag_mask": 0.0},
+                    {**keys[1], "key_code": 103.0, "flag_mask": 0.0},
+                ],
+            },
+        }
+    )
+
+    assert result.changed_keys == {"audio.gain"}
+    assert config.hotkey.custom_keys == keys
+    callbacks["set_custom_key"].assert_not_called()
+    callbacks["set_custom_keys"].assert_not_called()
+
+
+def test_waveform_calibration_does_not_reconfigure_audio_recorders():
+    facade, config, walkie, realtime, current_mode, callbacks = _build_runtime_facade()
+
+    result = facade.apply_update("audio.waveform_ceiling_dbfs", -12)
+
+    assert result.changed_keys == {"audio.waveform_ceiling_dbfs"}
+    assert result.refresh_audio_recorders is False
+    assert result.refresh_environment_status is False
+    assert config.audio.waveform_ceiling_dbfs == -12.0
+    assert not walkie._recorder.method_calls
+    assert not realtime._recorder.method_calls
+    callbacks["refresh_environment_status"].assert_not_called()
 
 
 def test_runtime_facade_switches_default_mode_only_when_idle():

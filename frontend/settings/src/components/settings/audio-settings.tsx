@@ -19,6 +19,13 @@ import { sendAction, setConfig, setDevice } from "@/settings/actions"
 import type { SettingsCopy } from "@/settings/i18n"
 import type { SettingsStore } from "@/settings/store"
 import type { SettingsSnapshot } from "@/settings/types"
+import {
+  DEFAULT_WAVEFORM_CEILING_DBFS,
+  MAX_WAVEFORM_CEILING_DBFS,
+  MIN_WAVEFORM_CEILING_DBFS,
+  rmsToDbfs,
+  waveformLevelFromRms,
+} from "@/settings/waveform-calibration"
 
 const AUDIO_PRESETS = {
   whisper: {
@@ -66,7 +73,12 @@ export function AudioSettings({
   const gainDb = gainToDb(
     typeof audio.gain === "number" ? audio.gain : 2,
   )
+  const waveformCeilingDbfs =
+    typeof audio.waveform_ceiling_dbfs === "number"
+      ? audio.waveform_ceiling_dbfs
+      : DEFAULT_WAVEFORM_CEILING_DBFS
   const mic = snapshot.micTest
+  const micDbfs = rmsToDbfs(mic.level)
 
   useEffect(() => {
     if (mic.state !== "recording") return
@@ -171,6 +183,28 @@ export function AudioSettings({
           </div>
         </SettingsRow>
         <SettingsRow
+          label={copy.waveformCalibration}
+          description={copy.waveformCalibrationHint}
+        >
+          <div className="flex w-64 items-center gap-3">
+            <Slider
+              aria-label={copy.waveformCalibration}
+              min={MIN_WAVEFORM_CEILING_DBFS}
+              max={MAX_WAVEFORM_CEILING_DBFS}
+              step={1}
+              value={waveformCeilingDbfs}
+              onValueChange={(value) =>
+                setConfig(
+                  store,
+                  "audio.waveform_ceiling_dbfs",
+                  sliderNumber(value),
+                )
+              }
+            />
+            <InlineValue>{waveformCeilingDbfs} dBFS</InlineValue>
+          </div>
+        </SettingsRow>
+        <SettingsRow
           label={copy.highpass}
           description={copy.highpassHint}
         >
@@ -227,8 +261,18 @@ export function AudioSettings({
               <Progress
                 aria-label={copy.testRecording}
                 className="flex-1"
-                value={Math.round(mic.level * 100)}
+                value={Math.round(
+                  waveformLevelFromRms(
+                    mic.level,
+                    waveformCeilingDbfs,
+                  ) * 100,
+                )}
               />
+              <InlineValue>
+                {Number.isFinite(micDbfs)
+                  ? `${micDbfs.toFixed(1)} dBFS`
+                  : "≤ −60 dBFS"}
+              </InlineValue>
               <Button
                 size="sm"
                 variant="destructive"

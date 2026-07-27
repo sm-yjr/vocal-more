@@ -27,6 +27,7 @@ from .core.text_polisher import TextPolisher, build_polish_prompt_presets
 from .diagnostics import ensure_runtime_debug_dir_env, export_support_bundle
 from .dictionary import get_dictionary, reload_dictionary
 from .domain.hotkey_gestures import HotkeyGestureAction, HotkeyGestureController
+from .domain.waveform_calibration import waveform_level_from_rms
 from .environment_check import is_accessibility_trusted, run_environment_checks
 from .localization import t
 from .modes.base_mode import BaseMode, ModeState
@@ -1297,7 +1298,11 @@ class VocalMoreApp(rumps.App):
 
     def _on_audio_level(self, rms: float) -> None:
         """Handle real-time audio level from recorder."""
-        self._capsule.update_audio_level(rms)
+        display_level = waveform_level_from_rms(
+            rms,
+            ceiling_dbfs=self.config.audio.waveform_ceiling_dbfs,
+        )
+        self._capsule.update_audio_level(display_level)
 
     def _on_processing_stage(self, stage: str) -> None:
         """Handle processing stage updates for the floating capsule."""

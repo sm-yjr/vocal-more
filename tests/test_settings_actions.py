@@ -34,6 +34,17 @@ def test_settings_bridge_rejects_unknown_config_keys():
         {"action": "setConfig", "key": "audio.gain", "value": 3.0}
     ) == {"action": "set_config", "key": "audio.gain", "value": 3.0}
     assert bridge.parse(
+        {
+            "action": "setConfig",
+            "key": "audio.waveform_ceiling_dbfs",
+            "value": -6,
+        }
+    ) == {
+        "action": "set_config",
+        "key": "audio.waveform_ceiling_dbfs",
+        "value": -6,
+    }
+    assert bridge.parse(
         {"action": "setConfig", "key": "llm.polish_mode", "value": "prompt"}
     ) == {"action": "set_config", "key": "llm.polish_mode", "value": "prompt"}
     overrides = {"tone": {"enabled": True, "prompt": "Keep it warm"}}

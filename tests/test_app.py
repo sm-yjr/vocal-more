@@ -6,6 +6,8 @@ import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 def _install_rumps_stub(monkeypatch) -> None:
     import AppKit
@@ -109,8 +111,8 @@ def test_settings_form_sync_updates_all_audio_processing_controls(
         recorder.set_highpass_freq.assert_called_with(410)
         recorder.set_soft_limiter.assert_called_with(False)
 
-    app._hotkey_manager.set_active_hotkeys.assert_called_with(["fn"])
-    app._select_mode.assert_called_with("realtime_long")
+    app._hotkey_manager.set_active_hotkeys.assert_not_called()
+    app._select_mode.assert_not_called()
     app._refresh_text_polisher.assert_called_once()
 
 
@@ -210,7 +212,7 @@ def test_settings_form_sync_refreshes_runtime_sensitive_config_without_restart(
     assert app._current_mode is app._walkie_talkie
     app._refresh_text_polisher.assert_called_once()
     app._apply_interface_language.assert_called_once()
-    app._hotkey_manager.set_active_hotkeys.assert_called_once_with(["fn"])
+    app._hotkey_manager.set_active_hotkeys.assert_not_called()
     app._hotkey_manager.set_custom_key.assert_called_once_with(
         {
             "key_code": 105,
@@ -978,6 +980,31 @@ def test_processing_stage_callback_forwards_to_capsule(tmp_path, monkeypatch):
     app._on_processing_stage("polishing")
 
     app._capsule.set_processing_stage.assert_called_once_with("polishing")
+
+
+def test_audio_level_uses_configured_waveform_calibration(tmp_path, monkeypatch):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._capsule = MagicMock()
+
+    app._on_audio_level(10 ** (-29.1 / 20))
+
+    app._capsule.update_audio_level.assert_called_once_with(
+        pytest.approx(30.9 / 54.0, abs=0.001)
+    )
 
 
 def test_hotkey_callbacks_enqueue_serial_commands(tmp_path, monkeypatch):

@@ -13,6 +13,7 @@ export interface AudioConfig {
   highpass_filter?: boolean
   highpass_freq?: number
   soft_limiter?: boolean
+  waveform_ceiling_dbfs?: number
   [key: string]: unknown
 }
 
@@ -270,6 +271,7 @@ export interface FormState {
     highpass_filter: boolean
     highpass_freq: number
     soft_limiter: boolean
+    waveform_ceiling_dbfs: number
   }
   asr: {
     model: string

@@ -38,6 +38,11 @@ from .model_catalog import (
     get_asr_model_info,
     get_llm_model_info,
 )
+from .waveform_calibration import (
+    DEFAULT_WAVEFORM_CEILING_DBFS,
+    MAX_WAVEFORM_CEILING_DBFS,
+    MIN_WAVEFORM_CEILING_DBFS,
+)
 
 
 VALID_HOTKEYS = (
@@ -84,6 +89,7 @@ class AudioConfig:
     highpass_filter: bool = True
     highpass_freq: int = 200
     soft_limiter: bool = True
+    waveform_ceiling_dbfs: float = DEFAULT_WAVEFORM_CEILING_DBFS
 
 
 @dataclass
@@ -523,6 +529,13 @@ class AppConfig:
             )
         elif field_name == "soft_limiter":
             self.audio.soft_limiter = parse_bool(value, self.audio.soft_limiter)
+        elif field_name == "waveform_ceiling_dbfs":
+            self.audio.waveform_ceiling_dbfs = clamp_float(
+                value,
+                default=self.audio.waveform_ceiling_dbfs,
+                minimum=MIN_WAVEFORM_CEILING_DBFS,
+                maximum=MAX_WAVEFORM_CEILING_DBFS,
+            )
         else:
             raise ValueError(f"Unknown config key: audio.{field_name}")
 
@@ -686,6 +699,7 @@ class AppConfig:
                 "highpass_filter": self.audio.highpass_filter,
                 "highpass_freq": self.audio.highpass_freq,
                 "soft_limiter": self.audio.soft_limiter,
+                "waveform_ceiling_dbfs": self.audio.waveform_ceiling_dbfs,
             },
             "asr": {
                 "backend": self.asr.backend,

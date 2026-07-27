@@ -21,6 +21,10 @@ import { sendAction, setConfig, setDevice } from "@/settings/actions"
 import type { SettingsCopy } from "@/settings/i18n"
 import type { SettingsStore } from "@/settings/store"
 import type { SettingsSnapshot } from "@/settings/types"
+import {
+  DEFAULT_WAVEFORM_CEILING_DBFS,
+  waveformLevelFromRms,
+} from "@/settings/waveform-calibration"
 
 const WHISPER_PRESET = {
   gain: 8,
@@ -75,6 +79,10 @@ export function Onboarding({
   const config = snapshot.config
   const audio = config.audio ?? {}
   const mic = snapshot.micTest
+  const waveformCeilingDbfs =
+    typeof audio.waveform_ceiling_dbfs === "number"
+      ? audio.waveform_ceiling_dbfs
+      : DEFAULT_WAVEFORM_CEILING_DBFS
   const apiReady = Boolean(config.api_key?.trim())
   const deviceReady =
     snapshot.devices.length > 0 && readiness(snapshot, "input_device")
@@ -244,7 +252,12 @@ export function Onboarding({
               <Progress
                 className="mt-3"
                 aria-label={copy.startSpeaking}
-                value={Math.round(mic.level * 100)}
+                value={Math.round(
+                  waveformLevelFromRms(
+                    mic.level,
+                    waveformCeilingDbfs,
+                  ) * 100,
+                )}
               />
             ) : null}
             {mic.playbackBase64 ? (

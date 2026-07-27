@@ -173,7 +173,13 @@ def normalize_custom_key(raw: object) -> dict | None:
         return None
 
     key_code = raw.get("key_code")
-    if not isinstance(key_code, int):
+    if isinstance(key_code, bool):
+        return None
+    if isinstance(key_code, float):
+        if not key_code.is_integer():
+            return None
+        key_code = int(key_code)
+    elif not isinstance(key_code, int):
         return None
 
     definition = CUSTOM_HOTKEY_KEYS_BY_CODE.get(key_code)

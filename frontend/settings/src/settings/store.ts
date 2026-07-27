@@ -422,6 +422,10 @@ export class SettingsStore {
             ? audio.highpass_freq
             : 200,
         soft_limiter: audio.soft_limiter !== false,
+        waveform_ceiling_dbfs:
+          typeof audio.waveform_ceiling_dbfs === "number"
+            ? audio.waveform_ceiling_dbfs
+            : -6,
       },
       asr: {
         model: asr.model ?? "",

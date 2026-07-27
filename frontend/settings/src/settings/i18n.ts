@@ -67,6 +67,9 @@ const en = {
   softwareGain: "Software gain",
   softwareGainHint:
     "Amplify low-voice input up to 50× (+34 dB). 0 dB means no amplification.",
+  waveformCalibration: "Waveform full-scale level",
+  waveformCalibrationHint:
+    "The RMS level that fills the capsule waveform. Lower values make the display more sensitive; the noise gate stays at −60 dBFS.",
   highpass: "High-pass filter",
   cutoff: "Cutoff frequency",
   highpassHint: "Remove fan, AC, rumble, and plosive energy below the cutoff.",
@@ -285,6 +288,9 @@ const zh: Copy = {
   noisy: "嘈杂环境",
   softwareGain: "软件增益",
   softwareGainHint: "轻声输入最高可放大 50 倍（+34 dB）。0 dB 表示不放大。",
+  waveformCalibration: "波形满幅电平",
+  waveformCalibrationHint:
+    "达到该 RMS 电平时胶囊波形显示为满幅。数值越低越灵敏；底噪门固定为 −60 dBFS。",
   highpass: "高通滤波",
   cutoff: "截止频率",
   highpassHint: "去除风扇、空调、低频噪声和喷麦声。",

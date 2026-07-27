@@ -25,6 +25,7 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
         "highpass_filter",
         "highpass_freq",
         "soft_limiter",
+        "waveform_ceiling_dbfs",
     },
     "asr": {
         "backend",
