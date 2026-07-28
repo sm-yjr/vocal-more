@@ -12,6 +12,7 @@ class SettingsActionDispatcher:
         self,
         *,
         on_set_config: Optional[Callable[[str, Any], None]] = None,
+        on_preview_config: Optional[Callable[[str, Any], None]] = None,
         on_set_asr_model: Optional[Callable[[str, str], None]] = None,
         on_sync_form_state: Optional[Callable[[dict], None]] = None,
         on_set_device: Optional[Callable[[Optional[str]], None]] = None,
@@ -38,6 +39,7 @@ class SettingsActionDispatcher:
         mic_test_controller: object | None = None,
     ) -> None:
         self._on_set_config = on_set_config
+        self._on_preview_config = on_preview_config
         self._on_set_asr_model = on_set_asr_model
         self._on_sync_form_state = on_sync_form_state
         self._on_set_device = on_set_device
@@ -65,6 +67,7 @@ class SettingsActionDispatcher:
 
         self._handlers = {
             "set_config": self._dispatch_set_config,
+            "preview_config": self._dispatch_preview_config,
             "set_asr_model": self._dispatch_set_asr_model,
             "sync_form_state": self._dispatch_sync_form_state,
             "set_device": self._dispatch_set_device,
@@ -106,6 +109,14 @@ class SettingsActionDispatcher:
         value = message.get("value")
         if key is not None and self._on_set_config is not None:
             self._on_set_config(key, value)
+        if self._mic_test_controller is not None:
+            self._mic_test_controller.apply_audio_setting(key, value)
+
+    def _dispatch_preview_config(self, message: dict[str, Any]) -> None:
+        key = message.get("key")
+        value = message.get("value")
+        if key is not None and self._on_preview_config is not None:
+            self._on_preview_config(key, value)
         if self._mic_test_controller is not None:
             self._mic_test_controller.apply_audio_setting(key, value)
 

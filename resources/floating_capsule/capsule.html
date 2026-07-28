@@ -82,12 +82,12 @@ body {
 
 .waveform .bar {
   width: 2px;
-  min-height: 2px;
-  max-height: 20px;
-  height: 2px;
+  height: 20px;
   background: rgba(255, 255, 255, 0.9);
   border-radius: 1px;
-  /* No CSS transition — JS rAF handles smooth animation */
+  transform: scaleY(0.1);
+  transform-origin: center;
+  will-change: transform;
 }
 
 /* Buttons for hands-free mode */
@@ -171,6 +171,18 @@ body {
 @keyframes shimmer {
   0% { background-position: 100% 0; }
   100% { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capsule,
+  .capsule-btn,
+  .progress-bar {
+    transition-duration: 0.01ms;
+  }
+
+  .thinking-text {
+    animation: none;
+  }
 }
 
 .progress-bar-container {
@@ -276,6 +288,8 @@ const smoothedLevels = new Array(NUM_BARS).fill(0);
 // Latest calibrated 0–1 envelope from Python.
 let latestAudioLevel = 0;
 let rafId = null;
+const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+let prefersReducedMotion = reducedMotionQuery.matches;
 
 // Pre-compute bell curve factors (Gaussian)
 const bellFactors = new Array(NUM_BARS);
@@ -291,42 +305,67 @@ function waveformDisplayLevel(level) {
   return Math.max(0, Math.min(1, Number(level) || 0));
 }
 
-// requestAnimationFrame render loop — 60fps smooth animation
+function updateWaveformBars(displayLevel, animate) {
+  const stableFactor = 0.78 + displayLevel * 0.16;
+  for (let i = 0; i < NUM_BARS; i++) {
+    const contourFactor = 0.82 + bellFactors[i] * 0.36;
+    const randomFactor = animate
+      ? 0.62 + Math.random() * (0.18 + displayLevel * 0.4)
+      : stableFactor;
+    const targetLevel = Math.min(
+      1.0,
+      displayLevel * bellFactors[i] * contourFactor * randomFactor
+    );
+
+    if (animate && targetLevel > smoothedLevels[i]) {
+      smoothedLevels[i] += (targetLevel - smoothedLevels[i]) * WAVEFORM_ATTACK;
+    } else if (animate) {
+      smoothedLevels[i] += (targetLevel - smoothedLevels[i]) * WAVEFORM_RELEASE;
+    } else {
+      smoothedLevels[i] = targetLevel;
+    }
+
+    const height = WAVEFORM_BASE_HEIGHT + smoothedLevels[i] * WAVEFORM_HEIGHT_RANGE;
+    bars[i].style.transform = `scaleY(${height / 20})`;
+  }
+}
+
+// The Python bridge supplies a coalesced 12Hz envelope. rAF interpolates it
+// locally so the visible curve remains smooth without 30 cross-process calls/s.
 function renderWaveform() {
   if (currentState !== 'recording') {
     rafId = null;
     return;
   }
 
-  const displayLevel = waveformDisplayLevel(latestAudioLevel);
-
-  for (let i = 0; i < NUM_BARS; i++) {
-    const contourFactor = 0.82 + bellFactors[i] * 0.36;
-    const randomFactor = 0.62 + Math.random() * (0.18 + displayLevel * 0.4);
-    const targetLevel = Math.min(
-      1.0,
-      displayLevel * bellFactors[i] * contourFactor * randomFactor
-    );
-
-    // Smooth: rise fast, fall slow
-    if (targetLevel > smoothedLevels[i]) {
-      smoothedLevels[i] += (targetLevel - smoothedLevels[i]) * WAVEFORM_ATTACK;
-    } else {
-      smoothedLevels[i] += (targetLevel - smoothedLevels[i]) * WAVEFORM_RELEASE;
-    }
-
-    bars[i].style.height = (
-      WAVEFORM_BASE_HEIGHT + smoothedLevels[i] * WAVEFORM_HEIGHT_RANGE
-    ) + 'px';
-  }
+  updateWaveformBars(waveformDisplayLevel(latestAudioLevel), true);
 
   rafId = requestAnimationFrame(renderWaveform);
 }
 
 function startRaf() {
+  if (prefersReducedMotion) {
+    updateWaveformBars(waveformDisplayLevel(latestAudioLevel), false);
+    return;
+  }
   if (!rafId) {
     rafId = requestAnimationFrame(renderWaveform);
   }
+}
+
+function handleReducedMotionChange(event) {
+  prefersReducedMotion = event.matches;
+  if (prefersReducedMotion && rafId) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+  if (currentState === 'recording') startRaf();
+}
+
+if (typeof reducedMotionQuery.addEventListener === 'function') {
+  reducedMotionQuery.addEventListener('change', handleReducedMotionChange);
+} else if (typeof reducedMotionQuery.addListener === 'function') {
+  reducedMotionQuery.addListener(handleReducedMotionChange);
 }
 
 // Progress bar state
@@ -385,8 +424,8 @@ function updateState(state) {
 
   if (state === 'recording') {
     stopProgress();
-    latestRms = 0;
-    bars.forEach(bar => { bar.style.height = WAVEFORM_BASE_HEIGHT + 'px'; });
+    latestAudioLevel = 0;
+    bars.forEach(bar => { bar.style.transform = 'scaleY(0.1)'; });
     smoothedLevels.fill(0);
     startRaf();
   } else if (state === 'processing') {
@@ -407,6 +446,9 @@ function setProcessingStage(stage) {
  */
 function updateAudioLevel(level) {
   latestAudioLevel = waveformDisplayLevel(level);
+  if (prefersReducedMotion && currentState === 'recording') {
+    updateWaveformBars(latestAudioLevel, false);
+  }
 }
 
 const streamingText = document.getElementById('streamingText');

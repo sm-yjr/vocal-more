@@ -8,6 +8,7 @@ from typing import Callable, Optional
 from .application.dictation_command_coordinator import DictationCommandCoordinator
 from .application.runtime_facade import RuntimeFacade
 from .config import get_config
+from .ui.lazy_settings_window import LazySettingsWindow
 
 
 @dataclass
@@ -180,8 +181,10 @@ def build_menu_app_dependencies(
         on_refresh_dictionary_learning=dictionary_learning.wake,
     )
 
-    settings_window = settings_window_factory(
+    settings_window = LazySettingsWindow(
+        settings_window_factory,
         on_set_config=app._on_settings_config_change,
+        on_preview_config=app._on_settings_preview_config,
         on_set_asr_model=app._on_settings_set_asr_model,
         on_sync_form_state=app._on_settings_sync_form_state,
         on_set_device=app._on_settings_set_device,

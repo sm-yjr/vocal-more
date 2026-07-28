@@ -7,8 +7,17 @@ The current release runner is Apple Silicon, so official DMGs are arm64-only.
 The workflow checks that the tag version matches `pyproject.toml`, runs tests,
 imports the Developer ID certificate, builds a signed DMG, notarizes and
 staples it, then uploads the DMG to the matching GitHub Release.
+Frontend checks and Python tests run concurrently. The production build reuses
+that prepared Python environment and frontend bundle, skips the intermediate
+ad-hoc signature, and signs independent nested Mach-O files concurrently.
 It also signs and publishes `appcast.xml` to the stable `sparkle-feed` release,
 which lets installed builds check for and install new versions with Sparkle.
+For each release, the workflow downloads the preceding official DMG, uses
+Sparkle's `generate_appcast` tool with fast LZFSE compression to create a
+signed delta update, and uploads the resulting `.delta` alongside the new full
+DMG. Sparkle uses the matching delta when possible and automatically falls
+back to the full DMG if the installed app does not match or the patch cannot be
+applied.
 
 ## Required GitHub Secrets
 
@@ -53,3 +62,9 @@ git push origin v0.2.2
 ```
 
 The workflow fails early if the tag version does not match the project version.
+
+Delta generation depends on the preceding GitHub Release retaining its
+original `Vocal-More-<version>.dmg` asset. Do not delete the most recent stable
+release asset. The release job fails if that historical DMG is available but
+no delta can be generated, which prevents silently publishing a full-only
+update.

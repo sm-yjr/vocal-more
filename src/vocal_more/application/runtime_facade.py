@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from ..modes.base_mode import ModeState
 from ..runtime_config import flatten_config_keys, should_refresh_asr_runtime
+from .lazy_resource import initialized_resource
 
 _MISSING = object()
 _VISUAL_ONLY_AUDIO_KEYS = {"audio.waveform_ceiling_dbfs"}
@@ -149,7 +150,7 @@ class RuntimeFacade:
 
     def _refresh_mode_asr_runtime(self) -> None:
         for mode in self._modes.values():
-            asr = getattr(mode, "_asr", None)
+            asr = initialized_resource(getattr(mode, "_asr", None))
             if asr is not None and hasattr(asr, "refresh_runtime_config"):
                 asr.refresh_runtime_config(drop_idle_session=True)
 

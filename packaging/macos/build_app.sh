@@ -3,15 +3,20 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_PYTHON="${VOCAL_MORE_BUILD_PYTHON:-}"
-BUILD_VENV="$ROOT/packaging/macos/.venv-py2app"
+BUILD_VENV="${VOCAL_MORE_BUILD_VENV:-$ROOT/packaging/macos/.venv-py2app}"
 
-if ! command -v npm >/dev/null 2>&1; then
-  echo "npm is required to build the React settings frontend." >&2
+if [[ "${VOCAL_MORE_SKIP_FRONTEND_BUILD:-0}" != "1" ]]; then
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "npm is required to build the React settings frontend." >&2
+    exit 1
+  fi
+
+  npm --prefix "$ROOT/frontend/settings" ci
+  npm --prefix "$ROOT/frontend/settings" run build
+elif [[ ! -f "$ROOT/resources/settings/settings.html" ]]; then
+  echo "The prebuilt settings frontend is missing." >&2
   exit 1
 fi
-
-npm --prefix "$ROOT/frontend/settings" ci
-npm --prefix "$ROOT/frontend/settings" run build
 
 rm -rf build dist
 rm -rf "$ROOT/packaging/macos/build" "$ROOT/packaging/macos/dist"
@@ -39,13 +44,26 @@ if [[ ! -x "$BUILD_PYTHON" ]]; then
   exit 1
 fi
 
-rm -rf "$BUILD_VENV"
-
 VOCAL_MORE_BUILD_PYTHON="$BUILD_PYTHON" "$ROOT/packaging/macos/make_icon.sh"
 
-"$BUILD_PYTHON" -m venv "$BUILD_VENV"
-"$BUILD_VENV/bin/python" -m pip install --upgrade pip >/dev/null
-"$BUILD_VENV/bin/python" -m pip install -e "$ROOT" py2app 'setuptools<70'
+if [[ "${VOCAL_MORE_USE_PREPARED_BUILD_VENV:-0}" == "1" ]]; then
+  if [[ ! -x "$BUILD_VENV/bin/python" ]]; then
+    echo "Prepared build environment is missing: $BUILD_VENV" >&2
+    exit 1
+  fi
+  if ! "$BUILD_VENV/bin/python" -c "import py2app, vocal_more" >/dev/null; then
+    echo "Prepared build environment lacks py2app or vocal-more." >&2
+    exit 1
+  fi
+else
+  rm -rf "$BUILD_VENV"
+  "$BUILD_PYTHON" -m venv "$BUILD_VENV"
+  "$BUILD_VENV/bin/python" -m pip install --upgrade pip >/dev/null
+  "$BUILD_VENV/bin/python" -m pip install \
+    -e "$ROOT" \
+    'py2app==0.28.10' \
+    'setuptools==69.5.1'
+fi
 
 cd "$ROOT/packaging/macos"
 

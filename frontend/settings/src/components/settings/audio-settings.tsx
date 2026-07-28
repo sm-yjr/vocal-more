@@ -8,14 +8,17 @@ import {
   SettingsRow,
 } from "@/components/settings/settings-card"
 import { Button } from "@/components/ui/button"
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from "@/components/ui/native-select"
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Progress } from "@/components/ui/progress"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
-import { sendAction, setConfig, setDevice } from "@/settings/actions"
+import {
+  commitPreviewConfig,
+  previewConfig,
+  sendAction,
+  setConfig,
+  setDevice,
+} from "@/settings/actions"
 import type { SettingsCopy } from "@/settings/i18n"
 import type { SettingsStore } from "@/settings/store"
 import type { SettingsSnapshot } from "@/settings/types"
@@ -70,9 +73,7 @@ export function AudioSettings({
   copy: SettingsCopy
 }) {
   const audio = snapshot.config.audio ?? {}
-  const gainDb = gainToDb(
-    typeof audio.gain === "number" ? audio.gain : 2,
-  )
+  const gainDb = gainToDb(typeof audio.gain === "number" ? audio.gain : 2)
   const waveformCeilingDbfs =
     typeof audio.waveform_ceiling_dbfs === "number"
       ? audio.waveform_ceiling_dbfs
@@ -82,10 +83,7 @@ export function AudioSettings({
 
   useEffect(() => {
     if (mic.state !== "recording") return
-    const timer = window.setTimeout(
-      () => sendAction("stopMicTest"),
-      5500,
-    )
+    const timer = window.setTimeout(() => sendAction("stopMicTest"), 5500)
     return () => window.clearTimeout(timer)
   }, [mic.state])
 
@@ -102,10 +100,7 @@ export function AudioSettings({
   }
 
   return (
-    <SettingsPage
-      title={copy.audio}
-      description={copy.softwareGainHint}
-    >
+    <SettingsPage title={copy.audio} description={copy.softwareGainHint}>
       <SettingsCard>
         <SettingsRow label={copy.inputDevice} htmlFor="audio-device">
           <NativeSelect
@@ -113,9 +108,7 @@ export function AudioSettings({
             aria-label={copy.inputDevice}
             className="h-8 w-64"
             value={audio.input_device ?? ""}
-            onChange={(event) =>
-              setDevice(store, event.target.value || null)
-            }
+            onChange={(event) => setDevice(store, event.target.value || null)}
           >
             <NativeSelectOption value="">
               {copy.systemDefault}
@@ -138,10 +131,7 @@ export function AudioSettings({
         </SettingsRow>
       </SettingsCard>
 
-      <SettingsCard
-        title={copy.presets}
-        description={copy.presetsHint}
-      >
+      <SettingsCard title={copy.presets} description={copy.presetsHint}>
         <div className="grid grid-cols-3 gap-2 p-3">
           {(
             [
@@ -175,10 +165,17 @@ export function AudioSettings({
               step={1}
               value={gainDb}
               onValueChange={(value) =>
-                setConfig(
+                previewConfig(
                   store,
                   "audio.gain",
-                  dbToGain(sliderNumber(value)),
+                  dbToGain(sliderNumber(value))
+                )
+              }
+              onValueCommitted={(value) =>
+                commitPreviewConfig(
+                  store,
+                  "audio.gain",
+                  dbToGain(sliderNumber(value))
                 )
               }
             />
@@ -200,20 +197,24 @@ export function AudioSettings({
               step={1}
               value={waveformCeilingDbfs}
               onValueChange={(value) =>
-                setConfig(
+                previewConfig(
                   store,
                   "audio.waveform_ceiling_dbfs",
-                  sliderNumber(value),
+                  sliderNumber(value)
+                )
+              }
+              onValueCommitted={(value) =>
+                commitPreviewConfig(
+                  store,
+                  "audio.waveform_ceiling_dbfs",
+                  sliderNumber(value)
                 )
               }
             />
             <InlineValue>{waveformCeilingDbfs} dBFS</InlineValue>
           </div>
         </SettingsRow>
-        <SettingsRow
-          label={copy.highpass}
-          description={copy.highpassHint}
-        >
+        <SettingsRow label={copy.highpass} description={copy.highpassHint}>
           <Switch
             checked={audio.highpass_filter !== false}
             onCheckedChange={(checked) =>
@@ -235,22 +236,20 @@ export function AudioSettings({
                   : 200
               }
               onValueChange={(value) =>
-                setConfig(
+                previewConfig(store, "audio.highpass_freq", sliderNumber(value))
+              }
+              onValueCommitted={(value) =>
+                commitPreviewConfig(
                   store,
                   "audio.highpass_freq",
-                  sliderNumber(value),
+                  sliderNumber(value)
                 )
               }
             />
-            <InlineValue>
-              {audio.highpass_freq ?? 200} Hz
-            </InlineValue>
+            <InlineValue>{audio.highpass_freq ?? 200} Hz</InlineValue>
           </div>
         </SettingsRow>
-        <SettingsRow
-          label={copy.limiter}
-          description={copy.limiterHint}
-        >
+        <SettingsRow label={copy.limiter} description={copy.limiterHint}>
           <Switch
             checked={audio.soft_limiter !== false}
             onCheckedChange={(checked) =>
@@ -268,10 +267,7 @@ export function AudioSettings({
                 aria-label={copy.testRecording}
                 className="flex-1"
                 value={Math.round(
-                  waveformLevelFromRms(
-                    mic.level,
-                    waveformCeilingDbfs,
-                  ) * 100,
+                  waveformLevelFromRms(mic.level, waveformCeilingDbfs) * 100
                 )}
               />
               <InlineValue>

@@ -2161,10 +2161,7 @@ class ASREngine:
 
     def _run_audio_sender_loop(self) -> None:
         while not self._sender_shutdown.is_set():
-            try:
-                item = self._audio_queue.get(timeout=0.1)
-            except queue.Empty:
-                continue
+            item = self._audio_queue.get()
 
             if item is _AUDIO_QUEUE_STOP:
                 break

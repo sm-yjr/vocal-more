@@ -328,29 +328,25 @@ def test_dispatch_set_config_updates_audio_recorders(handler):
 
 
 def test_dispatch_set_config_refreshes_idle_asr_runtime_for_asr_and_llm_changes(handler):
-    """Session-sensitive config changes should invalidate idle ASR runtime state."""
+    """Config refreshes should skip unused ASR and update initialized ASR."""
+    assert handler._walkie_talkie._asr.is_initialized is False
+    assert handler._realtime_long._asr.is_initialized is False
+
     result = handler.dispatch("set_config", {"key": "asr.language", "value": "en"})
 
     assert result["ok"] is True
-    handler._walkie_talkie._asr.refresh_runtime_config.assert_called_once_with(
-        drop_idle_session=True
-    )
-    handler._realtime_long._asr.refresh_runtime_config.assert_called_once_with(
-        drop_idle_session=True
-    )
+    assert handler._walkie_talkie._asr.is_initialized is False
+    assert handler._realtime_long._asr.is_initialized is False
 
-    handler._walkie_talkie._asr.refresh_runtime_config.reset_mock()
-    handler._realtime_long._asr.refresh_runtime_config.reset_mock()
+    walkie_asr = handler._walkie_talkie._asr.get()
 
     result = handler.dispatch("set_config", {"key": "llm.level", "value": "strong"})
 
     assert result["ok"] is True
-    handler._walkie_talkie._asr.refresh_runtime_config.assert_called_once_with(
+    walkie_asr.refresh_runtime_config.assert_called_once_with(
         drop_idle_session=True
     )
-    handler._realtime_long._asr.refresh_runtime_config.assert_called_once_with(
-        drop_idle_session=True
-    )
+    assert handler._realtime_long._asr.is_initialized is False
 
 
 def test_dispatch_set_config_default_mode_switches_current_mode(handler):
@@ -392,8 +388,8 @@ def test_dispatch_set_config_empty_api_key_clears_polisher(handler):
     assert handler._text_polisher is None
     assert handler._walkie_talkie.text_polisher is None
     assert handler._realtime_long.text_polisher is None
-    handler._walkie_talkie._asr.refresh_api_key.assert_called_once()
-    handler._realtime_long._asr.refresh_api_key.assert_called_once()
+    assert handler._walkie_talkie._asr.is_initialized is False
+    assert handler._realtime_long._asr.is_initialized is False
 
 
 def test_dispatch_set_active_hotkeys_normalizes_values(handler):

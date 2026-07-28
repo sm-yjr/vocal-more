@@ -27,23 +27,46 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/settings/package-lock.json
 
-      - name: Test and build settings frontend
-        working-directory: frontend/settings
-        run: |
-          npm ci
-          npm test
-          npm run typecheck
-          npm run lint
-          npm run build
-
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
 
-      - name: Install test dependencies
-        run: uv sync --group dev
+      - name: Install packaging Python
+        run: |
+          set -euo pipefail
+          brew install python@3.12
+          echo "VOCAL_MORE_BUILD_PYTHON=$(brew --prefix python@3.12)/bin/python3.12" >> "$GITHUB_ENV"
 
-      - name: Run tests
-        run: uv run python -m pytest -q
+      - name: Install frontend and Python dependencies in parallel
+        run: |
+          set -uo pipefail
+          npm --prefix frontend/settings ci &
+          frontend_install_pid=$!
+          uv sync --group dev --group packaging --python "$VOCAL_MORE_BUILD_PYTHON" &
+          python_install_pid=$!
+
+          status=0
+          wait "$frontend_install_pid" || status=$?
+          wait "$python_install_pid" || status=$?
+          exit "$status"
+
+      - name: Run frontend and Python checks in parallel
+        run: |
+          set -uo pipefail
+          (
+            set -e
+            npm --prefix frontend/settings test
+            npm --prefix frontend/settings run typecheck
+            npm --prefix frontend/settings run lint
+            npm --prefix frontend/settings run build
+          ) &
+          frontend_check_pid=$!
+          uv run python -m pytest -q &
+          python_check_pid=$!
+
+          status=0
+          wait "$frontend_check_pid" || status=$?
+          wait "$python_check_pid" || status=$?
+          exit "$status"
 
       - name: Validate release tag
         run: |
@@ -56,12 +79,6 @@ jobs:
           fi
           echo "VOCAL_MORE_VERSION=$version" >> "$GITHUB_ENV"
           echo "DMG_PATH=$GITHUB_WORKSPACE/dist/Vocal-More-$version.dmg" >> "$GITHUB_ENV"
-
-      - name: Install packaging Python
-        run: |
-          set -euo pipefail
-          brew install python@3.12
-          echo "VOCAL_MORE_BUILD_PYTHON=$(brew --prefix python@3.12)/bin/python3.12" >> "$GITHUB_ENV"
 
       - name: Import signing certificate
         env:
@@ -119,6 +136,11 @@ jobs:
           echo "VOCAL_MORE_NOTARY_PROFILE=$NOTARY_PROFILE" >> "$GITHUB_ENV"
 
       - name: Build signed DMG
+        env:
+          VOCAL_MORE_BUILD_VENV: ${{ github.workspace }}/.venv
+          VOCAL_MORE_USE_PREPARED_BUILD_VENV: "1"
+          VOCAL_MORE_SKIP_FRONTEND_BUILD: "1"
+          VOCAL_MORE_SKIP_ADHOC_SIGN: "1"
         run: ./packaging/macos/build_dmg.sh
 
       - name: Notarize and staple DMG
@@ -165,6 +187,8 @@ jobs:
           archive_stem="${archive_name%.dmg}"
           updates_dir="$RUNNER_TEMP/sparkle-updates"
           sparkle_root="$(./packaging/macos/install_sparkle.sh)"
+          maximum_deltas=1
+          previous_archives=0
           mkdir -p "$updates_dir"
 
           if gh release view sparkle-feed >/dev/null 2>&1; then
@@ -177,16 +201,53 @@ jobs:
           cp "$DMG_PATH" "$updates_dir/$archive_name"
           gh release view "$tag" --json body --jq .body > "$updates_dir/$archive_stem.md"
 
+          while IFS= read -r previous_tag; do
+            [[ "$previous_tag" == "$tag" ]] && continue
+            [[ "$previous_tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+
+            if gh release download "$previous_tag" \
+              --pattern "Vocal-More-*.dmg" \
+              --dir "$updates_dir"; then
+              previous_archives=$((previous_archives + 1))
+            fi
+
+            if (( previous_archives >= maximum_deltas )); then
+              break
+            fi
+          done < <(
+            gh release list --exclude-drafts --exclude-pre-releases \
+              --limit 20 \
+              --json tagName \
+              --jq '.[].tagName'
+          )
+
           printf '%s' "$SPARKLE_PRIVATE_KEY" |
             "$sparkle_root/bin/generate_appcast" \
               --ed-key-file - \
               --download-url-prefix "https://github.com/sm-yjr/vocal-more/releases/download/$tag/" \
               --embed-release-notes \
+              --versions "$VOCAL_MORE_VERSION" \
               --maximum-versions 5 \
-              --maximum-deltas 0 \
+              --maximum-deltas "$maximum_deltas" \
+              --delta-compression lzfse \
               --link "https://github.com/sm-yjr/vocal-more" \
               -o "$updates_dir/appcast.xml" \
               "$updates_dir"
+
+          shopt -s nullglob
+          delta_files=("$updates_dir"/*.delta)
+          shopt -u nullglob
+
+          if (( previous_archives > 0 && ${#delta_files[@]} == 0 )); then
+            echo "Historical DMGs were available, but Sparkle generated no delta updates." >&2
+            exit 1
+          fi
+
+          if (( ${#delta_files[@]} > 0 )); then
+            grep -q "<sparkle:deltas>" "$updates_dir/appcast.xml"
+            grep -q "sparkle:deltaFrom=" "$updates_dir/appcast.xml"
+            gh release upload "$tag" "${delta_files[@]}" --clobber
+          fi
 
           if gh release view sparkle-feed >/dev/null 2>&1; then
             gh release upload sparkle-feed "$updates_dir/appcast.xml" --clobber

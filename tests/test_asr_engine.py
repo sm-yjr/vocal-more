@@ -54,6 +54,19 @@ def test_streaming_queue_helpers_scale_with_blocksize():
     assert asr_engine._audio_queue_drain_timeout_seconds(16, slow_chunks) > asr_engine.MIN_AUDIO_QUEUE_DRAIN_TIMEOUT_SECONDS
 
 
+def test_audio_sender_waits_for_queue_without_idle_polling():
+    import vocal_more.core.asr_engine as asr_engine
+
+    engine = object.__new__(asr_engine.ASREngine)
+    engine._sender_shutdown = threading.Event()
+    engine._audio_queue = MagicMock()
+    engine._audio_queue.get.return_value = asr_engine._AUDIO_QUEUE_STOP
+
+    engine._run_audio_sender_loop()
+
+    engine._audio_queue.get.assert_called_once_with()
+
+
 def test_realtime_ws_batch_uses_manual_commit_and_corpus(tmp_path, monkeypatch):
     """The websocket backend should disable turn detection and commit manually."""
     from vocal_more.config import Config, reload_config

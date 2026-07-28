@@ -13,6 +13,7 @@ from Foundation import NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer
 
 from . import __version__
 from .application.dictation_command_coordinator import DictationCommandCoordinator
+from .application.lazy_resource import initialized_resource
 from .application.runtime_facade import RuntimeFacade
 from .bootstrap import build_menu_app_dependencies
 from .benchmarking import live_trace_recorder_from_env
@@ -38,7 +39,13 @@ from .paths import bundled_resource_path
 from .infrastructure.sparkle_updater import SparkleUpdater
 from .infrastructure.timestamped_output import install_timestamped_stream
 from .ui.floating_capsule import FloatingCapsule
-from .ui.settings_window import SettingsWindow
+
+
+def SettingsWindow(*args, **kwargs):
+    """Import and create the heavyweight settings WebView on first use."""
+    from .ui.settings_window import SettingsWindow as SettingsWindowImplementation
+
+    return SettingsWindowImplementation(*args, **kwargs)
 
 MENU_STATE_OFF = 0
 MENU_STATE_ON = 1
@@ -446,6 +453,13 @@ class VocalMoreApp(rumps.App):
         self._refresh_quick_settings_menu()
         print(f"[Settings] Config updated: {key} = {value}")
 
+    def _on_settings_preview_config(self, key: str, value: Any) -> None:
+        """Apply an audio slider preview without writing config to disk."""
+        try:
+            self._get_runtime().apply_update(key, value)
+        except ValueError as exc:
+            print(f"[Settings] {exc}")
+
     def _on_settings_set_device(self, device: Optional[str]) -> None:
         """Handle device change from settings window."""
         self._get_runtime().apply_update("audio.input_device", device)
@@ -478,7 +492,7 @@ class VocalMoreApp(rumps.App):
         for mode in self._all_modes():
             if hasattr(mode, "text_polisher"):
                 mode.text_polisher = self._text_polisher
-            asr = getattr(mode, "_asr", None)
+            asr = initialized_resource(getattr(mode, "_asr", None))
             if asr is not None and hasattr(asr, "refresh_api_key"):
                 asr.refresh_api_key()
 

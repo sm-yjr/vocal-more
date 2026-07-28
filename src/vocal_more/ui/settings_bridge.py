@@ -157,6 +157,16 @@ class SettingsBridge:
             "value": body.get("value"),
         }
 
+    def _normalize_previewConfig(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        key = body.get("key")
+        if not _allowed_config_key(key) or not str(key).startswith("audio."):
+            return None
+        return {
+            "action": "preview_config",
+            "key": key,
+            "value": body.get("value"),
+        }
+
     def _normalize_setAsrModel(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
         model = _non_empty_string(body.get("model"))
         backend = _non_empty_string(body.get("backend"))

@@ -3,6 +3,7 @@
 import importlib
 import sys
 import types
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -306,6 +307,53 @@ def test_floating_capsule_show_marshals_to_main_thread(tmp_path, monkeypatch):
     timer.callback(None)
 
     capsule._show_on_main_thread.assert_called_once_with("handsFree")
+
+
+def test_floating_capsule_coalesces_audio_updates_and_pushes_silence_tail(
+    tmp_path, monkeypatch
+):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    capsule_module = importlib.import_module("vocal_more.ui.floating_capsule")
+    capsule_module = importlib.reload(capsule_module)
+    monkeypatch.setattr(capsule_module.time, "monotonic", lambda: 100.1)
+
+    capsule = capsule_module.FloatingCapsule.__new__(capsule_module.FloatingCapsule)
+    capsule._audio_level_lock = capsule_module.threading.Lock()
+    capsule._latest_audio_level = 0.5
+    capsule._last_pushed_audio_level = 0.49
+    capsule._last_audio_level_push_at = 100.0
+    capsule._push_count = 0
+    capsule._eval_js = MagicMock()
+
+    capsule._push_audio_level()
+
+    capsule._eval_js.assert_not_called()
+
+    capsule._latest_audio_level = 0.0
+    capsule._push_audio_level()
+
+    capsule._eval_js.assert_called_once_with("updateAudioLevel(0.0)")
+    assert capsule._last_pushed_audio_level == 0.0
+    assert 10 <= capsule_module.CAPSULE_AUDIO_PUSH_HZ <= 15
+
+
+def test_floating_capsule_waveform_interpolates_and_respects_reduced_motion():
+    html = (
+        Path(__file__).resolve().parents[1]
+        / "resources"
+        / "floating_capsule"
+        / "capsule.html"
+    ).read_text(encoding="utf-8")
+
+    assert "requestAnimationFrame(renderWaveform)" in html
+    assert "prefers-reduced-motion: reduce" in html
+    assert "style.transform = `scaleY(" in html
 
 
 def test_app_state_change_marshals_to_main_thread(tmp_path, monkeypatch):

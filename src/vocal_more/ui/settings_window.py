@@ -113,6 +113,7 @@ class SettingsWindow:
     def __init__(
         self,
         on_set_config: Optional[Callable[[str, Any], None]] = None,
+        on_preview_config: Optional[Callable[[str, Any], None]] = None,
         on_set_asr_model: Optional[Callable[[str, str], None]] = None,
         on_sync_form_state: Optional[Callable[[dict], None]] = None,
         on_set_device: Optional[Callable[[Optional[str]], None]] = None,
@@ -132,6 +133,7 @@ class SettingsWindow:
         context_personalization: Optional[object] = None,
     ):
         self._on_set_config = on_set_config
+        self._on_preview_config = on_preview_config
         self._on_set_asr_model = on_set_asr_model
         self._on_sync_form_state = on_sync_form_state
         self._on_set_device = on_set_device
@@ -156,9 +158,10 @@ class SettingsWindow:
         self._message_handler: Optional[_SettingsMessageHandler] = None
         self._window_delegate: Optional[_WindowDelegate] = None
         self._html_url: Optional[NSURL] = None
-        self._sync_timer: Optional[NSTimer] = None
         self._last_synced_state: Optional[str] = None
         self._js_queue: queue.Queue = queue.Queue()
+        self._js_drain_timer: Optional[NSTimer] = None
+        self._js_drain_lock = threading.Lock()
         self._interface_language = "en"
         self._background_tasks = BackgroundExecutor(
             max_workers=2,
@@ -280,33 +283,10 @@ class SettingsWindow:
         self._last_synced_state = serialized
         self._on_sync_form_state(payload)
 
-    def _start_live_sync(self) -> None:
-        """Continuously sync form state while the settings window is visible."""
-        if self._sync_timer is not None:
-            self._sync_timer.invalidate()
-
-        def _tick(_timer):
-            self._drain_js_queue()
-            self._request_form_state_sync()
-
-        self._sync_timer = NSTimer.timerWithTimeInterval_repeats_block_(
-            0.2, True, _tick
-        )
-        NSRunLoop.currentRunLoop().addTimer_forMode_(
-            self._sync_timer, NSRunLoopCommonModes
-        )
-
-    def _stop_live_sync(self) -> None:
-        """Stop syncing once the settings window is hidden."""
-        if self._sync_timer is not None:
-            self._sync_timer.invalidate()
-            self._sync_timer = None
-
     def _on_window_close_requested(self) -> None:
         """Persist the latest form state and hide the settings window."""
         self._mic_test_controller.cleanup()
         self._request_form_state_sync()
-        self._stop_live_sync()
         if self._window:
             self._window.orderOut_(None)
 
@@ -315,6 +295,10 @@ class SettingsWindow:
         message = self._bridge.parse(body)
         if message is None:
             return
+        if message.get("action") == "sync_form_state":
+            payload = message.get("payload")
+            if isinstance(payload, dict):
+                self._last_synced_state = json.dumps(payload, sort_keys=True)
         self._dispatcher.dispatch(message)
 
     def _eval_js(self, js: str) -> None:
@@ -325,6 +309,38 @@ class SettingsWindow:
             self._webview.evaluateJavaScript_completionHandler_(js, None)
         else:
             self._js_queue.put(js)
+            self._schedule_js_drain()
+
+    def _schedule_js_drain(self) -> None:
+        """Schedule one main-run-loop drain when background work enqueues JS."""
+        with self._js_drain_lock:
+            if self._js_drain_timer is not None:
+                return
+
+            timer_ref: dict[str, Optional[NSTimer]] = {"timer": None}
+
+            def _fire(_timer) -> None:
+                timer = timer_ref["timer"]
+                with self._js_drain_lock:
+                    if self._js_drain_timer is timer:
+                        self._js_drain_timer = None
+                self._drain_js_queue()
+                if not self._js_queue.empty():
+                    self._schedule_js_drain()
+
+            timer = NSTimer.timerWithTimeInterval_repeats_block_(0, False, _fire)
+            timer_ref["timer"] = timer
+            self._js_drain_timer = timer
+
+        NSRunLoop.mainRunLoop().addTimer_forMode_(timer, NSRunLoopCommonModes)
+
+    def _stop_js_drain(self) -> None:
+        """Cancel a pending one-shot JavaScript queue drain."""
+        with self._js_drain_lock:
+            timer = self._js_drain_timer
+            self._js_drain_timer = None
+        if timer is not None:
+            timer.invalidate()
 
     def _drain_js_queue(self) -> None:
         """Process pending JS calls on the main thread."""
@@ -416,7 +432,6 @@ class SettingsWindow:
         # Inject data into page and reload
         self._last_synced_state = None
         self._inject_data_and_reload(data)
-        self._start_live_sync()
 
         self._window.makeKeyAndOrderFront_(None)
 
@@ -424,12 +439,12 @@ class SettingsWindow:
         """Hide the settings window."""
         if self._window:
             self._request_form_state_sync()
-            self._stop_live_sync()
             self._window.orderOut_(None)
 
     def close(self) -> None:
         """Release background resources owned by the settings window."""
         self.hide()
+        self._stop_js_drain()
         self._mic_test_controller.cleanup()
         self._background_tasks.close(wait=False, cancel_futures=True)
 
@@ -464,6 +479,7 @@ class SettingsWindow:
     def _build_action_dispatcher(self) -> SettingsActionDispatcher:
         return SettingsActionDispatcher(
             on_set_config=self._on_set_config,
+            on_preview_config=self._on_preview_config,
             on_set_asr_model=self._on_set_asr_model,
             on_sync_form_state=self._on_sync_form_state,
             on_set_device=self._on_set_device,

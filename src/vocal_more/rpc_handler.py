@@ -11,6 +11,7 @@ import dashscope
 from .application.background_executor import BackgroundExecutor
 from .application.dictation_command_coordinator import DictationCommandCoordinator
 from .application.runtime_facade import RuntimeFacade
+from .application.lazy_resource import initialized_resource
 from .bootstrap import build_rpc_handler_dependencies
 from .config import (
     ASR_MODEL_CATALOG,
@@ -359,7 +360,7 @@ class RPCHandler:
         for mode in self._modes.values():
             if hasattr(mode, "text_polisher"):
                 mode.text_polisher = self._text_polisher
-            asr = getattr(mode, "_asr", None)
+            asr = initialized_resource(getattr(mode, "_asr", None))
             if asr is not None and hasattr(asr, "refresh_api_key"):
                 asr.refresh_api_key()
 

@@ -36,8 +36,7 @@ const en = {
   historyCompressionHint:
     "Older completed recordings are archived as FLAC after PCM-exact verification. The newest three stay as WAV for instant access.",
   historyStorage: "Audio storage",
-  historyStorageSummary:
-    "{compressed}/{total} archived · {saved} saved",
+  historyStorageSummary: "{compressed}/{total} archived · {saved} saved",
   historyCompressionAction: "Compress now",
   historyCompressionRunning: "Compressing…",
   historyCompressionError: "Compression failed",
@@ -69,7 +68,7 @@ const en = {
     "Amplify low-voice input up to 50× (+34 dB). 0 dB means no amplification.",
   waveformCalibration: "Waveform full-scale level",
   waveformCalibrationHint:
-    "The RMS level that fills the capsule waveform. Lower values make the display more sensitive; the noise gate stays at −60 dBFS.",
+    "The RMS level that fills the capsule waveform. Lower values make the display more sensitive; drag for a live preview and release to save.",
   highpass: "High-pass filter",
   cutoff: "Cutoff frequency",
   highpassHint: "Remove fan, AC, rumble, and plosive energy below the cutoff.",
@@ -290,7 +289,7 @@ const zh: Copy = {
   softwareGainHint: "轻声输入最高可放大 50 倍（+34 dB）。0 dB 表示不放大。",
   waveformCalibration: "波形满幅电平",
   waveformCalibrationHint:
-    "达到该 RMS 电平时胶囊波形显示为满幅。数值越低越灵敏；底噪门固定为 −60 dBFS。",
+    "达到该 RMS 电平时胶囊波形显示为满幅。数值越低越灵敏；拖动时实时预览，松手后保存。",
   highpass: "高通滤波",
   cutoff: "截止频率",
   highpassHint: "去除风扇、空调、低频噪声和喷麦声。",
@@ -312,7 +311,8 @@ const zh: Copy = {
   enablePolish: "启用文本润色",
   enablePolishHint: "清理和整理识别结果。",
   contextPersonalization: "App 上下文",
-  contextPersonalizationHint: "只根据本地粗粒度 App 类别适配输出，不读取窗口内容。",
+  contextPersonalizationHint:
+    "只根据本地粗粒度 App 类别适配输出，不读取窗口内容。",
   contextAdaptation: "按场景适配表达",
   contextPrivacyBoundary:
     "模型只会收到“沟通 / 开发 / 写作 / 通用”之一。画像不会保存窗口标题、焦点文本、剪贴板、转写原文或具体 App 身份。",
@@ -378,7 +378,8 @@ const zh: Copy = {
   excludedApps: "排除的 App Bundle ID",
   excludedAppsHint: "使用逗号分隔；这些 App 中的修改不会离开本机。",
   learningActivity: "自动学习记录",
-  learningActivityHint: "显示最近一次听写是否正在监听、已捕获、分析中或已完成。",
+  learningActivityHint:
+    "显示最近一次听写是否正在监听、已捕获、分析中或已完成。",
   noLearning: "还没有自动学习活动。",
   monitoringEdit: "正在监听修改",
   analyzingEdit: "正在分析纠正",

@@ -6,6 +6,7 @@ APP="${1:-$ROOT/dist/Vocal More.app}"
 ENTITLEMENTS="$ROOT/packaging/macos/entitlements.plist"
 IDENTITY="${VOCAL_MORE_SIGN_IDENTITY:-}"
 SPARKLE_FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
+CODESIGN_JOBS="${VOCAL_MORE_CODESIGN_JOBS:-8}"
 
 if [[ ! -d "$APP" ]]; then
   echo "App bundle not found: $APP" >&2
@@ -25,20 +26,23 @@ if [[ -z "$IDENTITY" ]]; then
   exit 1
 fi
 
+if [[ ! "$CODESIGN_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "VOCAL_MORE_CODESIGN_JOBS must be a positive integer." >&2
+  exit 1
+fi
+
 echo "Signing $APP"
 echo "Identity: $IDENTITY"
+echo "Parallel nested signing jobs: $CODESIGN_JOBS"
 
 "$ROOT/packaging/macos/sign_sparkle.sh" "$SPARKLE_FRAMEWORK" "$IDENTITY" 1
 
-while IFS= read -r file; do
-  codesign --force --timestamp --options runtime \
-    --sign "$IDENTITY" "$file" >/dev/null
-done < <(
-  find "$APP/Contents" -path "$SPARKLE_FRAMEWORK/*" -prune -o -type f -print0 |
-    xargs -0 file |
-    awk -F: '/Mach-O/ { sub(/ [(]for architecture .*/, "", $1); print $1 }' |
-    sort -ru
-)
+find "$APP/Contents" -path "$SPARKLE_FRAMEWORK/*" -prune -o -type f -print0 |
+  xargs -0 file |
+  awk -F: '/Mach-O/ { sub(/ [(]for architecture .*/, "", $1); print $1 }' |
+  sort -ru |
+  xargs -P "$CODESIGN_JOBS" -I '{}' \
+    codesign --force --timestamp --options runtime --sign "$IDENTITY" '{}'
 
 codesign --force --timestamp --options runtime \
   --entitlements "$ENTITLEMENTS" \

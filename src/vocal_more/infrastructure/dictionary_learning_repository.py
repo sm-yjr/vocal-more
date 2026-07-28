@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 from dataclasses import replace
 from pathlib import Path
 import sqlite3
 import threading
 import time
+from typing import Iterator
 import uuid
 
 from ..domain.dictionary_learning_models import (
@@ -49,12 +51,18 @@ class DictionaryLearningRepository:
         self._lock = threading.RLock()
         self._initialized = False
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Open one transactional connection and always release its resources."""
         connection = sqlite3.connect(self.database_path, timeout=5.0)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA foreign_keys=ON")
-        return connection
+        try:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA foreign_keys=ON")
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _initialize(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)

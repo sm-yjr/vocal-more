@@ -385,6 +385,62 @@ def test_sqlite_repository_does_not_touch_disk_until_first_operation(tmp_path):
     assert not path.exists()
 
 
+def test_sqlite_repository_explicitly_closes_connections(tmp_path, monkeypatch):
+    import sqlite3
+
+    from vocal_more.infrastructure import dictionary_learning_repository
+    from vocal_more.infrastructure.dictionary_learning_repository import (
+        DictionaryLearningRepository,
+    )
+
+    real_connect = sqlite3.connect
+    tracked_connections = []
+
+    class TrackingConnection:
+        def __init__(self, *args, **kwargs):
+            object.__setattr__(self, "_connection", real_connect(*args, **kwargs))
+            object.__setattr__(self, "closed", False)
+
+        def __getattr__(self, name):
+            return getattr(self._connection, name)
+
+        def __setattr__(self, name, value):
+            if name in {"_connection", "closed"}:
+                object.__setattr__(self, name, value)
+                return
+            setattr(self._connection, name, value)
+
+        def __enter__(self):
+            self._connection.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self._connection.__exit__(*args)
+
+        def close(self):
+            self.closed = True
+            self._connection.close()
+
+    def tracked_connect(*args, **kwargs):
+        connection = TrackingConnection(*args, **kwargs)
+        tracked_connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(
+        dictionary_learning_repository.sqlite3,
+        "connect",
+        tracked_connect,
+    )
+    repository = DictionaryLearningRepository(
+        database_path=tmp_path / "learning.sqlite3"
+    )
+
+    assert repository.list_jobs() == []
+
+    assert tracked_connections
+    assert all(connection.closed for connection in tracked_connections)
+
+
 def test_repository_migrates_legacy_single_candidate_database(tmp_path):
     import sqlite3
 

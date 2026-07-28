@@ -34,6 +34,12 @@ def test_settings_bridge_rejects_unknown_config_keys():
         {"action": "setConfig", "key": "audio.gain", "value": 3.0}
     ) == {"action": "set_config", "key": "audio.gain", "value": 3.0}
     assert bridge.parse(
+        {"action": "previewConfig", "key": "audio.gain", "value": 3.0}
+    ) == {"action": "preview_config", "key": "audio.gain", "value": 3.0}
+    assert bridge.parse(
+        {"action": "previewConfig", "key": "llm.level", "value": "strong"}
+    ) is None
+    assert bridge.parse(
         {
             "action": "setConfig",
             "key": "audio.waveform_ceiling_dbfs",
@@ -178,6 +184,29 @@ def test_settings_action_dispatcher_routes_sync_form_state():
 
     assert calls == [("sync", {"audio": {"gain": 3.0}})]
 
+
+def test_settings_action_dispatcher_routes_audio_preview_without_persistence():
+    from vocal_more.ui.settings_actions import SettingsActionDispatcher
+
+    previews = []
+    persisted = []
+    mic_test_controller = MagicMock()
+    dispatcher = SettingsActionDispatcher(
+        on_preview_config=lambda key, value: previews.append((key, value)),
+        on_set_config=lambda key, value: persisted.append((key, value)),
+        mic_test_controller=mic_test_controller,
+    )
+
+    dispatcher.dispatch(
+        {"action": "preview_config", "key": "audio.gain", "value": 4.0}
+    )
+
+    assert previews == [("audio.gain", 4.0)]
+    assert persisted == []
+    mic_test_controller.apply_audio_setting.assert_called_once_with(
+        "audio.gain",
+        4.0,
+    )
 
 def test_settings_bridge_and_dispatcher_route_onboarding_environment_actions():
     from vocal_more.ui.settings_actions import SettingsActionDispatcher

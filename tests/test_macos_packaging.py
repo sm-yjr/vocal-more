@@ -77,9 +77,19 @@ def test_local_ad_hoc_signing_uses_entitlements():
 
 def test_nested_macho_files_are_signed_without_app_entitlements():
     sign_script = (ROOT / "packaging" / "macos" / "sign_app.sh").read_text()
-    nested_signing_block = sign_script.split("done < <(", maxsplit=1)[0]
+    nested_signing_block = sign_script.split(
+        'codesign --force --timestamp --options runtime \\\n  --entitlements',
+        maxsplit=1,
+    )[0]
 
     assert "--entitlements" not in nested_signing_block
+
+
+def test_nested_macho_files_are_signed_in_parallel():
+    sign_script = (ROOT / "packaging" / "macos" / "sign_app.sh").read_text()
+
+    assert 'CODESIGN_JOBS="${VOCAL_MORE_CODESIGN_JOBS:-8}"' in sign_script
+    assert 'xargs -P "$CODESIGN_JOBS"' in sign_script
 
 
 def test_sparkle_dependency_is_pinned_and_checksum_verified():
@@ -120,11 +130,11 @@ def test_release_workflow_tests_and_builds_settings_frontend():
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
 
     assert "actions/setup-node@v4" in workflow
-    assert "npm ci" in workflow
-    assert "npm test" in workflow
-    assert "npm run typecheck" in workflow
-    assert "npm run lint" in workflow
-    assert "npm run build" in workflow
+    assert "npm --prefix frontend/settings ci" in workflow
+    assert "npm --prefix frontend/settings test" in workflow
+    assert "npm --prefix frontend/settings run typecheck" in workflow
+    assert "npm --prefix frontend/settings run lint" in workflow
+    assert "npm --prefix frontend/settings run build" in workflow
 
 
 def test_sparkle_nested_services_are_signed_in_official_order():
@@ -149,3 +159,29 @@ def test_release_workflow_publishes_signed_sparkle_appcast():
     assert '"$sparkle_root/bin/generate_appcast"' in workflow
     assert "--ed-key-file -" in workflow
     assert "gh release upload sparkle-feed" in workflow
+
+
+def test_release_workflow_publishes_sparkle_delta_updates():
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+
+    assert "maximum_deltas=1" in workflow
+    assert "gh release list --exclude-drafts --exclude-pre-releases" in workflow
+    assert 'gh release download "$previous_tag"' in workflow
+    assert '--maximum-deltas "$maximum_deltas"' in workflow
+    assert "--delta-compression lzfse" in workflow
+    assert 'gh release upload "$tag" "${delta_files[@]}" --clobber' in workflow
+    assert 'grep -q "<sparkle:deltas>" "$updates_dir/appcast.xml"' in workflow
+
+
+def test_release_workflow_avoids_duplicate_build_and_signing_work():
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+    build_script = (ROOT / "packaging" / "macos" / "build_app.sh").read_text()
+
+    assert "Run frontend and Python checks in parallel" in workflow
+    assert 'VOCAL_MORE_SKIP_FRONTEND_BUILD: "1"' in workflow
+    assert 'VOCAL_MORE_SKIP_ADHOC_SIGN: "1"' in workflow
+    assert 'VOCAL_MORE_USE_PREPARED_BUILD_VENV: "1"' in workflow
+    assert "--group packaging" in workflow
+    assert '${VOCAL_MORE_SKIP_FRONTEND_BUILD:-0}' in build_script
+    assert '${VOCAL_MORE_SKIP_ADHOC_SIGN:-0}' in build_script
+    assert '${VOCAL_MORE_USE_PREPARED_BUILD_VENV:-0}' in build_script

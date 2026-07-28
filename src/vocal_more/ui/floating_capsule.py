@@ -2,6 +2,7 @@
 
 import os
 import threading
+import time
 from typing import Callable, Optional
 
 import objc
@@ -27,6 +28,13 @@ NSScreenSaverWindowLevel = 1000
 NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
 NSWindowCollectionBehaviorFullScreenAuxiliary = 1 << 8
 NSWindowCollectionBehaviorStationary = 1 << 4
+
+CAPSULE_AUDIO_PUSH_HZ = 12
+CAPSULE_AUDIO_PUSH_INTERVAL_SECONDS = 1.0 / CAPSULE_AUDIO_PUSH_HZ
+CAPSULE_LEVEL_CHANGE_THRESHOLD = 0.015
+CAPSULE_LEVEL_HEARTBEAT_SECONDS = 0.25
+CAPSULE_SILENCE_THRESHOLD = 0.005
+
 
 class _MessageHandler(NSObject):
     """WKScriptMessageHandler to receive messages from JS."""
@@ -72,6 +80,8 @@ class FloatingCapsule:
         self._push_timer: Optional[NSTimer] = None
         self._hide_timer: Optional[NSTimer] = None
         self._push_count: int = 0  # for throttled debug logging
+        self._last_pushed_audio_level: Optional[float] = None
+        self._last_audio_level_push_at: float = 0.0
         self._html_loaded: bool = False
         self._interface_language: str = "en"
         self._main_thread_timers: set[NSTimer] = set()
@@ -177,6 +187,8 @@ class FloatingCapsule:
             f"setMode('{mode}'); updateState('recording')"
         )
         self._panel.orderFront_(None)
+        self._last_pushed_audio_level = None
+        self._last_audio_level_push_at = 0.0
         self._start_push_timer()
         print(f"[Capsule] show(mode={mode}), html_loaded={self._html_loaded}")
 
@@ -248,12 +260,14 @@ class FloatingCapsule:
         self._run_on_main_thread(lambda: self._eval_js(f"updateStreamingText('{escaped}')"))
 
     def _start_push_timer(self) -> None:
-        """Start a main-thread timer to push calibrated audio levels to JS at ~30fps."""
+        """Push the latest coalesced audio envelope to JavaScript at 12Hz."""
         self._stop_push_timer()
         # Create timer and add to MAIN run loop (not current thread's run loop)
         # so it fires correctly regardless of which thread calls show().
         self._push_timer = NSTimer.timerWithTimeInterval_repeats_block_(
-            0.033, True, lambda _: self._push_audio_level()
+            CAPSULE_AUDIO_PUSH_INTERVAL_SECONDS,
+            True,
+            lambda _: self._push_audio_level(),
         )
         NSRunLoop.mainRunLoop().addTimer_forMode_(
             self._push_timer, NSRunLoopCommonModes
@@ -269,10 +283,26 @@ class FloatingCapsule:
         """Read the calibrated level and push it to JS on the main thread."""
         with self._audio_level_lock:
             level = self._latest_audio_level
+        level = 0.0 if level <= CAPSULE_SILENCE_THRESHOLD else level
+        now = time.monotonic()
+        previous = self._last_pushed_audio_level
+        is_silence_tail = level == 0.0 and previous not in (None, 0.0)
+        heartbeat_due = (
+            previous is None
+            or now - self._last_audio_level_push_at >= CAPSULE_LEVEL_HEARTBEAT_SECONDS
+        )
+        changed_enough = (
+            previous is None
+            or abs(level - previous) >= CAPSULE_LEVEL_CHANGE_THRESHOLD
+        )
+        if not (is_silence_tail or heartbeat_due or changed_enough):
+            return
+
         self._eval_js(f"updateAudioLevel({level})")
-        # Throttled debug logging: print every 30th push (~1/sec at 30fps)
+        self._last_pushed_audio_level = level
+        self._last_audio_level_push_at = now
         self._push_count += 1
-        if self._push_count % 30 == 1:
+        if self._push_count % CAPSULE_AUDIO_PUSH_HZ == 1:
             print(f"[Capsule] waveform_level={level:.4f}")
 
     def _eval_js(self, js: str) -> None:

@@ -5,6 +5,7 @@ from typing import Callable, Optional
 
 from ..application.background_executor import BackgroundExecutor, TaskHandle
 from ..application.dictation_workflow import DictationWorkflow
+from ..application.lazy_resource import LazyResource
 from ..config import asr_model_handles_inline_polish, get_config
 from ..core.audio_recorder import AudioRecorder, AudioRecorderStartError
 from ..core.asr_engine import ASREngine
@@ -52,9 +53,11 @@ class RealtimeLongMode(BaseMode):
         self._context_personalization = context_personalization
         self._active_app_context = None
 
-        self._asr = ASREngine(
-            on_partial_result=self._on_asr_partial,
-            on_error=lambda msg: self._on_asr_error(msg),
+        self._asr = LazyResource(
+            lambda: ASREngine(
+                on_partial_result=self._on_asr_partial,
+                on_error=lambda msg: self._on_asr_error(msg),
+            )
         )
         self._recorder = AudioRecorder(
             on_audio_level=on_audio_level,
