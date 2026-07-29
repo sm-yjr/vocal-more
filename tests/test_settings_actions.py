@@ -230,6 +230,22 @@ def test_settings_bridge_and_dispatcher_route_onboarding_environment_actions():
     assert calls == ["refresh", "accessibility"]
 
 
+def test_settings_bridge_and_dispatcher_route_dashscope_model_check():
+    from vocal_more.ui.settings_actions import SettingsActionDispatcher
+    from vocal_more.ui.settings_bridge import SettingsBridge
+
+    calls = []
+    dispatcher = SettingsActionDispatcher(
+        on_check_dashscope_models=lambda: calls.append("check")
+    )
+
+    message = SettingsBridge().parse({"action": "checkDashScopeModels"})
+    dispatcher.dispatch(message)
+
+    assert message == {"action": "check_dashscope_models"}
+    assert calls == ["check"]
+
+
 def test_settings_bridge_and_dispatcher_route_dictionary_learning_actions():
     from vocal_more.ui.settings_actions import SettingsActionDispatcher
     from vocal_more.ui.settings_bridge import SettingsBridge

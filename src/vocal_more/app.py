@@ -1,44 +1,128 @@
 """Main Menu Bar application for Vocal-More (standalone Python mode)."""
 
+from __future__ import annotations
+
 import os
 import subprocess
 import threading
 import time
 from typing import Any, Optional
 
-import dashscope
+_MODULE_IMPORT_STARTED_AT = time.perf_counter()
+
 import objc
 import rumps
+from rumps import events as rumps_events
 from Foundation import NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer
 
 from . import __version__
-from .application.dictation_command_coordinator import DictationCommandCoordinator
+from .application.background_executor import BackgroundExecutor
 from .application.lazy_resource import initialized_resource
-from .application.runtime_facade import RuntimeFacade
-from .bootstrap import build_menu_app_dependencies
-from .benchmarking import live_trace_recorder_from_env
 from .config import (
     ASR_MODEL_CATALOG,
     LLM_MODEL_CATALOG,
+    get_config,
 )
-from .core.audio_recorder import AudioRecorder
-from .core.hotkey_manager import HotkeyManager
-from .core.recording_store import RecordingStore
-from .core.text_polisher import TextPolisher, build_polish_prompt_presets
-from .diagnostics import ensure_runtime_debug_dir_env, export_support_bundle
 from .dictionary import get_dictionary, reload_dictionary
 from .domain.hotkey_gestures import HotkeyGestureAction, HotkeyGestureController
 from .domain.waveform_calibration import waveform_level_from_rms
-from .environment_check import is_accessibility_trusted, run_environment_checks
 from .localization import t
-from .modes.base_mode import BaseMode, ModeState
-from .modes.meeting import MeetingMode
-from .modes.realtime_long import RealtimeLongMode
-from .modes.walkie_talkie import WalkieTalkieMode
+from .modes.base_mode import ModeState
 from .paths import bundled_resource_path
-from .infrastructure.sparkle_updater import SparkleUpdater
 from .infrastructure.timestamped_output import install_timestamped_stream
-from .ui.floating_capsule import FloatingCapsule
+
+
+def AudioRecorder(*args, **kwargs):
+    from .core.audio_recorder import AudioRecorder as Implementation
+
+    return Implementation(*args, **kwargs)
+
+
+def _list_input_devices(*, refresh: bool = True):
+    from .core.audio_recorder import AudioRecorder as Implementation
+
+    return Implementation.list_input_devices(refresh=refresh)
+
+
+AudioRecorder.list_input_devices = _list_input_devices
+
+
+def HotkeyManager(*args, **kwargs):
+    from .core.hotkey_manager import HotkeyManager as Implementation
+
+    return Implementation(*args, **kwargs)
+
+
+def RecordingStore(*args, **kwargs):
+    from .core.recording_store import RecordingStore as Implementation
+
+    return Implementation(*args, **kwargs)
+
+
+def TextPolisher(*args, **kwargs):
+    from .core.text_polisher import TextPolisher as Implementation
+
+    return Implementation(*args, **kwargs)
+
+
+def build_polish_prompt_presets():
+    from .core.text_polisher import build_polish_prompt_presets as implementation
+
+    return implementation()
+
+
+def FloatingCapsule(*args, **kwargs):
+    from .ui.floating_capsule import FloatingCapsule as Implementation
+
+    return Implementation(*args, **kwargs)
+
+
+def WalkieTalkieMode(*args, **kwargs):
+    from .modes.walkie_talkie import WalkieTalkieMode as Implementation
+
+    return Implementation(*args, **kwargs)
+
+
+def RealtimeLongMode(*args, **kwargs):
+    from .modes.realtime_long import RealtimeLongMode as Implementation
+
+    return Implementation(*args, **kwargs)
+
+
+def MeetingMode(*args, **kwargs):
+    from .modes.meeting import MeetingMode as Implementation
+
+    return Implementation(*args, **kwargs)
+
+
+def run_environment_checks(*args, **kwargs):
+    from .environment_check import run_environment_checks as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def is_accessibility_trusted():
+    from .environment_check import is_accessibility_trusted as implementation
+
+    return implementation()
+
+
+def export_support_bundle(*args, **kwargs):
+    from .diagnostics import export_support_bundle as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def ensure_runtime_debug_dir_env():
+    from .diagnostics import ensure_runtime_debug_dir_env as implementation
+
+    return implementation()
+
+
+def live_trace_recorder_from_env():
+    from .benchmarking import live_trace_recorder_from_env as implementation
+
+    return implementation()
 
 
 def SettingsWindow(*args, **kwargs):
@@ -63,6 +147,10 @@ POLISH_LEVEL_OPTIONS = [
 ]
 
 HOTKEY_PERMISSION_RETRY_INTERVAL_SECONDS = 2.0
+
+
+class _StartingMode:
+    state = ModeState.IDLE
 
 
 class StatusMenuRefreshDelegate(NSObject):
@@ -91,24 +179,100 @@ class VocalMoreApp(rumps.App):
             quit_button=None,
         )
 
-        dependencies = dependencies or build_menu_app_dependencies(
-            self,
-            text_polisher_factory=TextPolisher,
-            capsule_factory=FloatingCapsule,
-            recording_store_factory=RecordingStore,
-            walkie_talkie_factory=WalkieTalkieMode,
-            realtime_long_factory=RealtimeLongMode,
-            meeting_factory=MeetingMode,
-            hotkey_manager_factory=HotkeyManager,
-            settings_window_factory=SettingsWindow,
+        self._dependencies_lock = threading.Lock()
+        self._dependencies_ready = dependencies is not None
+        self._is_quitting = False
+        self._pending_settings_request: Optional[dict[str, str]] = None
+        if dependencies is None:
+            self._apply_starting_dependencies()
+        else:
+            self._apply_dependencies(dependencies)
+        self._sparkle_updater = None
+        self._startup_executor = BackgroundExecutor(
+            max_workers=1,
+            thread_name_prefix="vocal-more-startup",
         )
-        self._apply_dependencies(dependencies)
-        self._sparkle_updater = SparkleUpdater()
+        self._startup_task = None
         self._apply_interface_language(update_frontend=False)
 
         # Build menu
         self._build_menu()
-        self._refresh_environment_status()
+
+    def _apply_starting_dependencies(self) -> None:
+        """Install the minimal state needed to render the status item."""
+        starting_mode = _StartingMode()
+        self.config = get_config()
+        self._hotkey_listener_ready = None
+        self._environment_checks = []
+        self._text_polisher = None
+        self._capsule = None
+        self._recording_store = None
+        self._walkie_talkie = starting_mode
+        self._realtime_long = starting_mode
+        self._meeting = None
+        self._current_mode = starting_mode
+        self._command_coordinator = None
+        self._hotkey_manager = None
+        self._hotkey_gesture_controller = HotkeyGestureController()
+        self._benchmark_trace = None
+        self._runtime = None
+        self._settings_window = None
+        self._dictionary_learning = None
+        self._context_personalization = None
+        self._main_thread_timers: set[NSTimer] = set()
+        self._hotkey_permission_retry_timer = None
+        self._status_menu_delegate = None
+
+    def _ensure_dependencies(self) -> bool:
+        """Build runtime services once, after the status item is visible."""
+        if getattr(self, "_dependencies_ready", True):
+            return True
+        with self._dependencies_lock:
+            if self._dependencies_ready:
+                return True
+            if self._is_quitting:
+                return False
+
+            from .bootstrap import build_menu_app_dependencies
+
+            dependencies = build_menu_app_dependencies(
+                self,
+                config=self.config,
+                text_polisher_factory=TextPolisher,
+                capsule_factory=FloatingCapsule,
+                recording_store_factory=RecordingStore,
+                walkie_talkie_factory=WalkieTalkieMode,
+                realtime_long_factory=RealtimeLongMode,
+                meeting_factory=MeetingMode,
+                hotkey_manager_factory=HotkeyManager,
+                settings_window_factory=SettingsWindow,
+            )
+            if self._is_quitting:
+                self._close_unapplied_dependencies(dependencies)
+                return False
+            self._apply_dependencies(dependencies)
+            self._dependencies_ready = True
+            return True
+
+    @staticmethod
+    def _close_unapplied_dependencies(dependencies) -> None:
+        """Close services built while the user was already quitting."""
+        hotkey_manager = getattr(dependencies, "hotkey_manager", None)
+        stop = getattr(hotkey_manager, "stop", None)
+        if callable(stop):
+            stop()
+        for name in ("walkie_talkie", "realtime_long", "meeting", "recording_store"):
+            close = getattr(getattr(dependencies, name, None), "close", None)
+            if callable(close):
+                close()
+        for name in ("dictionary_learning", "context_personalization"):
+            close = getattr(getattr(dependencies, name, None), "close", None)
+            if callable(close):
+                close()
+        coordinator = getattr(dependencies, "command_coordinator", None)
+        close = getattr(coordinator, "close", None)
+        if callable(close):
+            close()
 
     def _apply_dependencies(self, dependencies) -> None:
         self.config = dependencies.config
@@ -273,6 +437,8 @@ class VocalMoreApp(rumps.App):
 
     def _on_status_menu_will_open(self) -> None:
         """Refresh status-bar-only dynamic menus before users inspect them."""
+        if getattr(self, "_dependencies_ready", True) is False:
+            return
         self._refresh_microphone_status_menu()
 
     def _build_quick_settings_items(self) -> list[rumps.MenuItem]:
@@ -337,7 +503,7 @@ class VocalMoreApp(rumps.App):
             self._t("menu_microphone_settings"),
             callback=self._open_microphone_settings,
         )
-        self._populate_microphone_device_menu(item, self._list_devices())
+        self._populate_microphone_device_menu(item, [])
         return item
 
     def _build_environment_item(self) -> rumps.MenuItem:
@@ -362,7 +528,7 @@ class VocalMoreApp(rumps.App):
 
     def _check_for_updates(self, sender=None) -> None:
         """Ask Sparkle to check the signed update feed for a newer release."""
-        updater = getattr(self, "_sparkle_updater", None)
+        updater = self._get_sparkle_updater()
         if updater is not None and updater.check_for_updates(sender):
             return
 
@@ -373,6 +539,18 @@ class VocalMoreApp(rumps.App):
             ["open", "https://github.com/sm-yjr/vocal-more/releases/latest"],
             check=False,
         )
+
+    def _get_sparkle_updater(self):
+        """Load Sparkle only after the status item is visible or on explicit use."""
+        updater = getattr(self, "_sparkle_updater", None)
+        if updater is not None:
+            return updater
+
+        from .infrastructure.sparkle_updater import SparkleUpdater
+
+        updater = SparkleUpdater()
+        self._sparkle_updater = updater
+        return updater
 
     def _open_microphone_settings(self, _=None) -> None:
         """Open settings directly to microphone controls."""
@@ -385,6 +563,12 @@ class VocalMoreApp(rumps.App):
         focus_recording_id: str = "",
     ) -> None:
         """Open settings, optionally navigating to a specific record."""
+        if getattr(self, "_dependencies_ready", True) is False:
+            self._pending_settings_request = {
+                "initial_tab": initial_tab,
+                "focus_recording_id": focus_recording_id,
+            }
+            return
         self._refresh_environment_status()
         devices = self._list_devices()
         self._clear_missing_configured_microphone(devices)
@@ -413,7 +597,14 @@ class VocalMoreApp(rumps.App):
 
     def _quit_app(self, _) -> None:
         """Quit the application."""
+        self._is_quitting = True
         self._stop_hotkey_permission_retry_timer()
+        startup_executor = getattr(self, "_startup_executor", None)
+        if startup_executor is not None:
+            startup_executor.close(wait=False, cancel_futures=True)
+        if getattr(self, "_dependencies_ready", True) is False:
+            rumps.quit_application()
+            return
         self._hotkey_manager.stop()
         self._get_command_coordinator().call(
             self._handle_quit_cancel_command,
@@ -487,6 +678,8 @@ class VocalMoreApp(rumps.App):
 
     def _refresh_text_polisher(self) -> None:
         """Recreate text polisher after API key changes and update all modes."""
+        import dashscope
+
         dashscope.api_key = self.config.api_key or None
         self._text_polisher = TextPolisher() if self.config.api_key else None
         for mode in self._all_modes():
@@ -817,10 +1010,20 @@ class VocalMoreApp(rumps.App):
 
     def _refresh_environment_status(self, show_notification: bool = False) -> None:
         """Re-run environment checks and update the menu."""
-        self._environment_checks = run_environment_checks(
+        checks = run_environment_checks(
             self.config,
             hotkey_listener_ready=getattr(self, "_hotkey_listener_ready", None),
         )
+        self._apply_environment_checks(checks, show_notification=show_notification)
+
+    def _apply_environment_checks(
+        self,
+        checks: list,
+        *,
+        show_notification: bool = False,
+    ) -> None:
+        """Apply completed checks on the AppKit main thread."""
+        self._environment_checks = checks
         self._refresh_environment_menu()
 
         if not show_notification:
@@ -876,6 +1079,8 @@ class VocalMoreApp(rumps.App):
 
     def _rerun_environment_check(self, _) -> None:
         """Refresh menu-visible environment checks on demand."""
+        if getattr(self, "_dependencies_ready", True) is False:
+            return
         was_hotkey_listener_ready = getattr(self, "_hotkey_listener_ready", None) is True
         recovered_hotkey_listener = self._retry_hotkey_listener_if_accessibility_ready(
             show_success_notification=True,
@@ -965,6 +1170,8 @@ class VocalMoreApp(rumps.App):
 
     def _export_diagnostics(self, _) -> None:
         """Export a support bundle with recent traces and environment state."""
+        if getattr(self, "_dependencies_ready", True) is False:
+            return
         try:
             bundle_path = export_support_bundle(
                 config=self.config,
@@ -995,6 +1202,8 @@ class VocalMoreApp(rumps.App):
 
     def _on_quick_set_mode(self, mode_name: str) -> None:
         """Switch the default recording mode from the status bar."""
+        if getattr(self, "_dependencies_ready", True) is False:
+            return
         if mode_name == self.config.default_mode:
             return
 
@@ -1014,6 +1223,8 @@ class VocalMoreApp(rumps.App):
 
     def _on_quick_set_asr_model(self, model_id: str) -> None:
         """Switch the ASR model from the status bar."""
+        if getattr(self, "_dependencies_ready", True) is False:
+            return
         if model_id == self.config.asr.model:
             return
 
@@ -1024,6 +1235,8 @@ class VocalMoreApp(rumps.App):
 
     def _on_quick_set_microphone_device(self, device_name: Optional[str]) -> None:
         """Switch the input microphone from the status bar."""
+        if getattr(self, "_dependencies_ready", True) is False:
+            return
         current = self.config.audio.input_device
         if (device_name or None) == current:
             return
@@ -1036,6 +1249,8 @@ class VocalMoreApp(rumps.App):
 
     def _on_quick_toggle_polish(self, _) -> None:
         """Toggle second-stage polishing from the status bar."""
+        if getattr(self, "_dependencies_ready", True) is False:
+            return
         self._get_runtime().apply_update("enable_polish", not self.config.enable_polish)
         self.config.save()
         self._refresh_quick_settings_menu()
@@ -1043,6 +1258,8 @@ class VocalMoreApp(rumps.App):
 
     def _on_quick_set_polish_level(self, level: str) -> None:
         """Set polish strength from the status bar."""
+        if getattr(self, "_dependencies_ready", True) is False:
+            return
         if level == self.config.llm.level:
             return
 
@@ -1089,6 +1306,8 @@ class VocalMoreApp(rumps.App):
         self._get_runtime()._sync_audio_recorders()
 
     def _build_runtime_facade(self) -> RuntimeFacade:
+        from .application.runtime_facade import RuntimeFacade
+
         hotkey_manager = getattr(self, "_hotkey_manager", None)
         modes = {
             "walkie_talkie": self._walkie_talkie,
@@ -1112,6 +1331,8 @@ class VocalMoreApp(rumps.App):
         )
 
     def _get_runtime(self) -> RuntimeFacade:
+        if getattr(self, "_dependencies_ready", True) is False:
+            self._ensure_dependencies()
         runtime = getattr(self, "_runtime", None)
         if runtime is None:
             self._runtime = self._build_runtime_facade()
@@ -1124,6 +1345,10 @@ class VocalMoreApp(rumps.App):
         return self.config.default_mode
 
     def _build_command_coordinator(self) -> DictationCommandCoordinator:
+        from .application.dictation_command_coordinator import (
+            DictationCommandCoordinator,
+        )
+
         return DictationCommandCoordinator(thread_name="vocal-more-menu-commands")
 
     def _get_command_coordinator(self) -> DictationCommandCoordinator:
@@ -1488,16 +1713,61 @@ class VocalMoreApp(rumps.App):
 
     # ── Run ───────────────────────────────────────────────────
 
+    def _begin_post_launch_initialization(self) -> None:
+        """Start non-visual initialization after the status item exists."""
+        elapsed_ms = (time.perf_counter() - _MODULE_IMPORT_STARTED_AT) * 1000
+        print(f"[Startup] Status item ready in {elapsed_ms:.0f} ms")
+        executor = getattr(self, "_startup_executor", None)
+        if executor is None:
+            executor = BackgroundExecutor(
+                max_workers=1,
+                thread_name_prefix="vocal-more-startup",
+            )
+            self._startup_executor = executor
+        self._startup_task = executor.submit(self._finish_post_launch_initialization)
+
+    def _finish_post_launch_initialization(self) -> None:
+        """Initialize hotkeys and hardware checks away from the UI thread."""
+        if not self._ensure_dependencies():
+            return
+        hotkey_listener_ready = bool(self._hotkey_manager.start())
+        checks = run_environment_checks(
+            self.config,
+            hotkey_listener_ready=hotkey_listener_ready,
+        )
+
+        def _apply() -> None:
+            if getattr(self, "_is_quitting", False):
+                return
+            self._apply_interface_language(update_frontend=False)
+            capsule = getattr(self, "_capsule", None)
+            warm_up = getattr(capsule, "warm_up", None)
+            if callable(warm_up):
+                warm_up()
+            self._get_sparkle_updater()
+            self._hotkey_listener_ready = hotkey_listener_ready
+            if not hotkey_listener_ready:
+                self._start_hotkey_permission_retry_timer()
+            self._apply_environment_checks(checks, show_notification=True)
+            self._show_app_started_notification()
+            pending_settings = getattr(self, "_pending_settings_request", None)
+            self._pending_settings_request = None
+            if pending_settings is not None:
+                self._show_settings(**pending_settings)
+            elif not self.config.ui.onboarding_completed:
+                self._show_settings()
+
+        self._run_on_main_thread(_apply)
+
     def run(self) -> None:
-        """Run the application."""
-        self._hotkey_listener_ready = bool(self._hotkey_manager.start())
-        if self._hotkey_listener_ready is not True:
-            self._start_hotkey_permission_retry_timer()
-        self._refresh_environment_status(show_notification=True)
-        self._show_app_started_notification()
-        if not self.config.ui.onboarding_completed:
-            self._show_settings()
-        super().run()
+        """Show the status item before starting optional runtime services."""
+        rumps_events.before_start.register(self._begin_post_launch_initialization)
+        try:
+            super().run()
+        finally:
+            rumps_events.before_start.unregister(
+                self._begin_post_launch_initialization
+            )
 
 
 def main() -> None:

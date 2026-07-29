@@ -92,12 +92,19 @@ If the queue fills or sender drain fails, the realtime path is marked degraded a
 
 `ASREngine.start()` still launches a background connect thread to:
 
-- create or reuse a realtime conversation
+- create a realtime conversation or claim an unused preconnected conversation
 - update the session
 - wait for `session.updated`
 - mark the session ready
 
 This startup path is still separate from the sender thread, but session readiness and failure flags are protected by the engine lock.
+
+After a dictation finishes, the conversation that received its audio is closed
+and its callback worker is released. A warm-keeper thread then establishes a
+new conversation with no committed items and retains that clean connection for
+the next dictation. The engine marks a conversation consumed as soon as audio
+is appended, so exception paths cannot accidentally reuse a conversation that
+contains audio or history.
 
 ### 8. Inbound realtime event worker owns callback-local ASR consequences
 

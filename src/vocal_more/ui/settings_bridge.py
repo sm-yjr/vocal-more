@@ -256,6 +256,12 @@ class SettingsBridge:
     def _normalize_refreshEnvironment(self, body: dict[str, Any]) -> dict[str, Any]:
         return {"action": "refresh_environment"}
 
+    def _normalize_checkDashScopeModels(
+        self,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {"action": "check_dashscope_models"}
+
     def _normalize_openAccessibilitySettings(
         self,
         body: dict[str, Any],

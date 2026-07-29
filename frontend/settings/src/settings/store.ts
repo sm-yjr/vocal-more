@@ -1,5 +1,6 @@
 import type {
   AudioDevice,
+  DashScopeModelCheckResult,
   DictionaryEntry,
   DictionaryLearningRecord,
   EnvironmentCheck,
@@ -31,6 +32,7 @@ const EMPTY_SNAPSHOT: SettingsSnapshot = {
   dictionaryLearningRecords: [],
   recordings: [],
   environmentChecks: [],
+  dashscopeModelCheck: { state: "idle", results: [] },
   contextProfile: { counts: {}, total: 0 },
   recordingStorage: {},
   recordingCompacting: false,
@@ -184,6 +186,24 @@ export class SettingsStore {
 
   loadEnvironmentChecks(checks: EnvironmentCheck[]): void {
     this.patch({ environmentChecks: clone(checks) })
+  }
+
+  dashscopeModelCheckStarted(): void {
+    this.patch({
+      dashscopeModelCheck: {
+        state: "checking",
+        results: [],
+      },
+    })
+  }
+
+  dashscopeModelCheckComplete(results: DashScopeModelCheckResult[]): void {
+    this.patch({
+      dashscopeModelCheck: {
+        state: "done",
+        results: clone(results),
+      },
+    })
   }
 
   loadContextProfile(profile: SettingsSnapshot["contextProfile"]): void {

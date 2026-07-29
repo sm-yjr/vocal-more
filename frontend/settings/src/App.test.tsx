@@ -122,6 +122,48 @@ describe("settings application", () => {
     expect(screen.getByLabelText("API Key")).toBeVisible()
   })
 
+  it("checks DashScope Pro and Lite access independently", async () => {
+    const user = userEvent.setup()
+    const data = makeInitData()
+    data.initial_tab = "general"
+    const { postMessage, store } = renderApp(data)
+
+    await user.click(
+      screen.getByRole("button", { name: "检查 Pro 和 Lite" }),
+    )
+    expect(postMessage).toHaveBeenCalledWith({
+      action: "checkDashScopeModels",
+    })
+
+    act(() => {
+      store.dashscopeModelCheckStarted()
+    })
+    expect(
+      screen.getByRole("button", { name: "检查中…" }),
+    ).toBeDisabled()
+
+    act(() => {
+      store.dashscopeModelCheckComplete([
+        {
+          family: "pro",
+          model: "qwen3.5-omni-plus",
+          status: "ok",
+          latency_ms: 240,
+        },
+        {
+          family: "lite",
+          model: "qwen3.5-omni-flash",
+          status: "error",
+          latency_ms: 160,
+          error: "ModelAccessDenied",
+        },
+      ])
+    })
+
+    expect(screen.getByText("Pro · 可用 · 240 ms")).toBeVisible()
+    expect(screen.getByText("Lite · 不可用 · 160 ms")).toBeVisible()
+  })
+
   it("renders all seven accessible tabs and honors the injected initial tab", () => {
     renderApp()
 

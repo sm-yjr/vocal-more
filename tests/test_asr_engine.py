@@ -4,6 +4,7 @@ import importlib
 import json
 import queue
 import threading
+import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -14,6 +15,15 @@ import yaml
 def _make_pcm_segment(duration_sec: float, sample_value: int = 0) -> bytes:
     sample_count = int(16000 * duration_sec)
     return int(sample_value).to_bytes(2, "little", signed=True) * sample_count
+
+
+def _wait_until(predicate, timeout: float = 1.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return bool(predicate())
 
 
 def test_streaming_callback_dispatches_partials_on_inbound_worker():
@@ -1734,7 +1744,7 @@ def test_streaming_omni_inline_polish_returns_response_text(tmp_path, monkeypatc
 
     assert captured["update_kwargs"]["instructions"]
     assert captured["append_count"] >= 1
-    assert captured["closed"] is False
+    assert captured["closed"] is True
     assert engine._warm_keeper_thread is not None
     assert text == "这个方案已经确认了，可以开始执行。"
 
@@ -2614,8 +2624,11 @@ def test_streaming_omni_recovers_if_response_starts_during_transcript_wait(
     assert text == "能听到吗？"
 
 
-def test_streaming_engine_reuses_warm_omni_session(tmp_path, monkeypatch):
-    """A second short utterance should reuse the existing Omni realtime socket."""
+def test_streaming_engine_replaces_consumed_session_with_clean_warm_session(
+    tmp_path,
+    monkeypatch,
+):
+    """Each utterance should consume a different preconnected conversation."""
     from vocal_more.config import Config, reload_config
     asr_engine = importlib.import_module("vocal_more.core.asr_engine")
 
@@ -2634,7 +2647,11 @@ def test_streaming_engine_reuses_warm_omni_session(tmp_path, monkeypatch):
 
     reload_config()
 
-    captured = {"instances": 0, "update_calls": 0, "closed": 0}
+    captured = {
+        "instances": [],
+        "update_calls": 0,
+        "committed_instance_ids": [],
+    }
 
     class ImmediateThread:
         def __init__(self, target=None, daemon=None):
@@ -2645,8 +2662,10 @@ def test_streaming_engine_reuses_warm_omni_session(tmp_path, monkeypatch):
 
     class FakeConversation:
         def __init__(self, model, url, callback):
-            captured["instances"] += 1
+            self.instance_id = len(captured["instances"]) + 1
             self.callback = callback
+            self.closed = False
+            captured["instances"].append(self)
 
         def connect(self):
             return None
@@ -2659,6 +2678,7 @@ def test_streaming_engine_reuses_warm_omni_session(tmp_path, monkeypatch):
             return None
 
         def commit(self):
+            captured["committed_instance_ids"].append(self.instance_id)
             self.callback.on_event(
                 {
                     "type": "conversation.item.input_audio_transcription.completed",
@@ -2667,7 +2687,7 @@ def test_streaming_engine_reuses_warm_omni_session(tmp_path, monkeypatch):
             )
 
         def close(self):
-            captured["closed"] += 1
+            self.closed = True
 
     monkeypatch.setattr(asr_engine.threading, "Thread", ImmediateThread)
     monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
@@ -2677,18 +2697,44 @@ def test_streaming_engine_reuses_warm_omni_session(tmp_path, monkeypatch):
     engine.send_audio(b"\x01\x00" * 1600)
     assert engine.stop(pcm_data=b"\x01\x00" * 4000) == "收到"
 
-    assert captured["instances"] == 1
-    assert captured["update_calls"] == 1
-    assert captured["closed"] == 0
+    assert _wait_until(lambda: engine._conversation is not None)
+    assert len(captured["instances"]) == 2
+    assert captured["instances"][0].closed is True
+    assert captured["instances"][1].closed is False
+    assert captured["committed_instance_ids"] == [1]
     assert engine._warm_keeper_thread is not None
 
     engine.start()
     engine.send_audio(b"\x01\x00" * 1600)
     assert engine.stop(pcm_data=b"\x01\x00" * 4000) == "收到"
 
-    assert captured["instances"] == 1
-    assert captured["update_calls"] == 2
-    assert captured["closed"] == 0
+    assert _wait_until(lambda: len(captured["instances"]) == 3)
+    assert captured["committed_instance_ids"] == [1, 2]
+    assert captured["instances"][1].closed is True
+    assert captured["instances"][2].closed is False
+    assert captured["update_calls"] == 4
+
+
+def test_streaming_engine_rejects_connected_but_consumed_warm_session():
+    """A connected conversation is reusable only while it has no audio history."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    engine = asr_engine.ASREngine()
+    try:
+        engine._session_model_id = "qwen3.5-omni-plus-realtime"
+        engine._conversation_model_id = engine._session_model_id
+        engine._conversation = SimpleNamespace(
+            ws=SimpleNamespace(sock=SimpleNamespace(connected=True))
+        )
+        model_info = asr_engine.get_asr_model_info(engine._session_model_id)
+
+        engine._conversation_is_clean = True
+        assert engine._can_reuse_warm_session(model_info) is True
+
+        engine._conversation_is_clean = False
+        assert engine._can_reuse_warm_session(model_info) is False
+    finally:
+        engine.close()
 
 
 def test_streaming_engine_reconnects_instead_of_reusing_stale_warm_socket(
@@ -2714,7 +2760,7 @@ def test_streaming_engine_reconnects_instead_of_reusing_stale_warm_socket(
     reload_config()
 
     timers = []
-    captured = {"instances": 0}
+    captured = {"instances": [], "committed_instance_ids": []}
 
     class ImmediateThread:
         def __init__(self, target=None, daemon=None):
@@ -2737,9 +2783,10 @@ def test_streaming_engine_reconnects_instead_of_reusing_stale_warm_socket(
 
     class FakeConversation:
         def __init__(self, model, url, callback):
-            captured["instances"] += 1
+            self.instance_id = len(captured["instances"]) + 1
             self.callback = callback
             self.ws = SimpleNamespace(sock=SimpleNamespace(connected=True))
+            captured["instances"].append(self)
 
         def connect(self):
             return None
@@ -2751,6 +2798,7 @@ def test_streaming_engine_reconnects_instead_of_reusing_stale_warm_socket(
             return None
 
         def commit(self):
+            captured["committed_instance_ids"].append(self.instance_id)
             self.callback.on_event(
                 {
                     "type": "conversation.item.input_audio_transcription.completed",
@@ -2770,13 +2818,15 @@ def test_streaming_engine_reconnects_instead_of_reusing_stale_warm_socket(
     engine.send_audio(b"\x01\x00" * 1600)
     assert engine.stop(pcm_data=b"\x01\x00" * 4000) == "收到"
 
+    assert _wait_until(lambda: engine._conversation is not None)
     engine._conversation.ws.sock.connected = False
 
     engine.start()
     engine.send_audio(b"\x01\x00" * 1600)
     assert engine.stop(pcm_data=b"\x01\x00" * 4000) == "收到"
 
-    assert captured["instances"] == 2
+    assert _wait_until(lambda: len(captured["instances"]) == 4)
+    assert captured["committed_instance_ids"] == [1, 3]
 
 
 def test_streaming_debug_trace_marks_warm_reuse(tmp_path, monkeypatch):
@@ -2858,6 +2908,7 @@ def test_streaming_debug_trace_marks_warm_reuse(tmp_path, monkeypatch):
     engine.send_audio(b"\x01\x00" * 1600)
     assert engine.stop(pcm_data=b"\x01\x00" * 4000) == "收到"
 
+    assert _wait_until(lambda: engine._conversation is not None)
     engine.start()
     engine.send_audio(b"\x01\x00" * 1600)
     assert engine.stop(pcm_data=b"\x01\x00" * 4000) == "收到"

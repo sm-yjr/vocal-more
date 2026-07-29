@@ -1,10 +1,7 @@
-"""Core modules for Vocal-More."""
+"""Lazy public imports for Vocal-More core modules."""
 
-from .audio_recorder import AudioRecorder
-from .asr_engine import ASREngine
-from .text_polisher import TextPolisher
-from .hotkey_manager import HotkeyManager
-from .keyboard_sim import KeyboardSimulator
+from importlib import import_module
+from typing import Any
 
 __all__ = [
     "AudioRecorder",
@@ -13,3 +10,21 @@ __all__ = [
     "HotkeyManager",
     "KeyboardSimulator",
 ]
+
+_PUBLIC_IMPORTS = {
+    "AudioRecorder": (".audio_recorder", "AudioRecorder"),
+    "ASREngine": (".asr_engine", "ASREngine"),
+    "TextPolisher": (".text_polisher", "TextPolisher"),
+    "HotkeyManager": (".hotkey_manager", "HotkeyManager"),
+    "KeyboardSimulator": (".keyboard_sim", "KeyboardSimulator"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    target = _PUBLIC_IMPORTS.get(name)
+    if target is None:
+        raise AttributeError(name)
+    module = import_module(target[0], __name__)
+    value = getattr(module, target[1])
+    globals()[name] = value
+    return value

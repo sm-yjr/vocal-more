@@ -144,4 +144,35 @@ describe("settings store", () => {
       recordingCompactionError: "checksum mismatch",
     })
   })
+
+  it("tracks DashScope Pro and Lite checks separately", () => {
+    const store = createSettingsStore(makeInitData())
+
+    store.dashscopeModelCheckStarted()
+    expect(store.getSnapshot().dashscopeModelCheck.state).toBe("checking")
+
+    store.dashscopeModelCheckComplete([
+      {
+        family: "pro",
+        model: "qwen3.5-omni-plus",
+        status: "ok",
+        latency_ms: 200,
+      },
+      {
+        family: "lite",
+        model: "qwen3.5-omni-flash",
+        status: "error",
+        latency_ms: 100,
+        error: "denied",
+      },
+    ])
+
+    expect(store.getSnapshot().dashscopeModelCheck).toMatchObject({
+      state: "done",
+      results: [
+        { family: "pro", status: "ok" },
+        { family: "lite", status: "error" },
+      ],
+    })
+  })
 })

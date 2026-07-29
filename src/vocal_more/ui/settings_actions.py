@@ -24,6 +24,7 @@ class SettingsActionDispatcher:
         on_undo_dictionary_learning: Optional[Callable[[str], None]] = None,
         on_refresh_devices: Optional[Callable[[], None]] = None,
         on_refresh_environment: Optional[Callable[[], None]] = None,
+        on_check_dashscope_models: Optional[Callable[[], None]] = None,
         on_open_accessibility_settings: Optional[Callable[[], None]] = None,
         on_open_config_file: Optional[Callable[[], None]] = None,
         on_open_dict_file: Optional[Callable[[], None]] = None,
@@ -51,6 +52,7 @@ class SettingsActionDispatcher:
         self._on_undo_dictionary_learning = on_undo_dictionary_learning
         self._on_refresh_devices = on_refresh_devices
         self._on_refresh_environment = on_refresh_environment
+        self._on_check_dashscope_models = on_check_dashscope_models
         self._on_open_accessibility_settings = on_open_accessibility_settings
         self._on_open_config_file = on_open_config_file
         self._on_open_dict_file = on_open_dict_file
@@ -79,6 +81,7 @@ class SettingsActionDispatcher:
             "undo_dictionary_learning": self._dispatch_undo_dictionary_learning,
             "refresh_devices": self._dispatch_refresh_devices,
             "refresh_environment": self._dispatch_refresh_environment,
+            "check_dashscope_models": self._dispatch_check_dashscope_models,
             "open_accessibility_settings": self._dispatch_open_accessibility_settings,
             "open_config_file": self._dispatch_open_config_file,
             "open_dict_file": self._dispatch_open_dict_file,
@@ -176,6 +179,10 @@ class SettingsActionDispatcher:
     def _dispatch_refresh_environment(self, message: dict[str, Any]) -> None:
         if self._on_refresh_environment is not None:
             self._on_refresh_environment()
+
+    def _dispatch_check_dashscope_models(self, message: dict[str, Any]) -> None:
+        if self._on_check_dashscope_models is not None:
+            self._on_check_dashscope_models()
 
     def _dispatch_open_accessibility_settings(
         self,

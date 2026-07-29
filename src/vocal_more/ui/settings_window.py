@@ -169,6 +169,8 @@ class SettingsWindow:
         self._js_queue: queue.Queue = queue.Queue()
         self._js_drain_timer: Optional[NSTimer] = None
         self._js_drain_lock = threading.Lock()
+        self._dashscope_check_lock = threading.Lock()
+        self._dashscope_check_running = False
         self._interface_language = "en"
         self._background_tasks = BackgroundExecutor(
             max_workers=2,
@@ -497,6 +499,7 @@ class SettingsWindow:
             on_undo_dictionary_learning=self._on_undo_dictionary_learning,
             on_refresh_devices=self._on_refresh_devices,
             on_refresh_environment=self._on_refresh_environment,
+            on_check_dashscope_models=self._handle_check_dashscope_models,
             on_open_accessibility_settings=self._on_open_accessibility_settings,
             on_open_config_file=self._on_open_config_file,
             on_open_dict_file=self._on_open_dict_file,
@@ -559,6 +562,48 @@ class SettingsWindow:
         self._context_personalization.reset()
         summary = self._context_personalization.summary()
         self._eval_js(f"loadContextProfile({json.dumps(summary)})")
+
+    def _handle_check_dashscope_models(self) -> None:
+        """Check Pro and Lite model access without blocking the WebView."""
+        with self._dashscope_check_lock:
+            if self._dashscope_check_running:
+                return
+            self._dashscope_check_running = True
+
+        from ..config import get_config
+
+        api_key = str(get_config().api_key or "")
+        self._eval_js("dashscopeModelCheckStarted()")
+
+        def _check() -> None:
+            try:
+                from ..application.dashscope_model_check import (
+                    check_dashscope_model_families,
+                )
+
+                results = check_dashscope_model_families(api_key)
+            except Exception as exc:
+                results = [
+                    {
+                        "family": family,
+                        "model": model,
+                        "status": "error",
+                        "latency_ms": 0,
+                        "error": str(exc)[:300],
+                    }
+                    for family, model in (
+                        ("pro", "qwen3.5-omni-plus"),
+                        ("lite", "qwen3.5-omni-flash"),
+                    )
+                ]
+            finally:
+                with self._dashscope_check_lock:
+                    self._dashscope_check_running = False
+            self._eval_js(
+                f"dashscopeModelCheckComplete({json.dumps(results)})"
+            )
+
+        self._background_tasks.submit(_check)
 
     def _handle_compact_recording_history(self) -> None:
         if self._recording_store is None:

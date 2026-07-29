@@ -86,6 +86,14 @@ class FloatingCapsule:
         self._interface_language: str = "en"
         self._main_thread_timers: set[NSTimer] = set()
 
+    def warm_up(self) -> None:
+        """Create the WebView after the menu bar item is already visible."""
+        self._run_on_main_thread(self._ensure_setup)
+
+    def _ensure_setup(self) -> None:
+        """Create the capsule UI once, on demand."""
+        if self._panel is not None:
+            return
         self._setup()
 
     def _setup(self) -> None:
@@ -157,6 +165,7 @@ class FloatingCapsule:
         self._run_on_main_thread(lambda: self._show_on_main_thread(mode))
 
     def _show_on_main_thread(self, mode: str) -> None:
+        self._ensure_setup()
         self._current_mode = mode
         self._panel.setIgnoresMouseEvents_(mode in {"pushToTalk", "meeting"})
 
@@ -238,11 +247,13 @@ class FloatingCapsule:
             self._hide_on_main_thread()
             return
 
+        self._ensure_setup()
         self._eval_js(f"updateState('{state}')")
 
         if state == "processing":
             self._stop_push_timer()
-            self._panel.setIgnoresMouseEvents_(True)
+            if self._panel is not None:
+                self._panel.setIgnoresMouseEvents_(True)
 
     def update_audio_level(self, level: float) -> None:
         """Store the latest calibrated 0–1 level from the audio thread."""

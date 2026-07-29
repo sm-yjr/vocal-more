@@ -184,6 +184,19 @@ export interface EnvironmentCheck {
   details?: string
 }
 
+export interface DashScopeModelCheckResult {
+  family: "pro" | "lite"
+  model: string
+  status: "ok" | "error"
+  latency_ms: number
+  error?: string
+}
+
+export interface DashScopeModelCheckState {
+  state: "idle" | "checking" | "done"
+  results: DashScopeModelCheckResult[]
+}
+
 export interface ContextProfileSummary {
   counts: {
     development?: number
@@ -242,6 +255,7 @@ export interface SettingsSnapshot {
   dictionaryLearningRecords: DictionaryLearningRecord[]
   recordings: Recording[]
   environmentChecks: EnvironmentCheck[]
+  dashscopeModelCheck: DashScopeModelCheckState
   contextProfile: ContextProfileSummary
   recordingStorage: RecordingStorageSummary
   recordingCompacting: boolean

@@ -1,11 +1,64 @@
 """Tests for startup-time lazy resource ownership."""
 
 import importlib
+import os
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from vocal_more.application.lazy_resource import LazyResource, initialized_resource
 from vocal_more.ui.lazy_settings_window import LazySettingsWindow
+
+
+def test_package_facades_do_not_eagerly_import_heavy_runtime_modules():
+    root = Path(__file__).resolve().parents[1]
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(root / "src")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import vocal_more.core; import vocal_more.modes; "
+                "assert 'vocal_more.core.asr_engine' not in sys.modules; "
+                "assert 'vocal_more.modes.meeting' not in sys.modules"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_menu_app_construction_defers_heavy_runtime_until_status_item_exists():
+    root = Path(__file__).resolve().parents[1]
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(root / "src")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; from vocal_more.app import VocalMoreApp; "
+                "app = VocalMoreApp(); "
+                "assert not app._dependencies_ready; "
+                "assert 'dashscope' not in sys.modules; "
+                "assert 'vocal_more.core.audio_recorder' not in sys.modules; "
+                "assert 'vocal_more.modes.walkie_talkie' not in sys.modules"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_lazy_resource_creates_once_and_inspection_does_not_initialize():

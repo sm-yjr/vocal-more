@@ -19,6 +19,8 @@ export const PYTHON_API_NAMES = [
   "updateConfig",
   "loadDevices",
   "loadEnvironmentChecks",
+  "dashscopeModelCheckStarted",
+  "dashscopeModelCheckComplete",
   "loadContextProfile",
   "recordingCompactionStarted",
   "recordingCompactionComplete",
@@ -55,6 +57,10 @@ export function installPythonApi(store: SettingsStore): void {
     store.loadDevices(args[0], args[1], args.length > 1)
   window.loadEnvironmentChecks = (checks) =>
     store.loadEnvironmentChecks(checks)
+  window.dashscopeModelCheckStarted = () =>
+    store.dashscopeModelCheckStarted()
+  window.dashscopeModelCheckComplete = (results) =>
+    store.dashscopeModelCheckComplete(results)
   window.loadContextProfile = (profile) =>
     store.loadContextProfile(profile)
   window.recordingCompactionStarted = () =>
@@ -111,6 +117,10 @@ declare global {
       selectedDevice?: string | null,
     ) => void
     loadEnvironmentChecks: (checks: EnvironmentCheck[]) => void
+    dashscopeModelCheckStarted: () => void
+    dashscopeModelCheckComplete: (
+      results: import("@/settings/types").DashScopeModelCheckResult[],
+    ) => void
     loadContextProfile: (profile: ContextProfileSummary) => void
     recordingCompactionStarted: () => void
     recordingCompactionComplete: (

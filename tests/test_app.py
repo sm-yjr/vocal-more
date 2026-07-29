@@ -44,7 +44,31 @@ def _install_rumps_stub(monkeypatch) -> None:
     rumps.MenuItem = DummyMenuItem
     rumps.notification = lambda *args, **kwargs: None
     rumps.quit_application = lambda: None
+    events = types.ModuleType("rumps.events")
+
+    class EventEmitter:
+        def __init__(self):
+            self.callbacks = set()
+
+        def register(self, callback):
+            self.callbacks.add(callback)
+            return callback
+
+        def unregister(self, callback):
+            try:
+                self.callbacks.remove(callback)
+                return True
+            except KeyError:
+                return False
+
+        def emit(self):
+            for callback in list(self.callbacks):
+                callback()
+
+    events.before_start = EventEmitter()
+    rumps.events = events
     monkeypatch.setitem(sys.modules, "rumps", rumps)
+    monkeypatch.setitem(sys.modules, "rumps.events", events)
 
     AppKit.NSEvent = type("NSEvent", (), {})
     AppKit.NSPanel = type("NSPanel", (), {})
@@ -309,6 +333,31 @@ def test_floating_capsule_show_marshals_to_main_thread(tmp_path, monkeypatch):
     capsule._show_on_main_thread.assert_called_once_with("handsFree")
 
 
+def test_floating_capsule_defers_webview_setup_until_warm_up(
+    tmp_path, monkeypatch
+):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    capsule_module = importlib.import_module("vocal_more.ui.floating_capsule")
+    capsule_module = importlib.reload(capsule_module)
+    setup = MagicMock()
+    monkeypatch.setattr(capsule_module.FloatingCapsule, "_setup", setup)
+
+    capsule = capsule_module.FloatingCapsule()
+
+    setup.assert_not_called()
+    capsule.warm_up()
+    setup.assert_called_once_with()
+
+
 def test_floating_capsule_coalesces_audio_updates_and_pushes_silence_tail(
     tmp_path, monkeypatch
 ):
@@ -520,6 +569,7 @@ def test_status_bar_microphone_menu_switches_input_device(
     )
 
     app._build_menu()
+    app._on_status_menu_will_open()
     app._on_quick_set_microphone_device("USB Mic")
 
     assert app.config.audio.input_device == "USB Mic"
@@ -565,7 +615,7 @@ def test_refresh_devices_rebuilds_status_menu_and_clears_missing_selection(
     monkeypatch.setattr(app, "_list_devices", lambda: devices)
 
     app._build_menu()
-    assert "USB Mic" in app._microphone_device_menu_items
+    assert app._microphone_device_menu_items == {}
 
     devices = [
         {"name": "Built-in Mic", "is_default": True},
@@ -621,7 +671,7 @@ def test_status_menu_open_refreshes_microphone_devices_without_settings_window(
     monkeypatch.setattr(app, "_list_devices", lambda: devices)
 
     app._build_menu()
-    assert "USB Mic" in app._microphone_device_menu_items
+    assert app._microphone_device_menu_items == {}
 
     devices = [
         {"name": "Built-in Mic", "is_default": True},
@@ -1401,7 +1451,7 @@ def test_app_started_notification_uses_status_bar_message(tmp_path, monkeypatch)
     ]
 
 
-def test_run_shows_app_started_notification_before_entering_event_loop(tmp_path, monkeypatch):
+def test_run_defers_runtime_startup_until_status_item_exists(tmp_path, monkeypatch):
     from vocal_more.config import Config
 
     _install_rumps_stub(monkeypatch)
@@ -1420,7 +1470,11 @@ def test_run_shows_app_started_notification_before_entering_event_loop(tmp_path,
     monkeypatch.setattr(
         app_module.rumps.App,
         "run",
-        lambda self: run_calls.append("run"),
+        lambda self: (
+            run_calls.append("status-item"),
+            app_module.rumps_events.before_start.emit(),
+            run_calls.append("event-loop"),
+        ),
         raising=False,
     )
 
@@ -1430,14 +1484,49 @@ def test_run_shows_app_started_notification_before_entering_event_loop(tmp_path,
     app._hotkey_manager = MagicMock()
     app._hotkey_manager.start.return_value = True
     app._refresh_environment_status = MagicMock()
+    app._apply_environment_checks = MagicMock()
     app._show_app_started_notification = MagicMock()
+    app._run_on_main_thread = lambda callback: callback()
+    app._startup_executor = SimpleNamespace(
+        submit=lambda callback: callback(),
+    )
 
     app.run()
 
     app._hotkey_manager.start.assert_called_once_with()
-    app._refresh_environment_status.assert_called_once_with(show_notification=True)
+    app._apply_environment_checks.assert_called_once()
     app._show_app_started_notification.assert_called_once_with()
-    assert run_calls == ["run"]
+    assert run_calls == ["status-item", "event-loop"]
+
+
+def test_building_status_menu_does_not_enumerate_audio_devices(
+    tmp_path,
+    monkeypatch,
+):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app.config.apply_update("ui.language", "en")
+    app._list_devices = MagicMock(side_effect=AssertionError("audio enumeration"))
+
+    item = app._build_microphone_item()
+
+    app._list_devices.assert_not_called()
+    assert [child.title for child in item.children] == [
+        "System Default",
+        "Microphone Settings...",
+    ]
 
 
 def test_run_opens_setup_automatically_for_a_fresh_install(tmp_path, monkeypatch):
@@ -1453,15 +1542,25 @@ def test_run_opens_setup_automatically_for_a_fresh_install(tmp_path, monkeypatch
 
     app_module = importlib.import_module("vocal_more.app")
     app_module = importlib.reload(app_module)
-    monkeypatch.setattr(app_module.rumps.App, "run", lambda self: None, raising=False)
+    monkeypatch.setattr(
+        app_module.rumps.App,
+        "run",
+        lambda self: app_module.rumps_events.before_start.emit(),
+        raising=False,
+    )
 
     app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
     app.config = Config()
     app._hotkey_manager = MagicMock()
     app._hotkey_manager.start.return_value = True
     app._refresh_environment_status = MagicMock()
+    app._apply_environment_checks = MagicMock()
     app._show_app_started_notification = MagicMock()
     app._show_settings = MagicMock()
+    app._run_on_main_thread = lambda callback: callback()
+    app._startup_executor = SimpleNamespace(
+        submit=lambda callback: callback(),
+    )
 
     app.run()
 

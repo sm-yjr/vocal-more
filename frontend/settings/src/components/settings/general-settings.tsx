@@ -7,6 +7,7 @@ import {
   SettingsPage,
   SettingsRow,
 } from "@/components/settings/settings-card"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -31,6 +32,7 @@ export function GeneralSettings({
   const config = snapshot.config
   const advanced = config.ui?.advanced_settings === true
   const [showKey, setShowKey] = useState(false)
+  const modelCheck = snapshot.dashscopeModelCheck
 
   return (
     <SettingsPage title={copy.general}>
@@ -79,19 +81,57 @@ export function GeneralSettings({
           </div>
         </SettingsRow>
         <SettingsRow label="" className="min-h-11 py-2">
-          <Button
-            variant="link"
-            size="sm"
-            onClick={() =>
-              sendAction("openExternal", {
-                url: "https://dashscope.console.aliyun.com/apiKey",
-              })
-            }
-          >
-            {copy.getApiKey}
-            <ExternalLink data-icon="inline-end" />
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={
+                modelCheck.state === "checking" ||
+                !(config.api_key ?? "").trim()
+              }
+              onClick={() => sendAction("checkDashScopeModels")}
+            >
+              {modelCheck.state === "checking"
+                ? copy.checkingApiKey
+                : copy.checkApiKey}
+            </Button>
+            <Button
+              variant="link"
+              size="sm"
+              onClick={() =>
+                sendAction("openExternal", {
+                  url: "https://dashscope.console.aliyun.com/apiKey",
+                })
+              }
+            >
+              {copy.getApiKey}
+              <ExternalLink data-icon="inline-end" />
+            </Button>
+          </div>
         </SettingsRow>
+        {modelCheck.results.length > 0 ? (
+          <SettingsRow label="" className="min-h-11 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {modelCheck.results.map((result) => (
+                <Badge
+                  key={result.family}
+                  variant={
+                    result.status === "ok" ? "secondary" : "destructive"
+                  }
+                  title={result.error || result.model}
+                >
+                  {result.family === "pro" ? "Pro" : "Lite"} ·{" "}
+                  {result.status === "ok"
+                    ? copy.modelAvailable
+                    : copy.modelUnavailable}
+                  {result.latency_ms > 0
+                    ? ` · ${result.latency_ms} ms`
+                    : ""}
+                </Badge>
+              ))}
+            </div>
+          </SettingsRow>
+        ) : null}
       </SettingsCard>
       ) : null}
 
