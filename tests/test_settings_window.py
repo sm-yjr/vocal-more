@@ -7,6 +7,19 @@ from unittest.mock import MagicMock
 from vocal_more.ui.settings_window import SettingsWindow
 
 
+def test_settings_window_preserves_menu_bar_activation_policy():
+    module = importlib.import_module("vocal_more.ui.settings_window")
+    app = MagicMock()
+    module.NSApp = app
+
+    module._activate_menu_bar_app()
+
+    app.setActivationPolicy_.assert_called_once_with(
+        module.NSApplicationActivationPolicyAccessory
+    )
+    app.activateIgnoringOtherApps_.assert_called_once_with(True)
+
+
 def test_js_messages_are_parsed_and_dispatched_through_shell():
     """SettingsWindow should delegate JS bodies through bridge + dispatcher."""
     captured = {}

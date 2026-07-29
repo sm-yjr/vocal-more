@@ -32,6 +32,7 @@ APP = [
             "SUVerifyUpdateBeforeExtraction": True,
             "SURequireSignedFeed": True,
             "NSHighResolutionCapable": True,
+            "LSUIElement": True,
             "NSMicrophoneUsageDescription": (
                 "Vocal More needs microphone access to convert your voice to text."
             ),

@@ -11,7 +11,7 @@ from typing import Any, Callable, Optional
 import objc
 from AppKit import (
     NSApp,
-    NSApplicationActivationPolicyRegular,
+    NSApplicationActivationPolicyAccessory,
     NSBackingStoreBuffered,
     NSColor,
     NSScreen,
@@ -39,6 +39,13 @@ from .settings_bridge import SettingsBridge
 from .webview_bridge import objc_to_python
 
 _UNSET = object()
+
+
+def _activate_menu_bar_app() -> None:
+    """Bring the app forward without adding it to the Dock."""
+    NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+    NSApp.activateIgnoringOtherApps_(True)
+
 
 # WKUserScriptInjectionTime
 WKUserScriptInjectionTimeAtDocumentStart = 0
@@ -398,8 +405,7 @@ class SettingsWindow:
     ) -> None:
         """Show the settings window and populate with data."""
         # Bring app to front
-        NSApp.setActivationPolicy_(NSApplicationActivationPolicyRegular)
-        NSApp.activateIgnoringOtherApps_(True)
+        _activate_menu_bar_app()
         self.set_interface_language(
             config.get("ui", {}).get("language", "en"),
             update_frontend=False,

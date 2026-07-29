@@ -41,6 +41,12 @@ def test_py2app_declares_microphone_usage_description():
     assert usage.value
 
 
+def test_py2app_runs_as_menu_bar_only_app():
+    app_plist = _load_py2app_plist()
+
+    assert app_plist["LSUIElement"].value is True
+
+
 def test_py2app_includes_accessibility_modules_for_dictionary_learning():
     setup_text = (ROOT / "packaging" / "macos" / "setup.py").read_text()
 
