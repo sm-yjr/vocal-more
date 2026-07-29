@@ -1,5 +1,7 @@
 """Tests for audio recorder callback behavior."""
 
+import threading
+import time
 import wave
 
 import numpy as np
@@ -144,6 +146,74 @@ def test_audio_callback_returns_early_when_not_recording():
     assert chunks == []
     assert levels == []
     assert recorder._audio_buffer == []
+
+
+def test_audio_callback_drops_chunk_if_stop_wins_during_processing():
+    """A callback already in flight must not publish audio after stop."""
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    chunks = []
+    recorder = AudioRecorder(
+        sample_rate=16000,
+        channels=1,
+        blocksize=1600,
+        on_audio_chunk=chunks.append,
+    )
+    recorder._gain = 1.0
+    recorder._highpass_filter = False
+    recorder._soft_limiter = False
+    recorder._is_recording = True
+
+    class StopDuringConversion(np.ndarray):
+        def astype(self, dtype, *args, **kwargs):
+            if np.dtype(dtype) == np.dtype(np.int16):
+                recorder._is_recording = False
+            return super().astype(dtype, *args, **kwargs)
+
+    recorder._audio_callback(
+        np.ones((1600, 1), dtype=np.float32).view(StopDuringConversion),
+        1600,
+        {},
+        0,
+    )
+
+    assert chunks == []
+    assert recorder._audio_buffer == []
+
+
+def test_stop_returns_pcm_while_portaudio_release_is_blocked():
+    """A wedged CoreAudio stream must not pin the mode in STOPPING."""
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    release_gate = threading.Event()
+    close_started = threading.Event()
+
+    class BlockingStream:
+        def abort(self):
+            close_started.set()
+            release_gate.wait(timeout=2.0)
+
+        def close(self):
+            return None
+
+    recorder = AudioRecorder()
+    recorder._is_recording = True
+    recorder._stream = BlockingStream()
+    recorder._audio_buffer = [b"\x01\x00" * 1600]
+
+    started_at = time.monotonic()
+    actual = recorder.stop()
+    elapsed = time.monotonic() - started_at
+
+    assert actual == b"\x01\x00" * 1600
+    assert elapsed < 0.25
+    assert recorder.is_recording() is False
+    assert recorder._stream is None
+    assert close_started.wait(timeout=0.5)
+
+    release_gate.set()
+    recorder._stream_release_thread.join(timeout=0.5)
+    assert recorder._stream_release_thread.is_alive() is False
 
 
 def test_highpass_filter_matches_previous_sample_by_sample_implementation():

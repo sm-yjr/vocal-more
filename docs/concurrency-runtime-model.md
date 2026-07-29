@@ -75,6 +75,12 @@ It currently does:
 
 It no longer performs realtime network sends directly.
 
+Stopping detaches the active PortAudio stream and snapshots the completed PCM
+buffer synchronously. Stream abort/close then runs on a daemon release worker.
+This keeps a CoreAudio device-transition stall from blocking the dictation
+command coordinator in `STOPPING`; callbacks that finish after detachment drop
+their chunk instead of forwarding late audio.
+
 ### 6. ASR sender thread owns outbound realtime audio sends
 
 `ASREngine` now has one long-lived sender thread and one bounded outbound queue.
@@ -105,6 +111,11 @@ new conversation with no committed items and retains that clean connection for
 the next dictation. The engine marks a conversation consumed as soon as audio
 is appended, so exception paths cannot accidentally reuse a conversation that
 contains audio or history.
+
+Realtime conversation close is bounded on the caller and may finish on a daemon
+closer when the SDK or network stack stalls. Application quit also bounds its
+wait for the command coordinator, so a wedged device or connection cannot hold
+the menu-bar process open indefinitely.
 
 ### 8. Inbound realtime event worker owns callback-local ASR consequences
 

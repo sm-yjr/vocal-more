@@ -92,6 +92,7 @@ INLINE_RESPONSE_LATE_START_GRACE_SECONDS = 1.0
 WARM_KEEPER_CHECK_INTERVAL_SECONDS = 5.0
 WARM_KEEPER_MAX_IDLE_SECONDS = 600.0
 WARM_KEEPER_SHUTDOWN_TIMEOUT_SECONDS = 0.25
+REALTIME_CLOSE_TIMEOUT_SECONDS = 0.25
 MAX_ADAPTIVE_RESPONSE_START_TIMEOUT_SECONDS = 20.0
 MAX_ADAPTIVE_RESPONSE_COMPLETE_TIMEOUT_SECONDS = 90.0
 STREAMING_AUDIO_QUEUE_TARGET_SECONDS = 6.4
@@ -1964,10 +1965,28 @@ class ASREngine:
     def _close_conversation(self, conversation: Optional[OmniRealtimeConversation]) -> None:
         if conversation is None:
             return
-        try:
-            conversation.close()
-        except Exception:
-            pass
+
+        closed = threading.Event()
+
+        def _close() -> None:
+            try:
+                conversation.close()
+            except Exception:
+                pass
+            finally:
+                closed.set()
+
+        closer = _THREAD_CLASS(
+            target=_close,
+            name="vocal-more-asr-connection-close",
+            daemon=True,
+        )
+        closer.start()
+        if not closed.wait(timeout=REALTIME_CLOSE_TIMEOUT_SECONDS):
+            print(
+                "[StreamingASR] Realtime connection close timed out; "
+                "continuing cleanup in background"
+            )
 
     def _drop_conversation(self) -> Optional[OmniRealtimeConversation]:
         with self._lock:

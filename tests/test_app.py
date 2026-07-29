@@ -1332,6 +1332,51 @@ def test_escape_pressed_ignores_idle_mode(tmp_path, monkeypatch):
     app._current_mode.cancel.assert_not_called()
 
 
+def test_quit_continues_when_dictation_coordinator_is_blocked(tmp_path, monkeypatch):
+    """Quitting must remain bounded if a device stop owns the coordinator."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+    app_module.rumps.quit_application = MagicMock()
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app._is_quitting = False
+    app._dependencies_ready = True
+    app._startup_executor = None
+    app._hotkey_manager = MagicMock()
+    app._capsule = MagicMock()
+    app._dictionary_learning = None
+    app._settings_window = MagicMock()
+    app._recording_store = MagicMock()
+    app._stop_hotkey_permission_retry_timer = MagicMock()
+    app._close_command_coordinator = MagicMock()
+    app._all_modes = MagicMock(return_value=())
+    coordinator = MagicMock()
+    coordinator.call.side_effect = TimeoutError("blocked")
+    app._get_command_coordinator = MagicMock(return_value=coordinator)
+
+    app._quit_app(None)
+
+    coordinator.call.assert_called_once_with(
+        app._handle_quit_cancel_command,
+        command_name="quit_cancel",
+        timeout=1.0,
+    )
+    app._capsule.hide.assert_called_once()
+    app._settings_window.close.assert_called_once()
+    app._close_command_coordinator.assert_called_once()
+    app_module.rumps.quit_application.assert_called_once()
+
+
 def test_build_runtime_returns_shared_facade_for_menu_and_rpc(tmp_path, monkeypatch):
     """bootstrap.build_runtime should expose one facade object to both adapters."""
     from vocal_more.config import Config

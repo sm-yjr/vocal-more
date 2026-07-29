@@ -606,10 +606,17 @@ class VocalMoreApp(rumps.App):
             rumps.quit_application()
             return
         self._hotkey_manager.stop()
-        self._get_command_coordinator().call(
-            self._handle_quit_cancel_command,
-            command_name="quit_cancel",
-        )
+        try:
+            self._get_command_coordinator().call(
+                self._handle_quit_cancel_command,
+                command_name="quit_cancel",
+                timeout=1.0,
+            )
+        except TimeoutError:
+            print(
+                "[App] Dictation cancellation timed out during quit; "
+                "continuing bounded shutdown"
+            )
         self._capsule.hide()
         dictionary_learning = getattr(self, "_dictionary_learning", None)
         if dictionary_learning is not None:

@@ -21,6 +21,7 @@ _PORTAUDIO_RECOVERY_MARKERS = (
     "invalidpropertyvalue",
 )
 _PORTAUDIO_RESET_LOCK = threading.Lock()
+_STREAM_RELEASE_THREAD_NAME = "vocal-more-audio-stream-release"
 
 
 class AudioRecorderStartError(RuntimeError):
@@ -66,6 +67,7 @@ class AudioRecorder:
         self._soft_limiter: bool = config.audio.soft_limiter
 
         self._stream: Optional[sd.InputStream] = None
+        self._stream_release_thread: Optional[threading.Thread] = None
         self._audio_buffer: list[bytes] = []
         self._is_recording = False
         self._lock = threading.Lock()
@@ -139,8 +141,9 @@ class AudioRecorder:
         audio_data = (processed * 32767).astype(np.int16).tobytes()
 
         with self._lock:
-            if self._is_recording:
-                self._audio_buffer.append(audio_data)
+            if not self._is_recording:
+                return
+            self._audio_buffer.append(audio_data)
 
         # Call real-time callback if set
         if on_audio_chunk:
@@ -178,6 +181,12 @@ class AudioRecorder:
     def stop(self) -> bytes:
         """Stop recording and return PCM audio data.
 
+        PortAudio/CoreAudio can occasionally block while stopping or closing a
+        stream after an input-device transition. Detach the stream and release
+        it on a daemon worker so dictation state can always advance past
+        ``STOPPING``. The callback sees ``_is_recording`` become false before
+        the stream is detached, so late audio is discarded.
+
         Returns:
             Raw PCM audio data (int16, mono, 16kHz)
         """
@@ -189,17 +198,38 @@ class AudioRecorder:
 
         with self._lock:
             self._is_recording = False
-
-        if self._stream:
-            self._stream.stop()
-            self._stream.close()
+            stream = self._stream
             self._stream = None
-
-        with self._lock:
             audio_data = b"".join(self._audio_buffer)
             self._audio_buffer = []
 
+        if stream is not None:
+            release_thread = threading.Thread(
+                target=self._release_stream,
+                args=(stream,),
+                name=_STREAM_RELEASE_THREAD_NAME,
+                daemon=True,
+            )
+            self._stream_release_thread = release_thread
+            release_thread.start()
+
         return audio_data
+
+    @staticmethod
+    def _release_stream(stream) -> None:
+        """Release a detached PortAudio stream without blocking dictation."""
+        try:
+            abort = getattr(stream, "abort", None)
+            if callable(abort):
+                abort()
+            else:
+                stream.stop()
+        except Exception as exc:
+            print(f"[AudioRecorder] Failed to stop detached stream: {exc}")
+        try:
+            stream.close()
+        except Exception as exc:
+            print(f"[AudioRecorder] Failed to close detached stream: {exc}")
 
     @property
     def benchmark_audio_delivery(self) -> str:

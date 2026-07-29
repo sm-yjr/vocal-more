@@ -2737,6 +2737,30 @@ def test_streaming_engine_rejects_connected_but_consumed_warm_session():
         engine.close()
 
 
+def test_realtime_conversation_close_is_bounded():
+    """A stuck SDK close must not pin dictation or application shutdown."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    close_started = threading.Event()
+    release_close = threading.Event()
+
+    class BlockingConversation:
+        def close(self):
+            close_started.set()
+            release_close.wait(timeout=2.0)
+
+    engine = asr_engine.ASREngine()
+    started_at = time.monotonic()
+    engine._close_conversation(BlockingConversation())
+    elapsed = time.monotonic() - started_at
+
+    assert close_started.is_set()
+    assert elapsed < 0.5
+
+    release_close.set()
+    engine.close()
+
+
 def test_streaming_engine_reconnects_instead_of_reusing_stale_warm_socket(
     tmp_path, monkeypatch
 ):
