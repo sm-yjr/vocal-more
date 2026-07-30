@@ -234,6 +234,85 @@ def test_same_mask_modifiers_release_without_leaving_pressed_state(monkeypatch):
     assert manager.is_fn_pressed() is False
 
 
+def test_fn_shortcut_consumes_press_and_release(monkeypatch):
+    """Configured Fn edges must not reach macOS input-source handling."""
+    config = Config()
+    config.hotkey.active_hotkeys = ["fn"]
+    monkeypatch.setattr(hotkey_module, "get_config", lambda: config)
+    monkeypatch.setattr(
+        hotkey_module,
+        "CGEventGetIntegerValueField",
+        lambda event, _field: event["key_code"],
+    )
+    monkeypatch.setattr(
+        hotkey_module,
+        "CGEventGetFlags",
+        lambda event: event["flags"],
+    )
+    flags_changed = object()
+    monkeypatch.setattr(hotkey_module, "kCGEventFlagsChanged", flags_changed)
+
+    manager = hotkey_module.HotkeyManager(
+        on_fn_pressed=lambda: None,
+        on_fn_released=lambda: None,
+    )
+    captured = []
+    monkeypatch.setattr(manager, "_enqueue_event", captured.append)
+
+    pressed_result = manager._event_callback(
+        None,
+        flags_changed,
+        {
+            "key_code": hotkey_module.FN_KEYCODE,
+            "flags": hotkey_module.NX_SECONDARYFNMASK,
+        },
+        None,
+    )
+    released_result = manager._event_callback(
+        None,
+        flags_changed,
+        {"key_code": hotkey_module.FN_KEYCODE, "flags": 0},
+        None,
+    )
+
+    assert pressed_result is None
+    assert released_result is None
+    assert captured == [
+        hotkey_module.HotkeyEvent.FN_PRESSED,
+        hotkey_module.HotkeyEvent.FN_RELEASED,
+    ]
+
+
+def test_event_tap_filters_at_hid_entry_point(monkeypatch):
+    """Fn must be filtered before WindowServer handles its system action."""
+    config = Config()
+    monkeypatch.setattr(hotkey_module, "get_config", lambda: config)
+    hid_event_tap = object()
+    monkeypatch.setattr(hotkey_module, "kCGHIDEventTap", hid_event_tap)
+
+    captured = {}
+
+    def create_tap(location, placement, options, mask, callback, refcon):
+        captured["location"] = location
+        return object()
+
+    monkeypatch.setattr(hotkey_module, "CGEventTapCreate", create_tap)
+    monkeypatch.setattr(
+        hotkey_module,
+        "CFMachPortCreateRunLoopSource",
+        lambda allocator, tap, order: object(),
+    )
+    monkeypatch.setattr(hotkey_module, "CFRunLoopGetCurrent", lambda: object())
+    monkeypatch.setattr(hotkey_module, "CFRunLoopAddSource", lambda *args: None)
+    monkeypatch.setattr(hotkey_module, "CGEventTapEnable", lambda *args: None)
+    monkeypatch.setattr(hotkey_module, "CFRunLoopRun", lambda: None)
+
+    manager = hotkey_module.HotkeyManager()
+    manager._run_event_loop()
+
+    assert captured["location"] is hid_event_tap
+
+
 def test_configured_modifier_releases_while_unconfigured_sibling_remains_held(
     monkeypatch,
 ):

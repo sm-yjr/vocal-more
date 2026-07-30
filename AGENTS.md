@@ -12,7 +12,7 @@ The active codebase is the **Python app** (`src/vocal_more/`). All new features,
 
 - Install development dependencies with `uv sync --group dev`.
 - Run the full test suite with `uv run python -m pytest -q`.
-- After completing and verifying each feature, build a macOS test DMG with `packaging/macos/build_dmg.sh` and report its path, signing/notarization status, and SHA-256 checksum so the user can install and test it.
+- Do not build a local DMG as part of routine development or feature verification. Run the test suite locally; when publishing a version, use the release CI workflow directly.
 - Treat `pyproject.toml` as the version source of truth. The macOS bundle metadata and artifact names derive from it through `packaging/macos/read_version.py`; keep the editable `vocal-more` entry in `uv.lock` aligned.
 - A version-only change should not rewrite unrelated registry metadata in `uv.lock`. If it does, verify the local `uv` version before accepting the diff.
 - Read `docs/concurrency-runtime-model.md` before changing worker ownership, queues, shutdown behavior, or background runtimes.

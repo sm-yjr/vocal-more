@@ -40,9 +40,9 @@ def CGEventTapEnable(*args, **kwargs):
 
 kCFRunLoopCommonModes = 0
 kCGEventFlagsChanged = 0
+kCGHIDEventTap = 0
 kCGEventKeyDown = 0
 kCGEventKeyUp = 0
 kCGEventTapOptionDefault = 0
 kCGHeadInsertEventTap = 0
 kCGKeyboardEventKeycode = 0
-kCGSessionEventTap = 0

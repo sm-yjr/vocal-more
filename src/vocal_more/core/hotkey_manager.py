@@ -19,12 +19,12 @@ from Quartz import (
     CGEventTapEnable,
     kCFRunLoopCommonModes,
     kCGEventFlagsChanged,
+    kCGHIDEventTap,
     kCGEventKeyDown,
     kCGEventKeyUp,
     kCGEventTapOptionDefault,
     kCGHeadInsertEventTap,
     kCGKeyboardEventKeycode,
-    kCGSessionEventTap,
 )
 
 from ..config import get_config
@@ -269,14 +269,16 @@ class HotkeyManager:
         def callback_wrapper(proxy, event_type, event, refcon):
             return self._event_callback(proxy, event_type, event, refcon)
 
-        # Create event tap
+        # Use the earliest active event-filtering point. Fn/Globe system
+        # actions (including input-source switching) are handled before a
+        # session-level tap sees them, so consuming Fn there is too late.
         event_mask = (
             CGEventMaskBit(kCGEventFlagsChanged)
             | CGEventMaskBit(kCGEventKeyDown)
             | CGEventMaskBit(kCGEventKeyUp)
         )
         self._tap = CGEventTapCreate(
-            kCGSessionEventTap,
+            kCGHIDEventTap,
             kCGHeadInsertEventTap,
             kCGEventTapOptionDefault,
             event_mask,

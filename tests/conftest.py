@@ -100,12 +100,12 @@ def _install_quartz_stub() -> None:
     quartz.CGEventTapEnable = lambda *args, **kwargs: None
     quartz.kCFRunLoopCommonModes = 0
     quartz.kCGEventFlagsChanged = 0
+    quartz.kCGHIDEventTap = 0
     quartz.kCGEventKeyDown = 0
     quartz.kCGEventKeyUp = 0
     quartz.kCGEventTapOptionDefault = 0
     quartz.kCGHeadInsertEventTap = 0
     quartz.kCGKeyboardEventKeycode = 0
-    quartz.kCGSessionEventTap = 0
     sys.modules["Quartz"] = quartz
 
 
