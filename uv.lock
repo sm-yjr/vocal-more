@@ -1803,7 +1803,7 @@ wheels = [
 
 [[package]]
 name = "vocal-more"
-version = "0.3.9"
+version = "0.3.10"
 source = { editable = "." }
 dependencies = [
     { name = "chardet" },

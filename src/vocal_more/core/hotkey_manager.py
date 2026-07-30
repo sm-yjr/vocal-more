@@ -29,6 +29,7 @@ from Quartz import (
 
 from ..config import get_config
 from ..domain.hotkey_catalog import BUILT_IN_HOTKEYS, NX_SECONDARYFNMASK
+from .fn_system_action import FnSystemActionGuard
 
 
 # Fn key constants
@@ -63,6 +64,7 @@ class HotkeyManager:
         on_fn_released: Optional[Callable[[], None]] = None,
         on_double_cmd: Optional[Callable[[], None]] = None,
         on_escape_pressed: Optional[Callable[[], None]] = None,
+        fn_system_action_guard: Optional[FnSystemActionGuard] = None,
     ):
         """Initialize the hotkey manager.
 
@@ -71,12 +73,18 @@ class HotkeyManager:
             on_fn_released: Callback when Fn key is released
             on_double_cmd: Callback when Cmd key is double-tapped
             on_escape_pressed: Callback when Escape is pressed
+            fn_system_action_guard: macOS standalone Fn action lifecycle guard
         """
         self.config = get_config()
         self.on_fn_pressed = on_fn_pressed
         self.on_fn_released = on_fn_released
         self.on_double_cmd = on_double_cmd
         self.on_escape_pressed = on_escape_pressed
+        self._fn_system_action_guard = (
+            fn_system_action_guard
+            if fn_system_action_guard is not None
+            else FnSystemActionGuard()
+        )
 
         self._active_hotkeys: list[str] = list(self.config.hotkey.active_hotkeys)
         self._custom_keys: list[dict] = list(
@@ -135,6 +143,24 @@ class HotkeyManager:
     def _has_pressed_hotkey(self) -> bool:
         """Return whether any configured physical trigger is currently held."""
         return any(self._key_states.values()) or bool(self._held_keys)
+
+    def _uses_fn_key(self) -> bool:
+        """Return whether the physical Fn key is a configured trigger."""
+        return FN_KEYCODE in self._modifier_lookup
+
+    def _sync_fn_system_action_guard(self) -> None:
+        """Match macOS's standalone Fn action to the active listener state."""
+        if not self._running:
+            return
+
+        if self._uses_fn_key():
+            if not self._fn_system_action_guard.suppress():
+                print(
+                    "[HotkeyManager] Fn remains available to macOS system "
+                    "actions because suppression could not be enabled."
+                )
+        else:
+            self._fn_system_action_guard.restore()
 
     def _emit_hotkey_transition(self, was_pressed: bool) -> None:
         """Emit one logical edge for the aggregate set of physical triggers."""
@@ -317,7 +343,17 @@ class HotkeyManager:
             True if started successfully
         """
         if self._thread and self._thread.is_alive():
+            self._sync_fn_system_action_guard()
             return True
+
+        if self._uses_fn_key():
+            if not self._fn_system_action_guard.suppress():
+                print(
+                    "[HotkeyManager] Fn remains available to macOS system "
+                    "actions because suppression could not be enabled."
+                )
+        else:
+            self._fn_system_action_guard.restore()
 
         self._start_callback_worker()
         self._thread = threading.Thread(target=self._run_event_loop, daemon=True)
@@ -325,6 +361,9 @@ class HotkeyManager:
 
         # Give it a moment to start
         time.sleep(0.1)
+
+        if not self._running:
+            self._fn_system_action_guard.restore()
 
         return self._running
 
@@ -346,21 +385,25 @@ class HotkeyManager:
         self._tap = None
         self._run_loop = None
         self._run_loop_source = None
+        self._fn_system_action_guard.restore()
 
     def set_active_hotkeys(self, hotkeys: list[str]) -> None:
         """Update which hotkeys are active at runtime. No restart needed."""
         self._active_hotkeys = list(hotkeys)
         self._update_lookup_tables()
+        self._sync_fn_system_action_guard()
 
     def set_custom_key(self, custom_key: Optional[dict]) -> None:
         """Update the legacy single custom hotkey without a restart."""
         self._custom_keys = [custom_key] if custom_key is not None else []
         self._update_lookup_tables()
+        self._sync_fn_system_action_guard()
 
     def set_custom_keys(self, custom_keys: list[dict]) -> None:
         """Replace all custom bindings for the dictation action."""
         self._custom_keys = list(custom_keys)
         self._update_lookup_tables()
+        self._sync_fn_system_action_guard()
 
     def is_fn_pressed(self) -> bool:
         """Check if any hold-type hotkey is currently pressed."""

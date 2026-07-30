@@ -6,6 +6,20 @@ from vocal_more.config import Config
 from vocal_more.core import hotkey_manager as hotkey_module
 
 
+class FakeFnSystemActionGuard:
+    def __init__(self):
+        self.suppress_count = 0
+        self.restore_count = 0
+
+    def suppress(self):
+        self.suppress_count += 1
+        return True
+
+    def restore(self):
+        self.restore_count += 1
+        return True
+
+
 def test_custom_regular_key_is_active(monkeypatch):
     """Custom regular keys should be added to the regular-key lookup."""
     config = Config()
@@ -60,6 +74,20 @@ def test_set_custom_key_updates_lookup_tables(monkeypatch):
     manager.set_custom_key(None)
 
     assert 49 not in manager._regular_lookup
+
+
+def test_running_listener_updates_fn_system_action_with_bindings(monkeypatch):
+    config = Config()
+    monkeypatch.setattr(hotkey_module, "get_config", lambda: config)
+    fn_guard = FakeFnSystemActionGuard()
+    manager = hotkey_module.HotkeyManager(fn_system_action_guard=fn_guard)
+    manager._running = True
+
+    manager.set_active_hotkeys([])
+    manager.set_active_hotkeys(["fn"])
+
+    assert fn_guard.restore_count == 1
+    assert fn_guard.suppress_count == 1
 
 
 def test_multiple_custom_keys_share_the_same_dictation_action(monkeypatch):
@@ -412,6 +440,7 @@ def test_hotkey_events_are_dispatched_serially_in_order(monkeypatch):
         on_fn_released=on_released,
         on_double_cmd=on_double_cmd,
         on_escape_pressed=on_escape,
+        fn_system_action_guard=FakeFnSystemActionGuard(),
     )
 
     manager._enqueue_event(hotkey_module.HotkeyEvent.FN_PRESSED)
@@ -431,7 +460,10 @@ def test_escape_keydown_dispatches_escape_callback_without_consuming_event(monke
     monkeypatch.setattr(hotkey_module, "get_config", lambda: config)
 
     captured = []
-    manager = hotkey_module.HotkeyManager(on_escape_pressed=lambda: None)
+    manager = hotkey_module.HotkeyManager(
+        on_escape_pressed=lambda: None,
+        fn_system_action_guard=FakeFnSystemActionGuard(),
+    )
     monkeypatch.setattr(manager, "_enqueue_event", lambda event: captured.append(event))
 
     event = object()
@@ -464,7 +496,8 @@ def test_hotkey_manager_stop_shuts_down_callback_worker(monkeypatch):
         started.set()
         allow_exit.wait(timeout=1.0)
 
-    manager = hotkey_module.HotkeyManager()
+    fn_guard = FakeFnSystemActionGuard()
+    manager = hotkey_module.HotkeyManager(fn_system_action_guard=fn_guard)
     monkeypatch.setattr(manager, "_run_event_loop", fake_run_event_loop)
 
     assert manager.start() is True
@@ -475,6 +508,8 @@ def test_hotkey_manager_stop_shuts_down_callback_worker(monkeypatch):
     manager.stop()
 
     assert manager._callback_thread is None
+    assert fn_guard.suppress_count == 1
+    assert fn_guard.restore_count == 1
 
 
 def test_hotkey_manager_failed_event_tap_leaves_clean_retry_state(monkeypatch):
@@ -483,14 +518,18 @@ def test_hotkey_manager_failed_event_tap_leaves_clean_retry_state(monkeypatch):
     monkeypatch.setattr(hotkey_module, "get_config", lambda: config)
     monkeypatch.setattr(hotkey_module, "CGEventTapCreate", lambda *args, **kwargs: None)
 
-    manager = hotkey_module.HotkeyManager()
+    fn_guard = FakeFnSystemActionGuard()
+    manager = hotkey_module.HotkeyManager(fn_system_action_guard=fn_guard)
 
     assert manager.start() is False
     assert manager._running is False
     assert manager._tap is None
     assert manager._run_loop is None
     assert manager._run_loop_source is None
+    assert fn_guard.suppress_count == 1
+    assert fn_guard.restore_count == 1
 
     manager.stop()
     assert manager._thread is None
     assert manager._callback_thread is None
+    assert fn_guard.restore_count == 2
