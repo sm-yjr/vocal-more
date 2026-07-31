@@ -18,6 +18,7 @@ export const PYTHON_API_NAMES = [
   "setInterfaceLanguage",
   "updateConfig",
   "loadDevices",
+  "loadAudioInputStatus",
   "loadEnvironmentChecks",
   "dashscopeModelCheckStarted",
   "dashscopeModelCheckComplete",
@@ -55,6 +56,8 @@ export function installPythonApi(store: SettingsStore): void {
   window.updateConfig = (key, value) => store.setConfig(key, value)
   window.loadDevices = (...args) =>
     store.loadDevices(args[0], args[1], args.length > 1)
+  window.loadAudioInputStatus = (status) =>
+    store.loadAudioInputStatus(status)
   window.loadEnvironmentChecks = (checks) =>
     store.loadEnvironmentChecks(checks)
   window.dashscopeModelCheckStarted = () =>
@@ -115,6 +118,9 @@ declare global {
     loadDevices: (
       devices: AudioDevice[],
       selectedDevice?: string | null,
+    ) => void
+    loadAudioInputStatus: (
+      status: import("@/settings/types").AudioInputStatus,
     ) => void
     loadEnvironmentChecks: (checks: EnvironmentCheck[]) => void
     dashscopeModelCheckStarted: () => void

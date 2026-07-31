@@ -65,7 +65,10 @@ OPTIONS = {
     "includes": [
         "ApplicationServices",
         "AppKit",
+        "AVFoundation",
+        "CoreAudio",
         "CoreFoundation",
+        "CoreMedia",
         "Foundation",
         "Quartz",
         "WebKit",

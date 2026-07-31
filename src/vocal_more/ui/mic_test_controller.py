@@ -23,6 +23,7 @@ class MicTestController:
         on_error: Optional[Callable[[str], None]] = None,
         on_level: Optional[Callable[[float], None]] = None,
         on_playback: Optional[Callable[[str], None]] = None,
+        on_input_status: Optional[Callable[[dict], None]] = None,
         device_changed_error: Optional[Callable[[], str]] = None,
         auto_stop_seconds: float = 5.0,
     ) -> None:
@@ -34,6 +35,7 @@ class MicTestController:
         self._on_error = on_error
         self._on_level = on_level
         self._on_playback = on_playback
+        self._on_input_status = on_input_status
         self._device_changed_error = device_changed_error
         self._auto_stop_seconds = auto_stop_seconds
 
@@ -58,7 +60,9 @@ class MicTestController:
             self._recorder.set_highpass_freq(config.audio.highpass_freq)
             self._recorder.set_soft_limiter(config.audio.soft_limiter)
             self._recorder.start()
+            self._emit_input_status(self._recorder)
         except Exception as exc:
+            self._emit_input_status(self._recorder)
             self._recorder = None
             self._emit_error(str(exc))
             return
@@ -80,7 +84,9 @@ class MicTestController:
             return
 
         try:
-            self._pcm_data = self._recorder.stop()
+            recorder = self._recorder
+            self._pcm_data = recorder.stop()
+            self._emit_input_status(recorder)
             self._recorder = None
             if self._on_complete is not None:
                 self._on_complete()
@@ -143,3 +149,10 @@ class MicTestController:
     def _emit_error(self, message: str) -> None:
         if self._on_error is not None:
             self._on_error(message)
+
+    def _emit_input_status(self, recorder: object | None) -> None:
+        if self._on_input_status is None or recorder is None:
+            return
+        status = getattr(recorder, "input_status", None)
+        if isinstance(status, dict):
+            self._on_input_status(status)

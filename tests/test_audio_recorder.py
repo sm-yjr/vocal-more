@@ -3,6 +3,7 @@
 import threading
 import time
 import wave
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -423,6 +424,193 @@ def test_macos_builtin_microphone_array_uses_all_available_capture_channels(
     assert stream_kwargs[0]["channels"] == 3
     assert recorder.array_processing_active is True
     recorder.stop()
+
+
+def test_macos_builtin_default_microphone_prefers_voice_processing_for_aec(
+    monkeypatch,
+):
+    """Apple voice processing should supersede raw array capture for AEC."""
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    voice_streams = []
+
+    class FakeVoiceProcessingStream:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.started = False
+            voice_streams.append(self)
+
+        def start(self):
+            self.started = True
+
+        def abort(self):
+            return None
+
+        def close(self):
+            return None
+
+    fake_sd = type(
+        "FakeSoundDevice",
+        (),
+        {
+            "InputStream": lambda **_kwargs: pytest.fail(
+                "PortAudio must not open when Apple voice processing is available"
+            ),
+            "PortAudioError": RuntimeError,
+            "CallbackFlags": object,
+            "default": _fake_default_device(2),
+            "query_devices": staticmethod(
+                lambda: [
+                    {
+                        "index": 2,
+                        "name": "MacBook Pro Microphone",
+                        "max_input_channels": 3,
+                    }
+                ]
+            ),
+        },
+    )()
+    monkeypatch.setattr(audio_recorder_module, "sd", fake_sd)
+    monkeypatch.setattr(audio_recorder_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        audio_recorder_module,
+        "_macos_voice_processing_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        audio_recorder_module,
+        "_build_macos_voice_processing_stream",
+        lambda **kwargs: FakeVoiceProcessingStream(**kwargs),
+    )
+
+    recorder = AudioRecorder(channels=1)
+    recorder.start()
+
+    assert voice_streams[0].started is True
+    assert voice_streams[0].kwargs["sample_rate"] == 16000
+    assert voice_streams[0].kwargs["blocksize"] == recorder.blocksize
+    assert recorder.input_status == {
+        "device_name": "MacBook Pro Microphone",
+        "system_default": True,
+        "max_input_channels": 3,
+        "capture_channels": 1,
+        "processing_mode": "macos_voice_processing",
+        "processing_active": True,
+        "array_processing_active": False,
+        "echo_cancellation": "active",
+        "fallback_reason": None,
+    }
+    recorder.stop()
+
+
+def test_voice_processing_failure_falls_back_and_reports_aec_inactive(monkeypatch):
+    """AEC startup failure must preserve recording and remain observable."""
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    portaudio_channels = []
+
+    class FailingVoiceProcessingStream:
+        def start(self):
+            raise RuntimeError("voice processing device unavailable")
+
+        def close(self):
+            return None
+
+    class FakeStream:
+        def __init__(self, **kwargs):
+            portaudio_channels.append(kwargs["channels"])
+
+        def start(self):
+            return None
+
+        def abort(self):
+            return None
+
+        def close(self):
+            return None
+
+    fake_sd = type(
+        "FakeSoundDevice",
+        (),
+        {
+            "InputStream": FakeStream,
+            "PortAudioError": RuntimeError,
+            "CallbackFlags": object,
+            "default": _fake_default_device(0),
+            "query_devices": staticmethod(
+                lambda: [
+                    {
+                        "index": 0,
+                        "name": "MacBook Pro Microphone",
+                        "max_input_channels": 1,
+                    }
+                ]
+            ),
+        },
+    )()
+    monkeypatch.setattr(audio_recorder_module, "sd", fake_sd)
+    monkeypatch.setattr(audio_recorder_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        audio_recorder_module,
+        "_macos_voice_processing_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        audio_recorder_module,
+        "_build_macos_voice_processing_stream",
+        lambda **_kwargs: FailingVoiceProcessingStream(),
+    )
+
+    recorder = AudioRecorder(channels=1)
+    recorder.start()
+
+    assert portaudio_channels == [1]
+    assert recorder.input_status["echo_cancellation"] == "fallback"
+    assert recorder.input_status["processing_mode"] == "system_managed_mono"
+    assert "voice processing device unavailable" in str(
+        recorder.input_status["fallback_reason"]
+    )
+    recorder.stop()
+
+
+def test_external_microphone_does_not_claim_voice_processing(monkeypatch):
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    fake_sd = type(
+        "FakeSoundDevice",
+        (),
+        {
+            "InputStream": MagicMock(),
+            "PortAudioError": RuntimeError,
+            "CallbackFlags": object,
+            "default": _fake_default_device(4),
+            "query_devices": staticmethod(
+                lambda: [
+                    {
+                        "index": 4,
+                        "name": "USB Conference Microphone",
+                        "max_input_channels": 2,
+                    }
+                ]
+            ),
+        },
+    )()
+    monkeypatch.setattr(audio_recorder_module, "sd", fake_sd)
+    monkeypatch.setattr(audio_recorder_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        audio_recorder_module,
+        "_macos_voice_processing_available",
+        lambda: True,
+    )
+
+    status = AudioRecorder.inspect_input_status()
+
+    assert status["device_name"] == "USB Conference Microphone"
+    assert status["processing_mode"] == "standard"
+    assert status["echo_cancellation"] == "unavailable"
 
 
 def test_macos_array_falls_back_to_system_beamformed_mono_when_format_is_rejected(

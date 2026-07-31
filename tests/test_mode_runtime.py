@@ -91,6 +91,10 @@ def test_base_mode_runtime_port_keeps_private_resources_inside_the_mode():
 
     mode = RuntimeMode()
     mode._recorder = MagicMock()
+    mode._recorder.input_status = {
+        "processing_mode": "macos_voice_processing",
+        "echo_cancellation": "active",
+    }
     mode._asr = MagicMock()
     audio = SimpleNamespace(
         input_device="USB Mic",
@@ -101,6 +105,10 @@ def test_base_mode_runtime_port_keeps_private_resources_inside_the_mode():
     )
 
     assert mode.runtime_is_idle is True
+    assert mode.audio_input_status == {
+        "processing_mode": "macos_voice_processing",
+        "echo_cancellation": "active",
+    }
     mode.apply_audio_runtime_config(audio)
     mode.refresh_asr_runtime()
 

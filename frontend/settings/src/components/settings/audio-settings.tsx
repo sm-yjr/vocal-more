@@ -80,6 +80,25 @@ export function AudioSettings({
       : DEFAULT_WAVEFORM_CEILING_DBFS
   const mic = snapshot.micTest
   const micDbfs = rmsToDbfs(mic.level)
+  const inputStatus = snapshot.audioInputStatus
+  const processingLabel =
+    inputStatus.processing_mode === "macos_voice_processing"
+      ? copy.appleVoiceProcessing
+      : inputStatus.processing_mode === "vocal_more_array"
+        ? copy.vocalMoreArrayProcessing
+        : inputStatus.processing_mode === "system_managed_mono"
+          ? copy.systemManagedMono
+          : copy.standardInputProcessing
+  const echoLabel =
+    inputStatus.echo_cancellation === "active"
+      ? copy.echoCancellationActive
+      : inputStatus.echo_cancellation === "ready"
+        ? copy.echoCancellationReady
+        : inputStatus.echo_cancellation === "fallback"
+          ? copy.echoCancellationFallback
+          : copy.echoCancellationUnavailable
+  const channelLabel =
+    inputStatus.capture_channels === 1 ? copy.audioChannel : copy.audioChannels
 
   useEffect(() => {
     if (mic.state !== "recording") return
@@ -101,6 +120,24 @@ export function AudioSettings({
 
   return (
     <SettingsPage title={copy.audio} description={copy.softwareGainHint}>
+      <SettingsCard
+        title={copy.inputProcessingStatus}
+        description={inputStatus.fallback_reason || undefined}
+      >
+        <SettingsRow label={copy.activeInput}>
+          <InlineValue>
+            {inputStatus.device_name || copy.systemDefault} ·{" "}
+            {inputStatus.capture_channels} {channelLabel}
+          </InlineValue>
+        </SettingsRow>
+        <SettingsRow label={copy.inputProcessing}>
+          <InlineValue>{processingLabel}</InlineValue>
+        </SettingsRow>
+        <SettingsRow label={copy.echoCancellation}>
+          <InlineValue>{echoLabel}</InlineValue>
+        </SettingsRow>
+      </SettingsCard>
+
       <SettingsCard>
         <SettingsRow label={copy.inputDevice} htmlFor="audio-device">
           <NativeSelect

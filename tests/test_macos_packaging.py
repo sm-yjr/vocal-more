@@ -59,6 +59,16 @@ def test_py2app_includes_accessibility_modules_for_dictionary_learning():
     assert '"CoreFoundation"' in setup_text
 
 
+def test_py2app_bundles_avfoundation_voice_processing_bridge():
+    setup_text = (ROOT / "packaging" / "macos" / "setup.py").read_text()
+    pyproject = (ROOT / "pyproject.toml").read_text()
+
+    assert '"AVFoundation"' in setup_text
+    assert '"CoreAudio"' in setup_text
+    assert '"CoreMedia"' in setup_text
+    assert '"pyobjc-framework-AVFoundation>=10.0"' in pyproject
+
+
 def test_py2app_declares_signed_sparkle_feed():
     app_plist = _load_py2app_plist()
 

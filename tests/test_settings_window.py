@@ -73,7 +73,8 @@ def test_update_devices_can_sync_selected_device_to_frontend():
 
     window.update_devices([{"name": "Built-in Mic"}], None)
 
-    assert calls == ['loadDevices([{"name": "Built-in Mic"}], null)']
+    assert calls[0] == 'loadDevices([{"name": "Built-in Mic"}], null)'
+    assert calls[1].startswith("loadAudioInputStatus(")
 
 
 def test_update_environment_checks_syncs_onboarding_readiness():
@@ -93,6 +94,25 @@ def test_update_environment_checks_syncs_onboarding_readiness():
         'loadEnvironmentChecks([{"key": "accessibility", "status": "ok", '
         '"details": "trusted"}, {"key": "hotkey_listener", "status": "ok", '
         '"details": "running"}])'
+    ]
+
+
+def test_update_audio_input_status_syncs_native_processing_state():
+    calls = []
+    window = SettingsWindow.__new__(SettingsWindow)
+    window._eval_js = calls.append
+    status = {
+        "device_name": "MacBook Pro Microphone",
+        "processing_mode": "macos_voice_processing",
+        "echo_cancellation": "active",
+    }
+
+    window.update_audio_input_status(status)
+
+    assert calls == [
+        'loadAudioInputStatus({"device_name": "MacBook Pro Microphone", '
+        '"processing_mode": "macos_voice_processing", '
+        '"echo_cancellation": "active"})'
     ]
 
 

@@ -203,6 +203,38 @@ describe("settings application", () => {
     })
   })
 
+  it("shows the actual microphone processing and echo-cancellation status", () => {
+    const data = makeInitData()
+    data.initial_tab = "audio"
+    data.audio_input_status = {
+      device_name: "MacBook Pro麦克风",
+      system_default: true,
+      max_input_channels: 1,
+      capture_channels: 1,
+      processing_mode: "macos_voice_processing",
+      processing_active: false,
+      array_processing_active: false,
+      echo_cancellation: "ready",
+      fallback_reason: null,
+    }
+    const { store } = renderApp(data)
+
+    expect(screen.getByText("输入处理状态")).toBeVisible()
+    expect(screen.getByText("MacBook Pro麦克风 · 1 通道")).toBeVisible()
+    expect(screen.getByText("Apple 语音处理")).toBeVisible()
+    expect(screen.getByText("回声消除将在录音时启用")).toBeVisible()
+
+    act(() => {
+      store.loadAudioInputStatus({
+        ...data.audio_input_status!,
+        processing_active: true,
+        echo_cancellation: "active",
+      })
+    })
+
+    expect(screen.getByText("回声消除已启用")).toBeVisible()
+  })
+
   it("calibrates the capsule waveform full-scale level in dBFS", async () => {
     const user = userEvent.setup()
     const { postMessage } = renderApp()

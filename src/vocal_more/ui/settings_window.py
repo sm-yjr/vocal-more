@@ -432,6 +432,7 @@ class SettingsWindow:
             "asr_models": asr_models,
             "llm_models": llm_models,
             "devices": devices,
+            "audio_input_status": self._current_audio_input_status(),
             "dictionary": dictionary,
             "dictionary_learning_records": dictionary_learning_records or [],
             "context_profile": (
@@ -482,10 +483,35 @@ class SettingsWindow:
         json_str = json.dumps(devices)
         if selected_device is _UNSET:
             self._eval_js(f"loadDevices({json_str})")
+            self.update_audio_input_status(self._current_audio_input_status())
             return
 
         selected_json = json.dumps(selected_device)
         self._eval_js(f"loadDevices({json_str}, {selected_json})")
+        self.update_audio_input_status(self._current_audio_input_status())
+
+    def update_audio_input_status(self, status: dict) -> None:
+        """Refresh the actual/planned microphone processing path."""
+        self._eval_js(f"loadAudioInputStatus({json.dumps(status)})")
+
+    @staticmethod
+    def _current_audio_input_status() -> dict:
+        from ..core.audio_recorder import AudioRecorder
+
+        try:
+            return AudioRecorder.inspect_input_status()
+        except Exception as exc:
+            return {
+                "device_name": "",
+                "system_default": True,
+                "max_input_channels": 1,
+                "capture_channels": 1,
+                "processing_mode": "standard",
+                "processing_active": False,
+                "array_processing_active": False,
+                "echo_cancellation": "unavailable",
+                "fallback_reason": str(exc),
+            }
 
     def update_environment_checks(self, checks: list) -> None:
         """Refresh prerequisite status shown by the guided setup."""
@@ -548,6 +574,7 @@ class SettingsWindow:
             on_playback=lambda b64: self._eval_js(
                 f"micTestPlayback({json.dumps(b64)})"
             ),
+            on_input_status=self.update_audio_input_status,
             device_changed_error=lambda: t(
                 self._interface_language,
                 "settings_device_changed",

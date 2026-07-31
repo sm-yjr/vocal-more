@@ -49,6 +49,7 @@ def test_generated_bundle_contains_python_to_javascript_contract():
         "setInterfaceLanguage",
         "updateConfig",
         "loadDevices",
+        "loadAudioInputStatus",
         "loadEnvironmentChecks",
         "loadDictionary",
         "loadDictionaryLearning",

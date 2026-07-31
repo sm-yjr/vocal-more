@@ -106,6 +106,13 @@ class BaseMode(ABC):
         """Return whether runtime configuration may safely switch this mode."""
         return self._state == ModeState.IDLE
 
+    @property
+    def audio_input_status(self) -> Optional[dict]:
+        """Expose recorder status without leaking the recorder implementation."""
+        recorder = getattr(self, "_recorder", None)
+        status = getattr(recorder, "input_status", None)
+        return dict(status) if isinstance(status, dict) else None
+
     def apply_audio_runtime_config(self, audio_config: object) -> None:
         """Apply live audio settings while keeping recorder details private."""
         recorder = getattr(self, "_recorder", None)

@@ -41,6 +41,18 @@ _MACOS_ARRAY_DEVICE_MARKERS = (
 )
 
 
+def _macos_voice_processing_available() -> bool:
+    from .macos_voice_capture import voice_processing_available
+
+    return voice_processing_available()
+
+
+def _build_macos_voice_processing_stream(**kwargs):
+    from .macos_voice_capture import MacOSVoiceProcessingStream
+
+    return MacOSVoiceProcessingStream(**kwargs)
+
+
 class AudioRecorderStartError(RuntimeError):
     """Raised when microphone startup fails after all recovery attempts."""
 
@@ -99,6 +111,7 @@ class AudioRecorder:
         self._stream_start_thread: Optional[threading.Thread] = None
         self._start_generation = 0
         self._array_processing_active = False
+        self._input_status = self._planned_input_status()
         self._audio_buffer: list[bytes] = []
         self._is_recording = False
         self._lock = threading.Lock()
@@ -211,6 +224,7 @@ class AudioRecorder:
             self._hp_prev_in = 0.0
             self._hp_prev_out = 0.0
             self._array_processing_active = False
+            self._mark_input_inactive()
             self._start_generation += 1
             generation = self._start_generation
 
@@ -235,6 +249,7 @@ class AudioRecorder:
                 stream = self._stream
                 self._stream = None
                 self._array_processing_active = False
+                self._mark_input_inactive()
             if stream is not None:
                 self._release_stream_async(stream)
             raise AudioRecorderStartError(
@@ -247,6 +262,7 @@ class AudioRecorder:
             with self._lock:
                 self._is_recording = False
                 self._array_processing_active = False
+                self._mark_input_inactive()
             if isinstance(error, AudioRecorderStartError):
                 raise error
             raise AudioRecorderStartError(str(error)) from error
@@ -302,6 +318,7 @@ class AudioRecorder:
             stream = self._stream
             self._stream = None
             self._array_processing_active = False
+            self._mark_input_inactive()
             audio_data = b"".join(self._audio_buffer)
             self._audio_buffer = []
 
@@ -341,6 +358,17 @@ class AudioRecorder:
         """Whether the active stream uses multiple Mac array capsules."""
         with self._lock:
             return self._array_processing_active
+
+    @property
+    def input_status(self) -> dict:
+        """Describe the selected and, when recording, actual input path."""
+        with self._lock:
+            return dict(self._input_status)
+
+    @classmethod
+    def inspect_input_status(cls, device: Optional[str] = None) -> dict:
+        """Describe the input path that a new recorder would attempt."""
+        return cls(device=device)._planned_input_status()
 
     @property
     def benchmark_audio_delivery(self) -> str:
@@ -466,6 +494,41 @@ class AudioRecorder:
             return self._open_stream(None)
 
     def _open_stream(self, device_index: Optional[int]):
+        device = self._device_info(device_index)
+        voice_processing_error: Optional[Exception] = None
+        if self._should_use_macos_voice_processing(device_index, device):
+            voice_stream = None
+            try:
+                voice_stream = _build_macos_voice_processing_stream(
+                    callback=self._audio_callback,
+                    sample_rate=self.sample_rate,
+                    blocksize=self.blocksize,
+                )
+                voice_stream.start()
+            except Exception as exc:
+                voice_processing_error = exc
+                if voice_stream is not None:
+                    try:
+                        voice_stream.close()
+                    except Exception:
+                        pass
+                print(
+                    "[AudioRecorder] Apple voice processing unavailable; "
+                    f"falling back to CoreAudio input: {exc}"
+                )
+            else:
+                with self._lock:
+                    self._array_processing_active = False
+                    self._input_status = self._status_for_device(
+                        device_index,
+                        device,
+                        processing_mode="macos_voice_processing",
+                        capture_channels=1,
+                        processing_active=True,
+                        echo_cancellation="active",
+                    )
+                return voice_stream
+
         capture_channels, array_processing = self._capture_profile(device_index)
         try:
             stream = self._create_started_stream(device_index, capture_channels)
@@ -480,6 +543,27 @@ class AudioRecorder:
             array_processing = False
         with self._lock:
             self._array_processing_active = array_processing
+            if array_processing:
+                processing_mode = "vocal_more_array"
+            elif self._is_macos_builtin_microphone(device):
+                processing_mode = "system_managed_mono"
+            else:
+                processing_mode = "standard"
+            self._input_status = self._status_for_device(
+                device_index,
+                device,
+                processing_mode=processing_mode,
+                capture_channels=capture_channels if array_processing else 1,
+                processing_active=True,
+                echo_cancellation=(
+                    "fallback" if voice_processing_error is not None else "unavailable"
+                ),
+                fallback_reason=(
+                    str(voice_processing_error)
+                    if voice_processing_error is not None
+                    else None
+                ),
+            )
         return stream
 
     def _create_started_stream(self, device_index: Optional[int], channels: int):
@@ -514,12 +598,129 @@ class AudioRecorder:
 
     @staticmethod
     def _is_macos_builtin_array(device: dict) -> bool:
-        if platform.system() != "Darwin":
-            return False
-        if int(device.get("max_input_channels", 0)) < 2:
+        return (
+            AudioRecorder._is_macos_builtin_microphone(device)
+            and int(device.get("max_input_channels", 0)) >= 2
+        )
+
+    @staticmethod
+    def _is_macos_builtin_microphone(device: Optional[dict]) -> bool:
+        if platform.system() != "Darwin" or not device:
             return False
         name = str(device.get("name", "")).strip().lower()
         return any(marker in name for marker in _MACOS_ARRAY_DEVICE_MARKERS)
+
+    def _should_use_macos_voice_processing(
+        self,
+        device_index: Optional[int],
+        device: Optional[dict],
+    ) -> bool:
+        if not self._is_macos_builtin_microphone(device):
+            return False
+        target_index = (
+            self._default_input_device_index()
+            if device_index is None
+            else int(device_index)
+        )
+        default_index = self._default_input_device_index()
+        if target_index is None or target_index != default_index:
+            return False
+        return _macos_voice_processing_available()
+
+    def _planned_input_status(self) -> dict:
+        device_index = self._resolved_device_index_for_status()
+        device = self._device_info(device_index)
+        max_channels = max(
+            1,
+            int(device.get("max_input_channels", 1)) if device else 1,
+        )
+        if self._should_use_macos_voice_processing(device_index, device):
+            return self._status_for_device(
+                device_index,
+                device,
+                processing_mode="macos_voice_processing",
+                capture_channels=1,
+                processing_active=False,
+                echo_cancellation="ready",
+            )
+        if self._is_macos_builtin_array(device):
+            processing_mode = "vocal_more_array"
+            capture_channels = min(max_channels, _MAX_MACOS_ARRAY_CHANNELS)
+        elif self._is_macos_builtin_microphone(device):
+            processing_mode = "system_managed_mono"
+            capture_channels = 1
+        else:
+            processing_mode = "standard"
+            capture_channels = min(max(1, self.channels), max_channels)
+        return self._status_for_device(
+            device_index,
+            device,
+            processing_mode=processing_mode,
+            capture_channels=capture_channels,
+            processing_active=False,
+            echo_cancellation="unavailable",
+        )
+
+    def _resolved_device_index_for_status(self) -> Optional[int]:
+        if not self._device_name:
+            return None
+        try:
+            devices = sd.query_devices()
+        except Exception:
+            return None
+        for device in devices:
+            if (
+                str(device.get("name", "")) == self._device_name
+                and int(device.get("max_input_channels", 0)) > 0
+            ):
+                return int(device.get("index", -1))
+        return None
+
+    def _status_for_device(
+        self,
+        device_index: Optional[int],
+        device: Optional[dict],
+        *,
+        processing_mode: str,
+        capture_channels: int,
+        processing_active: bool,
+        echo_cancellation: str,
+        fallback_reason: Optional[str] = None,
+    ) -> dict:
+        default_index = self._default_input_device_index()
+        resolved_index = (
+            default_index if device_index is None else int(device_index)
+        )
+        return {
+            "device_name": (
+                str(device.get("name", "")).strip()
+                if device
+                else self._device_name or ""
+            ),
+            "system_default": (
+                resolved_index is not None and resolved_index == default_index
+            ),
+            "max_input_channels": max(
+                1,
+                int(device.get("max_input_channels", 1)) if device else 1,
+            ),
+            "capture_channels": max(1, int(capture_channels)),
+            "processing_mode": processing_mode,
+            "processing_active": bool(processing_active),
+            "array_processing_active": (
+                processing_active and processing_mode == "vocal_more_array"
+            ),
+            "echo_cancellation": echo_cancellation,
+            "fallback_reason": fallback_reason,
+        }
+
+    def _mark_input_inactive(self) -> None:
+        status = dict(self._input_status)
+        status["processing_active"] = False
+        status["array_processing_active"] = False
+        if status.get("echo_cancellation") == "active":
+            status["echo_cancellation"] = "ready"
+        self._input_status = status
 
     @staticmethod
     def _coherent_array_downmix(indata: np.ndarray) -> np.ndarray:

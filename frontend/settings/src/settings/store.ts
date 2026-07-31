@@ -1,5 +1,6 @@
 import type {
   AudioDevice,
+  AudioInputStatus,
   DashScopeModelCheckResult,
   DictionaryEntry,
   DictionaryLearningRecord,
@@ -28,6 +29,17 @@ const EMPTY_SNAPSHOT: SettingsSnapshot = {
   llmModels: [],
   polishPromptPresets: {},
   devices: [],
+  audioInputStatus: {
+    device_name: "",
+    system_default: true,
+    max_input_channels: 1,
+    capture_channels: 1,
+    processing_mode: "standard",
+    processing_active: false,
+    array_processing_active: false,
+    echo_cancellation: "unavailable",
+    fallback_reason: null,
+  },
   dictionary: [],
   dictionaryLearningRecords: [],
   recordings: [],
@@ -124,6 +136,9 @@ export class SettingsStore {
       llmModels: clone(data.llm_models ?? []),
       polishPromptPresets: clone(data.polish_prompt_presets ?? {}),
       devices: clone(data.devices ?? []),
+      audioInputStatus: clone(
+        data.audio_input_status ?? EMPTY_SNAPSHOT.audioInputStatus,
+      ),
       dictionary: clone(data.dictionary ?? []),
       dictionaryLearningRecords: clone(
         data.dictionary_learning_records ?? [],
@@ -164,6 +179,10 @@ export class SettingsStore {
       )
     }
     this.patch(patch)
+  }
+
+  loadAudioInputStatus(status: AudioInputStatus): void {
+    this.patch({ audioInputStatus: clone(status) })
   }
 
   loadDictionary(entries: DictionaryEntry[]): void {

@@ -89,7 +89,9 @@ application shutdown responsive.
 
 ### 6. Audio callback thread owns audio capture only
 
-`AudioRecorder._audio_callback()` still runs on the PortAudio callback thread.
+`AudioRecorder._audio_callback()` runs on either the PortAudio callback thread
+or AVAudioEngine's voice-processing tap thread. Both sources obey the same
+bounded callback contract.
 
 It currently does:
 
@@ -111,12 +113,21 @@ This keeps a CoreAudio device-transition stall from blocking the dictation
 command coordinator in `STOPPING`; callbacks that finish after detachment drop
 their chunk instead of forwarding late audio.
 
-MacBook, iMac, Mac Studio, Mac Pro, Mac mini, and Studio Display microphone
-devices may expose up to three input channels. The recorder captures those
-channels when available, rejects uncorrelated capsules, aligns inverted
-polarity, and emits the same mono 16 kHz PCM contract expected by ASR. External
-USB devices retain their configured channel count and are still normalized to
-mono before ASR delivery.
+For a built-in microphone that is also the system-default input, the recorder
+first attempts Apple AVAudioEngine voice processing. Apple's I/O unit subtracts
+audio playing from the current output device from the microphone uplink, while
+the adapter converts the hardware-rate tap into fixed 16 kHz mono blocks. Apple
+automatic gain control is disabled because Vocal More already owns the
+low-voice gain and limiting stages. If native voice processing cannot start,
+the recorder reports that fallback and continues through PortAudio rather than
+failing dictation.
+
+Without Apple voice processing, MacBook, iMac, Mac Studio, Mac Pro, Mac mini,
+and Studio Display microphone devices may expose up to three input channels.
+The recorder captures those channels when available, rejects uncorrelated
+capsules, aligns inverted polarity, and emits the same mono 16 kHz PCM contract
+expected by ASR. External USB devices retain their configured channel count and
+are still normalized to mono before ASR delivery.
 
 ### 7. ASR sender thread owns outbound realtime audio sends
 
@@ -344,6 +355,9 @@ observed issue.
 - If a new realtime path touches audio, preserve the rule that the PortAudio callback never blocks on network operations.
 - If native microphone startup changes, preserve the hard deadline, the
   single-in-flight circuit breaker, and generation-based rejection of late streams.
+- Keep Apple voice-processing callbacks capture-only. Format conversion may run
+  there, but network work and UI updates must continue through their existing
+  queues and main-thread marshaling paths.
 - If a late callback could affect user-visible state, tie it to a session token or another invalidation mechanism.
 - If a new realtime SDK event path is added, keep SDK-managed threads as thin event producers and route consequences through one owned worker.
 - If automatic dictionary learning changes, keep edit observation and model

@@ -109,6 +109,22 @@ export interface AudioDevice {
   [key: string]: unknown
 }
 
+export interface AudioInputStatus {
+  device_name: string
+  system_default: boolean
+  max_input_channels: number
+  capture_channels: number
+  processing_mode:
+    | "macos_voice_processing"
+    | "vocal_more_array"
+    | "system_managed_mono"
+    | "standard"
+  processing_active: boolean
+  array_processing_active: boolean
+  echo_cancellation: "ready" | "active" | "fallback" | "unavailable"
+  fallback_reason: string | null
+}
+
 export interface DictionaryEntry {
   term: string
   aliases?: string[]
@@ -222,6 +238,7 @@ export interface SettingsInitData {
   llm_models?: LlmModel[]
   polish_prompt_presets?: Record<string, Record<string, string>>
   devices?: AudioDevice[]
+  audio_input_status?: AudioInputStatus
   dictionary?: DictionaryEntry[]
   dictionary_learning_records?: DictionaryLearningRecord[]
   recordings?: Recording[]
@@ -251,6 +268,7 @@ export interface SettingsSnapshot {
   llmModels: LlmModel[]
   polishPromptPresets: Record<string, Record<string, string>>
   devices: AudioDevice[]
+  audioInputStatus: AudioInputStatus
   dictionary: DictionaryEntry[]
   dictionaryLearningRecords: DictionaryLearningRecord[]
   recordings: Recording[]

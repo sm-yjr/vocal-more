@@ -1083,6 +1083,38 @@ def test_processing_state_updates_capsule_stage(tmp_path, monkeypatch):
     app._capsule.set_processing_stage.assert_called_once_with("transcribing")
 
 
+def test_recording_state_forwards_actual_audio_input_status(tmp_path, monkeypatch):
+    """An open settings page should reflect the active recorder, not a guess."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    status = {
+        "processing_mode": "macos_voice_processing",
+        "echo_cancellation": "active",
+    }
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._state_item = SimpleNamespace(title="")
+    app._capsule = MagicMock()
+    app._get_icon_path = lambda _name: None
+    app._current_mode = SimpleNamespace(audio_input_status=status)
+    app._settings_window = MagicMock()
+
+    app._apply_state_change(app_module.ModeState.RECORDING)
+
+    app._settings_window.update_audio_input_status.assert_called_once_with(status)
+
+
 def test_processing_stage_callback_forwards_to_capsule(tmp_path, monkeypatch):
     """Mode stage updates should be reflected by the floating capsule."""
     from vocal_more.config import Config

@@ -687,6 +687,7 @@ class VocalMoreApp(rumps.App):
         """Handle device change from settings window."""
         self._get_runtime().apply_update("audio.input_device", device)
         self.config.save()
+        self._refresh_microphone_status_menu(update_settings_window=True)
         print(f"[Settings] Device set to: {device or 'System Default'}")
 
     def _on_settings_set_asr_model(self, model: str, backend: str) -> None:
@@ -1525,6 +1526,7 @@ class VocalMoreApp(rumps.App):
 
     def _apply_state_change(self, state: ModeState) -> None:
         self._state_item.title = self._state_title_for_state(state)
+        self._sync_audio_input_status()
 
         # Update icon
         icon_name = {
@@ -1571,6 +1573,17 @@ class VocalMoreApp(rumps.App):
             self._capsule.set_processing_stage(stage)
         elif state == ModeState.IDLE:
             self._select_default_mode_when_safe()
+
+    def _sync_audio_input_status(self) -> None:
+        """Forward the active mode's real capture path to an open settings UI."""
+        current_mode = getattr(self, "_current_mode", None)
+        status = getattr(current_mode, "audio_input_status", None)
+        if not isinstance(status, dict):
+            return
+        settings_window = getattr(self, "_settings_window", None)
+        update = getattr(settings_window, "update_audio_input_status", None)
+        if callable(update):
+            update(status)
 
     def _on_audio_level(self, rms: float) -> None:
         """Handle real-time audio level from recorder."""

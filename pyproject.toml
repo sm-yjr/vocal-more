@@ -1,6 +1,6 @@
 [project]
 name = "vocal-more"
-version = "0.3.11"
+version = "0.3.12"
 description = "macOS voice recognition app with real-time ASR and text polishing"
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -16,6 +16,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pyobjc-framework-Quartz>=10.0",
     "pyobjc-framework-WebKit>=10.0",
+    "pyobjc-framework-AVFoundation>=10.0",
     "openai>=2.31.0",
 ]
 

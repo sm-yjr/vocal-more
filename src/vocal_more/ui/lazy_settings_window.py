@@ -76,6 +76,11 @@ class LazySettingsWindow:
         if instance is not None:
             instance.update_environment_checks(checks)
 
+    def update_audio_input_status(self, status: dict) -> None:
+        instance = self._instance
+        if instance is not None:
+            instance.update_audio_input_status(status)
+
     def update_dictionary(self, entries: list) -> None:
         instance = self._instance
         if instance is not None:

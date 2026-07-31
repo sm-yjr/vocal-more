@@ -75,6 +75,17 @@ export function makeInitData(): SettingsInitData {
       { id: "Built-in Microphone", name: "Built-in Microphone" },
       { id: "Studio Mic", name: "Studio Mic" },
     ],
+    audio_input_status: {
+      device_name: "Built-in Microphone",
+      system_default: false,
+      max_input_channels: 1,
+      capture_channels: 1,
+      processing_mode: "system_managed_mono",
+      processing_active: false,
+      array_processing_active: false,
+      echo_cancellation: "unavailable",
+      fallback_reason: null,
+    },
     environment_checks: [
       { key: "api_key", status: "ok", details: "configured" },
       { key: "accessibility", status: "ok", details: "trusted" },
