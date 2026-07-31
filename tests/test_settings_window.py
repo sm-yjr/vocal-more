@@ -96,6 +96,69 @@ def test_update_environment_checks_syncs_onboarding_readiness():
     ]
 
 
+def test_retry_transcription_delegates_to_recording_retry_runtime():
+    from vocal_more.application.recording_retry import (
+        RecordingRetryEvent,
+        RecordingRetrySubmission,
+    )
+
+    scripts = []
+    window = SettingsWindow.__new__(SettingsWindow)
+    window._recording_retry = MagicMock()
+    window._recording_retry.submit.return_value = RecordingRetrySubmission("accepted")
+    window._eval_js = scripts.append
+    window._handle_get_recordings = MagicMock()
+
+    window._handle_retry_transcription("rec-1")
+    callback = window._recording_retry.submit.call_args.args[1]
+    callback(RecordingRetryEvent("started", "rec-1"))
+    callback(RecordingRetryEvent("failed", "rec-1", error="network down"))
+
+    assert scripts == [
+        'retryStarted("rec-1")',
+        'retryFailed("rec-1", "network down")',
+    ]
+    window._handle_get_recordings.assert_called_once_with()
+
+
+def test_settings_window_ignores_retry_events_after_close_begins():
+    from vocal_more.application.recording_retry import RecordingRetryEvent
+
+    window = SettingsWindow.__new__(SettingsWindow)
+    window._closed = True
+    window._eval_js = MagicMock()
+    window._handle_get_recordings = MagicMock()
+
+    window._on_recording_retry_event(
+        RecordingRetryEvent("completed", "rec-1", transcript="late")
+    )
+
+    window._eval_js.assert_not_called()
+    window._handle_get_recordings.assert_not_called()
+
+
+def test_settings_close_closes_each_workload_executor():
+    window = SettingsWindow.__new__(SettingsWindow)
+    window.hide = MagicMock()
+    window._stop_js_drain = MagicMock()
+    window._mic_test_controller = MagicMock()
+    window._model_check_tasks = MagicMock()
+    window._recording_maintenance_tasks = MagicMock()
+    window._meeting_tasks = MagicMock()
+
+    window.close()
+
+    for executor in (
+        window._model_check_tasks,
+        window._recording_maintenance_tasks,
+        window._meeting_tasks,
+    ):
+        executor.close.assert_called_once_with(
+            wait=False,
+            cancel_futures=True,
+        )
+
+
 def test_background_js_uses_one_shot_event_driven_queue_drain(monkeypatch):
     module = importlib.import_module("vocal_more.ui.settings_window")
     scheduled = []

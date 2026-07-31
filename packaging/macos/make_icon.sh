@@ -7,6 +7,7 @@ ICONSET="$ROOT/packaging/macos/VocalMore.iconset"
 OUTPUT="$ROOT/packaging/macos/VocalMore.icns"
 MASKED_SOURCE="$ROOT/packaging/macos/.VocalMore.masked.png"
 ICON_SOURCE="$ROOT/packaging/macos/.VocalMore.icon-source.png"
+RUNTIME_LOGO="$ROOT/packaging/macos/.VocalMore.runtime-logo.png"
 PYTHON_BIN="${VOCAL_MORE_BUILD_PYTHON:-python3}"
 
 if [[ ! -f "$SOURCE" ]]; then
@@ -190,6 +191,7 @@ write_png(output, width, height, rgba_rows)
 PY
 
 sips -c 1300 1300 "$MASKED_SOURCE" --out "$ICON_SOURCE" >/dev/null
+sips -z 256 256 "$ICON_SOURCE" --out "$RUNTIME_LOGO" >/dev/null
 
 sips -z 16 16 "$ICON_SOURCE" --out "$ICONSET/icon_16x16.png" >/dev/null
 sips -z 32 32 "$ICON_SOURCE" --out "$ICONSET/icon_16x16@2x.png" >/dev/null

@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_PYTHON="${VOCAL_MORE_BUILD_PYTHON:-}"
 BUILD_VENV="${VOCAL_MORE_BUILD_VENV:-$ROOT/packaging/macos/.venv-py2app}"
+TARGET_ARCH="${VOCAL_MORE_TARGET_ARCH:-$(uname -m)}"
 
 if [[ "${VOCAL_MORE_SKIP_FRONTEND_BUILD:-0}" != "1" ]]; then
   if ! command -v npm >/dev/null 2>&1; then
@@ -74,6 +75,10 @@ mkdir -p "$ROOT/dist"
 cp -R "$ROOT/packaging/macos/dist/Vocal More.app" "$ROOT/dist/"
 
 APP="$ROOT/dist/Vocal More.app"
+"$BUILD_VENV/bin/python" \
+  "$ROOT/packaging/macos/prune_app_bundle.py" \
+  --target-arch "$TARGET_ARCH" \
+  "$APP"
 SPARKLE_ROOT="$("$ROOT/packaging/macos/install_sparkle.sh")"
 SPARKLE_FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
 mkdir -p "$APP/Contents/Frameworks"

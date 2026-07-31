@@ -5,6 +5,8 @@ from enum import Enum
 import threading
 from typing import Callable, Optional
 
+from ..application.lazy_resource import initialized_resource
+
 
 class ModeState(Enum):
     """State of a recording mode."""
@@ -98,6 +100,29 @@ class BaseMode(ABC):
         """Update the current processing phase label."""
         if self.on_processing_stage:
             self.on_processing_stage(stage)
+
+    @property
+    def runtime_is_idle(self) -> bool:
+        """Return whether runtime configuration may safely switch this mode."""
+        return self._state == ModeState.IDLE
+
+    def apply_audio_runtime_config(self, audio_config: object) -> None:
+        """Apply live audio settings while keeping recorder details private."""
+        recorder = getattr(self, "_recorder", None)
+        if recorder is None:
+            return
+        recorder.set_device(getattr(audio_config, "input_device"))
+        recorder.set_gain(getattr(audio_config, "gain"))
+        recorder.set_highpass_filter(getattr(audio_config, "highpass_filter"))
+        recorder.set_highpass_freq(getattr(audio_config, "highpass_freq"))
+        recorder.set_soft_limiter(getattr(audio_config, "soft_limiter"))
+
+    def refresh_asr_runtime(self) -> None:
+        """Refresh an initialized ASR engine without forcing lazy creation."""
+        asr = initialized_resource(getattr(self, "_asr", None))
+        refresh = getattr(asr, "refresh_runtime_config", None)
+        if callable(refresh):
+            refresh(drop_idle_session=True)
 
     def _emit_workflow_result(self, result) -> None:
         """Forward shared workflow output to mode callbacks."""

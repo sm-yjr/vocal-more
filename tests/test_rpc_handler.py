@@ -74,6 +74,87 @@ def test_close_closes_owned_recording_store():
     rpc._recording_store.close.assert_called_once_with()
 
 
+def test_retry_transcription_delegates_to_recording_retry_runtime():
+    from vocal_more.application.recording_retry import (
+        RecordingRetryEvent,
+        RecordingRetrySubmission,
+    )
+    from vocal_more.rpc_handler import RPCHandler
+
+    notifications = []
+    rpc = RPCHandler.__new__(RPCHandler)
+    rpc._recording_retry = MagicMock()
+    rpc._recording_retry.submit.return_value = RecordingRetrySubmission("accepted")
+    rpc._send_notification = lambda method, params: notifications.append((method, params))
+
+    result = rpc._handle_retry_transcription({"id": "rec-1"})
+    callback = rpc._recording_retry.submit.call_args.args[1]
+    callback(RecordingRetryEvent("started", "rec-1"))
+    callback(
+        RecordingRetryEvent(
+            "completed",
+            "rec-1",
+            transcript="done",
+        )
+    )
+
+    assert result == {"ok": True, "status": "accepted"}
+    assert notifications == [
+        ("retry_started", {"id": "rec-1"}),
+        ("retry_completed", {"id": "rec-1", "transcript": "done"}),
+    ]
+
+
+def test_rpc_close_invalidates_retry_runtime_before_recording_store():
+    from vocal_more.rpc_handler import RPCHandler
+
+    closed = []
+    rpc = RPCHandler.__new__(RPCHandler)
+    rpc._recording_retry = MagicMock(
+        close=lambda **_kwargs: closed.append("retry")
+    )
+    rpc._recording_store = MagicMock(close=lambda: closed.append("store"))
+    rpc._modes = {}
+
+    rpc.close()
+
+    assert closed == ["retry", "store"]
+
+
+def test_rpc_close_keeps_store_open_when_retry_did_not_drain():
+    from vocal_more.application.recording_retry import RecordingRetryShutdown
+    from vocal_more.rpc_handler import RPCHandler
+
+    rpc = RPCHandler.__new__(RPCHandler)
+    rpc._recording_retry = MagicMock()
+    rpc._recording_retry.close.return_value = RecordingRetryShutdown(
+        drained=False,
+        worker_alive=True,
+        active_count=1,
+    )
+    rpc._recording_store = MagicMock()
+    rpc._modes = {}
+
+    rpc.close()
+
+    rpc._recording_store.close.assert_not_called()
+
+
+def test_rpc_ignores_retry_events_after_close_begins():
+    from vocal_more.application.recording_retry import RecordingRetryEvent
+    from vocal_more.rpc_handler import RPCHandler
+
+    rpc = RPCHandler.__new__(RPCHandler)
+    rpc._closed = True
+    rpc._send_notification = MagicMock()
+
+    rpc._on_recording_retry_event(
+        RecordingRetryEvent("completed", "rec-1", transcript="late")
+    )
+
+    rpc._send_notification.assert_not_called()
+
+
 def test_initialize_does_not_expose_api_key(handler):
     handler.config.api_key = "sk-secret-123"
 
@@ -406,7 +487,7 @@ def test_dispatch_generate_meeting_notes_updates_recording(handler, monkeypatch)
     rec_id = handler._recording_store.save(b"\x00\x00" * 16000, "realtime_long", "m")
     notifications = []
     handler._send_notification = lambda name, payload: notifications.append((name, payload))
-    handler._background_tasks.submit = lambda callback, *args, **kwargs: callback(*args, **kwargs)
+    handler._meeting_tasks.submit = lambda callback, *args, **kwargs: callback(*args, **kwargs)
 
     class FakeMeetingNotesService:
         def __init__(self, *, config):

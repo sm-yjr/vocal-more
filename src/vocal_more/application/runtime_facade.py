@@ -5,9 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from ..modes.base_mode import ModeState
 from ..runtime_config import flatten_config_keys, should_refresh_asr_runtime
-from .lazy_resource import initialized_resource
+from .mode_runtime import ModeRuntimePort, ModeRuntimeService
 
 _MISSING = object()
 _VISUAL_ONLY_AUDIO_KEYS = {"audio.waveform_ceiling_dbfs"}
@@ -40,9 +39,10 @@ class RuntimeFacade:
         self,
         *,
         config,
-        modes: dict[str, object],
-        get_current_mode: Callable[[], object],
-        set_current_mode: Callable[[object], None],
+        mode_runtime: ModeRuntimePort | None = None,
+        modes: dict[str, object] | None = None,
+        get_current_mode: Callable[[], object] | None = None,
+        set_current_mode: Callable[[object], None] | None = None,
         on_refresh_text_polisher: Callable[[], None] | None = None,
         on_set_active_hotkeys: Callable[[list[str]], None] | None = None,
         on_set_custom_key: Callable[[dict | None], None] | None = None,
@@ -52,9 +52,17 @@ class RuntimeFacade:
         on_refresh_dictionary_learning: Callable[[], None] | None = None,
     ) -> None:
         self.config = config
-        self._modes = modes
-        self._get_current_mode = get_current_mode
-        self._set_current_mode = set_current_mode
+        if mode_runtime is None:
+            if modes is None or get_current_mode is None or set_current_mode is None:
+                raise TypeError(
+                    "RuntimeFacade requires mode_runtime or the legacy mode callbacks"
+                )
+            mode_runtime = ModeRuntimeService(
+                modes=modes,
+                get_current_mode=get_current_mode,
+                set_current_mode=set_current_mode,
+            )
+        self._mode_runtime = mode_runtime
         self._on_refresh_text_polisher = on_refresh_text_polisher
         self._on_set_active_hotkeys = on_set_active_hotkeys
         self._on_set_custom_key = on_set_custom_key
@@ -65,11 +73,7 @@ class RuntimeFacade:
 
     @property
     def current_mode_name(self) -> str:
-        current_mode = self._get_current_mode()
-        for name, mode in self._modes.items():
-            if mode is current_mode:
-                return name
-        return "unknown"
+        return self._mode_runtime.current_mode_name
 
     def apply_update(self, key: str, value: Any) -> RuntimeUpdateResult:
         self.config.apply_update(key, value)
@@ -143,24 +147,10 @@ class RuntimeFacade:
         return result
 
     def _select_default_mode_when_safe(self) -> None:
-        current_mode = self._get_current_mode()
-        if current_mode is not None and getattr(current_mode, "state", ModeState.IDLE) != ModeState.IDLE:
-            return
-        self._set_current_mode(self._modes[self.config.default_mode])
+        self._mode_runtime.select_mode_when_idle(self.config.default_mode)
 
     def _refresh_mode_asr_runtime(self) -> None:
-        for mode in self._modes.values():
-            asr = initialized_resource(getattr(mode, "_asr", None))
-            if asr is not None and hasattr(asr, "refresh_runtime_config"):
-                asr.refresh_runtime_config(drop_idle_session=True)
+        self._mode_runtime.refresh_asr_runtime()
 
     def _sync_audio_recorders(self) -> None:
-        for mode in self._modes.values():
-            recorder = getattr(mode, "_recorder", None)
-            if recorder is None:
-                continue
-            recorder.set_device(self.config.audio.input_device)
-            recorder.set_gain(self.config.audio.gain)
-            recorder.set_highpass_filter(self.config.audio.highpass_filter)
-            recorder.set_highpass_freq(self.config.audio.highpass_freq)
-            recorder.set_soft_limiter(self.config.audio.soft_limiter)
+        self._mode_runtime.apply_audio_config(self.config.audio)

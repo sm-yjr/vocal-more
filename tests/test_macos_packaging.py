@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import plistlib
 from pathlib import Path
+import subprocess
+import sys
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -130,6 +135,187 @@ def test_packaging_rebuilds_settings_frontend_before_py2app():
 
     assert 'npm --prefix "$ROOT/frontend/settings" ci' in build_script
     assert 'npm --prefix "$ROOT/frontend/settings" run build' in build_script
+
+
+def test_bundle_pruner_removes_only_non_runtime_python_payload(tmp_path):
+    app = tmp_path / "Vocal More.app"
+    python_lib = app / "Contents" / "Resources" / "lib" / "python3.12"
+    removable = [
+        python_lib / "test" / "test_stdlib.py",
+        python_lib / "numpy" / "tests" / "test_core.py",
+        python_lib / "numpy" / "typing.pyi",
+        python_lib / "numpy" / "py.typed",
+    ]
+    preserved = [
+        python_lib / "numpy" / "__init__.py",
+        python_lib / "numpy" / "testing" / "__init__.py",
+        python_lib / "future_dependency" / "tests" / "runtime_fixture.py",
+        python_lib / "openai" / "__pycache__" / "client.cpython-312.pyc",
+        app / "Contents" / "Resources" / "resources" / "tests" / "fixture.json",
+    ]
+    for path in [*removable, *preserved]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("payload", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "packaging" / "macos" / "prune_app_bundle.py"),
+            str(app),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert all(not path.exists() for path in removable)
+    assert all(path.exists() for path in preserved)
+    assert "Removed 4 files" in result.stdout
+
+
+def test_bundle_pruner_rejects_non_app_targets(tmp_path):
+    target = tmp_path / "ordinary-directory"
+    target.mkdir()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "packaging" / "macos" / "prune_app_bundle.py"),
+            str(target),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "expected a .app bundle" in result.stderr
+
+
+def test_build_prunes_python_payload_before_embedding_and_signing_sparkle():
+    build_script = (ROOT / "packaging" / "macos" / "build_app.sh").read_text()
+
+    prune = build_script.index("prune_app_bundle.py")
+    embed_sparkle = build_script.index('SPARKLE_ROOT="$(')
+    sign_sparkle = build_script.index('sign_sparkle.sh')
+
+    assert prune < embed_sparkle < sign_sparkle
+
+
+def test_bundle_optimizer_thins_non_sparkle_macho_files(tmp_path):
+    script_path = ROOT / "packaging" / "macos" / "prune_app_bundle.py"
+    spec = importlib.util.spec_from_file_location("prune_app_bundle", script_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    app = tmp_path / "Vocal More.app"
+    python_binary = app / "Contents" / "Frameworks" / "Python.framework" / "Python"
+    extension = (
+        app
+        / "Contents"
+        / "Resources"
+        / "lib"
+        / "python3.12"
+        / "cryptography"
+        / "_rust.so"
+    )
+    sparkle = (
+        app
+        / "Contents"
+        / "Frameworks"
+        / "Sparkle.framework"
+        / "Versions"
+        / "B"
+        / "Sparkle"
+    )
+    for path in (python_binary, extension, sparkle):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"universal-binary")
+        path.chmod(0o755)
+
+    inspected = []
+
+    def fake_runner(command, **_kwargs):
+        inspected.append(command)
+        if command[1] == "-archs":
+            inspected_path = Path(command[-1])
+            if inspected_path.exists() and inspected_path.read_bytes() == b"arm64":
+                return subprocess.CompletedProcess(command, 0, "arm64\n", "")
+            return subprocess.CompletedProcess(command, 0, "x86_64 arm64\n", "")
+        output = Path(command[-1])
+        output.write_bytes(b"arm64")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    count, bytes_saved = module.thin_macho_binaries(
+        app,
+        target_arch="arm64",
+        command_runner=fake_runner,
+    )
+
+    assert count == 2
+    assert bytes_saved == 2 * (len(b"universal-binary") - len(b"arm64"))
+    assert python_binary.read_bytes() == b"arm64"
+    assert extension.read_bytes() == b"arm64"
+    assert sparkle.read_bytes() == b"universal-binary"
+    assert not any(str(sparkle) in command for command in inspected)
+
+
+def test_bundle_optimizer_rejects_macho_without_target_architecture(tmp_path):
+    script_path = ROOT / "packaging" / "macos" / "prune_app_bundle.py"
+    spec = importlib.util.spec_from_file_location("prune_app_bundle_wrong_arch", script_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    app = tmp_path / "Vocal More.app"
+    binary = app / "Contents" / "Resources" / "opaque-runtime-payload.bundle"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(bytes.fromhex("cafebabe") + b"payload")
+
+    def fake_runner(command, **_kwargs):
+        return subprocess.CompletedProcess(command, 0, "x86_64\n", "")
+
+    with pytest.raises(RuntimeError, match="does not contain target architecture arm64"):
+        module.thin_macho_binaries(
+            app,
+            target_arch="arm64",
+            command_runner=fake_runner,
+        )
+
+
+def test_release_build_uses_clean_locked_arm64_packaging_environment():
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+
+    assert "UV_PROJECT_ENVIRONMENT" in workflow
+    assert "uv sync --locked --no-dev --group packaging" in workflow
+    assert "VOCAL_MORE_TARGET_ARCH: arm64" in workflow
+
+
+def test_py2app_excludes_test_and_optional_gui_modules():
+    setup_text = (ROOT / "packaging" / "macos" / "setup.py").read_text()
+
+    for module_name in (
+        "_pytest",
+        "pytest",
+        "test",
+        "_tkinter",
+        "tkinter",
+        "idlelib",
+        "turtle",
+    ):
+        assert f'"{module_name}"' in setup_text
+
+
+def test_bundle_uses_generated_notification_logo_instead_of_source_artwork():
+    setup_text = (ROOT / "packaging" / "macos" / "setup.py").read_text()
+    icon_script = (ROOT / "packaging" / "macos" / "make_icon.sh").read_text()
+    app_text = (ROOT / "src" / "vocal_more" / "app.py").read_text()
+
+    assert 'str(ROOT / "assets")' not in setup_text
+    assert ".VocalMore.runtime-logo.png" in setup_text
+    assert 'RUNTIME_LOGO="$ROOT/packaging/macos/.VocalMore.runtime-logo.png"' in icon_script
+    assert 'bundled_resource_path("assets", ".VocalMore.runtime-logo.png")' in app_text
 
 
 def test_release_workflow_tests_and_builds_settings_frontend():

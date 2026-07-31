@@ -41,7 +41,7 @@ jobs:
           set -uo pipefail
           npm --prefix frontend/settings ci &
           frontend_install_pid=$!
-          uv sync --group dev --group packaging --python "$VOCAL_MORE_BUILD_PYTHON" &
+          uv sync --locked --group dev --python "$VOCAL_MORE_BUILD_PYTHON" &
           python_install_pid=$!
 
           status=0
@@ -67,6 +67,15 @@ jobs:
           wait "$frontend_check_pid" || status=$?
           wait "$python_check_pid" || status=$?
           exit "$status"
+
+      - name: Prepare clean packaging environment
+        run: |
+          set -euo pipefail
+          packaging_env="$RUNNER_TEMP/vocal-more-packaging-venv"
+          UV_PROJECT_ENVIRONMENT="$packaging_env" \
+            uv sync --locked --no-dev --group packaging \
+              --python "$VOCAL_MORE_BUILD_PYTHON"
+          echo "VOCAL_MORE_BUILD_VENV=$packaging_env" >> "$GITHUB_ENV"
 
       - name: Validate release tag
         run: |
@@ -137,10 +146,10 @@ jobs:
 
       - name: Build signed DMG
         env:
-          VOCAL_MORE_BUILD_VENV: ${{ github.workspace }}/.venv
           VOCAL_MORE_USE_PREPARED_BUILD_VENV: "1"
           VOCAL_MORE_SKIP_FRONTEND_BUILD: "1"
           VOCAL_MORE_SKIP_ADHOC_SIGN: "1"
+          VOCAL_MORE_TARGET_ARCH: arm64
         run: ./packaging/macos/build_dmg.sh
 
       - name: Notarize and staple DMG

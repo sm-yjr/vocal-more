@@ -26,39 +26,146 @@ FORBIDDEN_IMPORTS = {
 }
 
 
-def _module_name(path: Path) -> str:
-    return ".".join(path.relative_to(PACKAGE_ROOT).with_suffix("").parts)
+def _module_name(path: Path, *, package_root: Path = PACKAGE_ROOT) -> str:
+    parts = list(path.relative_to(package_root).with_suffix("").parts)
+    if parts and parts[-1] == "__init__":
+        parts.pop()
+    return ".".join(parts)
 
 
-def _resolve_relative_import(module: str, node: ast.ImportFrom) -> str | None:
-    base_parts = module.split(".")
-    if node.level > len(base_parts):
+def _resolve_relative_import(
+    module: str,
+    node: ast.ImportFrom,
+    *,
+    is_package: bool = False,
+) -> str | None:
+    package_parts = module.split(".") if is_package else module.split(".")[:-1]
+    parents_to_drop = node.level - 1
+    if parents_to_drop >= len(package_parts):
         return None
-    parent_parts = base_parts[:-node.level]
+    parent_parts = (
+        package_parts[:-parents_to_drop]
+        if parents_to_drop
+        else package_parts
+    )
     if node.module:
         parent_parts.extend(node.module.split("."))
     return ".".join(parent_parts) or None
 
 
-def _internal_import_graph() -> dict[str, set[str]]:
+def _is_internal_module(module: str) -> bool:
+    return module == "vocal_more" or module.startswith("vocal_more.")
+
+
+def _is_module_within(module: str, package: str) -> bool:
+    return module == package or module.startswith(f"{package}.")
+
+
+def _module_paths(
+    *,
+    source_root: Path,
+    package_root: Path,
+) -> dict[str, Path]:
+    return {
+        _module_name(path, package_root=package_root): path
+        for path in sorted(source_root.rglob("*.py"))
+    }
+
+
+def _internal_imports_for_path(
+    path: Path,
+    *,
+    package_root: Path,
+    known_modules: set[str],
+) -> set[str]:
+    module = _module_name(path, package_root=package_root)
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    imports: set[str] = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.update(
+                imported.name
+                for imported in node.names
+                if _is_internal_module(imported.name)
+            )
+            continue
+        if not isinstance(node, ast.ImportFrom):
+            continue
+
+        if node.level:
+            imported_module = _resolve_relative_import(
+                module,
+                node,
+                is_package=path.name == "__init__.py",
+            )
+        else:
+            imported_module = node.module
+        if not imported_module or not _is_internal_module(imported_module):
+            continue
+
+        for imported in node.names:
+            candidate = f"{imported_module}.{imported.name}"
+            if imported.name != "*" and candidate in known_modules:
+                imports.add(candidate)
+            else:
+                imports.add(imported_module)
+
+    return imports
+
+
+def _internal_import_graph(
+    *,
+    source_root: Path = SRC_ROOT,
+    package_root: Path = PACKAGE_ROOT,
+) -> dict[str, set[str]]:
     graph: dict[str, set[str]] = defaultdict(set)
-    for path in SRC_ROOT.rglob("*.py"):
-        module = _module_name(path)
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for imported in node.names:
-                    if imported.name.startswith("vocal_more"):
-                        graph[module].add(imported.name)
-            elif isinstance(node, ast.ImportFrom):
-                if node.level:
-                    resolved = _resolve_relative_import(module, node)
-                    if resolved and resolved.startswith("vocal_more"):
-                        graph[module].add(resolved)
-                elif node.module and node.module.startswith("vocal_more"):
-                    graph[module].add(node.module)
+    module_paths = _module_paths(
+        source_root=source_root,
+        package_root=package_root,
+    )
+    known_modules = set(module_paths)
+    for module, path in module_paths.items():
+        graph[module].update(
+            _internal_imports_for_path(
+                path,
+                package_root=package_root,
+                known_modules=known_modules,
+            )
+        )
         graph.setdefault(module, set())
     return graph
+
+
+def _forbidden_import_violations(
+    *,
+    source_root: Path = SRC_ROOT,
+    package_root: Path = PACKAGE_ROOT,
+) -> list[str]:
+    module_paths = _module_paths(
+        source_root=source_root,
+        package_root=package_root,
+    )
+    known_modules = set(module_paths)
+    violations: list[str] = []
+
+    for module, path in module_paths.items():
+        imported_modules = _internal_imports_for_path(
+            path,
+            package_root=package_root,
+            known_modules=known_modules,
+        )
+        for prefix, forbidden_prefixes in FORBIDDEN_IMPORTS.items():
+            if not _is_module_within(module, prefix):
+                continue
+            for imported in imported_modules:
+                if any(
+                    _is_module_within(imported, forbidden)
+                    for forbidden in forbidden_prefixes
+                ):
+                    violations.append(f"{module} -> {imported}")
+
+    return sorted(violations)
 
 
 def _strongly_connected_components(
@@ -125,21 +232,117 @@ def test_internal_modules_have_no_cycles() -> None:
 
 
 def test_domain_and_application_do_not_import_upward() -> None:
-    violations: list[str] = []
-    for path in SRC_ROOT.rglob("*.py"):
-        module = _module_name(path)
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom):
-                continue
-            imported = None
-            if node.level:
-                imported = _resolve_relative_import(module, node)
-            elif node.module:
-                imported = node.module
-            if not imported:
-                continue
-            for prefix, forbidden_prefixes in FORBIDDEN_IMPORTS.items():
-                if module.startswith(prefix) and imported.startswith(forbidden_prefixes):
-                    violations.append(f"{module} -> {imported}")
-    assert not violations, violations
+    assert not _forbidden_import_violations()
+
+
+def test_runtime_facade_uses_mode_runtime_port_instead_of_mode_internals() -> None:
+    path = SRC_ROOT / "application" / "runtime_facade.py"
+    imports = _internal_imports_for_path(
+        path,
+        package_root=PACKAGE_ROOT,
+        known_modules=set(
+            _module_paths(source_root=SRC_ROOT, package_root=PACKAGE_ROOT)
+        ),
+    )
+    forbidden = (
+        "vocal_more.core",
+        "vocal_more.infrastructure",
+        "vocal_more.modes",
+        "vocal_more.ui",
+    )
+    assert not [
+        imported
+        for imported in imports
+        if any(_is_module_within(imported, prefix) for prefix in forbidden)
+    ]
+
+    source = path.read_text(encoding="utf-8")
+    assert '"_recorder"' not in source
+    assert '"_asr"' not in source
+
+
+def test_recording_retry_adapters_do_not_implement_provider_or_billing_work() -> None:
+    for relative_path in ("rpc_handler.py", "ui/settings_window.py"):
+        source = (SRC_ROOT / relative_path).read_text(encoding="utf-8")
+        assert "core.asr_engine" not in source
+        assert "RETRY_ASR_MODEL" not in source
+        assert "merge_billing" not in source
+
+
+def test_adapter_background_workloads_use_dedicated_executors() -> None:
+    settings_source = (SRC_ROOT / "ui" / "settings_window.py").read_text(
+        encoding="utf-8"
+    )
+    rpc_source = (SRC_ROOT / "rpc_handler.py").read_text(encoding="utf-8")
+
+    assert "_background_tasks" not in settings_source
+    assert "_model_check_tasks" in settings_source
+    assert "_recording_maintenance_tasks" in settings_source
+    assert "_meeting_tasks" in settings_source
+    assert "_background_tasks" not in rpc_source
+    assert "_meeting_tasks" in rpc_source
+
+
+def test_plain_import_is_checked_for_upward_dependency(tmp_path: Path) -> None:
+    package_root = tmp_path / "src"
+    source_root = package_root / "vocal_more"
+    domain_path = source_root / "domain" / "plain_import.py"
+    domain_path.parent.mkdir(parents=True)
+    domain_path.write_text(
+        "import vocal_more.infrastructure.config_repository\n",
+        encoding="utf-8",
+    )
+
+    violations = _forbidden_import_violations(
+        source_root=source_root,
+        package_root=package_root,
+    )
+
+    assert violations == [
+        "vocal_more.domain.plain_import -> "
+        "vocal_more.infrastructure.config_repository"
+    ]
+
+
+def test_init_module_names_are_canonicalized(tmp_path: Path) -> None:
+    package_root = tmp_path / "src"
+    init_path = package_root / "vocal_more" / "domain" / "__init__.py"
+    init_path.parent.mkdir(parents=True)
+    init_path.write_text("", encoding="utf-8")
+
+    assert _module_name(init_path, package_root=package_root) == "vocal_more.domain"
+
+
+def test_from_dot_import_sibling_cycle_is_detected(tmp_path: Path) -> None:
+    package_root = tmp_path / "src"
+    source_root = package_root / "vocal_more"
+    package_path = source_root / "feature"
+    package_path.mkdir(parents=True)
+    (package_path / "__init__.py").write_text("", encoding="utf-8")
+    (package_path / "first.py").write_text(
+        "from . import second\n",
+        encoding="utf-8",
+    )
+    (package_path / "second.py").write_text(
+        "from . import first\n",
+        encoding="utf-8",
+    )
+
+    graph = _internal_import_graph(
+        source_root=source_root,
+        package_root=package_root,
+    )
+    cycles = {
+        frozenset(component)
+        for component in _strongly_connected_components(graph)
+        if len(component) > 1
+    }
+
+    assert cycles == {
+        frozenset(
+            {
+                "vocal_more.feature.first",
+                "vocal_more.feature.second",
+            }
+        )
+    }

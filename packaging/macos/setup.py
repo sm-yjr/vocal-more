@@ -70,8 +70,20 @@ OPTIONS = {
         "Quartz",
         "WebKit",
     ],
+    "excludes": [
+        "_pytest",
+        "pytest",
+        "test",
+        "_tkinter",
+        "tkinter",
+        "idlelib",
+        "turtle",
+    ],
     "resources": [
-        str(ROOT / "assets"),
+        (
+            "assets",
+            [str(ROOT / "packaging" / "macos" / ".VocalMore.runtime-logo.png")],
+        ),
         str(ROOT / "resources"),
     ],
 }

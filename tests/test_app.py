@@ -10,6 +10,30 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+class _RuntimeModeDouble(SimpleNamespace):
+    """Small test double for the public live-configuration mode port."""
+
+    @property
+    def runtime_is_idle(self):
+        state = getattr(self, "state", None)
+        return state is None or getattr(state, "value", None) == "idle"
+
+    def apply_audio_runtime_config(self, audio):
+        recorder = getattr(self, "_recorder", None)
+        if recorder is None:
+            return
+        recorder.set_device(audio.input_device)
+        recorder.set_gain(audio.gain)
+        recorder.set_highpass_filter(audio.highpass_filter)
+        recorder.set_highpass_freq(audio.highpass_freq)
+        recorder.set_soft_limiter(audio.soft_limiter)
+
+    def refresh_asr_runtime(self):
+        asr = getattr(self, "_asr", None)
+        if asr is not None:
+            asr.refresh_runtime_config(drop_idle_session=True)
+
+
 def _install_rumps_stub(monkeypatch) -> None:
     import AppKit
 
@@ -97,8 +121,8 @@ def test_settings_form_sync_updates_all_audio_processing_controls(
 
     recorder_one = MagicMock()
     recorder_two = MagicMock()
-    app._walkie_talkie = SimpleNamespace(_recorder=recorder_one, text_polisher=None)
-    app._realtime_long = SimpleNamespace(_recorder=recorder_two, text_polisher=None)
+    app._walkie_talkie = _RuntimeModeDouble(_recorder=recorder_one, text_polisher=None)
+    app._realtime_long = _RuntimeModeDouble(_recorder=recorder_two, text_polisher=None)
     app._hotkey_manager = MagicMock()
     app._refresh_text_polisher = MagicMock()
     app._select_mode = MagicMock()
@@ -161,8 +185,8 @@ def test_refresh_text_polisher_updates_mode_asr_runtime(
 
     asr_one = MagicMock()
     asr_two = MagicMock()
-    app._walkie_talkie = SimpleNamespace(_asr=asr_one, text_polisher=None)
-    app._realtime_long = SimpleNamespace(_asr=asr_two, text_polisher=None)
+    app._walkie_talkie = _RuntimeModeDouble(_asr=asr_one, text_polisher=None)
+    app._realtime_long = _RuntimeModeDouble(_asr=asr_two, text_polisher=None)
 
     with patch.object(app_module, "TextPolisher", return_value=object()) as polisher_cls:
         app._refresh_text_polisher()
@@ -195,13 +219,13 @@ def test_settings_form_sync_refreshes_runtime_sensitive_config_without_restart(
     realtime_asr = MagicMock()
     recorder_one = MagicMock()
     recorder_two = MagicMock()
-    app._walkie_talkie = SimpleNamespace(
+    app._walkie_talkie = _RuntimeModeDouble(
         _asr=walkie_asr,
         _recorder=recorder_one,
         text_polisher=None,
         state=app_module.ModeState.IDLE,
     )
-    app._realtime_long = SimpleNamespace(
+    app._realtime_long = _RuntimeModeDouble(
         _asr=realtime_asr,
         _recorder=recorder_two,
         text_polisher=None,
@@ -267,8 +291,8 @@ def test_settings_can_disable_all_builtin_hotkeys(tmp_path, monkeypatch):
     app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
     app.config = Config()
     app._hotkey_manager = MagicMock()
-    app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.IDLE)
-    app._realtime_long = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._walkie_talkie = _RuntimeModeDouble(state=app_module.ModeState.IDLE)
+    app._realtime_long = _RuntimeModeDouble(state=app_module.ModeState.IDLE)
 
     app._on_settings_set_hotkeys([])
 
@@ -479,8 +503,8 @@ def test_default_mode_change_waits_until_idle_before_switching_runtime_mode(
     app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
     app.config = Config()
     app.config.apply_update("ui.language", "en")
-    app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.IDLE)
-    app._realtime_long = SimpleNamespace(state=app_module.ModeState.RECORDING)
+    app._walkie_talkie = _RuntimeModeDouble(state=app_module.ModeState.IDLE)
+    app._realtime_long = _RuntimeModeDouble(state=app_module.ModeState.RECORDING)
     app._current_mode = app._realtime_long
     app._refresh_quick_settings_menu = MagicMock()
     app._apply_runtime_config_keys = app_module.VocalMoreApp._apply_runtime_config_keys.__get__(app, app_module.VocalMoreApp)
@@ -555,8 +579,8 @@ def test_status_bar_microphone_menu_switches_input_device(
     app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
     app.config = Config()
     app.config.apply_update("ui.language", "en")
-    app._walkie_talkie = SimpleNamespace(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
-    app._realtime_long = SimpleNamespace(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
+    app._walkie_talkie = _RuntimeModeDouble(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
+    app._realtime_long = _RuntimeModeDouble(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
     app._current_mode = app._realtime_long
     app._refresh_environment_status = MagicMock()
     monkeypatch.setattr(
@@ -598,8 +622,8 @@ def test_refresh_devices_rebuilds_status_menu_and_clears_missing_selection(
     app.config = Config()
     app.config.apply_update("ui.language", "en")
     app.config.apply_update("audio.input_device", "USB Mic")
-    app._walkie_talkie = SimpleNamespace(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
-    app._realtime_long = SimpleNamespace(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
+    app._walkie_talkie = _RuntimeModeDouble(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
+    app._realtime_long = _RuntimeModeDouble(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
     app._current_mode = app._realtime_long
     app._runtime = SimpleNamespace(
         apply_update=lambda key, value: app.config.apply_update(key, value)
@@ -656,8 +680,8 @@ def test_status_menu_open_refreshes_microphone_devices_without_settings_window(
     app.config = Config()
     app.config.apply_update("ui.language", "en")
     app.config.apply_update("audio.input_device", "USB Mic")
-    app._walkie_talkie = SimpleNamespace(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
-    app._realtime_long = SimpleNamespace(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
+    app._walkie_talkie = _RuntimeModeDouble(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
+    app._realtime_long = _RuntimeModeDouble(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
     app._current_mode = app._realtime_long
     app._runtime = SimpleNamespace(
         apply_update=lambda key, value: app.config.apply_update(key, value)
@@ -717,8 +741,8 @@ def test_build_menu_installs_status_menu_delegate(tmp_path, monkeypatch):
     app._menu = SimpleNamespace(_menu=ns_menu)
     app.config = Config()
     app.config.apply_update("ui.language", "en")
-    app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.IDLE)
-    app._realtime_long = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._walkie_talkie = _RuntimeModeDouble(state=app_module.ModeState.IDLE)
+    app._realtime_long = _RuntimeModeDouble(state=app_module.ModeState.IDLE)
     app._current_mode = app._realtime_long
     app._environment_checks = []
     monkeypatch.setattr(
@@ -759,8 +783,8 @@ def test_device_listing_does_not_reset_portaudio_while_recording(
 
     app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
     app.config = Config()
-    app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.RECORDING)
-    app._realtime_long = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._walkie_talkie = _RuntimeModeDouble(state=app_module.ModeState.RECORDING)
+    app._realtime_long = _RuntimeModeDouble(state=app_module.ModeState.IDLE)
     app._meeting = None
 
     assert app._list_devices() == [{"name": "Built-in Mic", "is_default": True}]
@@ -793,8 +817,8 @@ def test_device_listing_does_not_reset_portaudio_during_mic_test(
 
     app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
     app.config = Config()
-    app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.IDLE)
-    app._realtime_long = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._walkie_talkie = _RuntimeModeDouble(state=app_module.ModeState.IDLE)
+    app._realtime_long = _RuntimeModeDouble(state=app_module.ModeState.IDLE)
     app._meeting = None
     app._settings_window = SimpleNamespace(
         _mic_test_controller=SimpleNamespace(is_running=True)
@@ -845,8 +869,8 @@ def test_quick_settings_actions_update_config_and_menu_state(
     app.config = Config()
     app.config.apply_update("ui.language", "en")
     app.config.apply_update("default_mode", "walkie_talkie")
-    app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.IDLE)
-    app._realtime_long = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._walkie_talkie = _RuntimeModeDouble(state=app_module.ModeState.IDLE)
+    app._realtime_long = _RuntimeModeDouble(state=app_module.ModeState.IDLE)
     app._current_mode = app._walkie_talkie
     app._build_menu()
 
@@ -943,8 +967,8 @@ def test_refresh_environment_status_updates_menu_titles(
     app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
     app.config = Config()
     app.config.apply_update("ui.language", "en")
-    app._walkie_talkie = SimpleNamespace(state=app_module.ModeState.IDLE)
-    app._realtime_long = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._walkie_talkie = _RuntimeModeDouble(state=app_module.ModeState.IDLE)
+    app._realtime_long = _RuntimeModeDouble(state=app_module.ModeState.IDLE)
     app._current_mode = app._realtime_long
     app._hotkey_listener_ready = False
 
@@ -1375,6 +1399,46 @@ def test_quit_continues_when_dictation_coordinator_is_blocked(tmp_path, monkeypa
     app._settings_window.close.assert_called_once()
     app._close_command_coordinator.assert_called_once()
     app_module.rumps.quit_application.assert_called_once()
+
+
+def test_unapplied_dependencies_keep_store_open_when_retry_did_not_drain(
+    tmp_path,
+    monkeypatch,
+):
+    from vocal_more.application.recording_retry import RecordingRetryShutdown
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+    recording_retry = MagicMock()
+    recording_retry.close.return_value = RecordingRetryShutdown(
+        drained=False,
+        worker_alive=True,
+        active_count=1,
+    )
+    recording_store = MagicMock()
+    dependencies = SimpleNamespace(
+        recording_retry=recording_retry,
+        recording_store=recording_store,
+        walkie_talkie=None,
+        realtime_long=None,
+        meeting=None,
+        hotkey_manager=None,
+        dictionary_learning=None,
+        context_personalization=None,
+        command_coordinator=None,
+    )
+
+    app_module.VocalMoreApp._close_unapplied_dependencies(dependencies)
+
+    recording_store.close.assert_not_called()
 
 
 def test_build_runtime_returns_shared_facade_for_menu_and_rpc(tmp_path, monkeypatch):

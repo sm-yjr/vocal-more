@@ -59,6 +59,12 @@ Current command sources:
 
 This means `start / stop / cancel` intents are serialized before they reach the active mode.
 
+Live configuration does not inspect those mode implementations. `RuntimeFacade`
+computes policy from changed config keys and calls `ModeRuntimeService`, which
+uses the public mode runtime port to switch an idle mode, apply audio settings,
+or refresh an already-initialized ASR engine. Recorder and ASR fields remain
+owned by their mode.
+
 ### 5. Audio stream startup worker contains CoreAudio/PortAudio stalls
 
 `AudioRecorder.start()` opens the native input stream on one isolated daemon
@@ -180,12 +186,39 @@ That executor runs:
 
 Each run is tagged with a session token so `cancel()` can invalidate late results.
 
-### 11. Small shared executors own best-effort background jobs
+### 11. Recording retry lane owns retry transcription
 
-These are non-realtime helper pools:
+Saved-recording retry has one dedicated daemon worker with bounded admission.
+`RecordingRetryRuntime` owns:
 
-- RPC retry transcription executor
-- settings window retry transcription executor
+- a hard limit on running plus queued retry jobs
+- duplicate suppression by recording ID
+- generation invalidation during shutdown
+- short-lived commit and callback leases outside the runtime state lock
+- retry lifecycle events consumed by either the settings or RPC adapter
+
+`RecordingRetryService` contains the synchronous data/service workflow. It
+reads PCM and language through the recording repository port, calls one batch
+transcriber, and commits the result only while the runtime generation remains
+active. Repository updates return whether the recording still exists, so a
+delete that wins the race suppresses a false `completed` event. Settings and
+RPC translate events; they do not create an ASR engine or mutate retry state
+themselves.
+
+`close(timeout=...)` first invalidates admissions and commits, then performs a
+bounded drain. It returns a report instead of pretending shutdown completed.
+If the worker is still inside a provider call or storage commit, the owner
+leaves the recording repository open rather than closing data underneath that
+worker. A later close can retry the drain.
+
+### 12. Dedicated executors own remaining best-effort background jobs
+
+These non-realtime workloads do not share a generic adapter pool:
+
+- RPC meeting-notes executor
+- settings model-access-check executor
+- settings recording-maintenance executor
+- settings meeting-notes executor
 - recording-store archive executor
 
 The recording-store archive executor is a single owned worker. It converts
@@ -193,9 +226,11 @@ older terminal WAV files to lossless FLAC outside the dictation finish path,
 keeps the three newest recordings uncompressed, and closes explicitly with the
 recording store during app or RPC shutdown.
 
-They are bounded and have explicit `close()` paths.
+Each executor has one worker and an explicit `close()` path. Their worker counts
+are bounded; unlike the retry runtime, these low-frequency best-effort helpers
+do not yet impose a hard running-plus-queued admission limit.
 
-### 12. Dictionary edit observer owns the post-paste window
+### 13. Dictionary edit observer owns the post-paste window
 
 Automatic dictionary learning has one single-worker observer executor. It:
 
@@ -206,7 +241,7 @@ Automatic dictionary learning has one single-worker observer executor. It:
 
 It never calls DashScope and never blocks a mode-local finish executor.
 
-### 13. Dictionary learning queue owns deferred classification
+### 14. Dictionary learning queue owns deferred classification
 
 A separate single-worker queue drains persisted learning jobs. It starts lazily
 only when automatic learning is enabled and a user API key exists. It owns:
@@ -240,6 +275,12 @@ Every finish-time workflow is tied to a mode session token. If the token is inva
 ### Rule 5: Background helpers need explicit shutdown
 
 Any long-lived worker or executor must have a `close()` path and be called during app or RPC shutdown.
+
+### Rule 6: Data repositories do not own provider retry work
+
+Recording repositories expose synchronous, locked data operations. Network
+retry policy, admission, deduplication, cancellation, and event delivery belong
+to an application service and its workload-specific runtime lane.
 
 ## What This Architecture Prevents
 
@@ -285,6 +326,15 @@ headroom across older Intel Macs.
 ### 4. Queue policy is now adaptive, but still empirical
 
 Outbound realtime queue sizing and drain timeout now scale with chunk duration, and diagnostics log queue depth and fallback causes. The exact thresholds are still empirical tuning values rather than the result of production telemetry.
+
+### 5. In-flight provider requests do not yet support cooperative cancellation
+
+Retry shutdown is bounded and reports an undrained worker, but the batch ASR
+provider API is still a synchronous call without a cancellation token. Shutdown
+can invalidate its eventual commit and keep the repository alive safely; it
+cannot interrupt the network request itself. Provider request timeouts or a
+cooperative cancellation port are the next step if shutdown latency becomes an
+observed issue.
 
 ## Practical Guidance For Future Changes
 

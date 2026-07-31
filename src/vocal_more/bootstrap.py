@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from .application.dictation_command_coordinator import DictationCommandCoordinator
+from .application.mode_runtime import ModeRuntimeService
+from .application.recording_retry import RecordingRetryRuntime, RecordingRetryService
 from .application.runtime_facade import RuntimeFacade
 from .config import get_config
 from .ui.lazy_settings_window import LazySettingsWindow
@@ -19,6 +21,7 @@ class MenuAppDependencies:
     text_polisher: object | None
     capsule: object
     recording_store: object
+    recording_retry: object
     walkie_talkie: object
     realtime_long: object
     meeting: object
@@ -35,6 +38,7 @@ class MenuAppDependencies:
 class RPCHandlerDependencies:
     config: object
     recording_store: object
+    recording_retry: object
     text_polisher: object | None
     walkie_talkie: object
     realtime_long: object
@@ -73,6 +77,22 @@ def _mode_name_for_instance(mode: object, modes: dict[str, object]) -> str:
     return "realtime_long"
 
 
+def _build_recording_retry_runtime(*, config: object, recording_store: object):
+    """Build the retry lane at the composition root, outside UI/RPC adapters."""
+    from .core.asr_engine import BatchASREngine
+    from .infrastructure.pricing import merge_billing
+
+    return RecordingRetryRuntime(
+        service=RecordingRetryService(
+            config=config,
+            recording_repository=recording_store,
+            transcriber_factory=BatchASREngine,
+            billing_merger=merge_billing,
+        ),
+        capacity=2,
+    )
+
+
 def build_menu_app_dependencies(
     app,
     *,
@@ -87,6 +107,7 @@ def build_menu_app_dependencies(
     settings_window_factory,
     command_coordinator_factory=DictationCommandCoordinator,
     runtime_factory=RuntimeFacade,
+    recording_retry_factory=_build_recording_retry_runtime,
     dictionary_learning_factory=None,
     context_personalization_factory=None,
 ) -> MenuAppDependencies:
@@ -156,8 +177,7 @@ def build_menu_app_dependencies(
         on_escape_pressed=app._on_escape_pressed,
     )
 
-    runtime = runtime_factory(
-        config=config,
+    mode_runtime = ModeRuntimeService(
         modes={
             "walkie_talkie": walkie_talkie,
             "realtime_long": realtime_long,
@@ -172,6 +192,10 @@ def build_menu_app_dependencies(
                 "meeting": meeting,
             },
         )),
+    )
+    runtime = runtime_factory(
+        config=config,
+        mode_runtime=mode_runtime,
         on_refresh_text_polisher=app._refresh_text_polisher,
         on_set_active_hotkeys=getattr(hotkey_manager, "set_active_hotkeys", None),
         on_set_custom_key=getattr(hotkey_manager, "set_custom_key", None),
@@ -181,6 +205,10 @@ def build_menu_app_dependencies(
         on_refresh_dictionary_learning=dictionary_learning.wake,
     )
 
+    recording_retry = recording_retry_factory(
+        config=config,
+        recording_store=recording_store,
+    )
     settings_window = LazySettingsWindow(
         settings_window_factory,
         on_set_config=app._on_settings_config_change,
@@ -201,6 +229,7 @@ def build_menu_app_dependencies(
         on_open_dict_file=app._on_settings_open_dict,
         on_open_external=app._on_settings_open_external,
         recording_store=recording_store,
+        recording_retry=recording_retry,
         context_personalization=context_personalization,
     )
 
@@ -211,6 +240,7 @@ def build_menu_app_dependencies(
         text_polisher=text_polisher,
         capsule=capsule,
         recording_store=recording_store,
+        recording_retry=recording_retry,
         walkie_talkie=walkie_talkie,
         realtime_long=realtime_long,
         meeting=meeting,
@@ -236,6 +266,7 @@ def build_rpc_handler_dependencies(
     meeting_factory,
     command_coordinator_factory=DictationCommandCoordinator,
     runtime_factory=RuntimeFacade,
+    recording_retry_factory=_build_recording_retry_runtime,
     dictionary_learning_factory=None,
     context_personalization_factory=None,
 ) -> RPCHandlerDependencies:
@@ -298,8 +329,7 @@ def build_rpc_handler_dependencies(
     current_mode = _select_mode(config.default_mode, walkie_talkie, realtime_long, meeting)
     command_coordinator = command_coordinator_factory(thread_name="vocal-more-rpc-commands")
 
-    runtime = runtime_factory(
-        config=config,
+    mode_runtime = ModeRuntimeService(
         modes={
             "walkie_talkie": walkie_talkie,
             "realtime_long": realtime_long,
@@ -307,13 +337,22 @@ def build_rpc_handler_dependencies(
         },
         get_current_mode=lambda: getattr(handler, "_current_mode", None),
         set_current_mode=lambda mode: setattr(handler, "_current_mode", mode),
+    )
+    runtime = runtime_factory(
+        config=config,
+        mode_runtime=mode_runtime,
         on_refresh_text_polisher=handler._refresh_text_polisher,
         on_refresh_dictionary_learning=dictionary_learning.wake,
     )
 
+    recording_retry = recording_retry_factory(
+        config=config,
+        recording_store=recording_store,
+    )
     return RPCHandlerDependencies(
         config=config,
         recording_store=recording_store,
+        recording_retry=recording_retry,
         text_polisher=text_polisher,
         walkie_talkie=walkie_talkie,
         realtime_long=realtime_long,

@@ -12,18 +12,29 @@ def _build_runtime_facade():
 
     config = Config()
 
-    walkie = SimpleNamespace(
-        state=ModeState.IDLE,
-        _recorder=MagicMock(),
-        _asr=MagicMock(),
-        text_polisher=None,
-    )
-    realtime = SimpleNamespace(
-        state=ModeState.IDLE,
-        _recorder=MagicMock(),
-        _asr=MagicMock(),
-        text_polisher=None,
-    )
+    class RuntimeMode:
+        def __init__(self):
+            self.state = ModeState.IDLE
+            self._recorder = MagicMock()
+            self._asr = MagicMock()
+            self.text_polisher = None
+
+        @property
+        def runtime_is_idle(self):
+            return self.state == ModeState.IDLE
+
+        def apply_audio_runtime_config(self, audio):
+            self._recorder.set_device(audio.input_device)
+            self._recorder.set_gain(audio.gain)
+            self._recorder.set_highpass_filter(audio.highpass_filter)
+            self._recorder.set_highpass_freq(audio.highpass_freq)
+            self._recorder.set_soft_limiter(audio.soft_limiter)
+
+        def refresh_asr_runtime(self):
+            self._asr.refresh_runtime_config(drop_idle_session=True)
+
+    walkie = RuntimeMode()
+    realtime = RuntimeMode()
     current_mode = {"value": realtime}
 
     callbacks = {
@@ -74,6 +85,21 @@ def test_runtime_facade_reports_only_effective_form_state_changes():
     callbacks["set_active_hotkeys"].assert_not_called()
     walkie._recorder.set_gain.assert_called_once_with(4.0)
     realtime._recorder.set_gain.assert_called_once_with(4.0)
+
+
+def test_runtime_facade_accepts_an_explicit_mode_runtime_port():
+    from vocal_more.config import Config
+    from vocal_more.application.runtime_facade import RuntimeFacade
+
+    mode_runtime = MagicMock()
+    mode_runtime.current_mode_name = "walkie_talkie"
+    facade = RuntimeFacade(config=Config(), mode_runtime=mode_runtime)
+
+    result = facade.apply_update("audio.gain", 5.0)
+
+    assert result.refresh_audio_recorders is True
+    assert facade.current_mode_name == "walkie_talkie"
+    mode_runtime.apply_audio_config.assert_called_once_with(facade.config.audio)
 
 
 def test_runtime_facade_applies_multiple_custom_hotkeys_without_restart():

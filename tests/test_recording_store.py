@@ -129,7 +129,7 @@ class TestSave:
 class TestUpdate:
     def test_update_status_and_transcript(self, store):
         rec_id = store.save(_make_pcm(), "walkie_talkie", "m")
-        store.update(rec_id, "success", "hello world")
+        assert store.update(rec_id, "success", "hello world") is True
 
         rec = store.list_recordings()[0]
         assert rec["status"] == "success"
@@ -203,7 +203,7 @@ class TestUpdate:
 
     def test_update_nonexistent_id_is_noop(self, store):
         store.save(_make_pcm(), "walkie_talkie", "m")
-        store.update("nonexistent", "success", "text")
+        assert store.update("nonexistent", "success", "text") is False
         rec = store.list_recordings()[0]
         assert rec["status"] == "pending"
 

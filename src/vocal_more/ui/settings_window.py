@@ -30,7 +30,7 @@ from WebKit import (
 )
 
 from ..application.background_executor import BackgroundExecutor
-from ..infrastructure.pricing import merge_billing
+from ..application.recording_retry import RecordingRetryEvent
 from ..localization import normalize_ui_language, t
 from ..paths import bundled_resource_path
 from .mic_test_controller import MicTestController
@@ -137,8 +137,10 @@ class SettingsWindow:
         on_open_dict_file: Optional[Callable[[], None]] = None,
         on_open_external: Optional[Callable[[str], None]] = None,
         recording_store: Optional[object] = None,
+        recording_retry: Optional[object] = None,
         context_personalization: Optional[object] = None,
     ):
+        self._closed = False
         self._on_set_config = on_set_config
         self._on_preview_config = on_preview_config
         self._on_set_asr_model = on_set_asr_model
@@ -157,6 +159,7 @@ class SettingsWindow:
         self._on_open_dict_file = on_open_dict_file
         self._on_open_external = on_open_external
         self._recording_store = recording_store
+        self._recording_retry = recording_retry
         self._context_personalization = context_personalization
 
         self._window: Optional[NSWindow] = None
@@ -172,9 +175,17 @@ class SettingsWindow:
         self._dashscope_check_lock = threading.Lock()
         self._dashscope_check_running = False
         self._interface_language = "en"
-        self._background_tasks = BackgroundExecutor(
-            max_workers=2,
-            thread_name_prefix="vocal-more-settings-tasks",
+        self._model_check_tasks = BackgroundExecutor(
+            max_workers=1,
+            thread_name_prefix="vocal-more-model-check",
+        )
+        self._recording_maintenance_tasks = BackgroundExecutor(
+            max_workers=1,
+            thread_name_prefix="vocal-more-recording-maintenance",
+        )
+        self._meeting_tasks = BackgroundExecutor(
+            max_workers=1,
+            thread_name_prefix="vocal-more-meeting-notes",
         )
         self._bridge = SettingsBridge()
         self._mic_test_controller = self._build_mic_test_controller()
@@ -451,10 +462,16 @@ class SettingsWindow:
 
     def close(self) -> None:
         """Release background resources owned by the settings window."""
+        self._closed = True
         self.hide()
         self._stop_js_drain()
         self._mic_test_controller.cleanup()
-        self._background_tasks.close(wait=False, cancel_futures=True)
+        for executor in (
+            self._model_check_tasks,
+            self._recording_maintenance_tasks,
+            self._meeting_tasks,
+        ):
+            executor.close(wait=False, cancel_futures=True)
 
     def is_visible(self) -> bool:
         """Check if the settings window is visible."""
@@ -603,7 +620,7 @@ class SettingsWindow:
                 f"dashscopeModelCheckComplete({json.dumps(results)})"
             )
 
-        self._background_tasks.submit(_check)
+        self._model_check_tasks.submit(_check)
 
     def _handle_compact_recording_history(self) -> None:
         if self._recording_store is None:
@@ -627,70 +644,38 @@ class SettingsWindow:
                     f"recordingCompactionFailed({json.dumps(str(exc))})"
                 )
 
-        self._background_tasks.submit(_compact)
+        self._recording_maintenance_tasks.submit(_compact)
 
     def _handle_retry_transcription(self, rec_id: str) -> None:
-        if not self._recording_store:
+        if self._recording_retry is None:
             return
+        submission = self._recording_retry.submit(
+            rec_id,
+            self._on_recording_retry_event,
+        )
+        if submission.status in {"busy", "closed"}:
+            self._eval_js(
+                f"retryFailed({json.dumps(rec_id)}, "
+                f"{json.dumps('Retry service is busy')})"
+            )
 
-        self._eval_js(f"retryStarted({json.dumps(rec_id)})")
-
-        def _do_retry():
-            from ..core.asr_engine import BatchASREngine
-            from ..core.recording_store import RETRY_ASR_MODEL
-
-            try:
-                pcm_data = self._recording_store.get_pcm_data(rec_id)
-                if pcm_data is None:
-                    error_message = t(
-                        self._interface_language,
-                        "settings_recording_not_found",
-                    )
-                    self._recording_store.update(rec_id, "failed", error=error_message)
-                    self._eval_js(
-                        f"retryFailed({json.dumps(rec_id)}, {json.dumps(error_message)})"
-                    )
-                    return
-
-                engine = BatchASREngine()
-                language = self._recording_store.get_language(rec_id)
-                transcript = engine.transcribe(
-                    pcm_data, model_override=RETRY_ASR_MODEL, language_override=language
-                )
-                billing = merge_billing(engine.get_last_metering())
-
-                if transcript and transcript.strip():
-                    self._recording_store.update(
-                        rec_id,
-                        "success",
-                        transcript,
-                        error=None,
-                        billing=billing,
-                    )
-                    self._handle_get_recordings()
-                else:
-                    error_message = t(
-                        self._interface_language,
-                        "settings_empty_transcription",
-                    )
-                    self._recording_store.update(
-                        rec_id,
-                        "failed",
-                        error=error_message,
-                        billing=billing,
-                    )
-                    self._handle_get_recordings()
-            except Exception as e:
-                billing = merge_billing(engine.get_last_metering()) if "engine" in locals() else None
-                self._recording_store.update(
-                    rec_id,
-                    "failed",
-                    error=str(e),
-                    billing=billing,
-                )
-                self._handle_get_recordings()
-
-        self._background_tasks.submit(_do_retry)
+    def _on_recording_retry_event(self, event: RecordingRetryEvent) -> None:
+        if getattr(self, "_closed", False):
+            return
+        if event.kind == "started":
+            self._eval_js(f"retryStarted({json.dumps(event.recording_id)})")
+            return
+        if event.kind == "completed":
+            self._eval_js(
+                f"retryCompleted({json.dumps(event.recording_id)}, "
+                f"{json.dumps(event.transcript or '')})"
+            )
+        elif event.kind == "failed":
+            self._eval_js(
+                f"retryFailed({json.dumps(event.recording_id)}, "
+                f"{json.dumps(event.error or '')})"
+            )
+        self._handle_get_recordings()
 
     def _handle_generate_meeting_notes(self, rec_id: str) -> None:
         if not self._recording_store:
@@ -713,7 +698,7 @@ class SettingsWindow:
             )
             self._handle_get_recordings()
 
-        self._background_tasks.submit(_do_generate)
+        self._meeting_tasks.submit(_do_generate)
 
     def _handle_delete_recording(self, rec_id: str) -> None:
         if not self._recording_store:

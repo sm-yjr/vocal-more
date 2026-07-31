@@ -207,6 +207,7 @@ class VocalMoreApp(rumps.App):
         self._text_polisher = None
         self._capsule = None
         self._recording_store = None
+        self._recording_retry = None
         self._walkie_talkie = starting_mode
         self._realtime_long = starting_mode
         self._meeting = None
@@ -261,10 +262,22 @@ class VocalMoreApp(rumps.App):
         stop = getattr(hotkey_manager, "stop", None)
         if callable(stop):
             stop()
-        for name in ("walkie_talkie", "realtime_long", "meeting", "recording_store"):
+        retry_runtime = getattr(dependencies, "recording_retry", None)
+        close_retry = getattr(retry_runtime, "close", None)
+        retry_drained = True
+        if callable(close_retry):
+            shutdown = close_retry(timeout=0.5)
+            retry_drained = getattr(shutdown, "drained", True)
+        for name in ("walkie_talkie", "realtime_long", "meeting"):
             close = getattr(getattr(dependencies, name, None), "close", None)
             if callable(close):
                 close()
+        recording_store = getattr(dependencies, "recording_store", None)
+        close_recordings = getattr(recording_store, "close", None)
+        if retry_drained and callable(close_recordings):
+            close_recordings()
+        elif not retry_drained:
+            print("[App] Recording retry did not drain; leaving its store open")
         for name in ("dictionary_learning", "context_personalization"):
             close = getattr(getattr(dependencies, name, None), "close", None)
             if callable(close):
@@ -281,6 +294,7 @@ class VocalMoreApp(rumps.App):
         self._text_polisher = dependencies.text_polisher
         self._capsule = dependencies.capsule
         self._recording_store = dependencies.recording_store
+        self._recording_retry = getattr(dependencies, "recording_retry", None)
         self._walkie_talkie = dependencies.walkie_talkie
         self._realtime_long = dependencies.realtime_long
         self._meeting = dependencies.meeting
@@ -316,9 +330,12 @@ class VocalMoreApp(rumps.App):
 
     def _get_logo_path(self) -> Optional[str]:
         """Get logo path for notifications."""
-        logo_path = bundled_resource_path("assets", "logo.png")
-        if logo_path.exists():
-            return str(logo_path)
+        runtime_logo = bundled_resource_path("assets", ".VocalMore.runtime-logo.png")
+        if runtime_logo.exists():
+            return str(runtime_logo)
+        source_logo = bundled_resource_path("assets", "logo.png")
+        if source_logo.exists():
+            return str(source_logo)
         return None
 
     # ── Menu ──────────────────────────────────────────────────
@@ -618,6 +635,12 @@ class VocalMoreApp(rumps.App):
                 "continuing bounded shutdown"
             )
         self._capsule.hide()
+        recording_retry = getattr(self, "_recording_retry", None)
+        close_retry = getattr(recording_retry, "close", None)
+        retry_drained = True
+        if callable(close_retry):
+            shutdown = close_retry(timeout=0.5)
+            retry_drained = getattr(shutdown, "drained", True)
         dictionary_learning = getattr(self, "_dictionary_learning", None)
         if dictionary_learning is not None:
             set_on_change = getattr(dictionary_learning, "set_on_change", None)
@@ -632,8 +655,10 @@ class VocalMoreApp(rumps.App):
             if callable(close):
                 close()
         close_recordings = getattr(self._recording_store, "close", None)
-        if callable(close_recordings):
+        if retry_drained and callable(close_recordings):
             close_recordings()
+        elif not retry_drained:
+            print("[App] Recording retry did not drain; leaving its store open")
         self._close_command_coordinator()
         rumps.quit_application()
 
@@ -1313,6 +1338,7 @@ class VocalMoreApp(rumps.App):
         self._get_runtime()._sync_audio_recorders()
 
     def _build_runtime_facade(self) -> RuntimeFacade:
+        from .application.mode_runtime import ModeRuntimeService
         from .application.runtime_facade import RuntimeFacade
 
         hotkey_manager = getattr(self, "_hotkey_manager", None)
@@ -1326,9 +1352,13 @@ class VocalMoreApp(rumps.App):
 
         return RuntimeFacade(
             config=self.config,
-            modes=modes,
-            get_current_mode=lambda: getattr(self, "_current_mode", None),
-            set_current_mode=lambda mode: self._select_mode(self._mode_name_for_instance(mode, modes)),
+            mode_runtime=ModeRuntimeService(
+                modes=modes,
+                get_current_mode=lambda: getattr(self, "_current_mode", None),
+                set_current_mode=lambda mode: self._select_mode(
+                    self._mode_name_for_instance(mode, modes)
+                ),
+            ),
             on_refresh_text_polisher=self._refresh_text_polisher,
             on_set_active_hotkeys=getattr(hotkey_manager, "set_active_hotkeys", None),
             on_set_custom_key=getattr(hotkey_manager, "set_custom_key", None),

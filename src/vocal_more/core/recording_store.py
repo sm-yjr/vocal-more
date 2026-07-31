@@ -20,7 +20,6 @@ SAMPLE_RATE = 16000
 CHANNELS = 1
 SAMPLE_WIDTH = 2
 MAX_RECORDINGS = 30
-RETRY_ASR_MODEL = "qwen3.5-omni-plus"
 _MISSING = object()
 _RUNNING_MEETING_STATUSES = {"transcribing", "summarizing"}
 _TERMINAL_RECORDING_STATUSES = {"success", "failed"}
@@ -229,7 +228,7 @@ class RecordingStore:
         error: Optional[str] = _MISSING,
         billing: Optional[dict] = _MISSING,
         meeting: Optional[dict] = _MISSING,
-    ) -> None:
+    ) -> bool:
         """Update status and transcript for a recording."""
         updated = False
         with self._lock:
@@ -248,13 +247,15 @@ class RecordingStore:
                     if meeting is not _MISSING:
                         rec["meeting"] = meeting
                     break
-            self._save_index()
+            if updated:
+                self._save_index()
         if (
             updated
             and self._auto_compact
             and status in _TERMINAL_RECORDING_STATUSES
         ):
             self.schedule_history_compaction()
+        return updated
 
     def begin_meeting_generation(self, recording_id: str) -> dict:
         """Atomically mark a recording as generating meeting notes.

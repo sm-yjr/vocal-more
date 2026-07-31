@@ -12,6 +12,8 @@ from .application.background_executor import BackgroundExecutor
 from .application.dictation_command_coordinator import DictationCommandCoordinator
 from .application.runtime_facade import RuntimeFacade
 from .application.lazy_resource import initialized_resource
+from .application.mode_runtime import ModeRuntimeService
+from .application.recording_retry import RecordingRetryEvent
 from .bootstrap import build_rpc_handler_dependencies
 from .config import (
     ASR_MODEL_CATALOG,
@@ -21,8 +23,6 @@ from .core.audio_recorder import AudioRecorder
 from .core.recording_store import RecordingStore
 from .core.text_polisher import TextPolisher, build_polish_prompt_presets
 from .dictionary import get_dictionary, reload_dictionary
-from .infrastructure.pricing import merge_billing
-from .localization import t
 from .modes.base_mode import BaseMode, ModeState
 from .modes.meeting import MeetingMode
 from .modes.realtime_long import RealtimeLongMode
@@ -51,8 +51,10 @@ class RPCHandler:
         self._apply_dependencies(dependencies)
 
     def _apply_dependencies(self, dependencies) -> None:
+        self._closed = False
         self.config = dependencies.config
         self._recording_store = dependencies.recording_store
+        self._recording_retry = getattr(dependencies, "recording_retry", None)
         self._text_polisher = dependencies.text_polisher
         self._walkie_talkie = dependencies.walkie_talkie
         self._realtime_long = dependencies.realtime_long
@@ -75,9 +77,9 @@ class RPCHandler:
             "context_personalization",
             None,
         )
-        self._background_tasks = BackgroundExecutor(
-            max_workers=2,
-            thread_name_prefix="vocal-more-rpc-tasks",
+        self._meeting_tasks = BackgroundExecutor(
+            max_workers=1,
+            thread_name_prefix="vocal-more-rpc-meeting-notes",
         )
 
     # -- Notification callbacks -----------------------------------------------
@@ -224,70 +226,32 @@ class RPCHandler:
         return self._recording_store.list_recordings()
 
     def _handle_retry_transcription(self, params: dict) -> dict:
-        from .core.asr_engine import BatchASREngine
-        from .core.recording_store import RETRY_ASR_MODEL
-
         rec_id = params.get("id", "")
         if not rec_id:
             raise RPCError(-32602, "id is required")
+        if self._recording_retry is None:
+            raise RPCError(-32603, "Recording retry service is unavailable")
+        submission = self._recording_retry.submit(
+            rec_id,
+            self._on_recording_retry_event,
+        )
+        return {"ok": submission.accepted, "status": submission.status}
 
-        self._send_notification("retry_started", {"id": rec_id})
-
-        def _do_retry():
-            try:
-                pcm_data = self._recording_store.get_pcm_data(rec_id)
-                if pcm_data is None:
-                    error_message = t(self.config.ui.language, "settings_recording_not_found")
-                    self._recording_store.update(rec_id, "failed", error=error_message)
-                    self._send_notification(
-                        "retry_failed", {"id": rec_id, "error": error_message}
-                    )
-                    return
-
-                engine = BatchASREngine()
-                language = self._recording_store.get_language(rec_id)
-                transcript = engine.transcribe(
-                    pcm_data, model_override=RETRY_ASR_MODEL, language_override=language
-                )
-                billing = merge_billing(engine.get_last_metering())
-
-                if transcript and transcript.strip():
-                    self._recording_store.update(
-                        rec_id,
-                        "success",
-                        transcript,
-                        error=None,
-                        billing=billing,
-                    )
-                    self._send_notification(
-                        "retry_completed", {"id": rec_id, "transcript": transcript}
-                    )
-                else:
-                    error_message = t(self.config.ui.language, "settings_empty_transcription")
-                    self._recording_store.update(
-                        rec_id,
-                        "failed",
-                        error=error_message,
-                        billing=billing,
-                    )
-                    self._send_notification(
-                        "retry_failed",
-                        {"id": rec_id, "error": error_message},
-                    )
-            except Exception as e:
-                billing = merge_billing(engine.get_last_metering()) if "engine" in locals() else None
-                self._recording_store.update(
-                    rec_id,
-                    "failed",
-                    error=str(e),
-                    billing=billing,
-                )
-                self._send_notification(
-                    "retry_failed", {"id": rec_id, "error": str(e)}
-                )
-
-        self._background_tasks.submit(_do_retry)
-        return {"ok": True}
+    def _on_recording_retry_event(self, event: RecordingRetryEvent) -> None:
+        if getattr(self, "_closed", False):
+            return
+        if event.kind == "started":
+            self._send_notification("retry_started", {"id": event.recording_id})
+        elif event.kind == "completed":
+            self._send_notification(
+                "retry_completed",
+                {"id": event.recording_id, "transcript": event.transcript or ""},
+            )
+        elif event.kind == "failed":
+            self._send_notification(
+                "retry_failed",
+                {"id": event.recording_id, "error": event.error or ""},
+            )
 
     def _handle_generate_meeting_notes(self, params: dict) -> dict:
         from .application.meeting_jobs import MeetingNotesRecordingRunner
@@ -326,7 +290,7 @@ class RPCHandler:
                 {"id": rec_id, "error": result.error or "Meeting notes failed"},
             )
 
-        self._background_tasks.submit(_do_generate)
+        self._meeting_tasks.submit(_do_generate)
         return {"ok": True}
 
     def _handle_delete_recording(self, params: dict) -> dict:
@@ -383,9 +347,11 @@ class RPCHandler:
     def _build_runtime_facade(self) -> RuntimeFacade:
         return RuntimeFacade(
             config=self.config,
-            modes=self._modes,
-            get_current_mode=lambda: self._current_mode,
-            set_current_mode=lambda mode: setattr(self, "_current_mode", mode),
+            mode_runtime=ModeRuntimeService(
+                modes=self._modes,
+                get_current_mode=lambda: self._current_mode,
+                set_current_mode=lambda mode: setattr(self, "_current_mode", mode),
+            ),
             on_refresh_text_polisher=self._refresh_text_polisher,
         )
 
@@ -409,13 +375,20 @@ class RPCHandler:
         return self._command_coordinator
 
     def close(self) -> None:
+        self._closed = True
         coordinator = getattr(self, "_command_coordinator", None)
         if coordinator is not None:
             coordinator.close()
             self._command_coordinator = None
-        background_tasks = getattr(self, "_background_tasks", None)
-        if background_tasks is not None:
-            background_tasks.close(wait=False, cancel_futures=True)
+        recording_retry = getattr(self, "_recording_retry", None)
+        close_retry = getattr(recording_retry, "close", None)
+        retry_drained = True
+        if callable(close_retry):
+            shutdown = close_retry(timeout=0.5)
+            retry_drained = getattr(shutdown, "drained", True)
+        meeting_tasks = getattr(self, "_meeting_tasks", None)
+        if meeting_tasks is not None:
+            meeting_tasks.close(wait=False, cancel_futures=True)
         dictionary_learning = getattr(self, "_dictionary_learning", None)
         if dictionary_learning is not None:
             set_on_change = getattr(dictionary_learning, "set_on_change", None)
@@ -430,8 +403,10 @@ class RPCHandler:
                 close()
         recording_store = getattr(self, "_recording_store", None)
         close_recordings = getattr(recording_store, "close", None)
-        if callable(close_recordings):
+        if retry_drained and callable(close_recordings):
             close_recordings()
+        elif not retry_drained:
+            print("[RPC] Recording retry did not drain; leaving its store open")
 
     def _handle_hotkey_pressed_command(self) -> None:
         self._current_mode.on_hotkey_pressed()
