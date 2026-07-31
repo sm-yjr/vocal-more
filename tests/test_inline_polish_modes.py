@@ -1073,3 +1073,83 @@ def test_walkie_talkie_cancel_during_processing_suppresses_late_result_and_paste
     assert results == []
     assert mode.state == ModeState.IDLE
     assert ModeState.CANCELLING in states
+
+
+def test_realtime_long_cancel_during_microphone_start_cannot_revive_recording(
+    tmp_path,
+    monkeypatch,
+):
+    """A late native open must not enter RECORDING after quit/cancel wins."""
+    from vocal_more.config import Config, reload_config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: config_path),
+    )
+    with open(config_path, "w") as output:
+        yaml.dump({"ui": {"language": "zh"}}, output)
+    reload_config()
+
+    start_entered = threading.Event()
+    allow_start = threading.Event()
+    recorder_stopped = threading.Event()
+    asr_instances = []
+
+    class FakeRecorder:
+        def __init__(self, on_audio_level=None, on_audio_chunk=None):
+            self.on_audio_chunk = on_audio_chunk
+
+        def start(self):
+            start_entered.set()
+            allow_start.wait(timeout=1.0)
+
+        def stop(self):
+            recorder_stopped.set()
+            return b""
+
+    class FakeASREngine:
+        def __init__(self, **_kwargs):
+            asr_instances.append(self)
+
+        def start(self, **_kwargs):
+            return None
+
+        def stop(self, pcm_data=None):
+            return ""
+
+        def send_audio(self, _chunk):
+            return None
+
+    monkeypatch.setattr(
+        "vocal_more.modes.realtime_long.AudioRecorder",
+        FakeRecorder,
+    )
+    monkeypatch.setattr(
+        "vocal_more.modes.realtime_long.ASREngine",
+        FakeASREngine,
+    )
+    monkeypatch.setattr(
+        "vocal_more.modes.realtime_long.KeyboardSimulator",
+        lambda: SimpleNamespace(paste_text=lambda text: None),
+    )
+
+    module = importlib.import_module("vocal_more.modes.realtime_long")
+    mode = module.RealtimeLongMode()
+    start_thread = threading.Thread(target=mode.on_hotkey_pressed)
+    start_thread.start()
+    assert start_entered.wait(timeout=0.5)
+
+    mode.cancel(reason="app_quit")
+    allow_start.set()
+    start_thread.join(timeout=0.5)
+
+    assert recorder_stopped.is_set()
+    assert start_thread.is_alive() is False
+    assert asr_instances == []
+    assert mode.state == importlib.import_module(
+        "vocal_more.modes.base_mode"
+    ).ModeState.IDLE
+    mode.close()

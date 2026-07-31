@@ -75,6 +75,9 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
             "Review the suggested term “{term}” in Dictionary settings."
         ),
         "mode_microphone_unavailable": "Could not start microphone: {details}",
+        "mode_microphone_start_timeout": (
+            "Microphone did not respond in time. Dictation was reset; try again."
+        ),
         "mode_microphone_device_changed": (
             "Microphone changed or became unavailable. Re-select the input device and try again."
         ),
@@ -174,6 +177,9 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
             "请在词典设置中确认建议词条“{term}”。"
         ),
         "mode_microphone_unavailable": "无法启动麦克风：{details}",
+        "mode_microphone_start_timeout": (
+            "麦克风启动超时，听写已自动复位，请重试。"
+        ),
         "mode_microphone_device_changed": (
             "麦克风设备似乎已变更，请重新选择输入设备或重新连接麦克风后再试。"
         ),

@@ -216,6 +216,357 @@ def test_stop_returns_pcm_while_portaudio_release_is_blocked():
     assert recorder._stream_release_thread.is_alive() is False
 
 
+def test_start_timeout_keeps_dictation_control_responsive_and_releases_late_stream(
+    monkeypatch,
+):
+    """A blocked CoreAudio open must time out and discard its late stream."""
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder, AudioRecorderStartError
+
+    open_started = threading.Event()
+    allow_open = threading.Event()
+    stream_closed = threading.Event()
+
+    class BlockingStream:
+        def __init__(self, **_kwargs):
+            return None
+
+        def start(self):
+            open_started.set()
+            allow_open.wait(timeout=2.0)
+
+        def abort(self):
+            return None
+
+        def close(self):
+            stream_closed.set()
+
+    fake_sd = type(
+        "FakeSoundDevice",
+        (),
+        {
+            "InputStream": BlockingStream,
+            "PortAudioError": RuntimeError,
+            "CallbackFlags": object,
+            "default": _fake_default_device(),
+            "query_devices": staticmethod(
+                lambda: [
+                    {
+                        "index": 0,
+                        "name": "MacBook Pro麦克风",
+                        "max_input_channels": 1,
+                    }
+                ]
+            ),
+        },
+    )()
+    monkeypatch.setattr(audio_recorder_module, "sd", fake_sd)
+
+    recorder = AudioRecorder(start_timeout=0.05)
+    started_at = time.monotonic()
+    with pytest.raises(AudioRecorderStartError) as exc_info:
+        recorder.start()
+    elapsed = time.monotonic() - started_at
+
+    assert open_started.is_set()
+    assert exc_info.value.startup_timed_out is True
+    assert elapsed < 0.25
+    assert recorder.is_recording() is False
+    assert recorder._stream is None
+
+    allow_open.set()
+    assert stream_closed.wait(timeout=0.5)
+    assert recorder._stream is None
+
+
+def test_repeated_start_fails_fast_while_previous_native_open_is_still_blocked(
+    monkeypatch,
+):
+    """Repeated hotkeys must not accumulate unkillable PortAudio open threads."""
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder, AudioRecorderStartError
+
+    allow_open = threading.Event()
+    stream_count = 0
+
+    class BlockingStream:
+        def __init__(self, **_kwargs):
+            nonlocal stream_count
+            stream_count += 1
+
+        def start(self):
+            allow_open.wait(timeout=2.0)
+
+        def abort(self):
+            return None
+
+        def close(self):
+            return None
+
+    fake_sd = type(
+        "FakeSoundDevice",
+        (),
+        {
+            "InputStream": BlockingStream,
+            "PortAudioError": RuntimeError,
+            "CallbackFlags": object,
+            "default": _fake_default_device(),
+            "query_devices": staticmethod(
+                lambda: [
+                    {"index": 0, "name": "Built-in Mic", "max_input_channels": 1}
+                ]
+            ),
+        },
+    )()
+    monkeypatch.setattr(audio_recorder_module, "sd", fake_sd)
+
+    recorder = AudioRecorder(start_timeout=0.03)
+    with pytest.raises(AudioRecorderStartError):
+        recorder.start()
+
+    second_started_at = time.monotonic()
+    with pytest.raises(AudioRecorderStartError) as exc_info:
+        recorder.start()
+
+    assert exc_info.value.startup_timed_out is True
+    assert time.monotonic() - second_started_at < 0.02
+    assert stream_count == 1
+    allow_open.set()
+
+
+def test_failed_stream_start_closes_unpublished_native_stream(monkeypatch):
+    """A stream object created before start() fails must not leak CoreAudio handles."""
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder, AudioRecorderStartError
+
+    closed = threading.Event()
+
+    class FailingStream:
+        def __init__(self, **_kwargs):
+            return None
+
+        def start(self):
+            raise ValueError("device refused to start")
+
+        def abort(self):
+            return None
+
+        def close(self):
+            closed.set()
+
+    fake_sd = type(
+        "FakeSoundDevice",
+        (),
+        {
+            "InputStream": FailingStream,
+            "PortAudioError": RuntimeError,
+            "CallbackFlags": object,
+            "default": _fake_default_device(),
+            "query_devices": staticmethod(lambda: []),
+        },
+    )()
+    monkeypatch.setattr(audio_recorder_module, "sd", fake_sd)
+
+    with pytest.raises(AudioRecorderStartError, match="device refused"):
+        AudioRecorder().start()
+
+    assert closed.wait(timeout=0.5)
+
+
+def test_macos_builtin_microphone_array_uses_all_available_capture_channels(
+    monkeypatch,
+):
+    """Mac built-in arrays should capture up to three microphones, then downmix."""
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    stream_kwargs = []
+
+    class FakeStream:
+        def __init__(self, **kwargs):
+            stream_kwargs.append(kwargs)
+
+        def start(self):
+            return None
+
+        def abort(self):
+            return None
+
+        def close(self):
+            return None
+
+    fake_sd = type(
+        "FakeSoundDevice",
+        (),
+        {
+            "InputStream": FakeStream,
+            "PortAudioError": RuntimeError,
+            "CallbackFlags": object,
+            "default": _fake_default_device(2),
+            "query_devices": staticmethod(
+                lambda: [
+                    {
+                        "index": 2,
+                        "name": "MacBook Pro Microphone",
+                        "max_input_channels": 3,
+                    }
+                ]
+            ),
+        },
+    )()
+    monkeypatch.setattr(audio_recorder_module, "sd", fake_sd)
+    monkeypatch.setattr(audio_recorder_module.platform, "system", lambda: "Darwin")
+
+    recorder = AudioRecorder(channels=1)
+    recorder.start()
+
+    assert stream_kwargs[0]["channels"] == 3
+    assert recorder.array_processing_active is True
+    recorder.stop()
+
+
+def test_macos_array_falls_back_to_system_beamformed_mono_when_format_is_rejected(
+    monkeypatch,
+):
+    """Unsupported raw-array formats should retry the same device as mono."""
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    stream_channels = []
+
+    class FakePortAudioError(Exception):
+        pass
+
+    class FakeStream:
+        def __init__(self, **kwargs):
+            stream_channels.append(kwargs["channels"])
+            if kwargs["channels"] > 1:
+                raise FakePortAudioError("invalid channel count at 16 kHz")
+
+        def start(self):
+            return None
+
+        def abort(self):
+            return None
+
+        def close(self):
+            return None
+
+    fake_sd = type(
+        "FakeSoundDevice",
+        (),
+        {
+            "InputStream": FakeStream,
+            "PortAudioError": FakePortAudioError,
+            "CallbackFlags": object,
+            "default": _fake_default_device(2),
+            "query_devices": staticmethod(
+                lambda: [
+                    {
+                        "index": 2,
+                        "name": "Studio Display Microphone",
+                        "max_input_channels": 3,
+                    }
+                ]
+            ),
+        },
+    )()
+    monkeypatch.setattr(audio_recorder_module, "sd", fake_sd)
+    monkeypatch.setattr(audio_recorder_module.platform, "system", lambda: "Darwin")
+
+    recorder = AudioRecorder(channels=1)
+    recorder.start()
+
+    assert stream_channels == [3, 1]
+    assert recorder.array_processing_active is False
+    recorder.stop()
+
+
+def test_external_microphone_keeps_requested_channel_count_on_macos(monkeypatch):
+    """Array expansion must not silently change USB microphone channel routing."""
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    stream_kwargs = []
+
+    class FakeStream:
+        def __init__(self, **kwargs):
+            stream_kwargs.append(kwargs)
+
+        def start(self):
+            return None
+
+        def abort(self):
+            return None
+
+        def close(self):
+            return None
+
+    fake_sd = type(
+        "FakeSoundDevice",
+        (),
+        {
+            "InputStream": FakeStream,
+            "PortAudioError": RuntimeError,
+            "CallbackFlags": object,
+            "default": _fake_default_device(4),
+            "query_devices": staticmethod(
+                lambda: [
+                    {
+                        "index": 4,
+                        "name": "USB Conference Microphone",
+                        "max_input_channels": 8,
+                    }
+                ]
+            ),
+        },
+    )()
+    monkeypatch.setattr(audio_recorder_module, "sd", fake_sd)
+    monkeypatch.setattr(audio_recorder_module.platform, "system", lambda: "Darwin")
+
+    recorder = AudioRecorder(channels=1)
+    recorder.start()
+
+    assert stream_kwargs[0]["channels"] == 1
+    assert recorder.array_processing_active is False
+    recorder.stop()
+
+
+def test_array_downmix_reinforces_coherent_voice_and_avoids_polarity_cancellation():
+    """Multi-mic speech should remain strong even if one capsule is polarity-inverted."""
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    frames = 640
+    voice = np.sin(np.linspace(0, 8 * np.pi, frames, endpoint=False)).astype(
+        np.float32
+    ) * 0.2
+    noise = np.tile(np.asarray([0.04, -0.04], dtype=np.float32), frames // 2)
+    array_input = np.column_stack(
+        [
+            voice + noise,
+            voice - noise,
+            -voice,
+        ]
+    )
+    chunks = []
+    recorder = AudioRecorder(
+        sample_rate=16000,
+        channels=1,
+        blocksize=frames,
+        on_audio_chunk=chunks.append,
+    )
+    recorder._gain = 1.0
+    recorder._highpass_filter = False
+    recorder._soft_limiter = False
+    recorder._is_recording = True
+
+    recorder._audio_callback(array_input, frames, {}, 0)
+
+    output = np.frombuffer(chunks[0], dtype=np.int16).astype(np.float32) / 32767
+    assert output.shape == (frames,)
+    assert np.sqrt(np.mean((output - voice) ** 2)) < 0.005
+
+
 def test_highpass_filter_matches_previous_sample_by_sample_implementation():
     """The callback's list loop must retain the original IIR filter math."""
     from vocal_more.core.audio_recorder import AudioRecorder

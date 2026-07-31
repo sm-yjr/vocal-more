@@ -59,12 +59,36 @@ Current command sources:
 
 This means `start / stop / cancel` intents are serialized before they reach the active mode.
 
-### 5. Audio callback thread owns audio capture only
+### 5. Audio stream startup worker contains CoreAudio/PortAudio stalls
+
+`AudioRecorder.start()` opens the native input stream on one isolated daemon
+thread and waits at most 1.5 seconds. This boundary exists because CoreAudio
+and PortAudio can block indefinitely after sleep/wake, a default-device change,
+or a Bluetooth route transition.
+
+The startup path guarantees:
+
+- the dictation command coordinator regains control after the hard deadline
+- only one native startup attempt may be in flight for a recorder
+- every attempt has a generation token
+- a stream returned by a timed-out attempt is never published as active
+- unpublished or failed streams are released on the existing daemon release path
+- mode cancellation treats `STARTING` as active work, invalidates the mode
+  session, and rechecks that token after both microphone and ASR startup
+
+Python cannot forcibly terminate a thread blocked inside a native audio call.
+The containment policy therefore abandons that daemon attempt, rejects repeated
+starts while it remains blocked, and keeps hotkey cancellation, UI work, and
+application shutdown responsive.
+
+### 6. Audio callback thread owns audio capture only
 
 `AudioRecorder._audio_callback()` still runs on the PortAudio callback thread.
 
 It currently does:
 
+- coherence-aware, polarity-safe downmix when a Mac built-in microphone array
+  exposes multiple capsules
 - lightweight DSP needed for the low-voice pipeline
 - RMS computation
 - PCM conversion
@@ -81,7 +105,14 @@ This keeps a CoreAudio device-transition stall from blocking the dictation
 command coordinator in `STOPPING`; callbacks that finish after detachment drop
 their chunk instead of forwarding late audio.
 
-### 6. ASR sender thread owns outbound realtime audio sends
+MacBook, iMac, Mac Studio, Mac Pro, Mac mini, and Studio Display microphone
+devices may expose up to three input channels. The recorder captures those
+channels when available, rejects uncorrelated capsules, aligns inverted
+polarity, and emits the same mono 16 kHz PCM contract expected by ASR. External
+USB devices retain their configured channel count and are still normalized to
+mono before ASR delivery.
+
+### 7. ASR sender thread owns outbound realtime audio sends
 
 `ASREngine` now has one long-lived sender thread and one bounded outbound queue.
 
@@ -94,7 +125,7 @@ The flow is:
 
 If the queue fills or sender drain fails, the realtime path is marked degraded and finalize-time logic falls back to batch transcription using the full PCM recording.
 
-### 7. ASR connect thread owns realtime session startup
+### 8. ASR connect thread owns realtime session startup
 
 `ASREngine.start()` still launches a background connect thread to:
 
@@ -117,7 +148,7 @@ closer when the SDK or network stack stalls. Application quit also bounds its
 wait for the command coordinator, so a wedged device or connection cannot hold
 the menu-bar process open indefinitely.
 
-### 8. Inbound realtime event worker owns callback-local ASR consequences
+### 9. Inbound realtime event worker owns callback-local ASR consequences
 
 DashScope realtime callbacks may arrive on SDK-managed threads. Those threads now only:
 
@@ -133,7 +164,7 @@ DashScope realtime callbacks may arrive on SDK-managed threads. Those threads no
 
 This is a meaningful tightening over the earlier design because SDK callback threads no longer directly mutate callback state or emit business callbacks.
 
-### 9. Mode-local processing executor owns finish workflows
+### 10. Mode-local processing executor owns finish workflows
 
 Each mode has its own single-worker `BackgroundExecutor` for finish-time work:
 
@@ -149,7 +180,7 @@ That executor runs:
 
 Each run is tagged with a session token so `cancel()` can invalidate late results.
 
-### 10. Small shared executors own best-effort background jobs
+### 11. Small shared executors own best-effort background jobs
 
 These are non-realtime helper pools:
 
@@ -164,7 +195,7 @@ recording store during app or RPC shutdown.
 
 They are bounded and have explicit `close()` paths.
 
-### 11. Dictionary edit observer owns the post-paste window
+### 12. Dictionary edit observer owns the post-paste window
 
 Automatic dictionary learning has one single-worker observer executor. It:
 
@@ -175,7 +206,7 @@ Automatic dictionary learning has one single-worker observer executor. It:
 
 It never calls DashScope and never blocks a mode-local finish executor.
 
-### 12. Dictionary learning queue owns deferred classification
+### 13. Dictionary learning queue owns deferred classification
 
 A separate single-worker queue drains persisted learning jobs. It starts lazily
 only when automatic learning is enabled and a user API key exists. It owns:
@@ -246,6 +277,10 @@ The remaining implicit pieces are mostly inside engine-local flags such as sessi
 ### 3. Audio callback still performs some compute-heavy work
 
 The callback no longer sends on the network, which was the biggest risk. It still performs DSP, RMS calculation, and PCM conversion inline.
+When a built-in Mac array exposes multiple channels, it also computes a small
+channel-correlation matrix. Capture is capped at three channels so this work
+remains bounded; production telemetry should still be used to validate callback
+headroom across older Intel Macs.
 
 ### 4. Queue policy is now adaptive, but still empirical
 
@@ -257,6 +292,8 @@ Outbound realtime queue sizing and drain timeout now scale with chunk duration, 
 - If a background task needs to update the UI, emit an intent and marshal it onto the main thread.
 - If a task is best-effort and non-realtime, prefer `BackgroundExecutor` over a raw `threading.Thread(...)`.
 - If a new realtime path touches audio, preserve the rule that the PortAudio callback never blocks on network operations.
+- If native microphone startup changes, preserve the hard deadline, the
+  single-in-flight circuit breaker, and generation-based rejection of late streams.
 - If a late callback could affect user-visible state, tie it to a session token or another invalidation mechanism.
 - If a new realtime SDK event path is added, keep SDK-managed threads as thin event producers and route consequences through one owned worker.
 - If automatic dictionary learning changes, keep edit observation and model

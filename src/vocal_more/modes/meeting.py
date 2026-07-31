@@ -73,19 +73,33 @@ class MeetingMode(BaseMode):
         return None
 
     def _start_recording(self) -> None:
-        self._active_session_token = self._begin_session()
+        session_token = self._begin_session()
+        self._active_session_token = session_token
         self._active_recording_id = None
         self._set_state(ModeState.STARTING)
         try:
             self._recorder.start()
         except Exception as exc:
+            if (
+                not self._is_active_session(session_token)
+                or self._state != ModeState.STARTING
+            ):
+                return
             self._report_startup_failure(exc)
+            return
+        if (
+            not self._is_active_session(session_token)
+            or self._state != ModeState.STARTING
+        ):
+            self._recorder.stop()
             return
         self._set_state(ModeState.RECORDING)
 
     def _report_startup_failure(self, exc: Exception) -> None:
         if self.on_error:
-            if isinstance(exc, AudioRecorderStartError) and exc.device_change_detected:
+            if isinstance(exc, AudioRecorderStartError) and exc.startup_timed_out:
+                self.on_error(t(self.config.ui.language, "mode_microphone_start_timeout"))
+            elif isinstance(exc, AudioRecorderStartError) and exc.device_change_detected:
                 self.on_error(t(self.config.ui.language, "mode_microphone_device_changed"))
             else:
                 self.on_error(
@@ -198,7 +212,7 @@ class MeetingMode(BaseMode):
         previous_state = self._state
         self._active_session_token = self._invalidate_session(reason=reason)
         self._set_state(ModeState.CANCELLING)
-        if previous_state == ModeState.RECORDING:
+        if previous_state in (ModeState.STARTING, ModeState.RECORDING):
             self._recorder.stop()
         elif previous_state == ModeState.PROCESSING:
             self._mark_active_recording_canceled()

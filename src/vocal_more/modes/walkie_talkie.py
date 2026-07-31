@@ -116,7 +116,8 @@ class WalkieTalkieMode(BaseMode):
         if self._state != ModeState.IDLE:
             return
 
-        self._active_session_token = self._begin_session()
+        session_token = self._begin_session()
+        self._active_session_token = session_token
         self._recording_asr_model = self.config.asr.model
         context_instruction = self._prepare_app_context()
         self._set_state(ModeState.STARTING)
@@ -124,8 +125,21 @@ class WalkieTalkieMode(BaseMode):
         try:
             self._recorder.start()  # Audio chunks → _on_audio_chunk → ASR
         except Exception as exc:
+            if (
+                not self._is_active_session(session_token)
+                or self._state != ModeState.STARTING
+            ):
+                return
             print(f"[WalkieTalkie] Failed to open audio device: {exc}")
             self._report_startup_failure(exc, stage="microphone")
+            return
+
+
+        if (
+            not self._is_active_session(session_token)
+            or self._state != ModeState.STARTING
+        ):
+            self._recorder.stop()
             return
 
         try:
@@ -142,11 +156,29 @@ class WalkieTalkieMode(BaseMode):
             self._report_startup_failure(exc, stage="asr")
             return
 
+
+        if (
+            not self._is_active_session(session_token)
+            or self._state != ModeState.STARTING
+        ):
+            self._recorder.stop()
+            try:
+                self._asr.stop()
+            except Exception:
+                pass
+            return
+
         self._set_state(ModeState.RECORDING)
 
     def _report_startup_failure(self, exc: Exception, *, stage: str) -> None:
         if self.on_error:
             if (
+                stage == "microphone"
+                and isinstance(exc, AudioRecorderStartError)
+                and exc.startup_timed_out
+            ):
+                self.on_error(t(self.config.ui.language, "mode_microphone_start_timeout"))
+            elif (
                 stage == "microphone"
                 and isinstance(exc, AudioRecorderStartError)
                 and exc.device_change_detected
@@ -273,12 +305,13 @@ class WalkieTalkieMode(BaseMode):
         )
         self._active_session_token = self._invalidate_session(reason=reason)
         self._set_state(ModeState.CANCELLING)
-        if previous_state == ModeState.RECORDING:
+        if previous_state in (ModeState.STARTING, ModeState.RECORDING):
             self._recorder.stop()
-            try:
-                self._asr.stop()
-            except Exception:
-                pass
+            if previous_state == ModeState.RECORDING:
+                try:
+                    self._asr.stop()
+                except Exception:
+                    pass
 
         self._recording_asr_model = self.config.asr.model
         self._clear_app_context()

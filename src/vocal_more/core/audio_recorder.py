@@ -3,6 +3,7 @@
 import io
 import os
 from pathlib import Path
+import platform
 import threading
 import time
 import wave
@@ -22,14 +23,37 @@ _PORTAUDIO_RECOVERY_MARKERS = (
 )
 _PORTAUDIO_RESET_LOCK = threading.Lock()
 _STREAM_RELEASE_THREAD_NAME = "vocal-more-audio-stream-release"
+_STREAM_START_THREAD_NAME = "vocal-more-audio-stream-start"
+_DEFAULT_START_TIMEOUT_SECONDS = 1.5
+_MAX_MACOS_ARRAY_CHANNELS = 3
+_MACOS_ARRAY_DEVICE_MARKERS = (
+    "macbook",
+    "imac",
+    "studio display",
+    "mac studio",
+    "mac pro",
+    "mac mini",
+    "built-in microphone",
+    "internal microphone",
+    "内建麦克风",
+    "内置麦克风",
+    "麦克风阵列",
+)
 
 
 class AudioRecorderStartError(RuntimeError):
     """Raised when microphone startup fails after all recovery attempts."""
 
-    def __init__(self, details: str, *, device_change_detected: bool = False):
+    def __init__(
+        self,
+        details: str,
+        *,
+        device_change_detected: bool = False,
+        startup_timed_out: bool = False,
+    ):
         super().__init__(details)
         self.device_change_detected = device_change_detected
+        self.startup_timed_out = startup_timed_out
 
 
 class AudioRecorder:
@@ -43,6 +67,7 @@ class AudioRecorder:
         on_audio_chunk: Optional[Callable[[bytes], None]] = None,
         on_audio_level: Optional[Callable[[float], None]] = None,
         device: Optional[str] = None,
+        start_timeout: float = _DEFAULT_START_TIMEOUT_SECONDS,
     ):
         """Initialize the audio recorder.
 
@@ -53,6 +78,8 @@ class AudioRecorder:
             on_audio_chunk: Callback for real-time audio chunks
             on_audio_level: Callback for real-time audio RMS level (0.0~1.0)
             device: Input device name (None = from config, then system default)
+            start_timeout: Hard deadline for opening CoreAudio/PortAudio. Native
+                calls that exceed it are abandoned on an isolated daemon thread.
         """
         config = get_config()
         self.sample_rate = sample_rate or config.audio.sample_rate
@@ -65,9 +92,13 @@ class AudioRecorder:
         self._gain: float = config.audio.gain
         self._highpass_filter: bool = config.audio.highpass_filter
         self._soft_limiter: bool = config.audio.soft_limiter
+        self._start_timeout = max(0.01, float(start_timeout))
 
         self._stream: Optional[sd.InputStream] = None
         self._stream_release_thread: Optional[threading.Thread] = None
+        self._stream_start_thread: Optional[threading.Thread] = None
+        self._start_generation = 0
+        self._array_processing_active = False
         self._audio_buffer: list[bytes] = []
         self._is_recording = False
         self._lock = threading.Lock()
@@ -108,9 +139,15 @@ class AudioRecorder:
         on_audio_chunk = self.on_audio_chunk
         on_audio_level = self._on_audio_level
 
-        # 1. High-pass filter: remove <80Hz rumble (fans, hum, plosives)
+        # Built-in Mac microphone arrays may expose two or three capsules. Mix
+        # coherent speech before the voice pipeline while keeping the ASR wire
+        # format mono. This also fixes configured stereo devices producing
+        # invalid interleaved data when the high-pass filter is disabled.
+        mono_input = self._coherent_array_downmix(indata)
+
+        # 1. High-pass filter: remove low-frequency rumble (fans, hum, plosives)
         if highpass_filter:
-            samples = indata[:, 0].tolist()
+            samples = mono_input[:, 0].tolist()
             alpha = self._hp_alpha
             prev_in = self._hp_prev_in
             prev_out = self._hp_prev_out
@@ -123,7 +160,7 @@ class AudioRecorder:
             self._hp_prev_out = prev_out
             filtered = np.asarray(out, dtype=np.float32).reshape(-1, 1)
         else:
-            filtered = indata
+            filtered = mono_input
 
         # 2. Compute RMS on filtered signal
         rms = float(np.sqrt(np.mean(filtered ** 2)))
@@ -164,19 +201,82 @@ class AudioRecorder:
         with self._lock:
             if self._is_recording:
                 return
+            if self._stream_start_thread and self._stream_start_thread.is_alive():
+                raise AudioRecorderStartError(
+                    "A previous microphone startup is still blocked in CoreAudio",
+                    startup_timed_out=True,
+                )
             self._audio_buffer = []
             self._is_recording = True
             self._hp_prev_in = 0.0
             self._hp_prev_out = 0.0
+            self._array_processing_active = False
+            self._start_generation += 1
+            generation = self._start_generation
 
-        try:
-            self._start_stream_with_recovery()
-        except Exception as exc:
+        done = threading.Event()
+        result_box: dict[str, object] = {}
+        worker = threading.Thread(
+            target=self._run_stream_start,
+            args=(generation, done, result_box),
+            name=_STREAM_START_THREAD_NAME,
+            daemon=True,
+        )
+        with self._lock:
+            self._stream_start_thread = worker
+        worker.start()
+
+        if not done.wait(timeout=self._start_timeout):
+            stream = None
+            with self._lock:
+                if generation == self._start_generation:
+                    self._start_generation += 1
+                self._is_recording = False
+                stream = self._stream
+                self._stream = None
+                self._array_processing_active = False
+            if stream is not None:
+                self._release_stream_async(stream)
+            raise AudioRecorderStartError(
+                f"Microphone startup exceeded {self._start_timeout:.2f}s",
+                startup_timed_out=True,
+            )
+
+        error = result_box.get("error")
+        if error is not None:
             with self._lock:
                 self._is_recording = False
-            if isinstance(exc, AudioRecorderStartError):
-                raise
-            raise AudioRecorderStartError(str(exc)) from exc
+                self._array_processing_active = False
+            if isinstance(error, AudioRecorderStartError):
+                raise error
+            raise AudioRecorderStartError(str(error)) from error
+
+    def _run_stream_start(
+        self,
+        generation: int,
+        done: threading.Event,
+        result_box: dict[str, object],
+    ) -> None:
+        """Own one potentially blocking native startup attempt."""
+        stream = None
+        try:
+            stream = self._start_stream_with_recovery()
+        except Exception as exc:
+            result_box["error"] = exc
+        else:
+            with self._lock:
+                accepted = (
+                    generation == self._start_generation and self._is_recording
+                )
+                if accepted:
+                    self._stream = stream
+            if not accepted and stream is not None:
+                self._release_stream_async(stream)
+        finally:
+            with self._lock:
+                if self._stream_start_thread is threading.current_thread():
+                    self._stream_start_thread = None
+            done.set()
 
     def stop(self) -> bytes:
         """Stop recording and return PCM audio data.
@@ -198,20 +298,15 @@ class AudioRecorder:
 
         with self._lock:
             self._is_recording = False
+            self._start_generation += 1
             stream = self._stream
             self._stream = None
+            self._array_processing_active = False
             audio_data = b"".join(self._audio_buffer)
             self._audio_buffer = []
 
         if stream is not None:
-            release_thread = threading.Thread(
-                target=self._release_stream,
-                args=(stream,),
-                name=_STREAM_RELEASE_THREAD_NAME,
-                daemon=True,
-            )
-            self._stream_release_thread = release_thread
-            release_thread.start()
+            self._release_stream_async(stream)
 
         return audio_data
 
@@ -230,6 +325,22 @@ class AudioRecorder:
             stream.close()
         except Exception as exc:
             print(f"[AudioRecorder] Failed to close detached stream: {exc}")
+
+    def _release_stream_async(self, stream) -> None:
+        release_thread = threading.Thread(
+            target=self._release_stream,
+            args=(stream,),
+            name=_STREAM_RELEASE_THREAD_NAME,
+            daemon=True,
+        )
+        self._stream_release_thread = release_thread
+        release_thread.start()
+
+    @property
+    def array_processing_active(self) -> bool:
+        """Whether the active stream uses multiple Mac array capsules."""
+        with self._lock:
+            return self._array_processing_active
 
     @property
     def benchmark_audio_delivery(self) -> str:
@@ -252,25 +363,23 @@ class AudioRecorder:
         with self._lock:
             return b"".join(self._audio_buffer)
 
-    def _start_stream_with_recovery(self) -> None:
+    def _start_stream_with_recovery(self):
         """Open the input stream, then rebuild PortAudio once if it is wedged."""
         if self._benchmark_replay_path is not None:
             self._start_benchmark_replay(self._benchmark_replay_path)
-            return
+            return None
 
         if self._use_config_device:
             self._device_name = get_config().audio.input_device
         device_index = self._resolve_device()
 
         try:
-            self._open_stream_with_fallback(device_index)
-            return
+            return self._open_stream_with_fallback(device_index)
         except Exception as initial_error:
             if self._should_retry_after_portaudio_reset(initial_error):
                 if self._recover_portaudio_state(initial_error):
                     try:
-                        self._open_stream_with_fallback(self._resolve_device())
-                        return
+                        return self._open_stream_with_fallback(self._resolve_device())
                     except Exception as retry_error:
                         raise AudioRecorderStartError(
                             str(retry_error),
@@ -345,28 +454,159 @@ class AudioRecorder:
         finally:
             self._benchmark_replay_done.set()
 
-    def _open_stream_with_fallback(self, device_index: Optional[int]) -> None:
+    def _open_stream_with_fallback(self, device_index: Optional[int]):
         try:
-            self._open_stream(device_index)
+            return self._open_stream(device_index)
         except sd.PortAudioError:
             if device_index is None:
                 raise
             print(f"Device '{self._device_name}' failed, falling back to default")
             if self._use_config_device:
                 self._clear_unavailable_device()
-            self._open_stream(None)
+            return self._open_stream(None)
 
-    def _open_stream(self, device_index: Optional[int]) -> None:
+    def _open_stream(self, device_index: Optional[int]):
+        capture_channels, array_processing = self._capture_profile(device_index)
+        try:
+            stream = self._create_started_stream(device_index, capture_channels)
+        except sd.PortAudioError:
+            if not array_processing:
+                raise
+            print(
+                "[AudioRecorder] Raw Mac microphone-array format unavailable; "
+                "using the system beamformed mono input"
+            )
+            stream = self._create_started_stream(device_index, 1)
+            array_processing = False
+        with self._lock:
+            self._array_processing_active = array_processing
+        return stream
+
+    def _create_started_stream(self, device_index: Optional[int], channels: int):
         stream = sd.InputStream(
             samplerate=self.sample_rate,
-            channels=self.channels,
+            channels=channels,
             blocksize=self.blocksize,
             dtype=np.float32,
             callback=self._audio_callback,
             device=device_index,
         )
-        stream.start()
-        self._stream = stream
+        try:
+            stream.start()
+        except Exception:
+            self._release_stream_async(stream)
+            raise
+        return stream
+
+    def _capture_profile(self, device_index: Optional[int]) -> tuple[int, bool]:
+        """Choose physical capture channels without changing mono ASR output."""
+        device = self._device_info(device_index)
+        if device is None:
+            return max(1, self.channels), False
+
+        max_channels = max(1, int(device.get("max_input_channels", 1)))
+        requested_channels = min(max(1, self.channels), max_channels)
+        if not self._is_macos_builtin_array(device):
+            return requested_channels, False
+
+        capture_channels = min(max_channels, _MAX_MACOS_ARRAY_CHANNELS)
+        return capture_channels, capture_channels > 1
+
+    @staticmethod
+    def _is_macos_builtin_array(device: dict) -> bool:
+        if platform.system() != "Darwin":
+            return False
+        if int(device.get("max_input_channels", 0)) < 2:
+            return False
+        name = str(device.get("name", "")).strip().lower()
+        return any(marker in name for marker in _MACOS_ARRAY_DEVICE_MARKERS)
+
+    @staticmethod
+    def _coherent_array_downmix(indata: np.ndarray) -> np.ndarray:
+        """Polarity-align coherent array channels and return float32 mono.
+
+        macOS normally performs device-level beamforming for its built-in
+        microphones. Some CoreAudio devices expose the capsules separately,
+        though. A raw mean can cancel speech when a capsule has inverted
+        polarity, while selecting channel zero throws away spatial noise
+        reduction. This coherence gate keeps speech-correlated capsules,
+        aligns polarity, and averages them. Uncorrelated channels are excluded
+        so an unrelated noisy input cannot dominate the mix.
+        """
+        samples = (
+            indata
+            if isinstance(indata, np.ndarray) and indata.dtype == np.float32
+            else np.asarray(indata, dtype=np.float32)
+        )
+        if samples.ndim == 1:
+            return samples.reshape(-1, 1)
+        if samples.shape[1] <= 1:
+            return samples[:, :1]
+
+        centered = samples - np.mean(samples, axis=0, keepdims=True)
+        energy = np.sqrt(np.sum(centered * centered, axis=0))
+        active = energy > 1e-7
+        if not np.any(active):
+            return np.mean(samples, axis=1, keepdims=True, dtype=np.float32)
+
+        denominator = np.outer(energy, energy)
+        correlation = np.zeros(
+            (samples.shape[1], samples.shape[1]),
+            dtype=np.float32,
+        )
+        np.divide(
+            centered.T @ centered,
+            denominator,
+            out=correlation,
+            where=denominator > 1e-12,
+        )
+        # Pick the capsule most coherent with the rest, rather than the loudest
+        # capsule, which is often the one nearest a fan or keyboard.
+        reference = int(np.argmax(np.sum(np.abs(correlation), axis=1)))
+        anchor = int(np.flatnonzero(active)[0])
+        reference_correlation = correlation[reference]
+        included = active & (np.abs(reference_correlation) >= 0.15)
+        included[reference] = True
+        polarity = np.where(reference_correlation < 0, -1.0, 1.0).astype(
+            np.float32
+        )
+        aligned = samples[:, included] * polarity[included]
+        mixed = np.mean(aligned, axis=1, keepdims=True, dtype=np.float32)
+        # Coherence chooses the cleanest reference, but preserve the polarity
+        # convention of the device's first active channel for stable output.
+        if correlation[reference, anchor] < 0:
+            mixed = -mixed
+        return mixed
+
+    @staticmethod
+    def _default_input_device_index() -> Optional[int]:
+        try:
+            default_device = sd.default.device
+            index = default_device[0]
+            return int(index) if index is not None and int(index) >= 0 else None
+        except (AttributeError, IndexError, TypeError, ValueError):
+            return None
+
+    def _device_info(self, device_index: Optional[int]) -> Optional[dict]:
+        target_index = (
+            device_index
+            if device_index is not None
+            else self._default_input_device_index()
+        )
+        if target_index is None:
+            return None
+        try:
+            devices = sd.query_devices()
+        except Exception as exc:
+            print(f"[AudioRecorder] Failed to inspect input device: {exc}")
+            return None
+        for device in devices:
+            try:
+                if int(device.get("index", -1)) == int(target_index):
+                    return device
+            except (AttributeError, TypeError, ValueError):
+                continue
+        return None
 
     def _should_retry_after_portaudio_reset(self, error: Exception) -> bool:
         if isinstance(error, sd.PortAudioError):
