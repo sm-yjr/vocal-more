@@ -1910,6 +1910,33 @@ def test_start_abandons_late_warm_keeper_reconnect(monkeypatch):
     assert engine._conversation is original
 
 
+def test_start_never_joins_a_blocked_warm_keeper(monkeypatch):
+    """Starting dictation must retire warm ownership without a 250 ms wait."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    class BlockedKeeper:
+        join_calls = 0
+
+        @staticmethod
+        def is_alive():
+            return True
+
+        def join(self, timeout=None):
+            self.join_calls += 1
+
+    engine = asr_engine.ASREngine()
+    keeper = BlockedKeeper()
+    engine._warm_keeper_thread = keeper
+    engine._warm_keeper_stop = threading.Event()
+    monkeypatch.setattr(engine, "_connect", MagicMock())
+
+    engine.start()
+
+    assert keeper.join_calls == 0
+    assert engine.is_running() is True
+    engine.close()
+
+
 def test_abandoned_warm_keeper_exits_after_failed_reconnect(monkeypatch):
     """An abandoned keeper must exit when its reconnect fails."""
     import vocal_more.core.asr_engine as asr_engine

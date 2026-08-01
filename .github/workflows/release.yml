@@ -86,8 +86,14 @@ jobs:
             echo "Tag version '$tag_version' does not match pyproject version '$version'." >&2
             exit 1
           fi
+          notes_path="$GITHUB_WORKSPACE/docs/releases/$version.md"
+          if [[ ! -s "$notes_path" ]]; then
+            echo "Release notes are missing or empty: $notes_path" >&2
+            exit 1
+          fi
           echo "VOCAL_MORE_VERSION=$version" >> "$GITHUB_ENV"
           echo "DMG_PATH=$GITHUB_WORKSPACE/dist/Vocal-More-$version.dmg" >> "$GITHUB_ENV"
+          echo "VOCAL_MORE_RELEASE_NOTES_PATH=$notes_path" >> "$GITHUB_ENV"
 
       - name: Import signing certificate
         env:
@@ -176,9 +182,14 @@ jobs:
           tag="$GITHUB_REF_NAME"
           title="Vocal-More $VOCAL_MORE_VERSION"
           if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" \
+              --title "$title" \
+              --notes-file "$VOCAL_MORE_RELEASE_NOTES_PATH"
             gh release upload "$tag" "$DMG_PATH" --clobber
           else
-            gh release create "$tag" "$DMG_PATH" --title "$title" --generate-notes
+            gh release create "$tag" "$DMG_PATH" \
+              --title "$title" \
+              --notes-file "$VOCAL_MORE_RELEASE_NOTES_PATH"
           fi
 
       - name: Publish signed Sparkle appcast

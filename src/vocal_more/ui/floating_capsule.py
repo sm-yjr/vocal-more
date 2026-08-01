@@ -73,6 +73,7 @@ class FloatingCapsule:
         self._panel: Optional[NSPanel] = None
         self._webview: Optional[WKWebView] = None
         self._current_mode: Optional[str] = None
+        self._current_state: str = "hidden"
 
         # Thread-safe calibrated level: audio thread writes, main thread reads
         self._latest_audio_level: float = 0.0
@@ -167,6 +168,7 @@ class FloatingCapsule:
     def _show_on_main_thread(self, mode: str) -> None:
         self._ensure_setup()
         self._current_mode = mode
+        self._current_state = "recording"
         self._panel.setIgnoresMouseEvents_(mode in {"pushToTalk", "meeting"})
 
         # Cancel any pending hide timer from a previous hide() call
@@ -219,6 +221,7 @@ class FloatingCapsule:
 
     def _hide_on_main_thread(self) -> None:
         self._stop_push_timer()
+        self._current_state = "hidden"
         self._eval_js("updateState('hidden')")
 
         # Cancel any previously scheduled hide timer
@@ -247,7 +250,14 @@ class FloatingCapsule:
             self._hide_on_main_thread()
             return
 
+        # ModeState.STOPPING and ModeState.PROCESSING intentionally map to the
+        # same visible state. Re-sending ``processing`` would restart the JS
+        # asymptotic timer and make a growing progress bar jump backwards.
+        if state == self._current_state:
+            return
+
         self._ensure_setup()
+        self._current_state = state
         self._eval_js(f"updateState('{state}')")
 
         if state == "processing":

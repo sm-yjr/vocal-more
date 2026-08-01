@@ -80,15 +80,22 @@ gh secret set SPARKLE_PRIVATE_KEY < sparkle-private-key
 
 ## Release Flow
 
-Update `pyproject.toml`, refresh `uv.lock`, commit the changes, then push a
-matching tag:
+Every release must include a non-empty `docs/releases/<version>.md` file. This
+file is the source of truth for both the GitHub Release body and the release
+notes embedded in the signed Sparkle appcast. The workflow rejects a tag when
+the matching file is missing or empty, and reapplies it when retrying an
+existing release.
+
+Update `pyproject.toml`, keep the editable project version in `uv.lock` aligned,
+write the release notes, commit the changes, then push a matching tag:
 
 ```bash
 git tag v0.2.2
 git push origin v0.2.2
 ```
 
-The workflow fails early if the tag version does not match the project version.
+The workflow fails early if the tag version does not match the project version
+or `docs/releases/0.2.2.md` is absent.
 
 Delta generation depends on the preceding GitHub Release retaining its
 original `Vocal-More-<version>.dmg` asset. Do not delete the most recent stable

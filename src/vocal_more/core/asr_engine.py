@@ -2055,14 +2055,22 @@ class ASREngine:
         if callback is not None:
             callback.close()
 
-    def _stop_warm_keeper(self) -> None:
+    def _stop_warm_keeper(self, *, wait: bool = True) -> None:
+        """Retire warm-session ownership, optionally waiting for its worker.
+
+        Generation invalidation is sufficient on the latency-sensitive start
+        path: a reconnect that returns late closes its own candidate and cannot
+        publish into the active session. Bounded joining remains useful during
+        shutdown and explicit runtime refreshes.
+        """
         with self._lock:
             keeper = self._warm_keeper_thread
             stop_event = self._warm_keeper_stop
             stop_event.set()
             self._warm_generation += 1
         if (
-            keeper is not None
+            wait
+            and keeper is not None
             and keeper is not threading.current_thread()
             and keeper.is_alive()
         ):
@@ -2486,7 +2494,10 @@ class ASREngine:
             ),
         )
 
-        self._stop_warm_keeper()
+        # Starting dictation is latency-sensitive. Ownership was already
+        # invalidated above, so never spend up to 250 ms joining a keeper that
+        # may be blocked inside the SDK's reconnect call.
+        self._stop_warm_keeper(wait=False)
         connect_done = threading.Event()
         with self._lock:
             self._session_generation += 1

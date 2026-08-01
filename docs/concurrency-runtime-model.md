@@ -248,6 +248,13 @@ close itself instead of publishing. An old socket callback cannot mutate the
 new trace/result, and a sender that dequeued old PCM before abort must reject it
 at its generation checks rather than append it to session 2.
 
+Starting a new dictation retires warm-keeper ownership by setting its stop event
+and advancing the warm generation, but does not join that thread on the hot
+path. A keeper blocked in SDK reconnect therefore cannot add the former 250 ms
+shutdown budget to microphone startup. Its late candidate is still rejected by
+the same stop-event and generation checks. Explicit refresh, abort, and shutdown
+paths retain the bounded join for resource cleanup.
+
 After a dictation finishes, the conversation that received its audio is closed
 and its callback worker is released. A warm-keeper thread then establishes a
 new conversation with no committed items and retains that clean connection for

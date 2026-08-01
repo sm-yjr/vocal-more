@@ -429,6 +429,38 @@ def test_floating_capsule_waveform_interpolates_and_respects_reduced_motion():
     assert "style.transform = `scaleY(" in html
 
 
+def test_floating_capsule_does_not_restart_equivalent_processing_state(
+    tmp_path, monkeypatch
+):
+    """STOPPING -> PROCESSING must not reset the same visible progress session."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    capsule_module = importlib.import_module("vocal_more.ui.floating_capsule")
+    capsule_module = importlib.reload(capsule_module)
+    capsule = capsule_module.FloatingCapsule.__new__(
+        capsule_module.FloatingCapsule
+    )
+    capsule._current_state = "recording"
+    capsule._panel = MagicMock()
+    capsule._ensure_setup = MagicMock()
+    capsule._eval_js = MagicMock()
+    capsule._stop_push_timer = MagicMock()
+
+    capsule._update_state_on_main_thread("processing")
+    capsule._update_state_on_main_thread("processing")
+
+    capsule._eval_js.assert_called_once_with("updateState('processing')")
+    capsule._stop_push_timer.assert_called_once_with()
+
+
 def test_app_state_change_marshals_to_main_thread(tmp_path, monkeypatch):
     from vocal_more.config import Config
 

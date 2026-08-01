@@ -347,6 +347,16 @@ def test_release_workflow_tests_and_builds_settings_frontend():
     assert "npm --prefix frontend/settings run build" in workflow
 
 
+def test_release_workflow_requires_and_publishes_versioned_release_notes():
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+
+    assert 'notes_path="$GITHUB_WORKSPACE/docs/releases/$version.md"' in workflow
+    assert '[[ ! -s "$notes_path" ]]' in workflow
+    assert 'VOCAL_MORE_RELEASE_NOTES_PATH=$notes_path' in workflow
+    assert '--notes-file "$VOCAL_MORE_RELEASE_NOTES_PATH"' in workflow
+    assert 'gh release edit "$tag"' in workflow
+
+
 def test_sparkle_nested_services_are_signed_in_official_order():
     sign_script = (ROOT / "packaging" / "macos" / "sign_sparkle.sh").read_text()
     ordered_targets = [
