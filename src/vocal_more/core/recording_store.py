@@ -14,11 +14,16 @@ from pathlib import Path
 from typing import Optional
 
 from ..application.background_executor import BackgroundExecutor, TaskHandle
+from ..domain.audio_contract import (
+    OUTPUT_CHANNELS,
+    OUTPUT_SAMPLE_RATE_HZ,
+    PCM_SAMPLE_WIDTH_BYTES,
+)
 
 
-SAMPLE_RATE = 16000
-CHANNELS = 1
-SAMPLE_WIDTH = 2
+SAMPLE_RATE = OUTPUT_SAMPLE_RATE_HZ
+CHANNELS = OUTPUT_CHANNELS
+SAMPLE_WIDTH = PCM_SAMPLE_WIDTH_BYTES
 MAX_RECORDINGS = 30
 _MISSING = object()
 _RUNNING_MEETING_STATUSES = {"transcribing", "summarizing"}

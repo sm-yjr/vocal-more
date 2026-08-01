@@ -40,6 +40,11 @@ describe("settings application", () => {
     await user.click(screen.getByRole("button", { name: "轻声办公" }))
     expect(postMessage).toHaveBeenCalledWith({
       action: "setConfig",
+      key: "audio.gain_mode",
+      value: "manual",
+    })
+    expect(postMessage).toHaveBeenCalledWith({
+      action: "setConfig",
       key: "audio.gain",
       value: 8,
     })
@@ -198,6 +203,11 @@ describe("settings application", () => {
     })
     expect(postMessage).toHaveBeenCalledWith({
       action: "setConfig",
+      key: "audio.gain_mode",
+      value: "manual",
+    })
+    expect(postMessage).toHaveBeenCalledWith({
+      action: "setConfig",
       key: "audio.gain",
       value: 8,
     })
@@ -215,6 +225,11 @@ describe("settings application", () => {
       processing_active: false,
       array_processing_active: false,
       echo_cancellation: "ready",
+      gain_control: "apple_agc",
+      phase: "planned",
+      microphone_permission: "authorized",
+      native_backend: "pending",
+      agc_enabled_observed: null,
       fallback_reason: null,
     }
     const { store } = renderApp(data)
@@ -223,16 +238,128 @@ describe("settings application", () => {
     expect(screen.getByText("MacBook Pro麦克风 · 1 通道")).toBeVisible()
     expect(screen.getByText("Apple 语音处理")).toBeVisible()
     expect(screen.getByText("回声消除将在录音时启用")).toBeVisible()
+    expect(screen.getByText("已授权")).toBeVisible()
+    expect(screen.getByText("等待下一次录音验证 · 录音启动时选择")).toBeVisible()
 
     act(() => {
       store.loadAudioInputStatus({
         ...data.audio_input_status!,
         processing_active: true,
         echo_cancellation: "active",
+        phase: "active",
+        native_backend: "objective_cpp",
+        source_sample_rate_hz: 48000,
+        source_channels: 1,
+        preferred_microphone_mode: "voice_isolation",
+        active_microphone_mode: "standard",
+        agc_enabled_observed: true,
+        gain_control_verified: true,
       })
     })
 
     expect(screen.getByText("回声消除已启用")).toBeVisible()
+    expect(screen.getByText("运行中 · 原生 Objective-C++")).toBeVisible()
+    expect(screen.getByText("48,000 Hz · 1 通道")).toBeVisible()
+    expect(screen.getByText("标准 · 用户偏好：语音突显")).toBeVisible()
+  })
+
+  it("shows whether the last session was really verified and localizes its backend", () => {
+    const data = makeInitData()
+    data.initial_tab = "audio"
+    data.audio_input_status = {
+      ...data.audio_input_status!,
+      phase: "inactive",
+      native_backend: "pending",
+      queue_dropped_blocks: 0,
+      last_session: {
+        phase: "completed",
+        native_backend: "objective_cpp",
+        gain_control_verified: true,
+        queue_dropped_blocks: 3,
+        runtime_fault_count: 0,
+      },
+    }
+
+    renderApp(data)
+
+    expect(screen.getByText("未验证 · 原生 Objective-C++")).toBeVisible()
+    expect(screen.getByText("3")).toBeVisible()
+  })
+
+  it("uses Apple AGC without stacking software gain or limiting", () => {
+    const data = makeInitData()
+    data.initial_tab = "audio"
+    data.config!.audio!.gain_mode = "automatic"
+    data.audio_input_status = {
+      ...data.audio_input_status!,
+      processing_mode: "macos_voice_processing",
+      gain_control: "apple_agc",
+      echo_cancellation: "ready",
+    }
+
+    renderApp(data)
+
+    expect(screen.getByRole("combobox", { name: "增益控制" })).toHaveValue(
+      "automatic",
+    )
+    expect(screen.getByText("Apple 自动增益将在录音时启用")).toBeVisible()
+    expect(
+      screen
+        .getByRole("group", { name: "软件增益" })
+        .querySelector('input[type="range"]'),
+    ).toBeDisabled()
+    expect(screen.getByRole("switch", { name: "软限制器" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
+  })
+
+  it("keeps the saved software controls available for automatic fallback", () => {
+    const data = makeInitData()
+    data.initial_tab = "audio"
+    data.config!.audio!.gain_mode = "automatic"
+    data.audio_input_status = {
+      ...data.audio_input_status!,
+      gain_control: "software_fallback",
+    }
+
+    renderApp(data)
+
+    expect(screen.getByText("Apple 自动增益不可用，使用软件增益回退")).toBeVisible()
+    expect(
+      screen
+        .getByRole("group", { name: "软件增益" })
+        .querySelector('input[type="range"]'),
+    ).toBeEnabled()
+  })
+
+  it("does not allow a manual preset to change mode during microphone capture", () => {
+    const data = makeInitData()
+    data.initial_tab = "audio"
+    const { store } = renderApp(data)
+    act(() => store.micTestStarted())
+
+    expect(screen.getByRole("button", { name: "轻声办公" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "普通说话" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "嘈杂环境" })).toBeDisabled()
+  })
+
+  it("locks capture-path controls while a dictation session is active", () => {
+    const data = makeInitData()
+    data.initial_tab = "audio"
+    data.audio_input_status = {
+      ...data.audio_input_status!,
+      phase: "active",
+      processing_active: true,
+    }
+
+    renderApp(data)
+
+    expect(screen.getByRole("combobox", { name: "输入设备" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "刷新" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "轻声办公" })).toBeDisabled()
+    expect(screen.getByRole("combobox", { name: "增益控制" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "测试" })).toBeDisabled()
   })
 
   it("calibrates the capsule waveform full-scale level in dBFS", async () => {

@@ -15,6 +15,7 @@ export function makeInitData(): SettingsInitData {
       },
       audio: {
         input_device: "Built-in Microphone",
+        gain_mode: "manual",
         gain: 2,
         highpass_filter: true,
         highpass_freq: 200,
@@ -84,6 +85,7 @@ export function makeInitData(): SettingsInitData {
       processing_active: false,
       array_processing_active: false,
       echo_cancellation: "unavailable",
+      gain_control: "software",
       fallback_reason: null,
     },
     environment_checks: [

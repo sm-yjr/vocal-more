@@ -30,7 +30,7 @@ That follow-up milestone is now complete.
 
 ### P2: Pragmatic performance and terminology cleanup
 
-- audio callback work was reduced slightly by returning early once recording has already stopped
+- the preferred Apple path now limits the realtime tap to copying into a preallocated bounded queue; AVAudioConverter and DSP run on a native worker
 - realtime queue sizing now scales with recorder chunk duration instead of using one fixed chunk count blindly
 - sender drain timeout now scales with pending queue depth
 - terminology is now consistent across docs and logs:
@@ -48,7 +48,7 @@ This is no longer a “must-finish” backlog. What remains is optional refineme
 - keep doing manual desktop smoke tests after concurrency-sensitive changes
 - gather real-world telemetry before retuning queue/fallback thresholds again
 - decide whether inbound ASR events should eventually join the same serial owner as dictation commands instead of stopping at the callback-local worker
-- reduce audio callback DSP/PCM work further only if profiling shows it matters
+- profile the PyObjC/PortAudio fallback callbacks before moving any more DSP work out of them
 
 ## Recommended Next Milestone
 

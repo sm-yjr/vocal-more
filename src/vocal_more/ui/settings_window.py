@@ -415,6 +415,7 @@ class SettingsWindow:
         focus_recording_id: str = "",
         dictionary_learning_records: list | None = None,
         environment_checks: list | None = None,
+        audio_input_status: dict | None = None,
     ) -> None:
         """Show the settings window and populate with data."""
         # Bring app to front
@@ -432,7 +433,11 @@ class SettingsWindow:
             "asr_models": asr_models,
             "llm_models": llm_models,
             "devices": devices,
-            "audio_input_status": self._current_audio_input_status(),
+            "audio_input_status": (
+                dict(audio_input_status)
+                if isinstance(audio_input_status, dict)
+                else self._current_audio_input_status()
+            ),
             "dictionary": dictionary,
             "dictionary_learning_records": dictionary_learning_records or [],
             "context_profile": (
@@ -510,6 +515,7 @@ class SettingsWindow:
                 "processing_active": False,
                 "array_processing_active": False,
                 "echo_cancellation": "unavailable",
+                "gain_control": "software_fallback",
                 "fallback_reason": str(exc),
             }
 

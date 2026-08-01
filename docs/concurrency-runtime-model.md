@@ -72,12 +72,23 @@ thread and waits at most 1.5 seconds. This boundary exists because CoreAudio
 and PortAudio can block indefinitely after sleep/wake, a default-device change,
 or a Bluetooth route transition.
 
+Microphone privacy admission precedes that worker. When an explicit recording
+action first observes TCC `not_determined`, it starts the asynchronous
+`AVCaptureDevice.requestAccess` request, returns a recoverable “grant access and
+try again” result, and lets the mode leave `STARTING`. It does not enumerate
+devices, consume the 1.5-second deadline, wait for the completion handler, or
+automatically replay the released hotkey action. A later explicit action must
+observe `authorized` before device startup is admitted. Static capability
+probing never requests access.
+
 The startup path guarantees:
 
 - the dictation command coordinator regains control after the hard deadline
 - only one native startup attempt may be in flight for a recorder
 - every attempt has a generation token
 - a stream returned by a timed-out attempt is never published as active
+- Apple and PortAudio callbacks stay behind a bounded provisional gate until
+  that exact candidate is accepted; failed or retried candidates publish no PCM
 - unpublished or failed streams are released on the existing daemon release path
 - mode cancellation treats `STARTING` as active work, invalidates the mode
   session, and rechecks that token after both microphone and ASR startup
@@ -87,25 +98,64 @@ The containment policy therefore abandons that daemon attempt, rejects repeated
 starts while it remains blocked, and keeps hotkey cancellation, UI work, and
 application shutdown responsive.
 
-### 6. Audio callback thread owns audio capture only
+### 6. Native audio capture has two explicit queue boundaries
 
-`AudioRecorder._audio_callback()` runs on either the PortAudio callback thread
-or AVAudioEngine's voice-processing tap thread. Both sources obey the same
-bounded callback contract.
+The preferred macOS path no longer calls Python from AVAudioEngine's realtime
+tap. The Objective-C++ runtime owns these stages:
 
-It currently does:
+1. The VoiceProcessingIO tap copies mono Float32 frames into a preallocated raw
+   SPSC queue. A full queue drops the block and increments a counter; the tap
+   never waits.
+2. One native worker owns AVAudioConverter, the stateful high-pass filter, vDSP
+   level/gain/clipping operations, PCM16 conversion, and a second bounded SPSC
+   queue.
+3. One ordinary Python consumer thread reads complete 16 kHz mono PCM16 blocks,
+   appends them to the recorder buffer, and invokes `on_audio_chunk` and
+   `on_audio_level`.
 
-- coherence-aware, polarity-safe downmix when a Mac built-in microphone array
-  exposes multiple capsules
-- lightweight DSP needed for the low-voice pipeline
-- RMS computation
-- PCM conversion
-- append to the in-memory recording buffer
-- invoke `on_audio_chunk(audio_data)`
-- invoke `on_audio_level(rms)`
-- return immediately once recording has stopped, instead of doing late post-stop work
+The realtime tap does not allocate, log, perform file or network I/O, acquire
+the GIL, or invoke application callbacks. The native worker polls the raw queue
+with a 1 ms backoff when it is empty; neither producer may block on a full
+queue. Queue drops and runtime faults are surfaced through the recorder's
+active and last-session diagnostics.
 
-It no longer performs realtime network sends directly.
+The PyObjC Voice Processing and PortAudio implementations remain compatibility
+fallbacks. Their Python callback path still follows the older bounded contract:
+downmix if needed, apply the low-voice DSP, compute RMS and PCM16, append the
+buffer, notify observers, then return. Observer exceptions are contained and
+counted as recorder faults so PortAudio cannot silently truncate ASR while the
+session claims success. No capture path performs realtime network sends directly.
+
+One capture session owns an immutable plan: fixed application sample rate,
+block size, capture channels, device, AGC mode, gain, high-pass filter and
+limiter. UI, menu or RPC updates received during `STARTING`/`RECORDING` remain
+pending and are applied atomically at the next `start()` boundary.
+Completed-session diagnostics thus
+describe one stable plan instead of a mid-utterance mixture.
+
+The settings-window microphone test uses the same atomic session-plan entry
+point. Its controller binds each auto-stop timer to a session generation and
+claims the recorder and timer under one lifecycle lock before calling the
+potentially blocking native `stop()` outside that lock. A manual stop racing
+the five-second timer therefore drains the native stream exactly once, while a
+late timer from a previous test cannot stop a newly started recorder. A stop
+during startup invalidates the unpublished generation; the late recorder is
+closed without publishing `on_started`, PCM, or completion for the canceled
+test.
+
+The source sample rate is a device/route fact and can vary (48 kHz is common on
+built-in microphones). On the native Apple path, `AVAudioConverter` owns
+source-rate conversion. Every capture adapter must emit the fixed 16 kHz, mono,
+signed PCM16 application contract. The legacy `audio.sample_rate` key is
+normalized to 16 kHz and must not be used to describe an end-to-end
+variable-rate session.
+
+`AudioRecorder` construction is deliberately I/O-free. Its first status is an
+explicit `pending` placeholder; Core Audio device enumeration, selector probes
+and stream construction run either during an explicit idle inspection or on
+the bounded startup worker. A wedged `query_devices()` therefore cannot prevent
+mode dependency construction, and the 1.5 s command-facing start deadline also
+covers route discovery rather than starting only after discovery returns.
 
 Stopping detaches the active PortAudio stream and snapshots the completed PCM
 buffer synchronously. Stream abort/close then runs on a daemon release worker.
@@ -114,31 +164,59 @@ command coordinator in `STOPPING`; callbacks that finish after detachment drop
 their chunk instead of forwarding late audio.
 
 For a built-in microphone that is also the system-default input, the recorder
-first attempts Apple AVAudioEngine voice processing. Apple's I/O unit subtracts
-audio playing from the current output device from the microphone uplink, while
-the adapter converts the hardware-rate tap into fixed 16 kHz mono blocks. Apple
-automatic gain control is disabled because Vocal More already owns the
-low-voice gain and limiting stages. If native voice processing cannot start,
-the recorder reports that fallback and continues through PortAudio rather than
-failing dictation.
+first attempts the bundled Objective-C++ AVAudioEngine runtime, then the PyObjC
+Voice Processing adapter. Apple's I/O unit subtracts audio playing from the
+current output device from the microphone uplink, while AVAudioConverter
+band-limits and converts the hardware-rate tap into fixed 16 kHz mono blocks.
+In automatic gain mode, verified Apple AGC owns level control and Vocal More
+bypasses software gain and limiting. DSP ownership follows the post-start
+VP/AGC getter snapshots rather than the aggregate quality flag: a drop can make
+a session unverified, but it must not cause software gain to stack on top of
+Apple AGC. In manual mode, Apple AGC is verified off and the low-voice
+gain/limiter remains active. Verification is repeated after the engine starts.
+If Voice Processing or AGC verification cannot start, automatic mode reports
+the structured fallback and continues through the saved software gain path
+rather than failing dictation.
 
-Without Apple voice processing, MacBook, iMac, Mac Studio, Mac Pro, Mac mini,
-and Studio Display microphone devices may expose up to three input channels.
-The recorder captures those channels when available, rejects uncorrelated
-capsules, aligns inverted polarity, and emits the same mono 16 kHz PCM contract
-expected by ASR. External USB devices retain their configured channel count and
-are still normalized to mono before ASR delivery.
+`AudioRecorder.stop()` asks the active adapter to drain AVAudioConverter EOS and
+its final partial PCM block before snapshotting the completed session. Native
+drain has a 500 ms command-thread deadline. If CoreAudio exceeds it, the
+recorder returns the PCM already available, marks the completed session with
+`native_drain_timeout`, and lets daemon cleanup wait for the native call rather
+than destroying a handle still in use. The recorder publishes separate planned,
+active, and last-session state, so stopping does not rewrite a verified result
+into an unverified idle claim.
+
+Without Apple voice processing, MacBook, iMac, Studio Display, and devices
+explicitly named as built-in microphone endpoints may expose up to three input
+channels. Mac mini, Mac Studio, and Mac Pro model names are not treated as
+built-in microphone evidence because those products do not provide one.
+Safe default `capture_channels=1` keeps the system-provided mono route. Only an
+explicit value greater than one opts into the experimental logical-channel mix:
+it rejects uncorrelated signals, aligns inverted polarity, and emits the same
+mono 16 kHz PCM contract expected by ASR. The public API does not establish that
+logical channels map one-to-one to physical capsules, and no quality gain is
+claimed before hardware A/B. External USB devices retain their configured
+channel count and are still normalized to mono before ASR delivery.
 
 ### 7. ASR sender thread owns outbound realtime audio sends
 
 `ASREngine` now has one long-lived sender thread and one bounded outbound queue.
 
+Streaming modes call ASR admission before `AudioRecorder.start()`. Admission
+sets the current generation and opens the bounded queue before a recorder's
+provisional startup gate can publish its first verified PCM block. The mode
+still snapshots one audio plan and supplies that same snapshot to recorder and
+ASR, so ordering does not create two configuration epochs.
+
 The flow is:
 
 1. audio callback calls `ASREngine.send_audio(chunk)`
-2. `send_audio()` enqueues raw PCM into a bounded queue
-3. sender thread waits for session readiness
-4. sender thread base64-encodes and calls `conversation.append_audio(...)`
+2. `send_audio()` enqueues `(session_generation, raw_pcm)` into a bounded queue
+3. sender thread rejects stale generations, then waits for that session's
+   readiness
+4. sender thread rechecks generation/ownership before base64 encoding and
+   `conversation.append_audio(...)`
 
 If the queue fills or sender drain fails, the realtime path is marked degraded and finalize-time logic falls back to batch transcription using the full PCM recording.
 
@@ -152,6 +230,23 @@ If the queue fills or sender drain fails, the realtime path is marked degraded a
 - mark the session ready
 
 This startup path is still separate from the sender thread, but session readiness and failure flags are protected by the engine lock.
+
+At `ASREngine.start()`, the engine deep-copies the audio/session config. The
+connect thread, provider negotiation, queue timing, PCM duration, debug WAV and
+batch fallback all use that same snapshot. If UI or RPC changes block size or
+another session setting during an utterance, the current PCM remains 16 kHz
+mono PCM16 and uses its original snapshot; the new setting begins only at the
+next start boundary. A legacy request to change `audio.sample_rate` is simply
+normalized back to the fixed 16 kHz contract.
+
+Every connect candidate and callback owner is bound to the session generation.
+If microphone permission or stream startup fails after ASR admission, the mode
+calls the bounded `abort_startup()` path: it invalidates the generation, stops
+accepting audio, clears queued chunks, detaches the current conversation and
+returns without waiting for an uncooperative SDK connect. A late candidate must
+close itself instead of publishing. An old socket callback cannot mutate the
+new trace/result, and a sender that dequeued old PCM before abort must reject it
+at its generation checks rather than append it to session 2.
 
 After a dictation finishes, the conversation that received its audio is closed
 and its callback worker is released. A warm-keeper thread then establishes a
@@ -326,13 +421,16 @@ Modes now expose the explicit lifecycle states:
 
 The remaining implicit pieces are mostly inside engine-local flags such as session readiness, connection failure, warm-session reuse, and fallback state.
 
-### 3. Audio callback still performs some compute-heavy work
+### 3. Compatibility audio callbacks still perform bounded DSP work
 
-The callback no longer sends on the network, which was the biggest risk. It still performs DSP, RMS calculation, and PCM conversion inline.
-When a built-in Mac array exposes multiple channels, it also computes a small
-channel-correlation matrix. Capture is capped at three channels so this work
-remains bounded; production telemetry should still be used to validate callback
-headroom across older Intel Macs.
+The preferred Objective-C++ path moves conversion and DSP to its native worker;
+its AVAudioEngine tap only copies into a preallocated queue. The PyObjC and
+PortAudio compatibility callbacks still perform DSP, RMS calculation, and PCM
+conversion inline. When a built-in Mac array exposes multiple channels, the
+fallback path may also compute a small channel-correlation matrix. Capture is
+capped at three channels so this work remains bounded; production telemetry
+should still validate callback headroom on hardware where the native path is
+unavailable.
 
 ### 4. Queue policy is now adaptive, but still empirical
 

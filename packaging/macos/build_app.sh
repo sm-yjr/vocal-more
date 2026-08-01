@@ -19,7 +19,7 @@ elif [[ ! -f "$ROOT/resources/settings/settings.html" ]]; then
   exit 1
 fi
 
-rm -rf build dist
+rm -rf "$ROOT/build" "$ROOT/dist"
 rm -rf "$ROOT/packaging/macos/build" "$ROOT/packaging/macos/dist"
 
 if [[ -z "$BUILD_PYTHON" ]]; then
@@ -75,6 +75,12 @@ mkdir -p "$ROOT/dist"
 cp -R "$ROOT/packaging/macos/dist/Vocal More.app" "$ROOT/dist/"
 
 APP="$ROOT/dist/Vocal More.app"
+NATIVE_LIBRARY="$ROOT/build/native/libvocal_more_audio.dylib"
+"$ROOT/scripts/build_native_audio.sh" --output "$NATIVE_LIBRARY"
+export VOCAL_MORE_NATIVE_AUDIO_LIBRARY="$NATIVE_LIBRARY"
+mkdir -p "$APP/Contents/Frameworks"
+ditto "$NATIVE_LIBRARY" \
+  "$APP/Contents/Frameworks/libvocal_more_audio.dylib"
 "$BUILD_VENV/bin/python" \
   "$ROOT/packaging/macos/prune_app_bundle.py" \
   --target-arch "$TARGET_ARCH" \

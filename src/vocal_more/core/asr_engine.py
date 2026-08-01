@@ -1,6 +1,7 @@
 """ASR engine module using DashScope Qwen ASR models."""
 
 import base64
+from copy import deepcopy
 from datetime import datetime
 import json
 import os
@@ -23,6 +24,11 @@ from dashscope.audio.qwen_omni import (
 from dashscope.audio.qwen_omni.omni_realtime import TranscriptionParams
 
 from ..config import get_asr_model_info, get_config
+from ..domain.audio_contract import (
+    OUTPUT_CHANNELS,
+    OUTPUT_SAMPLE_RATE_HZ,
+    PCM_SAMPLE_WIDTH_BYTES,
+)
 from ..dictionary import build_asr_corpus_text, normalize_terms
 from ..infrastructure.asr.batch_engine import (
     analysis_window_frames as _batch_analysis_window_frames,
@@ -102,10 +108,15 @@ MIN_AUDIO_QUEUE_DRAIN_TIMEOUT_SECONDS = 2.0
 MAX_AUDIO_QUEUE_DRAIN_TIMEOUT_SECONDS = 10.0
 AUDIO_QUEUE_DRAIN_HEADROOM_SECONDS = 1.0
 AUDIO_QUEUE_DRAIN_MULTIPLIER = 2.0
+SESSION_UPDATE_WAIT_SLICE_SECONDS = 0.05
 
 _AUDIO_QUEUE_STOP = object()
 _CALLBACK_EVENT_STOP = object()
 _THREAD_CLASS = threading.Thread
+
+
+class _ASRSessionAborted(RuntimeError):
+    """Internal control flow for a connect invalidated by its owner."""
 
 
 def _apply_dashscope_api_key(config=None) -> None:
@@ -234,7 +245,11 @@ def _pcm_duration_seconds(audio_data: Optional[bytes], sample_rate: int, channel
 
 def _streaming_audio_chunk_bytes(config=None) -> int:
     config = config or get_config()
-    return max(1, config.audio.blocksize) * max(1, config.audio.channels) * 2
+    return (
+        max(1, config.audio.blocksize)
+        * OUTPUT_CHANNELS
+        * PCM_SAMPLE_WIDTH_BYTES
+    )
 
 
 def _streaming_audio_chunk_duration_seconds(config=None) -> float:
@@ -634,19 +649,19 @@ class BatchASREngine:
         self._context_instruction = ""
 
     def _frame_bytes(self) -> int:
-        return _batch_frame_bytes(self.config.audio.channels)
+        return _batch_frame_bytes(OUTPUT_CHANNELS)
 
     def _audio_bytes_per_second(self) -> int:
         return _batch_audio_bytes_per_second(
             self.config.audio.sample_rate,
-            self.config.audio.channels,
+            OUTPUT_CHANNELS,
         )
 
     def _audio_duration_seconds(self, audio_data: bytes) -> float:
         return _batch_audio_duration_seconds(
             audio_data,
             self.config.audio.sample_rate,
-            self.config.audio.channels,
+            OUTPUT_CHANNELS,
         )
 
     def _analysis_window_frames(self) -> int:
@@ -670,7 +685,7 @@ class BatchASREngine:
     ) -> float:
         return _batch_window_rms(
             samples,
-            channels=self.config.audio.channels,
+            channels=OUTPUT_CHANNELS,
             frame_start=frame_start,
             frame_end=frame_end,
         )
@@ -686,7 +701,7 @@ class BatchASREngine:
         return _batch_find_silence_aware_chunk_end(
             samples,
             sample_rate=self.config.audio.sample_rate,
-            channels=self.config.audio.channels,
+            channels=OUTPUT_CHANNELS,
             silence_window_seconds=OMNI_OFFLINE_SILENCE_WINDOW_SECONDS,
             silence_search_seconds=OMNI_OFFLINE_SILENCE_SEARCH_SECONDS,
             silence_rms_threshold=OMNI_OFFLINE_SILENCE_RMS_THRESHOLD,
@@ -704,7 +719,7 @@ class BatchASREngine:
         return _batch_split_audio_for_batch(
             audio_data,
             sample_rate=self.config.audio.sample_rate,
-            channels=self.config.audio.channels,
+            channels=OUTPUT_CHANNELS,
             max_duration_seconds=max_duration_seconds,
             silence_window_seconds=OMNI_OFFLINE_SILENCE_WINDOW_SECONDS,
             silence_search_seconds=OMNI_OFFLINE_SILENCE_SEARCH_SECONDS,
@@ -858,7 +873,9 @@ class BatchASREngine:
         request_mode: str = "batch",
     ) -> ASRDebugTrace:
         bytes_per_second = (
-            self.config.audio.sample_rate * self.config.audio.channels * 2
+            self.config.audio.sample_rate
+            * OUTPUT_CHANNELS
+            * PCM_SAMPLE_WIDTH_BYTES
         )
         audio_bytes = len(audio_data) if audio_data is not None else 0
         duration_ms = (audio_bytes / bytes_per_second * 1000) if bytes_per_second else 0.0
@@ -884,9 +901,9 @@ class BatchASREngine:
 
         if audio_data:
             with wave.open(str(wav_path), "wb") as wav_file:
-                wav_file.setnchannels(self.config.audio.channels)
-                wav_file.setsampwidth(2)
-                wav_file.setframerate(self.config.audio.sample_rate)
+                wav_file.setnchannels(OUTPUT_CHANNELS)
+                wav_file.setsampwidth(PCM_SAMPLE_WIDTH_BYTES)
+                wav_file.setframerate(trace.sample_rate)
                 wav_file.writeframes(audio_data)
 
         json_path.write_text(
@@ -909,7 +926,9 @@ class BatchASREngine:
 
     def _supports_short_file(self, audio_data: bytes) -> bool:
         bytes_per_second = (
-            self.config.audio.sample_rate * self.config.audio.channels * 2
+            self.config.audio.sample_rate
+            * OUTPUT_CHANNELS
+            * PCM_SAMPLE_WIDTH_BYTES
         )
         duration_seconds = len(audio_data) / bytes_per_second if bytes_per_second else 0
         wav_size = len(audio_data) + 44
@@ -991,7 +1010,7 @@ class BatchASREngine:
         audio_duration_seconds = _pcm_duration_seconds(
             audio_data,
             self.config.audio.sample_rate,
-            self.config.audio.channels,
+            OUTPUT_CHANNELS,
         )
         response_start_timeout = _adaptive_response_start_timeout(audio_duration_seconds)
         response_complete_timeout = _adaptive_response_complete_timeout(
@@ -1252,8 +1271,8 @@ class BatchASREngine:
             import io
             wav_buf = io.BytesIO()
             with wave.open(wav_buf, "wb") as wf:
-                wf.setnchannels(self.config.audio.channels)
-                wf.setsampwidth(2)
+                wf.setnchannels(OUTPUT_CHANNELS)
+                wf.setsampwidth(PCM_SAMPLE_WIDTH_BYTES)
                 wf.setframerate(self.config.audio.sample_rate)
                 wf.writeframes(audio_data)
             audio_b64 = base64.b64encode(wav_buf.getvalue()).decode("ascii")
@@ -1334,8 +1353,8 @@ class BatchASREngine:
             temp_path = temp_file.name
 
         with wave.open(temp_path, "wb") as wav_file:
-            wav_file.setnchannels(self.config.audio.channels)
-            wav_file.setsampwidth(2)
+            wav_file.setnchannels(OUTPUT_CHANNELS)
+            wav_file.setsampwidth(PCM_SAMPLE_WIDTH_BYTES)
             wav_file.setframerate(self.config.audio.sample_rate)
             wav_file.writeframes(audio_data)
 
@@ -1384,6 +1403,18 @@ class StreamingASRCallback(OmniRealtimeCallback):
 
     def set_debug_trace(self, trace: ASRDebugTrace) -> None:
         self._debug_trace = trace
+
+    def set_result_handlers(
+        self,
+        *,
+        on_partial: Optional[Callable[[ASRResult], None]],
+        on_final: Optional[Callable[[ASRResult], None]],
+        on_error: Optional[Callable[[str], None]],
+    ) -> None:
+        """Bind outward effects when a clean callback is claimed by a session."""
+        self._on_partial = on_partial
+        self._on_final = on_final
+        self._on_error = on_error
 
     def _elapsed_ms(self) -> float:
         return round((time.perf_counter() - self._started_at) * 1000, 2)
@@ -1854,7 +1885,8 @@ class ASREngine:
         self._session_ready = False
         self._connect_failed = False
         self._lock = threading.Lock()
-        self._audio_queue: queue.Queue[bytes | object] = queue.Queue(
+        self._session_generation = 0
+        self._audio_queue: queue.Queue[tuple[int, bytes] | object] = queue.Queue(
             maxsize=_streaming_audio_queue_max_chunks(self.config)
         )
         self._pending_audio_chunks = 0
@@ -1870,6 +1902,7 @@ class ASREngine:
         )
         self._sender_thread.start()
         self._batch_fallback = BatchASREngine()
+        self._session_config = deepcopy(self.config)
         self._session_model_id = self.config.asr.model
         self._conversation_model_id: Optional[str] = None
         self._conversation_is_clean = False
@@ -1891,7 +1924,9 @@ class ASREngine:
         if pcm_data is None:
             return
         bytes_per_second = (
-            self.config.audio.sample_rate * self.config.audio.channels * 2
+            self._session_config.audio.sample_rate
+            * OUTPUT_CHANNELS
+            * PCM_SAMPLE_WIDTH_BYTES
         )
         trace.audio_bytes = len(pcm_data)
         trace.audio_duration_ms = round(
@@ -1988,22 +2023,20 @@ class ASREngine:
                 "continuing cleanup in background"
             )
 
-    def _drop_conversation(self) -> Optional[OmniRealtimeConversation]:
-        with self._lock:
-            conversation = self._conversation
-            self._conversation = None
-            self._conversation_model_id = None
-            self._conversation_is_clean = False
-            self._session_ready = False
-        return conversation
-
     def _drop_conversation_with_callback(
         self,
+        *,
+        expected_generation: Optional[int] = None,
     ) -> tuple[
         Optional[OmniRealtimeConversation],
         Optional[StreamingASRCallback],
     ]:
         with self._lock:
+            if (
+                expected_generation is not None
+                and expected_generation != self._session_generation
+            ):
+                return None, None
             conversation = self._conversation
             callback = self._callback
             self._conversation = None
@@ -2013,13 +2046,26 @@ class ASREngine:
             self._session_ready = False
         return conversation, callback
 
+    def _close_session_pair(self, *, expected_generation: Optional[int] = None) -> None:
+        """Release a published conversation and its callback as one ownership unit."""
+        conversation, callback = self._drop_conversation_with_callback(
+            expected_generation=expected_generation,
+        )
+        self._close_conversation(conversation)
+        if callback is not None:
+            callback.close()
+
     def _stop_warm_keeper(self) -> None:
         with self._lock:
             keeper = self._warm_keeper_thread
             stop_event = self._warm_keeper_stop
             stop_event.set()
             self._warm_generation += 1
-        if keeper is not None and keeper is not threading.current_thread():
+        if (
+            keeper is not None
+            and keeper is not threading.current_thread()
+            and keeper.is_alive()
+        ):
             keeper.join(timeout=WARM_KEEPER_SHUTDOWN_TIMEOUT_SECONDS)
             if keeper.is_alive():
                 print("[StreamingASR] Warm keeper shutdown timed out; abandoning reconnect")
@@ -2037,22 +2083,62 @@ class ASREngine:
         model_info: Optional[dict],
         callback: StreamingASRCallback,
         context_instruction: str = "",
+        session_config=None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> OmniRealtimeConversation:
+        session_config = session_config or self._session_config
         conversation = OmniRealtimeConversation(
             model=model_id,
             url="wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
             callback=callback,
         )
-        conversation.connect()
-        conversation.update_session(
-            **_build_session_kwargs(
-                model_info,
-                context_instruction=context_instruction,
+        try:
+            conversation.connect()
+            if is_cancelled is not None and is_cancelled():
+                raise _ASRSessionAborted("ASR session was invalidated during connect")
+            conversation.update_session(
+                **_build_session_kwargs(
+                    model_info,
+                    config=session_config,
+                    context_instruction=context_instruction,
+                )
             )
-        )
-        if not callback.wait_for_session_updated(timeout=10.0):
-            raise Exception("session.updated timeout")
-        return conversation
+            self._wait_for_session_updated(
+                callback,
+                timeout=10.0,
+                is_cancelled=is_cancelled,
+            )
+            return conversation
+        except Exception:
+            # Until publication, this method exclusively owns the candidate.
+            # A timeout or generation invalidation must never leak its socket.
+            self._close_conversation(conversation)
+            raise
+
+    @staticmethod
+    def _wait_for_session_updated(
+        callback: StreamingASRCallback,
+        *,
+        timeout: float,
+        is_cancelled: Optional[Callable[[], bool]] = None,
+    ) -> None:
+        deadline = time.monotonic() + timeout
+        while True:
+            if is_cancelled is not None and is_cancelled():
+                raise _ASRSessionAborted(
+                    "ASR session was invalidated while waiting for session.updated"
+                )
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("session.updated timeout")
+            if callback.wait_for_session_updated(
+                timeout=min(SESSION_UPDATE_WAIT_SLICE_SECONDS, remaining)
+            ):
+                if is_cancelled is not None and is_cancelled():
+                    raise _ASRSessionAborted(
+                        "ASR session was invalidated after session.updated"
+                    )
+                return
 
     def _run_warm_keeper_loop(self) -> None:
         """Create and retain one unused conversation for the next dictation."""
@@ -2072,7 +2158,24 @@ class ASREngine:
                 conversation = self._conversation
 
             if idle_since is None or time.monotonic() - idle_since >= WARM_KEEPER_MAX_IDLE_SECONDS:
-                stale, stale_callback = self._drop_conversation_with_callback()
+                # _stop_warm_keeper may have timed out while this thread was
+                # between checks. Revalidate warm ownership in the same lock
+                # that detaches the pair so an abandoned keeper cannot close a
+                # newly started dictation session.
+                with self._lock:
+                    if (
+                        self._is_running
+                        or generation != self._warm_generation
+                        or stop_event.is_set()
+                    ):
+                        return
+                    stale = self._conversation
+                    stale_callback = self._callback
+                    self._conversation = None
+                    self._callback = None
+                    self._conversation_model_id = None
+                    self._conversation_is_clean = False
+                    self._session_ready = False
                 self._close_conversation(stale)
                 if stale_callback:
                     stale_callback.close()
@@ -2092,16 +2195,22 @@ class ASREngine:
             previous_callback: Optional[StreamingASRCallback] = None
             abandoned = False
             try:
+                def reconnect_cancelled() -> bool:
+                    with self._lock:
+                        return (
+                            self._is_running
+                            or generation != self._warm_generation
+                            or stop_event.is_set()
+                        )
+
                 replacement_callback = StreamingASRCallback(
-                    on_partial=self.on_partial_result,
-                    on_final=self.on_final_result,
-                    on_error=self.on_error,
                     on_complete=lambda: None,
                 )
                 replacement = self._establish_conversation(
                     model_id,
                     model_info,
                     replacement_callback,
+                    is_cancelled=reconnect_cancelled,
                 )
                 with self._lock:
                     # If start() invalidated this reconnect, do not overwrite
@@ -2209,7 +2318,7 @@ class ASREngine:
         if timeout is None:
             timeout = _audio_queue_drain_timeout_seconds(
                 self._queue_stats()[0],
-                self.config,
+                self._session_config,
             )
         deadline = time.perf_counter() + timeout
         with self._audio_queue_drained:
@@ -2227,15 +2336,21 @@ class ASREngine:
             if item is _AUDIO_QUEUE_STOP:
                 break
 
-            chunk = item
+            session_generation, chunk = item
             try:
                 while not self._sender_shutdown.is_set():
                     with self._lock:
+                        generation_matches = (
+                            session_generation == self._session_generation
+                            and self._is_running
+                        )
                         session_ready = self._session_ready
                         connect_failed = self._connect_failed
                         conversation = self._conversation if session_ready else None
                         connect_done = getattr(self, "_connect_done", None)
 
+                    if not generation_matches:
+                        break
                     if connect_failed:
                         break
 
@@ -2247,23 +2362,40 @@ class ASREngine:
 
                     audio_b64 = base64.b64encode(chunk).decode("ascii")
                     with self._lock:
-                        if conversation is self._conversation:
+                        if (
+                            session_generation == self._session_generation
+                            and conversation is self._conversation
+                        ):
                             self._conversation_is_clean = False
                     conversation.append_audio(audio_b64)
                     break
             except Exception as exc:
                 print(f"[StreamingASR] Failed to append audio chunk: {exc}")
                 with self._lock:
-                    self._connect_failed = True
-                    self._accepting_audio = False
-                connect_done = getattr(self, "_connect_done", None)
-                if connect_done is not None:
-                    connect_done.set()
-                stale = self._drop_conversation()
-                self._close_conversation(stale)
+                    generation_matches = (
+                        session_generation == self._session_generation
+                    )
+                    if generation_matches:
+                        self._connect_failed = True
+                        self._accepting_audio = False
+                        connect_done = getattr(self, "_connect_done", None)
+                    else:
+                        connect_done = None
+                if generation_matches:
+                    if connect_done is not None:
+                        connect_done.set()
+                    # The generation check and detach are one transaction. An
+                    # abort/start racing this exception may already own a new
+                    # pair by the time this sender reaches cleanup.
+                    self._close_session_pair(
+                        expected_generation=session_generation,
+                    )
             finally:
                 with self._audio_queue_drained:
-                    if self._pending_audio_chunks > 0:
+                    if (
+                        session_generation == self._session_generation
+                        and self._pending_audio_chunks > 0
+                    ):
                         self._pending_audio_chunks -= 1
                     if self._pending_audio_chunks == 0:
                         self._audio_queue_drained.notify_all()
@@ -2274,37 +2406,96 @@ class ASREngine:
             is_connected=_conversation_socket_connected(self._conversation),
             matches_model=(
                 self._conversation is not None
+                and self._callback is not None
                 and self._conversation_model_id == self._session_model_id
                 and self._conversation_is_clean
             ),
         )
 
-    def start(self, *, context_instruction: str = "") -> None:
+    def _build_session_callback(
+        self,
+        generation: int,
+        trace: ASRDebugTrace,
+    ) -> StreamingASRCallback:
+        """Create a callback whose user-visible effects belong to one session."""
+
+        callback = StreamingASRCallback(on_complete=lambda: None)
+        self._configure_session_callback(callback, generation, trace)
+        return callback
+
+    def _configure_session_callback(
+        self,
+        callback: StreamingASRCallback,
+        generation: int,
+        trace: ASRDebugTrace,
+    ) -> None:
+        """Transfer one clean callback into an active session generation."""
+
+        def deliver(handler, value) -> None:
+            if handler is not None and self._session_generation_matches(generation):
+                handler(value)
+
+        callback.set_result_handlers(
+            on_partial=lambda result: deliver(self.on_partial_result, result),
+            on_final=lambda result: deliver(self.on_final_result, result),
+            on_error=lambda message: deliver(self.on_error, message),
+        )
+        callback.set_debug_trace(trace)
+
+    def start(
+        self,
+        *,
+        context_instruction: str = "",
+        audio_config=None,
+    ) -> None:
         """Start the ASR session. Non-blocking — session setup runs in background."""
         if self._is_running:
             return
 
         _apply_dashscope_api_key(self.config)
+        # Recorder PCM and all provider metadata must describe one immutable
+        # audio plan. Runtime edits take effect only at the next start boundary.
+        self._session_config = deepcopy(self.config)
+        if audio_config is not None:
+            self._session_config.audio = deepcopy(audio_config)
+        # AudioConfig normalizes persisted/RPC updates, but it remains a
+        # mutable dataclass for legacy callers. Reassert the product transport
+        # contract at the last boundary before provider metadata is built so a
+        # direct field mutation cannot reinterpret recorder PCM.
+        self._session_config.audio.sample_rate = OUTPUT_SAMPLE_RATE_HZ
+        self._session_config.audio.channels = OUTPUT_CHANNELS
+        self._batch_fallback.config = self._session_config
         self._context_instruction = str(context_instruction or "").strip()
-        self._session_model_id = self.config.asr.model
+        self._session_model_id = self._session_config.asr.model
         model_info = get_asr_model_info(self._session_model_id)
-        transport = model_info["transport"] if model_info else self.config.asr.backend
+        transport = (
+            model_info["transport"]
+            if model_info
+            else self._session_config.asr.backend
+        )
         print(
             f"[StreamingASR] Starting session: model={self._session_model_id}, "
-            f"backend={transport}, language={self.config.asr.language}"
+            f"backend={transport}, language={self._session_config.asr.language}"
         )
         self._log_queue_state(
             "session_start",
-            chunk_bytes=_streaming_audio_chunk_bytes(self.config),
-            chunk_ms=round(_streaming_audio_chunk_duration_seconds(self.config) * 1000, 2),
+            chunk_bytes=_streaming_audio_chunk_bytes(self._session_config),
+            chunk_ms=round(
+                _streaming_audio_chunk_duration_seconds(self._session_config) * 1000,
+                2,
+            ),
         )
 
         self._stop_warm_keeper()
-        self._is_running = True
-        self._accepting_audio = True
-        self._session_ready = False
-        self._connect_failed = False
-        self._connect_done = threading.Event()
+        connect_done = threading.Event()
+        with self._lock:
+            self._session_generation += 1
+            session_generation = self._session_generation
+            self._is_running = True
+            self._accepting_audio = True
+            self._session_ready = False
+            self._connect_failed = False
+            self._connect_done = connect_done
         self._warm_session_idle_since = None
         self._trace_warm_reused = False
         self._last_metering = None
@@ -2325,21 +2516,38 @@ class ASREngine:
         if transport == "omni_offline":
             with self._lock:
                 self._connect_failed = True
-            self._connect_done.set()
+            connect_done.set()
             print("[StreamingASR] Offline model — skipping WebSocket, will use batch")
             return
 
-        if self._callback is None:
-            self._callback = StreamingASRCallback(
-                on_partial=self.on_partial_result,
-                on_final=self.on_final_result,
-                on_error=self.on_error,
-                on_complete=lambda: None,
-            )
-        self._callback.set_debug_trace(self._active_trace)
-
         # Connect + update session in background thread to avoid blocking hotkey
-        threading.Thread(target=self._connect, daemon=True).start()
+        session_config = self._session_config
+        session_model_id = self._session_model_id
+        session_context = self._context_instruction
+        session_trace = self._active_trace
+        threading.Thread(
+            target=lambda: self._connect(
+                session_generation=session_generation,
+                connect_done=connect_done,
+                session_config=session_config,
+                model_id=session_model_id,
+                context_instruction=session_context,
+                trace=session_trace,
+            ),
+            daemon=True,
+        ).start()
+
+    def start_with_audio_contract(
+        self,
+        audio_config,
+        *,
+        context_instruction: str = "",
+    ) -> None:
+        """Start using the recorder plan captured by the owning mode."""
+        self.start(
+            context_instruction=context_instruction,
+            audio_config=audio_config,
+        )
 
     def refresh_runtime_config(self, drop_idle_session: bool = False) -> None:
         """Apply current config and optionally drop any idle warm session."""
@@ -2348,76 +2556,213 @@ class ASREngine:
             return
 
         self._stop_warm_keeper()
-        stale = self._drop_conversation()
-        self._close_conversation(stale)
+        self._close_session_pair()
 
     def refresh_api_key(self) -> None:
         """Apply the latest API key and drop any idle warm session."""
         self.refresh_runtime_config(drop_idle_session=True)
 
-    def _connect(self) -> None:
-        """Connect WebSocket with retry, then flush buffered chunks."""
-        max_retries = 2
-        model_info = get_asr_model_info(self._session_model_id)
-        for attempt in range(max_retries + 1):
-            try:
-                if self._callback:
-                    self._callback.reset()
+    def _session_is_current(self, generation: int) -> bool:
+        with self._lock:
+            return self._is_running and generation == self._session_generation
 
+    def _session_generation_matches(self, generation: int) -> bool:
+        with self._lock:
+            return generation == self._session_generation
+
+    def _connect(
+        self,
+        *,
+        session_generation: Optional[int] = None,
+        connect_done: Optional[threading.Event] = None,
+        session_config=None,
+        model_id: Optional[str] = None,
+        context_instruction: Optional[str] = None,
+        trace: Optional[ASRDebugTrace] = None,
+    ) -> None:
+        """Connect one generation without publishing late candidates."""
+        with self._lock:
+            if session_generation is None:
+                session_generation = self._session_generation
+            if connect_done is None:
+                connect_done = self._connect_done
+            session_config = session_config or self._session_config
+            model_id = model_id or self._session_model_id
+            if context_instruction is None:
+                context_instruction = self._context_instruction
+            trace = trace or self._active_trace
+
+        if trace is None:
+            connect_done.set()
+            return
+
+        def is_cancelled() -> bool:
+            return not self._session_is_current(session_generation)
+
+        max_retries = 2
+        model_info = get_asr_model_info(model_id)
+        for attempt in range(max_retries + 1):
+            if is_cancelled():
+                connect_done.set()
+                return
+
+            attempt_callback: Optional[StreamingASRCallback] = None
+            try:
                 reusing_warm_session = self._can_reuse_warm_session(model_info)
                 if reusing_warm_session:
+                    with self._lock:
+                        if (
+                            not self._is_running
+                            or session_generation != self._session_generation
+                        ):
+                            raise _ASRSessionAborted(
+                                "Warm ASR ownership transfer was invalidated"
+                            )
+                        conversation = self._conversation
+                        callback = self._callback
+                    if conversation is None or callback is None:
+                        raise RuntimeError("Warm ASR conversation disappeared")
+                    callback.reset()
+                    self._configure_session_callback(
+                        callback,
+                        session_generation,
+                        trace,
+                    )
                     print("[StreamingASR] Claiming clean prewarmed realtime session")
-                    self._trace_warm_reused = True
-                    if self._callback:
-                        self._callback.mark_client_event("client.warm_session.reused")
+                    with self._lock:
+                        if (
+                            not self._is_running
+                            or session_generation != self._session_generation
+                        ):
+                            raise _ASRSessionAborted("Warm ASR claim was invalidated")
+                        self._trace_warm_reused = True
+                    callback.mark_client_event("client.warm_session.reused")
+                    conversation.update_session(
+                        **_build_session_kwargs(
+                            model_info,
+                            config=session_config,
+                            context_instruction=context_instruction,
+                        )
+                    )
+                    self._wait_for_session_updated(
+                        callback,
+                        timeout=10.0,
+                        is_cancelled=is_cancelled,
+                    )
                 else:
-                    if self._conversation is not None:
-                        stale = self._drop_conversation()
-                        self._close_conversation(stale)
-                    self._conversation = self._establish_conversation(
-                        self._session_model_id,
-                        model_info,
-                        self._callback,
-                        self._context_instruction,
-                    )
-                    self._conversation_model_id = self._session_model_id
-                    self._conversation_is_clean = True
+                    with self._lock:
+                        if (
+                            not self._is_running
+                            or session_generation != self._session_generation
+                        ):
+                            raise _ASRSessionAborted(
+                                "ASR connect attempt was invalidated"
+                            )
+                        stale = self._conversation
+                        stale_callback = self._callback
+                        self._conversation = None
+                        self._callback = None
+                        self._conversation_model_id = None
+                        self._conversation_is_clean = False
+                        self._session_ready = False
+                    self._close_conversation(stale)
+                    if stale_callback is not None:
+                        stale_callback.close()
 
-                if reusing_warm_session:
-                    session_kwargs = _build_session_kwargs(
-                        model_info,
-                        context_instruction=self._context_instruction,
+                    attempt_callback = self._build_session_callback(
+                        session_generation,
+                        trace,
                     )
-                    self._conversation.update_session(**session_kwargs)
+                    callback = attempt_callback
 
-                    if not self._callback.wait_for_session_updated(timeout=10.0):
-                        print("[StreamingASR] Timeout waiting for session.updated")
-                        raise Exception("session.updated timeout")
+                    candidate = self._establish_conversation(
+                        model_id,
+                        model_info,
+                        callback,
+                        context_instruction,
+                        session_config,
+                        is_cancelled=is_cancelled,
+                    )
+                    with self._lock:
+                        if (
+                            not self._is_running
+                            or session_generation != self._session_generation
+                        ):
+                            published = False
+                        else:
+                            self._conversation = candidate
+                            self._callback = callback
+                            self._conversation_model_id = model_id
+                            self._conversation_is_clean = True
+                            published = True
+                    if not published:
+                        self._close_conversation(candidate)
+                        callback.close()
+                        connect_done.set()
+                        return
+                    attempt_callback = None
+                    conversation = candidate
 
                 with self._lock:
+                    if (
+                        not self._is_running
+                        or session_generation != self._session_generation
+                        or conversation is not self._conversation
+                    ):
+                        raise _ASRSessionAborted(
+                            "ASR session was invalidated before publication"
+                        )
                     self._session_ready = True
 
-                self._connect_done.set()
+                connect_done.set()
                 print(f"[StreamingASR] Connected (attempt {attempt + 1})")
-                return  # Success
+                return
 
-            except Exception as e:
-                print(f"[StreamingASR] Connection attempt {attempt + 1}/{max_retries + 1} failed: {e}")
+            except Exception as exc:
+                if attempt_callback is not None:
+                    attempt_callback.close()
+                if is_cancelled() or isinstance(exc, _ASRSessionAborted):
+                    connect_done.set()
+                    return
+
+                print(
+                    f"[StreamingASR] Connection attempt {attempt + 1}/"
+                    f"{max_retries + 1} failed: {exc}"
+                )
                 try:
-                    if self._conversation:
-                        stale = self._drop_conversation()
-                        self._close_conversation(stale)
+                    with self._lock:
+                        if (
+                            self._is_running
+                            and session_generation == self._session_generation
+                        ):
+                            stale = self._conversation
+                            stale_callback = self._callback
+                            self._conversation = None
+                            self._callback = None
+                            self._conversation_model_id = None
+                            self._conversation_is_clean = False
+                            self._session_ready = False
+                        else:
+                            stale = None
+                            stale_callback = None
+                    self._close_conversation(stale)
+                    if stale_callback is not None:
+                        stale_callback.close()
                 except Exception:
                     pass
 
-                if attempt < max_retries:
-                    time.sleep(0.5)
+                if attempt < max_retries and connect_done.wait(timeout=0.5):
+                    return
 
-        # All retries exhausted — mark as failed, stop() will fall back to batch
+        # All retries exhausted — mark only this live generation as failed.
         print("[StreamingASR] All connection attempts failed, will fall back to batch")
         with self._lock:
-            self._connect_failed = True
-        self._connect_done.set()
+            if (
+                self._is_running
+                and session_generation == self._session_generation
+            ):
+                self._connect_failed = True
+        connect_done.set()
 
     def send_audio(self, audio_chunk: bytes) -> None:
         """Queue audio for realtime ASR without blocking the audio callback thread."""
@@ -2428,6 +2773,7 @@ class ASREngine:
                 return
             if self._streaming_degraded:
                 return
+            session_generation = self._session_generation
             self._pending_audio_chunks += 1
             queue_depth = self._pending_audio_chunks
             if queue_depth > self._audio_queue_high_watermark:
@@ -2439,13 +2785,17 @@ class ASREngine:
                 )
 
         try:
-            self._audio_queue.put_nowait(audio_chunk)
+            self._audio_queue.put_nowait((session_generation, audio_chunk))
         except queue.Full:
             with self._audio_queue_drained:
-                if self._pending_audio_chunks > 0:
+                generation_matches = (
+                    session_generation == self._session_generation
+                )
+                if generation_matches and self._pending_audio_chunks > 0:
                     self._pending_audio_chunks -= 1
                 self._audio_queue_drained.notify_all()
-            self._mark_streaming_degraded("audio_queue_full")
+            if generation_matches:
+                self._mark_streaming_degraded("audio_queue_full")
             return
         if should_log_depth:
             self._log_queue_state("queued", chunk_bytes=len(audio_chunk))
@@ -2457,10 +2807,10 @@ class ASREngine:
             timeout: Max wait time for transcription result.
             pcm_data: Complete recorded PCM data for batch fallback.
         """
-        if not self._is_running:
-            return ""
-
         with self._lock:
+            if not self._is_running:
+                return ""
+            stop_generation = self._session_generation
             self._accepting_audio = False
 
         # Wait for _connect() thread to finish (success or failure) before proceeding
@@ -2479,6 +2829,7 @@ class ASREngine:
                 result_source="batch_fallback",
                 fallback_reason="connect_timeout",
             )
+            self._close_session_pair(expected_generation=stop_generation)
             if pcm_data:
                 result = self._transcribe_batch_fallback(pcm_data)
                 self._last_metering = self._batch_fallback.get_last_metering()
@@ -2496,8 +2847,6 @@ class ASREngine:
             self._log_fallback(degraded_reason, degraded=True)
             self._is_running = False
             self._clear_audio_queue()
-            stale = self._drop_conversation()
-            self._close_conversation(stale)
             if pcm_data:
                 if self._callback:
                     self._callback.mark_client_event(
@@ -2509,6 +2858,7 @@ class ASREngine:
                     result_source="batch_fallback",
                     fallback_reason=degraded_reason,
                 )
+                self._close_session_pair(expected_generation=stop_generation)
                 result = self._transcribe_batch_fallback(pcm_data)
                 self._last_metering = self._batch_fallback.get_last_metering()
                 return result
@@ -2517,6 +2867,7 @@ class ASREngine:
                 result_source="empty",
                 fallback_reason=f"{degraded_reason}_no_pcm",
             )
+            self._close_session_pair(expected_generation=stop_generation)
             return ""
 
         if failed:
@@ -2535,6 +2886,7 @@ class ASREngine:
                     result_source="batch_fallback",
                     fallback_reason="connect_failed",
                 )
+                self._close_session_pair(expected_generation=stop_generation)
                 result = self._transcribe_batch_fallback(pcm_data)
                 self._last_metering = self._batch_fallback.get_last_metering()
                 return result
@@ -2543,16 +2895,18 @@ class ASREngine:
                 result_source="empty",
                 fallback_reason="connect_failed_no_pcm",
             )
+            self._close_session_pair(expected_generation=stop_generation)
             return ""
 
-        drain_timeout = _audio_queue_drain_timeout_seconds(self._queue_stats()[0], self.config)
+        drain_timeout = _audio_queue_drain_timeout_seconds(
+            self._queue_stats()[0],
+            self._session_config,
+        )
         if not self._wait_for_audio_queue_drain(timeout=drain_timeout):
             print("[StreamingASR] Audio sender drain timed out, falling back to batch")
             self._log_fallback("audio_drain_timeout", drain_timeout=round(drain_timeout, 2))
             self._is_running = False
             self._clear_audio_queue()
-            stale = self._drop_conversation()
-            self._close_conversation(stale)
             if pcm_data:
                 if self._callback:
                     self._callback.mark_client_event(
@@ -2564,6 +2918,7 @@ class ASREngine:
                     result_source="batch_fallback",
                     fallback_reason="audio_drain_timeout",
                 )
+                self._close_session_pair(expected_generation=stop_generation)
                 result = self._transcribe_batch_fallback(pcm_data)
                 self._last_metering = self._batch_fallback.get_last_metering()
                 return result
@@ -2572,6 +2927,7 @@ class ASREngine:
                 result_source="empty",
                 fallback_reason="audio_drain_timeout_no_pcm",
             )
+            self._close_session_pair(expected_generation=stop_generation)
             return ""
 
         self._is_running = False
@@ -2584,8 +2940,8 @@ class ASREngine:
         response_fallback_reason = ""
         audio_duration_seconds = _pcm_duration_seconds(
             pcm_data,
-            self.config.audio.sample_rate,
-            self.config.audio.channels,
+            self._session_config.audio.sample_rate,
+            OUTPUT_CHANNELS,
         )
         direct_offline_model = _get_direct_offline_fallback_model(
             self._session_model_id,
@@ -2745,8 +3101,7 @@ class ASREngine:
         if _supports_warm_realtime_session(model_info):
             self._start_warm_keeper(model_info)
         else:
-            stale = self._drop_conversation()
-            self._close_conversation(stale)
+            self._close_session_pair(expected_generation=stop_generation)
         self._log_queue_state(
             "session_stop",
             result_source=result_source if result.strip() else "empty",
@@ -2762,22 +3117,46 @@ class ASREngine:
     def get_last_metering(self) -> dict[str, Any] | None:
         return dict(self._last_metering) if self._last_metering else None
 
-    def reset(self) -> None:
-        """Reset the ASR engine state."""
-        self._is_running = False
-        self._accepting_audio = False
-        self._clear_audio_queue()
+    def abort_startup(self) -> None:
+        """Invalidate a prestarted session without waiting for its connect call.
+
+        The SDK connect itself is not cooperatively cancellable. Generation
+        invalidation makes any late candidate thread-local and responsible for
+        closing its own socket; it can no longer publish into this engine or a
+        subsequent dictation session.
+        """
         self._stop_warm_keeper()
-        stale = self._drop_conversation()
+        with self._lock:
+            self._session_generation += 1
+            self._is_running = False
+            self._accepting_audio = False
+            self._session_ready = False
+            self._connect_failed = False
+            connect_done = getattr(self, "_connect_done", None)
+            stale = self._conversation
+            stale_callback = self._callback
+            self._conversation = None
+            self._callback = None
+            self._conversation_model_id = None
+            self._conversation_is_clean = False
+            self._pending_audio_chunks = 0
+            self._audio_queue_high_watermark = 0
+            self._audio_queue_drained.notify_all()
+
+        if connect_done is not None:
+            connect_done.set()
+        self._clear_audio_queue()
         self._close_conversation(stale)
+        if stale_callback is not None:
+            stale_callback.close()
         self._active_trace = None
         self._trace_warm_reused = False
         self._last_metering = None
         self._context_instruction = ""
-        with self._lock:
-            self._audio_queue_high_watermark = 0
-        if self._callback:
-            self._callback.reset()
+
+    def reset(self) -> None:
+        """Reset the ASR engine state."""
+        self.abort_startup()
 
     def close(self) -> None:
         """Release background resources owned by the engine."""

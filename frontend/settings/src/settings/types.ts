@@ -9,6 +9,8 @@ export type SettingsTab =
 
 export interface AudioConfig {
   input_device?: string | null
+  capture_channels?: number
+  gain_mode?: "automatic" | "manual"
   gain?: number
   highpass_filter?: boolean
   highpass_freq?: number
@@ -110,19 +112,68 @@ export interface AudioDevice {
 }
 
 export interface AudioInputStatus {
+  phase?:
+    | "planned"
+    | "starting"
+    | "active"
+    | "completed"
+    | "inactive"
+    | "failed"
   device_name: string
   system_default: boolean
   max_input_channels: number
   capture_channels: number
   processing_mode:
+    | "pending"
     | "macos_voice_processing"
     | "vocal_more_array"
     | "system_managed_mono"
     | "standard"
   processing_active: boolean
   array_processing_active: boolean
-  echo_cancellation: "ready" | "active" | "fallback" | "unavailable"
+  echo_cancellation: "pending" | "ready" | "active" | "fallback" | "unavailable"
+  gain_control: "pending" | "apple_agc" | "software" | "software_fallback"
+  microphone_permission?:
+    | "not_determined"
+    | "authorized"
+    | "denied"
+    | "restricted"
+    | "unknown"
+  requested_gain_mode?: "automatic" | "manual"
+  gain_control_verified?: boolean
+  voice_processing_enabled_observed?: boolean | null
+  agc_enabled_observed?: boolean | null
+  start_verified?: boolean | null
+  diagnostics_fresh?: boolean | null
+  software_gain_effective?: number | null
+  soft_limiter_effective?: boolean | null
+  highpass_effective?: boolean | null
+  native_backend?: "objective_cpp" | "pyobjc" | "portaudio" | "pending" | string
+  source_sample_rate_hz?: number | null
+  source_channels?: number | null
+  output_sample_rate_hz?: number
+  output_channels?: number
+  converter_name?: string | null
+  capture_block_frames?: number
+  queue_dropped_blocks?: number
+  runtime_fault_count?: number
+  runtime_fault_code?: string | null
+  preferred_microphone_mode?:
+    | "standard"
+    | "wide_spectrum"
+    | "voice_isolation"
+    | string
+    | null
+  active_microphone_mode?:
+    | "standard"
+    | "wide_spectrum"
+    | "voice_isolation"
+    | string
+    | null
+  fallback_code?: string | null
+  fallback_stage?: string | null
   fallback_reason: string | null
+  last_session?: Record<string, unknown> | null
 }
 
 export interface DictionaryEntry {
@@ -299,6 +350,7 @@ export interface FormState {
   }
   audio: {
     input_device: string | null
+    gain_mode: "automatic" | "manual"
     gain: number
     highpass_filter: boolean
     highpass_freq: number

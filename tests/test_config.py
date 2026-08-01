@@ -23,8 +23,10 @@ def test_config_load(tmp_path, monkeypatch):
 
     assert config.audio.sample_rate == 16000
     assert config.audio.channels == 1
+    assert config.audio.capture_channels == 1
     assert config.audio.blocksize == 640
     assert config.audio.input_device is None
+    assert config.audio.gain_mode == "automatic"
     assert config.asr.backend == "realtime_ws"
     assert config.asr.model == "qwen3.5-omni-flash-realtime"
     assert config.asr.language == "auto"
@@ -56,9 +58,110 @@ def test_legacy_default_audio_blocksize_migrates_to_low_latency_default(tmp_path
     assert config.audio.blocksize == 640
 
 
-def test_config_get_config_dir():
+def test_legacy_audio_gain_migrates_to_manual_without_changing_saved_gain(
+    tmp_path,
+    monkeypatch,
+):
+    """Upgrades must not silently stack Apple AGC onto an existing gain choice."""
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    config_path.write_text("audio:\n  gain: 8.0\n", encoding="utf-8")
+
+    config = Config.load()
+
+    assert config.audio.gain_mode == "manual"
+    assert config.audio.gain == 8.0
+
+
+def test_config_load_uses_in_memory_migration_when_repair_write_fails(
+    tmp_path,
+    monkeypatch,
+):
+    from vocal_more.config import Config
+    import vocal_more.infrastructure.compatibility_repair as repair_module
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    config_path.write_text("audio:\n  gain: 8.0\n", encoding="utf-8")
+
+    def refuse_write(*_args, **_kwargs):
+        raise PermissionError("read only")
+
+    monkeypatch.setattr(
+        repair_module,
+        "_write_yaml_data",
+        refuse_write,
+    )
+
+    config = Config.load()
+
+    assert config.audio.gain_mode == "manual"
+    assert config.audio.gain == 8.0
+
+
+def test_explicit_automatic_gain_mode_survives_config_roundtrip(tmp_path, monkeypatch):
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    config_path.write_text(
+        "audio:\n  gain_mode: automatic\n  gain: 8.0\n",
+        encoding="utf-8",
+    )
+
+    config = Config.load()
+
+    assert config.audio.gain_mode == "automatic"
+    assert config.to_dict()["audio"]["gain_mode"] == "automatic"
+
+
+def test_invalid_gain_mode_normalizes_to_safe_manual_control():
+    from vocal_more.domain.config_models import AppConfig
+
+    config = AppConfig.from_dict({"audio": {"gain_mode": "adaptive-ish"}})
+
+    assert config.audio.gain_mode == "manual"
+
+
+def test_legacy_stereo_setting_becomes_capture_topology_not_output_topology():
+    from vocal_more.domain.config_models import AppConfig
+
+    config = AppConfig.from_dict(
+        {"audio": {"channels": 2, "gain_mode": "manual"}}
+    )
+
+    assert config.audio.channels == 1
+    assert config.audio.capture_channels == 2
+    assert config.to_dict()["audio"]["channels"] == 1
+    assert config.to_dict()["audio"]["capture_channels"] == 2
+
+
+def test_capture_topology_allows_three_logical_channels_for_explicit_experiments():
+    from vocal_more.domain.config_models import AppConfig
+
+    config = AppConfig.from_dict(
+        {"audio": {"capture_channels": 99, "gain_mode": "manual"}}
+    )
+
+    assert config.audio.channels == 1
+    assert config.audio.capture_channels == 3
+
+
+def test_config_get_config_dir(monkeypatch):
     """Test getting config directory."""
     from vocal_more.config import Config
+    from vocal_more.paths import default_data_dir
+
+    monkeypatch.setattr(
+        Config,
+        "get_config_dir",
+        classmethod(lambda cls: default_data_dir()),
+    )
 
     config_dir = Config.get_config_dir()
     assert config_dir == Path.home() / ".vocal-more"
@@ -483,13 +586,21 @@ def test_config_numeric_fields_are_clamped_to_supported_ranges():
     assert config.hotkey.double_tap_threshold == 0.5
 
     config.apply_update("audio.sample_rate", 0)
-    assert config.audio.sample_rate == 8000
+    assert config.audio.sample_rate == 16000
     config.apply_update("audio.channels", 99)
-    assert config.audio.channels == 2
+    assert config.audio.channels == 1
     config.apply_update("audio.blocksize", 0)
     assert config.audio.blocksize == 128
     config.apply_update("llm.max_tokens", -1)
     assert config.llm.max_tokens == 1
+
+
+def test_legacy_sample_rate_is_normalized_to_the_fixed_pcm_contract():
+    from vocal_more.config import Config
+
+    config = Config.from_dict({"audio": {"sample_rate": 48000}})
+
+    assert config.audio.sample_rate == 16000
 
 
 def test_load_auto_cleans_legacy_noise_gate_field(tmp_path, monkeypatch):

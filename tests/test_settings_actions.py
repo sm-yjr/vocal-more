@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -33,6 +34,13 @@ def test_settings_bridge_rejects_unknown_config_keys():
     assert bridge.parse(
         {"action": "setConfig", "key": "audio.gain", "value": 3.0}
     ) == {"action": "set_config", "key": "audio.gain", "value": 3.0}
+    assert bridge.parse(
+        {"action": "setConfig", "key": "audio.gain_mode", "value": "automatic"}
+    ) == {
+        "action": "set_config",
+        "key": "audio.gain_mode",
+        "value": "automatic",
+    }
     assert bridge.parse(
         {"action": "previewConfig", "key": "audio.gain", "value": 3.0}
     ) == {"action": "preview_config", "key": "audio.gain", "value": 3.0}
@@ -307,6 +315,7 @@ def test_mic_test_controller_cleans_up_recorder_after_stop():
         config_provider=lambda: SimpleNamespace(
             audio=SimpleNamespace(
                 input_device="Built-in Mic",
+                gain_mode="automatic",
                 gain=4.0,
                 highpass_filter=True,
                 highpass_freq=150,
@@ -320,10 +329,230 @@ def test_mic_test_controller_cleans_up_recorder_after_stop():
     controller.start()
     controller.stop()
 
-    recorder.start.assert_called_once_with()
+    recorder.start.assert_not_called()
+    recorder.start_capture_session.assert_called_once()
+    capture_config = recorder.start_capture_session.call_args.args[0]
+    assert capture_config is not controller._config_provider().audio
+    assert capture_config.gain_mode == "automatic"
+    recorder.set_gain_mode.assert_not_called()
     recorder.stop.assert_called_once_with()
     assert factory_kwargs == [{"on_audio_level": controller._handle_audio_level}]
     timer.cancel.assert_called_once_with()
+    assert controller.is_running is False
+
+
+def test_mic_test_concurrent_stop_claims_the_native_recorder_once():
+    from vocal_more.ui.mic_test_controller import MicTestController
+
+    entered = threading.Event()
+    release = threading.Event()
+    stop_calls: list[int] = []
+    calls_lock = threading.Lock()
+
+    class BlockingRecorder:
+        input_status = {"phase": "active"}
+
+        def start_capture_session(self, _audio_config):
+            return None
+
+        def stop(self):
+            with calls_lock:
+                stop_calls.append(len(stop_calls) + 1)
+                call_number = stop_calls[-1]
+            entered.set()
+            assert release.wait(timeout=1.0)
+            return b"preserved-pcm" if call_number == 1 else b""
+
+    timer = MagicMock()
+    completed: list[str] = []
+    controller = MicTestController(
+        config_provider=lambda: SimpleNamespace(
+            audio=SimpleNamespace(
+                input_device="Built-in Mic",
+                gain_mode="automatic",
+                gain=4.0,
+                blocksize=640,
+                capture_channels=1,
+                highpass_filter=True,
+                highpass_freq=150,
+                soft_limiter=True,
+            )
+        ),
+        recorder_factory=lambda **_kwargs: BlockingRecorder(),
+        timer_factory=lambda _interval, _callback: timer,
+        on_complete=lambda: completed.append("complete"),
+    )
+    controller.start()
+
+    first = threading.Thread(target=controller.stop)
+    second = threading.Thread(target=controller.stop)
+    first.start()
+    assert entered.wait(timeout=1.0)
+    second.start()
+    second.join(timeout=0.2)
+    release.set()
+    first.join(timeout=1.0)
+    second.join(timeout=1.0)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert stop_calls == [1]
+    assert controller._pcm_data == b"preserved-pcm"
+    assert completed == ["complete"]
+    assert controller.is_running is False
+
+
+def test_mic_test_stale_auto_stop_cannot_stop_a_new_session():
+    from vocal_more.ui.mic_test_controller import MicTestController
+
+    class FakeTimer:
+        def __init__(self, callback):
+            self.callback = callback
+            self.daemon = False
+            self.cancelled = False
+
+        def start(self):
+            return None
+
+        def cancel(self):
+            self.cancelled = True
+
+    recorders = [MagicMock(), MagicMock()]
+    timers: list[FakeTimer] = []
+    completed: list[str] = []
+    controller = MicTestController(
+        config_provider=lambda: SimpleNamespace(
+            audio=SimpleNamespace(
+                input_device="Built-in Mic",
+                gain_mode="automatic",
+                gain=4.0,
+                blocksize=640,
+                capture_channels=1,
+                highpass_filter=True,
+                highpass_freq=150,
+                soft_limiter=True,
+            )
+        ),
+        recorder_factory=lambda **_kwargs: recorders.pop(0),
+        timer_factory=lambda _interval, callback: timers.append(
+            FakeTimer(callback)
+        )
+        or timers[-1],
+        on_complete=lambda: completed.append("complete"),
+    )
+
+    controller.start()
+    first_recorder = controller._recorder
+    first_timer = timers[-1]
+    controller.start()
+    second_recorder = controller._recorder
+    second_timer = timers[-1]
+
+    first_timer.callback()
+
+    assert first_timer.cancelled is True
+    first_recorder.stop.assert_called_once_with()
+    second_recorder.stop.assert_not_called()
+    assert controller.is_running is True
+
+    second_timer.callback()
+
+    second_recorder.stop.assert_called_once_with()
+    assert completed == ["complete"]
+    assert controller.is_running is False
+
+
+def test_mic_test_manual_stop_during_startup_rejects_the_late_recorder():
+    from vocal_more.ui.mic_test_controller import MicTestController
+
+    start_entered = threading.Event()
+    release_start = threading.Event()
+    stop_calls: list[str] = []
+
+    class BlockingStartRecorder:
+        input_status = {"phase": "starting"}
+
+        def start_capture_session(self, _audio_config):
+            start_entered.set()
+            assert release_start.wait(timeout=1.0)
+
+        def stop(self):
+            stop_calls.append("stop")
+            return b"late-pcm"
+
+    started: list[str] = []
+    timer = MagicMock()
+    controller = MicTestController(
+        config_provider=lambda: SimpleNamespace(
+            audio=SimpleNamespace(
+                input_device="Built-in Mic",
+                gain_mode="automatic",
+                gain=4.0,
+                blocksize=640,
+                capture_channels=1,
+                highpass_filter=True,
+                highpass_freq=150,
+                soft_limiter=True,
+            )
+        ),
+        recorder_factory=lambda **_kwargs: BlockingStartRecorder(),
+        timer_factory=lambda _interval, _callback: timer,
+        on_started=lambda: started.append("started"),
+    )
+    errors: list[BaseException] = []
+
+    def start_controller():
+        try:
+            controller.start()
+        except BaseException as exc:  # pragma: no cover - assertion reports it
+            errors.append(exc)
+
+    start_thread = threading.Thread(target=start_controller)
+    start_thread.start()
+    assert start_entered.wait(timeout=1.0)
+
+    controller.stop()
+    release_start.set()
+    start_thread.join(timeout=1.0)
+
+    assert not start_thread.is_alive()
+    assert errors == []
+    assert stop_calls == ["stop"]
+    assert started == []
+    assert controller.is_running is False
+
+
+def test_mic_test_permission_request_uses_the_same_localized_retry_message():
+    from vocal_more.core.audio_recorder import AudioRecorderStartError
+    from vocal_more.ui.mic_test_controller import MicTestController
+
+    recorder = MagicMock()
+    recorder.start_capture_session.side_effect = AudioRecorderStartError(
+        "permission requested",
+        code="microphone_permission_requested",
+        stage="permission",
+    )
+    errors = []
+    controller = MicTestController(
+        config_provider=lambda: SimpleNamespace(
+            ui=SimpleNamespace(language="zh"),
+            audio=SimpleNamespace(
+                gain_mode="automatic",
+                gain=2.0,
+                highpass_filter=True,
+                highpass_freq=200,
+                soft_limiter=True,
+            ),
+        ),
+        recorder_factory=lambda **_kwargs: recorder,
+        on_error=errors.append,
+    )
+
+    controller.start()
+
+    assert errors == [
+        "已请求麦克风权限。请在系统提示中允许访问，然后再次开始录音。"
+    ]
     assert controller.is_running is False
 
 

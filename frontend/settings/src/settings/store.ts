@@ -38,6 +38,7 @@ const EMPTY_SNAPSHOT: SettingsSnapshot = {
     processing_active: false,
     array_processing_active: false,
     echo_cancellation: "unavailable",
+    gain_control: "software_fallback",
     fallback_reason: null,
   },
   dictionary: [],
@@ -454,6 +455,7 @@ export class SettingsStore {
       },
       audio: {
         input_device: audio.input_device ?? null,
+        gain_mode: audio.gain_mode === "manual" ? "manual" : "automatic",
         gain: typeof audio.gain === "number" ? audio.gain : 2,
         highpass_filter: audio.highpass_filter !== false,
         highpass_freq:

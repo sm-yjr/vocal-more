@@ -158,9 +158,7 @@ jobs:
       - name: Verify release artifact
         run: |
           set -euo pipefail
-          test -f "$DMG_PATH"
-          xcrun stapler validate "$DMG_PATH"
-          codesign --verify --verbose=2 "$DMG_PATH"
+          python3 packaging/macos/verify_release_artifact.py "$DMG_PATH"
           ls -lh "$DMG_PATH"
 
       - name: Upload workflow artifact

@@ -118,7 +118,11 @@ def test_meeting_mode_records_generates_two_stage_notes_and_opens_result(tmp_pat
     assert mode.state == ModeState.RECORDING
     mode.on_hotkey_pressed()
 
-    recorder.start.assert_called_once_with()
+    recorder.start.assert_not_called()
+    recorder.start_capture_session.assert_called_once()
+    capture_config = recorder.start_capture_session.call_args.args[0]
+    assert capture_config is not mode.config.audio
+    assert capture_config.gain_mode == mode.config.audio.gain_mode
     recorder.stop.assert_called_once_with()
     service.generate.assert_called_once()
     rec = recording_store.list_recordings()[0]

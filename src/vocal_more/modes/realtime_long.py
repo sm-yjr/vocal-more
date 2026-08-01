@@ -1,5 +1,7 @@
 """Real-time long recording mode: toggle recording with Fn key."""
 
+from copy import deepcopy
+import threading
 from types import SimpleNamespace
 from typing import Callable, Optional
 
@@ -7,11 +9,11 @@ from ..application.background_executor import BackgroundExecutor, TaskHandle
 from ..application.dictation_workflow import DictationWorkflow
 from ..application.lazy_resource import LazyResource
 from ..config import asr_model_handles_inline_polish, get_config
-from ..core.audio_recorder import AudioRecorder, AudioRecorderStartError
+from ..core.audio_recorder import AudioRecorder
 from ..core.asr_engine import ASREngine
 from ..core.keyboard_sim import KeyboardSimulator
 from ..dictionary import normalize_terms
-from ..localization import t
+from ..localization import format_microphone_start_error, t
 from .base_mode import BaseMode, ModeState
 
 
@@ -80,6 +82,8 @@ class RealtimeLongMode(BaseMode):
         self._processing_thread: Optional[TaskHandle[None]] = None
         self._recording_asr_model = self.config.asr.model
         self._active_session_token = 0
+        self._asr_session_token: Optional[int] = None
+        self._asr_owner_lock = threading.Lock()
 
     def _prepare_app_context(self) -> str:
         self._active_app_context = None
@@ -130,9 +134,51 @@ class RealtimeLongMode(BaseMode):
         context_instruction = self._prepare_app_context()
         self._set_state(ModeState.STARTING)
 
+        session_audio_config = deepcopy(self.config.audio)
         try:
-            self._recorder.start()
+            # Synchronize the recorder from the same config boundary that the
+            # ASR engine snapshots, then open ASR admission before any verified
+            # recorder startup PCM can be published.
+            self.apply_audio_runtime_config(session_audio_config)
         except Exception as exc:
+            if (
+                not self._is_active_session(session_token)
+                or self._state != ModeState.STARTING
+            ):
+                return
+            print(f"[RealtimeLong] Failed to configure microphone: {exc}")
+            self._report_startup_failure(exc, stage="microphone")
+            return
+
+        try:
+            with self._asr_owner_lock:
+                self._asr_session_token = session_token
+                self._start_realtime_asr(
+                    audio_config=session_audio_config,
+                    context_instruction=context_instruction,
+                )
+        except Exception as exc:
+            print(f"[RealtimeLong] Failed to start realtime ASR: {exc}")
+            self._abort_started_asr_startup(session_token)
+            if (
+                not self._is_active_session(session_token)
+                or self._state != ModeState.STARTING
+            ):
+                return
+            self._report_startup_failure(exc, stage="asr")
+            return
+
+        if (
+            not self._is_active_session(session_token)
+            or self._state != ModeState.STARTING
+        ):
+            self._abort_started_asr_startup(session_token)
+            return
+
+        try:
+            self._start_audio_capture(session_audio_config)
+        except Exception as exc:
+            self._abort_started_asr_startup(session_token)
             if (
                 not self._is_active_session(session_token)
                 or self._state != ModeState.STARTING
@@ -146,58 +192,33 @@ class RealtimeLongMode(BaseMode):
             not self._is_active_session(session_token)
             or self._state != ModeState.STARTING
         ):
-            self._recorder.stop()
-            return
-
-        try:
-            if context_instruction:
-                self._asr.start(context_instruction=context_instruction)
-            else:
-                self._asr.start()
-        except Exception as exc:
-            print(f"[RealtimeLong] Failed to start realtime ASR: {exc}")
-            try:
-                self._recorder.stop()
-            except Exception:
-                pass
-            self._report_startup_failure(exc, stage="asr")
-            return
-
-
-        if (
-            not self._is_active_session(session_token)
-            or self._state != ModeState.STARTING
-        ):
-            self._recorder.stop()
-            try:
-                self._asr.stop()
-            except Exception:
-                pass
+            # cancel() already stopped this recorder. A newer session may now
+            # own the shared recorder, so late startup cleanup must be token-
+            # conditional and must not stop the device a second time.
+            self._abort_started_asr_startup(session_token)
             return
 
         self._set_state(ModeState.RECORDING)
 
+    def _abort_started_asr_startup(self, session_token: int) -> None:
+        with self._asr_owner_lock:
+            if self._asr_session_token != session_token:
+                return
+            self._asr_session_token = None
+            # Keep ownership serialized through abort so a new session cannot
+            # start ASR between the token check and generation invalidation.
+            self._abort_realtime_asr_startup()
+
+    def _clear_asr_session_owner(self, session_token: int) -> None:
+        with self._asr_owner_lock:
+            if self._asr_session_token == session_token:
+                self._asr_session_token = None
+
     def _report_startup_failure(self, exc: Exception, *, stage: str) -> None:
         if self.on_error:
-            if (
-                stage == "microphone"
-                and isinstance(exc, AudioRecorderStartError)
-                and exc.startup_timed_out
-            ):
-                self.on_error(t(self.config.ui.language, "mode_microphone_start_timeout"))
-            elif (
-                stage == "microphone"
-                and isinstance(exc, AudioRecorderStartError)
-                and exc.device_change_detected
-            ):
-                self.on_error(t(self.config.ui.language, "mode_microphone_device_changed"))
-            elif stage == "microphone":
+            if stage == "microphone":
                 self.on_error(
-                    t(
-                        self.config.ui.language,
-                        "mode_microphone_unavailable",
-                        details=str(exc),
-                    )
+                    format_microphone_start_error(self.config.ui.language, exc)
                 )
             else:
                 self.on_error(t(self.config.ui.language, "mode_asr_error", details=str(exc)))
@@ -208,10 +229,14 @@ class RealtimeLongMode(BaseMode):
     def _stop_recording(self) -> None:
         """Stop recording and process."""
         self._set_state(ModeState.STOPPING)
+        session_token = self._active_session_token
         pcm_data = self._recorder.stop()
 
         if len(pcm_data) < 3200:
-            self._asr.stop()
+            try:
+                self._asr.stop()
+            finally:
+                self._clear_asr_session_owner(session_token)
             if self.on_error:
                 self.on_error(t(self.config.ui.language, "mode_recording_too_short"))
             self._clear_app_context()
@@ -219,7 +244,6 @@ class RealtimeLongMode(BaseMode):
             return
 
         self._set_state(ModeState.PROCESSING)
-        session_token = self._active_session_token
         self._processing_thread = self._processing_executor.submit(
             self._finish_transcription,
             pcm_data,
@@ -292,16 +316,23 @@ class RealtimeLongMode(BaseMode):
                     self._set_state(ModeState.FAILED)
                 self._emit_workflow_result(result)
         finally:
+            self._clear_asr_session_owner(session_token)
             self._clear_app_context()
             if self._is_active_session(session_token):
+                self._set_state(ModeState.IDLE)
+            elif self._state == ModeState.CANCELLING:
+                # cancel(PROCESSING) keeps the mode unavailable until this
+                # worker has fully left ASREngine.stop. Starting sooner would
+                # overlap two generations on the same engine instance.
                 self._set_state(ModeState.IDLE)
 
     def cancel(self, reason: str = "user_cancel") -> None:
         """Cancel current operation."""
-        if self._state == ModeState.IDLE:
+        if self._state in (ModeState.IDLE, ModeState.CANCELLING):
             return
 
         previous_state = self._state
+        cancelled_session_token = self._active_session_token
         self._log_lifecycle(
             "cancel_requested",
             reason=reason,
@@ -311,14 +342,22 @@ class RealtimeLongMode(BaseMode):
         self._set_state(ModeState.CANCELLING)
         if previous_state in (ModeState.STARTING, ModeState.RECORDING):
             self._recorder.stop()
-            if previous_state == ModeState.RECORDING:
+            if previous_state == ModeState.STARTING:
+                self._abort_started_asr_startup(cancelled_session_token)
+            else:
                 try:
                     self._asr.stop()
                 except Exception:
                     pass
+                self._clear_asr_session_owner(cancelled_session_token)
 
         self._recording_asr_model = self.config.asr.model
         self._clear_app_context()
+        if previous_state == ModeState.PROCESSING:
+            processing = self._processing_thread
+            if processing is not None and processing.done():
+                self._set_state(ModeState.IDLE)
+            return
         self._set_state(ModeState.IDLE)
 
     def close(self) -> None:

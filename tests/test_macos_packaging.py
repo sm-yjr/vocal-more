@@ -52,6 +52,12 @@ def test_py2app_runs_as_menu_bar_only_app():
     assert app_plist["LSUIElement"].value is True
 
 
+def test_py2app_declares_the_binary_compatible_macos_floor():
+    app_plist = _load_py2app_plist()
+
+    assert app_plist["LSMinimumSystemVersion"].value == "14.0"
+
+
 def test_py2app_includes_accessibility_modules_for_dictionary_learning():
     setup_text = (ROOT / "packaging" / "macos" / "setup.py").read_text()
 
@@ -106,11 +112,13 @@ def test_nested_macho_files_are_signed_without_app_entitlements():
     assert "--entitlements" not in nested_signing_block
 
 
-def test_nested_macho_files_are_signed_in_parallel():
+def test_nested_macho_files_are_signed_serially_to_avoid_bundle_mutation_races():
     sign_script = (ROOT / "packaging" / "macos" / "sign_app.sh").read_text()
 
-    assert 'CODESIGN_JOBS="${VOCAL_MORE_CODESIGN_JOBS:-8}"' in sign_script
-    assert 'xargs -P "$CODESIGN_JOBS"' in sign_script
+    assert "VOCAL_MORE_CODESIGN_JOBS" not in sign_script
+    assert "xargs -P" not in sign_script
+    assert "while IFS= read -r file; do" in sign_script
+    assert '--sign "$IDENTITY" "$file"' in sign_script
 
 
 def test_sparkle_dependency_is_pinned_and_checksum_verified():
@@ -387,3 +395,103 @@ def test_release_workflow_avoids_duplicate_build_and_signing_work():
     assert '${VOCAL_MORE_SKIP_FRONTEND_BUILD:-0}' in build_script
     assert '${VOCAL_MORE_SKIP_ADHOC_SIGN:-0}' in build_script
     assert '${VOCAL_MORE_USE_PREPARED_BUILD_VENV:-0}' in build_script
+
+
+def _load_release_artifact_verifier():
+    script_path = ROOT / "packaging" / "macos" / "verify_release_artifact.py"
+    spec = importlib.util.spec_from_file_location("verify_release_artifact", script_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_release_artifact_verifier_enforces_native_library_contract(tmp_path):
+    verifier = _load_release_artifact_verifier()
+    app = tmp_path / "Vocal More.app"
+    library = app / "Contents" / "Frameworks" / "libvocal_more_audio.dylib"
+    library.parent.mkdir(parents=True)
+    library.write_bytes(b"Mach-O placeholder")
+    commands: list[list[str]] = []
+
+    def fake_runner(command, **_kwargs):
+        command = [str(value) for value in command]
+        commands.append(command)
+        if command[:2] == ["lipo", "-archs"]:
+            stdout = "arm64\n"
+        elif command[:3] == ["xcrun", "vtool", "-show-build"]:
+            stdout = "platform MACOS\n    minos 14.0\n"
+        elif command[:2] == ["otool", "-D"]:
+            stdout = f"{library}:\n@rpath/libvocal_more_audio.dylib\n"
+        elif command[:2] == ["otool", "-L"]:
+            stdout = (
+                f"{library}:\n"
+                "\t@rpath/libvocal_more_audio.dylib (compatibility version 0.0.0)\n"
+                "\t/System/Library/Frameworks/Foundation.framework/Versions/C/"
+                "Foundation (compatibility version 300.0.0)\n"
+                "\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0)\n"
+            )
+        elif command[:2] == ["nm", "-gU"]:
+            stdout = "\n".join(
+                f"0000000000000000 T _{symbol}"
+                for symbol in verifier.REQUIRED_C_ABI_EXPORTS
+            )
+        else:
+            stdout = ""
+        return subprocess.CompletedProcess(command, 0, stdout, "")
+
+    verifier.verify_native_audio_library(app, command_runner=fake_runner)
+
+    assert "vm_audio_runtime_fault_count" in verifier.REQUIRED_C_ABI_EXPORTS
+    assert "vm_audio_runtime_fault_code" in verifier.REQUIRED_C_ABI_EXPORTS
+    assert any(
+        command[:4] == ["codesign", "--verify", "--strict", "--verbose=2"]
+        and command[-1] == str(library)
+        for command in commands
+    )
+
+
+def test_release_artifact_verifier_rejects_non_apple_native_dependency(tmp_path):
+    verifier = _load_release_artifact_verifier()
+    app = tmp_path / "Vocal More.app"
+    library = app / "Contents" / "Frameworks" / "libvocal_more_audio.dylib"
+    library.parent.mkdir(parents=True)
+    library.write_bytes(b"Mach-O placeholder")
+
+    def fake_runner(command, **_kwargs):
+        command = [str(value) for value in command]
+        if command[:2] == ["lipo", "-archs"]:
+            stdout = "arm64\n"
+        elif command[:3] == ["xcrun", "vtool", "-show-build"]:
+            stdout = "platform MACOS\n    minos 14.0\n"
+        elif command[:2] == ["otool", "-D"]:
+            stdout = f"{library}:\n@rpath/libvocal_more_audio.dylib\n"
+        elif command[:2] == ["otool", "-L"]:
+            stdout = (
+                f"{library}:\n"
+                "\t@rpath/libvocal_more_audio.dylib (compatibility version 0.0.0)\n"
+                "\t/opt/homebrew/lib/libunexpected.dylib "
+                "(compatibility version 1.0.0)\n"
+            )
+        elif command[:2] == ["nm", "-gU"]:
+            stdout = "\n".join(
+                f"0000000000000000 T _{symbol}"
+                for symbol in verifier.REQUIRED_C_ABI_EXPORTS
+            )
+        else:
+            stdout = ""
+        return subprocess.CompletedProcess(command, 0, stdout, "")
+
+    with pytest.raises(RuntimeError, match="non-Apple dependency"):
+        verifier.verify_native_audio_library(app, command_runner=fake_runner)
+
+
+def test_release_workflow_verifies_mounted_native_artifact_before_upload():
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+    verifier = 'python3 packaging/macos/verify_release_artifact.py "$DMG_PATH"'
+
+    notarize = workflow.index("./packaging/macos/notarize_dmg.sh")
+    verify = workflow.index(verifier)
+    upload = workflow.index("actions/upload-artifact@v4")
+
+    assert notarize < verify < upload

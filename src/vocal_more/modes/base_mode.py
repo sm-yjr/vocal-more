@@ -118,11 +118,37 @@ class BaseMode(ABC):
         recorder = getattr(self, "_recorder", None)
         if recorder is None:
             return
-        recorder.set_device(getattr(audio_config, "input_device"))
-        recorder.set_gain(getattr(audio_config, "gain"))
-        recorder.set_highpass_filter(getattr(audio_config, "highpass_filter"))
-        recorder.set_highpass_freq(getattr(audio_config, "highpass_freq"))
-        recorder.set_soft_limiter(getattr(audio_config, "soft_limiter"))
+        apply_batch = getattr(recorder, "apply_capture_config", None)
+        if callable(apply_batch):
+            apply_batch(audio_config)
+            return
+        setters = (
+            ("set_blocksize", "blocksize"),
+            ("set_capture_channels", "capture_channels"),
+            ("set_device", "input_device"),
+            ("set_gain_mode", "gain_mode"),
+            ("set_gain", "gain"),
+            ("set_highpass_filter", "highpass_filter"),
+            ("set_highpass_freq", "highpass_freq"),
+            ("set_soft_limiter", "soft_limiter"),
+        )
+        for setter_name, field_name in setters:
+            setter = getattr(recorder, setter_name, None)
+            if callable(setter):
+                setter(getattr(audio_config, field_name))
+
+    def _start_audio_capture(self, audio_config: object) -> None:
+        """Start with the same atomic snapshot already admitted by ASR."""
+        recorder = getattr(self, "_recorder", None)
+        if recorder is None:
+            raise RuntimeError("Audio recorder is unavailable")
+        start_session = getattr(recorder, "start_capture_session", None)
+        if callable(start_session):
+            start_session(audio_config)
+            return
+        # Compatibility for injected test/extension recorders. The snapshot
+        # was already synchronized by apply_audio_runtime_config().
+        recorder.start()
 
     def refresh_asr_runtime(self) -> None:
         """Refresh an initialized ASR engine without forcing lazy creation."""
@@ -130,6 +156,43 @@ class BaseMode(ABC):
         refresh = getattr(asr, "refresh_runtime_config", None)
         if callable(refresh):
             refresh(drop_idle_session=True)
+
+    def _abort_realtime_asr_startup(self) -> None:
+        """Boundedly invalidate an initialized ASR session during mode startup."""
+        asr = initialized_resource(getattr(self, "_asr", None))
+        if asr is None:
+            return
+        abort = getattr(asr, "abort_startup", None)
+        if callable(abort):
+            abort()
+            return
+        reset = getattr(asr, "reset", None)
+        if callable(reset):
+            reset()
+            return
+        # Compatibility for small test doubles and older injected engines.
+        stop = getattr(asr, "stop", None)
+        if callable(stop):
+            stop()
+
+    def _start_realtime_asr(
+        self,
+        *,
+        audio_config: object,
+        context_instruction: str = "",
+    ) -> None:
+        """Start ASR from the exact recorder-plan snapshot for this session."""
+        starter = getattr(self._asr, "start_with_audio_contract", None)
+        if callable(starter):
+            starter(
+                audio_config,
+                context_instruction=context_instruction,
+            )
+            return
+        if context_instruction:
+            self._asr.start(context_instruction=context_instruction)
+        else:
+            self._asr.start()
 
     def _emit_workflow_result(self, result) -> None:
         """Forward shared workflow output to mode callbacks."""

@@ -4,6 +4,8 @@ from pathlib import Path
 import sys
 import types
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -154,3 +156,20 @@ _install_sounddevice_stub()
 _install_keyboard_stubs()
 _install_quartz_stub()
 _install_pyobjc_stubs()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_persisted_config(tmp_path, monkeypatch):
+    """Keep tests and compatibility repair away from the user's real config."""
+    import vocal_more.config as config_module
+    from vocal_more.config import Config
+
+    config_dir = tmp_path / "vocal-more-config"
+    monkeypatch.setattr(
+        Config,
+        "get_config_dir",
+        classmethod(lambda cls: config_dir),
+    )
+    config_module._config = Config()
+    yield
+    config_module._config = None

@@ -1,0 +1,166 @@
+# Copy this file outside the repository and replace the placeholder recordings.
+# Each pair_id represents the same phrase, speaking style, position, and trial.
+schema_version: 1
+suite_id: built-in-microphone-whisper-v1
+description: Paired physical-microphone captures for automatic versus manual gain.
+# Hand-authored manifests are useful for general diagnostics, but cannot enter the
+# Apple-specific AGC delta. Use capture_audio_quality_ab.py for verified provenance.
+provenance:
+  kind: caller_attestation
+
+environment:
+  hardware_model: MacBookPro18,3
+  microphone: MacBook Pro Microphone
+  macos_version: "26.0"
+  app_version: "0.3.13"
+  room: quiet office
+  ambient_condition: HVAC on; no nearby speech
+  microphone_distance_cm: 45
+  speaker_position: centered in front of display
+  capture_protocol:
+    order: ABBA
+    pair_count: 2
+    duration_seconds: 5
+    manual_gain_db: 18
+    highpass_enabled: true
+    highpass_hz: 200
+    soft_limiter_enabled: true
+    capture_host: terminal_process
+    stimulus_count: 2
+    stimulus_set_sha256: 0000000000000000000000000000000000000000000000000000000000000000
+    stimulus_text_persisted: false
+
+analysis:
+  frame_ms: 20
+  silence_threshold_dbfs: -50
+  clipping_threshold: 0.999
+
+recordings:
+  - id: whisper-01-auto
+    pair_id: whisper-01
+    audio: captures/whisper-01-auto.wav
+    capture_sequence: 1
+    requested_gain_mode: automatic
+    # Copy this from runtime status. Do not infer it from the requested mode.
+    actual_gain_control: apple_agc
+    preferred_microphone_mode: standard
+    active_microphone_mode: standard
+    phase: completed
+    processing_active: true
+    device_name: MacBook Pro Microphone
+    system_default: true
+    native_backend: objective_cpp
+    processing_mode: macos_voice_processing
+    converter_name: AVAudioConverter
+    source_sample_rate_hz: 48000
+    source_channels: 1
+    output_sample_rate_hz: 16000
+    output_channels: 1
+    output_sample_width_bytes: 2
+    output_encoding: pcm_s16le
+    highpass_effective: true
+    voice_processing_enabled_observed: true
+    agc_enabled_observed: true
+    gain_control_verified: true
+    fallback_code: null
+    fallback_stage: null
+    queue_dropped_blocks: 0
+    runtime_fault_count: 0
+    runtime_fault_code: null
+    tags: [whisper, quiet_office]
+
+  - id: whisper-01-manual
+    pair_id: whisper-01
+    audio: captures/whisper-01-manual.wav
+    capture_sequence: 2
+    requested_gain_mode: manual
+    actual_gain_control: software
+    preferred_microphone_mode: standard
+    active_microphone_mode: standard
+    phase: completed
+    processing_active: true
+    device_name: MacBook Pro Microphone
+    system_default: true
+    native_backend: objective_cpp
+    processing_mode: macos_voice_processing
+    converter_name: AVAudioConverter
+    source_sample_rate_hz: 48000
+    source_channels: 1
+    output_sample_rate_hz: 16000
+    output_channels: 1
+    output_sample_width_bytes: 2
+    output_encoding: pcm_s16le
+    highpass_effective: true
+    voice_processing_enabled_observed: true
+    agc_enabled_observed: false
+    gain_control_verified: true
+    fallback_code: null
+    fallback_stage: null
+    queue_dropped_blocks: 0
+    runtime_fault_count: 0
+    runtime_fault_code: null
+    tags: [whisper, quiet_office]
+
+  - id: whisper-02-manual
+    pair_id: whisper-02
+    audio: captures/whisper-02-manual.wav
+    capture_sequence: 3
+    requested_gain_mode: manual
+    actual_gain_control: software
+    preferred_microphone_mode: standard
+    active_microphone_mode: standard
+    phase: completed
+    processing_active: true
+    device_name: MacBook Pro Microphone
+    system_default: true
+    native_backend: objective_cpp
+    processing_mode: macos_voice_processing
+    converter_name: AVAudioConverter
+    source_sample_rate_hz: 48000
+    source_channels: 1
+    output_sample_rate_hz: 16000
+    output_channels: 1
+    output_sample_width_bytes: 2
+    output_encoding: pcm_s16le
+    highpass_effective: true
+    voice_processing_enabled_observed: true
+    agc_enabled_observed: false
+    gain_control_verified: true
+    fallback_code: null
+    fallback_stage: null
+    queue_dropped_blocks: 0
+    runtime_fault_count: 0
+    runtime_fault_code: null
+    tags: [whisper, quiet_office]
+
+  - id: whisper-02-auto
+    pair_id: whisper-02
+    audio: captures/whisper-02-auto.wav
+    capture_sequence: 4
+    requested_gain_mode: automatic
+    actual_gain_control: apple_agc
+    preferred_microphone_mode: standard
+    active_microphone_mode: standard
+    phase: completed
+    processing_active: true
+    device_name: MacBook Pro Microphone
+    system_default: true
+    native_backend: objective_cpp
+    processing_mode: macos_voice_processing
+    converter_name: AVAudioConverter
+    source_sample_rate_hz: 48000
+    source_channels: 1
+    output_sample_rate_hz: 16000
+    output_channels: 1
+    output_sample_width_bytes: 2
+    output_encoding: pcm_s16le
+    highpass_effective: true
+    voice_processing_enabled_observed: true
+    agc_enabled_observed: true
+    gain_control_verified: true
+    fallback_code: null
+    fallback_stage: null
+    queue_dropped_blocks: 0
+    runtime_fault_count: 0
+    runtime_fault_code: null
+    tags: [whisper, quiet_office]

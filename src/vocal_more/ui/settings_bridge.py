@@ -19,8 +19,10 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
     "audio": {
         "sample_rate",
         "channels",
+        "capture_channels",
         "blocksize",
         "input_device",
+        "gain_mode",
         "gain",
         "highpass_filter",
         "highpass_freq",

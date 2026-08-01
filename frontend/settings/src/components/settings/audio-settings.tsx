@@ -32,18 +32,21 @@ import {
 
 const AUDIO_PRESETS = {
   whisper: {
+    gain_mode: "manual",
     gain: 8,
     highpass_filter: true,
     highpass_freq: 220,
     soft_limiter: true,
   },
   normal: {
+    gain_mode: "manual",
     gain: 4,
     highpass_filter: true,
     highpass_freq: 200,
     soft_limiter: true,
   },
   noisy: {
+    gain_mode: "manual",
     gain: 6,
     highpass_filter: true,
     highpass_freq: 280,
@@ -73,6 +76,7 @@ export function AudioSettings({
   copy: SettingsCopy
 }) {
   const audio = snapshot.config.audio ?? {}
+  const gainMode = audio.gain_mode === "manual" ? "manual" : "automatic"
   const gainDb = gainToDb(typeof audio.gain === "number" ? audio.gain : 2)
   const waveformCeilingDbfs =
     typeof audio.waveform_ceiling_dbfs === "number"
@@ -81,24 +85,105 @@ export function AudioSettings({
   const mic = snapshot.micTest
   const micDbfs = rmsToDbfs(mic.level)
   const inputStatus = snapshot.audioInputStatus
+  const captureSessionActive = ["starting", "active", "stopping"].includes(
+    inputStatus.phase ?? ""
+  )
+  const audioControlsBusy = mic.state === "recording" || captureSessionActive
   const processingLabel =
-    inputStatus.processing_mode === "macos_voice_processing"
-      ? copy.appleVoiceProcessing
-      : inputStatus.processing_mode === "vocal_more_array"
-        ? copy.vocalMoreArrayProcessing
-        : inputStatus.processing_mode === "system_managed_mono"
-          ? copy.systemManagedMono
-          : copy.standardInputProcessing
+    inputStatus.processing_mode === "pending"
+      ? copy.pendingRuntime
+      : inputStatus.processing_mode === "macos_voice_processing"
+        ? copy.appleVoiceProcessing
+        : inputStatus.processing_mode === "vocal_more_array"
+          ? copy.vocalMoreArrayProcessing
+          : inputStatus.processing_mode === "system_managed_mono"
+            ? copy.systemManagedMono
+            : copy.standardInputProcessing
   const echoLabel =
-    inputStatus.echo_cancellation === "active"
-      ? copy.echoCancellationActive
-      : inputStatus.echo_cancellation === "ready"
-        ? copy.echoCancellationReady
-        : inputStatus.echo_cancellation === "fallback"
-          ? copy.echoCancellationFallback
-          : copy.echoCancellationUnavailable
+    inputStatus.echo_cancellation === "pending"
+      ? copy.pendingRuntime
+      : inputStatus.echo_cancellation === "active"
+        ? copy.echoCancellationActive
+        : inputStatus.echo_cancellation === "ready"
+          ? copy.echoCancellationReady
+          : inputStatus.echo_cancellation === "fallback"
+            ? copy.echoCancellationFallback
+            : copy.echoCancellationUnavailable
   const channelLabel =
     inputStatus.capture_channels === 1 ? copy.audioChannel : copy.audioChannels
+  const gainControlLabel =
+    inputStatus.gain_control === "pending"
+      ? copy.pendingRuntime
+      : inputStatus.gain_control === "apple_agc"
+        ? inputStatus.processing_active
+          ? copy.appleAgcActive
+          : copy.appleAgcReady
+        : inputStatus.gain_control === "software_fallback"
+          ? copy.appleAgcFallback
+          : copy.softwareGainActive
+  const softwareControlsDisabled =
+    audioControlsBusy ||
+    (gainMode === "automatic" && inputStatus.gain_control === "apple_agc")
+  const permissionLabel =
+    inputStatus.microphone_permission === "authorized"
+      ? copy.microphonePermissionAuthorized
+      : inputStatus.microphone_permission === "not_determined"
+        ? copy.microphonePermissionNotDetermined
+        : inputStatus.microphone_permission === "denied"
+          ? copy.microphonePermissionDenied
+          : inputStatus.microphone_permission === "restricted"
+            ? copy.microphonePermissionRestricted
+            : copy.microphonePermissionUnknown
+  const runtimeLabel =
+    inputStatus.phase === "active"
+      ? copy.runtimeActive
+      : inputStatus.phase === "starting"
+        ? copy.runtimeStarting
+        : inputStatus.phase === "failed"
+          ? copy.runtimeFailed
+          : inputStatus.phase === "planned"
+            ? copy.runtimePlanned
+            : copy.runtimeInactive
+  const runtimeBackendLabel = (backend: unknown) =>
+    backend === "objective_cpp"
+      ? copy.objectiveCppRuntime
+      : backend === "pyobjc"
+        ? copy.pyobjcRuntime
+        : backend === "portaudio"
+          ? copy.portaudioRuntime
+          : copy.pendingRuntime
+  const backendLabel = runtimeBackendLabel(inputStatus.native_backend)
+  const microphoneModeLabel = (mode: unknown) =>
+    mode === "standard"
+      ? copy.microphoneModeStandard
+      : mode === "wide_spectrum"
+        ? copy.microphoneModeWideSpectrum
+        : mode === "voice_isolation"
+          ? copy.microphoneModeVoiceIsolation
+          : null
+  const activeMicrophoneModeLabel = microphoneModeLabel(
+    inputStatus.active_microphone_mode
+  )
+  const preferredMicrophoneModeLabel = microphoneModeLabel(
+    inputStatus.preferred_microphone_mode
+  )
+  const microphoneModeSummary = activeMicrophoneModeLabel
+    ? preferredMicrophoneModeLabel &&
+      preferredMicrophoneModeLabel !== activeMicrophoneModeLabel
+      ? `${activeMicrophoneModeLabel} · ${copy.preferredMicrophoneMode}${preferredMicrophoneModeLabel}`
+      : activeMicrophoneModeLabel
+    : preferredMicrophoneModeLabel
+  const lastSession = inputStatus.last_session
+  const lastSessionFaults = Number(lastSession?.runtime_fault_count ?? 0)
+  const lastSessionDrops = Number(lastSession?.queue_dropped_blocks ?? 0)
+  const lastSessionVerified =
+    lastSession?.gain_control_verified === true &&
+    lastSessionFaults === 0 &&
+    lastSessionDrops === 0
+  const displayedDroppedBlocks =
+    inputStatus.phase === "active"
+      ? (inputStatus.queue_dropped_blocks ?? 0)
+      : lastSessionDrops
 
   useEffect(() => {
     if (mic.state !== "recording") return
@@ -119,7 +204,7 @@ export function AudioSettings({
   }
 
   return (
-    <SettingsPage title={copy.audio} description={copy.softwareGainHint}>
+    <SettingsPage title={copy.audio} description={copy.gainControlHint}>
       <SettingsCard
         title={copy.inputProcessingStatus}
         description={inputStatus.fallback_reason || undefined}
@@ -136,6 +221,49 @@ export function AudioSettings({
         <SettingsRow label={copy.echoCancellation}>
           <InlineValue>{echoLabel}</InlineValue>
         </SettingsRow>
+        <SettingsRow label={copy.gainControl}>
+          <InlineValue>{gainControlLabel}</InlineValue>
+        </SettingsRow>
+        {inputStatus.microphone_permission && (
+          <SettingsRow label={copy.microphonePermission}>
+            <InlineValue>{permissionLabel}</InlineValue>
+          </SettingsRow>
+        )}
+        {inputStatus.phase && (
+          <SettingsRow label={copy.captureRuntime}>
+            <InlineValue>
+              {runtimeLabel} · {backendLabel}
+            </InlineValue>
+          </SettingsRow>
+        )}
+        {inputStatus.source_sample_rate_hz && (
+          <SettingsRow label={copy.sourceFormat}>
+            <InlineValue>
+              {inputStatus.source_sample_rate_hz.toLocaleString()} Hz ·{" "}
+              {inputStatus.source_channels ?? 1} {channelLabel}
+            </InlineValue>
+          </SettingsRow>
+        )}
+        {microphoneModeSummary && (
+          <SettingsRow label={copy.microphoneMode}>
+            <InlineValue>{microphoneModeSummary}</InlineValue>
+          </SettingsRow>
+        )}
+        {lastSession && inputStatus.phase !== "active" && (
+          <SettingsRow label={copy.lastSession}>
+            <InlineValue>
+              {lastSessionVerified
+                ? copy.lastSessionVerified
+                : copy.lastSessionUnverified}{" "}
+              · {runtimeBackendLabel(lastSession.native_backend)}
+            </InlineValue>
+          </SettingsRow>
+        )}
+        {displayedDroppedBlocks > 0 && (
+          <SettingsRow label={copy.runtimeDrops}>
+            <InlineValue>{displayedDroppedBlocks}</InlineValue>
+          </SettingsRow>
+        )}
       </SettingsCard>
 
       <SettingsCard>
@@ -145,6 +273,7 @@ export function AudioSettings({
             aria-label={copy.inputDevice}
             className="h-8 w-64"
             value={audio.input_device ?? ""}
+            disabled={audioControlsBusy}
             onChange={(event) => setDevice(store, event.target.value || null)}
           >
             <NativeSelectOption value="">
@@ -161,6 +290,7 @@ export function AudioSettings({
             size="icon-sm"
             variant="ghost"
             aria-label={copy.refresh}
+            disabled={audioControlsBusy}
             onClick={() => sendAction("refreshDevices")}
           >
             <RefreshCw />
@@ -181,6 +311,7 @@ export function AudioSettings({
               key={name}
               variant="outline"
               className="justify-start"
+              disabled={audioControlsBusy}
               onClick={() => applyPreset(name)}
             >
               {label}
@@ -191,6 +322,29 @@ export function AudioSettings({
 
       <SettingsCard>
         <SettingsRow
+          label={copy.gainControl}
+          description={copy.gainControlHint}
+          htmlFor="audio-gain-mode"
+        >
+          <NativeSelect
+            id="audio-gain-mode"
+            aria-label={copy.gainControl}
+            className="w-64"
+            value={gainMode}
+            disabled={audioControlsBusy}
+            onChange={(event) =>
+              setConfig(store, "audio.gain_mode", event.target.value)
+            }
+          >
+            <NativeSelectOption value="automatic">
+              {copy.automaticAppleGain}
+            </NativeSelectOption>
+            <NativeSelectOption value="manual">
+              {copy.manualSoftwareGain}
+            </NativeSelectOption>
+          </NativeSelect>
+        </SettingsRow>
+        <SettingsRow
           label={copy.softwareGain}
           description={copy.softwareGainHint}
         >
@@ -200,6 +354,7 @@ export function AudioSettings({
               min={-6}
               max={34}
               step={1}
+              disabled={softwareControlsDisabled}
               value={gainDb}
               onValueChange={(value) =>
                 previewConfig(
@@ -254,6 +409,7 @@ export function AudioSettings({
         <SettingsRow label={copy.highpass} description={copy.highpassHint}>
           <Switch
             checked={audio.highpass_filter !== false}
+            disabled={audioControlsBusy}
             onCheckedChange={(checked) =>
               setConfig(store, "audio.highpass_filter", checked)
             }
@@ -266,7 +422,7 @@ export function AudioSettings({
               min={50}
               max={500}
               step={10}
-              disabled={audio.highpass_filter === false}
+              disabled={audioControlsBusy || audio.highpass_filter === false}
               value={
                 typeof audio.highpass_freq === "number"
                   ? audio.highpass_freq
@@ -288,7 +444,9 @@ export function AudioSettings({
         </SettingsRow>
         <SettingsRow label={copy.limiter} description={copy.limiterHint}>
           <Switch
+            aria-label={copy.limiter}
             checked={audio.soft_limiter !== false}
+            disabled={softwareControlsDisabled}
             onCheckedChange={(checked) =>
               setConfig(store, "audio.soft_limiter", checked)
             }
@@ -337,6 +495,7 @@ export function AudioSettings({
               )}
               <Button
                 size="sm"
+                disabled={captureSessionActive}
                 onClick={() => {
                   store.resetMicTest()
                   sendAction("startMicTest")

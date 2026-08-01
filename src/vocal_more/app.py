@@ -591,6 +591,18 @@ class VocalMoreApp(rumps.App):
         self._clear_missing_configured_microphone(devices)
         self._populate_microphone_device_menu(self._quick_microphone_item, devices)
         dictionary = self._get_dict_entries()
+        current_mode = getattr(self, "_current_mode", None)
+        audio_input_status = getattr(current_mode, "audio_input_status", None)
+        if (
+            isinstance(audio_input_status, dict)
+            and audio_input_status.get("phase") == "planned"
+            and audio_input_status.get("processing_mode") == "pending"
+            and audio_input_status.get("last_session") is None
+        ):
+            # Recorder construction is deliberately I/O-free. Let the settings
+            # window perform its explicit live capability inspection instead of
+            # displaying that constructor-only placeholder as observed fact.
+            audio_input_status = None
         self._settings_window.show(
             config=self.config.to_dict(),
             asr_models=ASR_MODEL_CATALOG,
@@ -610,6 +622,11 @@ class VocalMoreApp(rumps.App):
                 check.to_dict()
                 for check in getattr(self, "_environment_checks", [])
             ],
+            audio_input_status=(
+                audio_input_status
+                if isinstance(audio_input_status, dict)
+                else None
+            ),
         )
 
     def _quit_app(self, _) -> None:
@@ -673,7 +690,10 @@ class VocalMoreApp(rumps.App):
             return
 
         self.config.save()
-        self._refresh_quick_settings_menu()
+        if key == "audio.gain_mode":
+            self._refresh_microphone_status_menu(update_settings_window=True)
+        else:
+            self._refresh_quick_settings_menu()
         print(f"[Settings] Config updated: {key} = {value}")
 
     def _on_settings_preview_config(self, key: str, value: Any) -> None:
@@ -960,6 +980,9 @@ class VocalMoreApp(rumps.App):
             update_devices = getattr(settings_window, "update_devices", None)
             if callable(update_devices):
                 update_devices(devices, self.config.audio.input_device)
+            # update_devices can derive a fresh static plan, but the active
+            # mode owns last-session facts and deferred-session semantics.
+            self._sync_audio_input_status()
 
         return devices
 
@@ -1576,11 +1599,18 @@ class VocalMoreApp(rumps.App):
 
     def _sync_audio_input_status(self) -> None:
         """Forward the active mode's real capture path to an open settings UI."""
+        # Reading AudioRecorder.input_status may cross the native ABI to fetch
+        # stream diagnostics. Do not pay that cost for an uninitialized or
+        # hidden settings window; in particular, this keeps ordinary mode
+        # transitions away from a CoreAudio stop/drain lock.
+        settings_window = getattr(self, "_settings_window", None)
+        is_visible = getattr(settings_window, "is_visible", None)
+        if not callable(is_visible) or not is_visible():
+            return
         current_mode = getattr(self, "_current_mode", None)
         status = getattr(current_mode, "audio_input_status", None)
         if not isinstance(status, dict):
             return
-        settings_window = getattr(self, "_settings_window", None)
         update = getattr(settings_window, "update_audio_input_status", None)
         if callable(update):
             update(status)

@@ -28,6 +28,7 @@ import {
 } from "@/settings/waveform-calibration"
 
 const WHISPER_PRESET = {
+  gain_mode: "manual",
   gain: 8,
   highpass_filter: true,
   highpass_freq: 220,

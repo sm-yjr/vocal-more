@@ -7,7 +7,6 @@ from typing import Any, Iterable
 
 _ASR_RUNTIME_REFRESH_KEYS = {
     "enable_polish",
-    "audio.sample_rate",
 }
 
 _ASR_RUNTIME_REFRESH_PREFIXES = (

@@ -14,10 +14,11 @@ A macOS voice recognition application that runs in the menu bar, supporting real
 - Optional automatic dictionary learning from edits made after a paste
 - Fn plus up to eight configurable physical shortcut keys
 - Verified lossless FLAC archiving for older recording history
+- Apple Voice Processing with post-start AGC state verification and a manual low-voice fallback
 
 ## Requirements
 
-- macOS on Apple Silicon for the official DMG
+- macOS 14 or newer on Apple Silicon for the official DMG
 - Python 3.10+ for source installations
 - DashScope API key
 
@@ -44,6 +45,11 @@ api_key: "your-api-key"
 enable_polish: true
 auto_paste: true
 audio:
+  gain_mode: automatic         # Apple AGC when verified; manual uses software gain
+  gain: 8.0                    # retained for manual mode and automatic fallback
+  highpass_filter: true
+  highpass_freq: 200
+  soft_limiter: true
   waveform_ceiling_dbfs: -6.0  # RMS level that fills the capsule waveform
 asr:
   model: "qwen3.5-omni-flash-realtime"  # see Models section
@@ -73,6 +79,15 @@ context_personalization:
     - "com.example.private"
 default_mode: "realtime_long"
 ```
+
+Audio devices are opened at the source format negotiated by macOS (commonly
+48 kHz). Vocal More then uses `AVAudioConverter` to produce one application
+contract: 16 kHz, mono, signed PCM16. The legacy `audio.sample_rate` setting is
+accepted for compatibility but normalized to 16 kHz; it is not an
+end-to-end variable-rate option. `automatic` is the no-calibration default, not
+a claim that Apple AGC sounds better. Software gain and limiting are bypassed
+only after the running Voice Processing stream reports both Voice Processing
+and AGC enabled.
 
 Automatic dictionary learning observes the same editable field for 15 seconds
 after Vocal More pastes text. Multiple edits are coalesced into one final-state
@@ -119,6 +134,11 @@ The app will appear in your menu bar. Grant the required permissions:
 - **Microphone**: For audio recording
 - **Accessibility**: For hotkey detection and keyboard simulation
 
+If microphone access has not been decided yet, the first explicit recording
+action only opens the macOS permission request and asks you to try again. It
+does not wait inside device startup or replay the released hotkey action after
+permission changes.
+
 ## Modes
 
 ### Walkie-Talkie Mode
@@ -153,6 +173,19 @@ See [docs/benchmarking.md](docs/benchmarking.md) for trace levels, privacy
 boundaries, deterministic app replay, semantic review, and valid Typeless
 comparison rules. The current end-to-end calibration report is
 [docs/benchmarks/2026-07-27-app-replay.md](docs/benchmarks/2026-07-27-app-replay.md).
+
+For Apple AGC versus manual gain, use the private local ABBA capture and offline
+signal report in
+[docs/audio-quality-benchmark.md](docs/audio-quality-benchmark.md). The native
+runtime, fallback order, and CPU/GPU/Neural Engine decisions are documented in
+[docs/apple-audio-architecture.md](docs/apple-audio-architecture.md).
+For a zero-capture capability check, run
+`uv run python scripts/probe_macos_audio_capabilities.py --compact`; it never
+requests microphone permission or starts an audio engine.
+
+This implementation round did not open a microphone or run a hardware ABBA
+trial. The included capture and analysis tools are the protocol for producing
+that evidence; their presence alone does not support an audio-quality claim.
 
 For one-off ASR debugging, set `VOCAL_MORE_DEBUG_DIR=/tmp/vocal-more-debug` before launching the app. Each transcription will save the source WAV plus a JSON event trace with partial transcripts, final transcripts, corpus text, and timing data.
 

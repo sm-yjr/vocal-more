@@ -178,6 +178,10 @@ def test_run_environment_checks_reports_errors(monkeypatch):
         "vocal_more.environment_check.AudioRecorder.list_input_devices",
         lambda: [],
     )
+    monkeypatch.setattr(
+        "vocal_more.environment_check.microphone_permission_status",
+        lambda: "denied",
+    )
 
     config = Config()
     config.api_key = ""
@@ -185,5 +189,7 @@ def test_run_environment_checks_reports_errors(monkeypatch):
 
     assert checks["api_key"].status == "error"
     assert checks["accessibility"].status == "error"
-    assert checks["input_device"].status == "error"
+    assert checks["microphone_permission"].status == "error"
+    assert checks["input_device"].status == "unknown"
+    assert checks["input_device"].details == "visibility_limited"
     assert checks["hotkey_listener"].status == "error"

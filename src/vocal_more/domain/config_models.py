@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from ..localization import UILanguage, normalize_ui_language
+from .audio_contract import OUTPUT_SAMPLE_RATE_HZ
 from .config_parsing import (
     MAX_AUDIO_BLOCKSIZE,
     MAX_AUDIO_CHANNELS,
     MAX_AUDIO_GAIN,
-    MAX_AUDIO_SAMPLE_RATE,
     MAX_DOUBLE_TAP_THRESHOLD,
     MAX_HIGHPASS_FREQ,
     MAX_LLM_MAX_TOKENS,
@@ -19,7 +19,6 @@ from .config_parsing import (
     MIN_AUDIO_BLOCKSIZE,
     MIN_AUDIO_CHANNELS,
     MIN_AUDIO_GAIN,
-    MIN_AUDIO_SAMPLE_RATE,
     MIN_DOUBLE_TAP_THRESHOLD,
     MIN_HIGHPASS_FREQ,
     MIN_LLM_MAX_TOKENS,
@@ -63,6 +62,7 @@ LEGACY_BUILT_IN_HOTKEYS = (
 VALID_DEFAULT_MODES = ("walkie_talkie", "realtime_long", "meeting")
 ASRLanguage = Literal["zh", "en", "auto"]
 PolishMode = Literal["dictation", "prompt"]
+GainMode = Literal["automatic", "manual"]
 POLISH_PROMPT_OVERRIDE_CATEGORIES = (
     "output_type",
     "level",
@@ -81,15 +81,36 @@ HOTKEY_ALIASES = {
 class AudioConfig:
     """Audio recording configuration."""
 
-    sample_rate: int = 16000
+    # Device capture may run at its native rate (commonly 48 kHz). The
+    # application PCM boundary is fixed so ASR, persistence, retry and playback
+    # all interpret the same bytes identically.
+    sample_rate: int = OUTPUT_SAMPLE_RATE_HZ
     channels: int = 1
+    capture_channels: int = 1
     blocksize: int = 640
     input_device: Optional[str] = None
+    gain_mode: GainMode = "automatic"
     gain: float = 2.0
     highpass_filter: bool = True
     highpass_freq: int = 200
     soft_limiter: bool = True
     waveform_ceiling_dbfs: float = DEFAULT_WAVEFORM_CEILING_DBFS
+
+    def __post_init__(self) -> None:
+        self.sample_rate = OUTPUT_SAMPLE_RATE_HZ
+        legacy_channels = clamp_int(
+            self.channels,
+            default=1,
+            minimum=MIN_AUDIO_CHANNELS,
+            maximum=MAX_AUDIO_CHANNELS,
+        )
+        self.channels = 1
+        self.capture_channels = clamp_int(
+            legacy_channels if self.capture_channels == 1 else self.capture_channels,
+            default=1,
+            minimum=MIN_AUDIO_CHANNELS,
+            maximum=MAX_AUDIO_CHANNELS,
+        )
 
 
 @dataclass
@@ -351,6 +372,7 @@ class AppConfig:
 
         config = cls()
         ui_data = data.get("ui")
+        audio_data = data.get("audio")
         legacy_existing_config = bool(data)
 
         for key in ("api_key", "enable_polish", "auto_paste", "default_mode"):
@@ -389,6 +411,25 @@ class AppConfig:
             or "advanced_settings" not in ui_data
         ):
             config.ui.advanced_settings = True
+        # Before gain_mode existed, every saved gain value meant Vocal More's
+        # software gain. Keep that behavior on upgrade so Apple AGC is never
+        # silently stacked on top of an existing low-voice preset.
+        if legacy_existing_config and (
+            not isinstance(audio_data, dict)
+            or "gain_mode" not in audio_data
+        ):
+            config.audio.gain_mode = "manual"
+        if (
+            isinstance(audio_data, dict)
+            and "capture_channels" not in audio_data
+            and "channels" in audio_data
+        ):
+            config.audio.capture_channels = clamp_int(
+                audio_data["channels"],
+                default=1,
+                minimum=MIN_AUDIO_CHANNELS,
+                maximum=MAX_AUDIO_CHANNELS,
+            )
 
         return config
 
@@ -482,16 +523,17 @@ class AppConfig:
 
     def _apply_audio_update(self, field_name: str, value: Any) -> None:
         if field_name == "sample_rate":
-            self.audio.sample_rate = clamp_int(
-                value,
-                default=self.audio.sample_rate,
-                minimum=MIN_AUDIO_SAMPLE_RATE,
-                maximum=MAX_AUDIO_SAMPLE_RATE,
-            )
+            # Preserve this legacy key when loading old YAML/RPC payloads, but
+            # normalize it to the single end-to-end PCM transport contract.
+            self.audio.sample_rate = OUTPUT_SAMPLE_RATE_HZ
         elif field_name == "channels":
-            self.audio.channels = clamp_int(
+            # The ASR and WAV transport is deliberately fixed to mono. Device
+            # capture topology is negotiated separately by AudioRecorder.
+            self.audio.channels = 1
+        elif field_name == "capture_channels":
+            self.audio.capture_channels = clamp_int(
                 value,
-                default=self.audio.channels,
+                default=self.audio.capture_channels,
                 minimum=MIN_AUDIO_CHANNELS,
                 maximum=MAX_AUDIO_CHANNELS,
             )
@@ -511,6 +553,13 @@ class AppConfig:
         elif field_name == "input_device":
             device = str(value).strip() if value else ""
             self.audio.input_device = device or None
+        elif field_name == "gain_mode":
+            if value in ("automatic", "manual"):
+                self.audio.gain_mode = value
+            else:
+                # Manual is the safe normalization for malformed persisted
+                # values because it cannot accidentally double-process gain.
+                self.audio.gain_mode = "manual"
         elif field_name == "gain":
             self.audio.gain = clamp_float(
                 value,
@@ -693,8 +742,10 @@ class AppConfig:
             "audio": {
                 "sample_rate": self.audio.sample_rate,
                 "channels": self.audio.channels,
+                "capture_channels": self.audio.capture_channels,
                 "blocksize": self.audio.blocksize,
                 "input_device": self.audio.input_device,
+                "gain_mode": self.audio.gain_mode,
                 "gain": self.audio.gain,
                 "highpass_filter": self.audio.highpass_filter,
                 "highpass_freq": self.audio.highpass_freq,

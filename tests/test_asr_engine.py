@@ -64,6 +64,16 @@ def test_streaming_queue_helpers_scale_with_blocksize():
     assert asr_engine._audio_queue_drain_timeout_seconds(16, slow_chunks) > asr_engine.MIN_AUDIO_QUEUE_DRAIN_TIMEOUT_SECONDS
 
 
+def test_asr_transport_remains_mono_even_if_a_caller_mutates_legacy_channels():
+    import vocal_more.core.asr_engine as asr_engine
+
+    malformed = SimpleNamespace(
+        audio=SimpleNamespace(sample_rate=16000, blocksize=640, channels=2)
+    )
+
+    assert asr_engine._streaming_audio_chunk_bytes(malformed) == 640 * 2
+
+
 def test_audio_sender_waits_for_queue_without_idle_polling():
     import vocal_more.core.asr_engine as asr_engine
 
@@ -899,10 +909,12 @@ def test_refresh_api_key_drops_idle_warm_session(monkeypatch):
 
     engine = asr_engine.ASREngine()
     conversation = MagicMock()
+    callback = MagicMock()
     keeper = MagicMock()
 
     engine.config.api_key = "updated-key"
     engine._conversation = conversation
+    engine._callback = callback
     engine._conversation_model_id = engine.config.asr.model
     engine._session_ready = True
     engine._warm_keeper_thread = keeper
@@ -913,7 +925,9 @@ def test_refresh_api_key_drops_idle_warm_session(monkeypatch):
     assert asr_engine.dashscope.api_key == "updated-key"
     keeper.join.assert_called_once()
     conversation.close.assert_called_once()
+    callback.close.assert_called_once()
     assert engine._conversation is None
+    assert engine._callback is None
     assert engine._conversation_model_id is None
     assert engine._session_ready is False
 
@@ -924,9 +938,11 @@ def test_refresh_runtime_config_drops_idle_warm_session(monkeypatch):
 
     engine = asr_engine.ASREngine()
     conversation = MagicMock()
+    callback = MagicMock()
     keeper = MagicMock()
 
     engine._conversation = conversation
+    engine._callback = callback
     engine._conversation_model_id = engine.config.asr.model
     engine._session_ready = True
     engine._warm_keeper_thread = keeper
@@ -936,7 +952,9 @@ def test_refresh_runtime_config_drops_idle_warm_session(monkeypatch):
 
     keeper.join.assert_called_once()
     conversation.close.assert_called_once()
+    callback.close.assert_called_once()
     assert engine._conversation is None
+    assert engine._callback is None
     assert engine._conversation_model_id is None
     assert engine._session_ready is False
 
@@ -1986,6 +2004,49 @@ def test_warm_keeper_closes_connection_after_maximum_idle_time(monkeypatch):
     assert engine._conversation is None
 
 
+def test_abandoned_warm_keeper_cannot_drop_a_new_active_session(monkeypatch):
+    """Idle-expiry cleanup must revalidate warm ownership atomically."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    class FakeStop:
+        def is_set(self):
+            return False
+
+        def wait(self, _timeout):
+            return False
+
+    engine = asr_engine.ASREngine()
+    old_conversation = MagicMock()
+    old_callback = MagicMock()
+    new_conversation = MagicMock()
+    new_callback = MagicMock()
+    engine._conversation = old_conversation
+    engine._callback = old_callback
+    engine._conversation_model_id = engine._session_model_id
+    engine._warm_session_idle_since = 0.0
+    engine._warm_keeper_stop = FakeStop()
+
+    def advance_to_new_session():
+        # Model the owner timing out its keeper join and starting immediately.
+        with engine._lock:
+            engine._warm_generation += 1
+            engine._is_running = True
+            engine._conversation = new_conversation
+            engine._callback = new_callback
+        return asr_engine.WARM_KEEPER_MAX_IDLE_SECONDS
+
+    monkeypatch.setattr(asr_engine.time, "monotonic", advance_to_new_session)
+
+    engine._run_warm_keeper_loop()
+
+    assert engine._conversation is new_conversation
+    assert engine._callback is new_callback
+    new_conversation.close.assert_not_called()
+    new_callback.close.assert_not_called()
+    engine._warm_keeper_stop = threading.Event()
+    engine.close()
+
+
 def test_streaming_queue_backpressure_falls_back_to_batch(tmp_path, monkeypatch):
     """A full outbound audio queue should trigger deterministic batch fallback."""
     from vocal_more.config import Config, reload_config
@@ -2726,6 +2787,7 @@ def test_streaming_engine_rejects_connected_but_consumed_warm_session():
         engine._conversation = SimpleNamespace(
             ws=SimpleNamespace(sock=SimpleNamespace(connected=True))
         )
+        engine._callback = SimpleNamespace(close=lambda: None)
         model_info = asr_engine.get_asr_model_info(engine._session_model_id)
 
         engine._conversation_is_clean = True
@@ -3231,3 +3293,338 @@ def test_streaming_asr_logs_selected_model(tmp_path, monkeypatch, capsys):
     assert started["value"] is True
     assert "[StreamingASR] Starting session:" in out
     assert "model=qwen3-asr-flash-realtime-2026-02-10" in out
+
+
+def test_streaming_session_freezes_and_normalizes_audio_contract(
+    tmp_path, monkeypatch
+):
+    """Freeze each plan and reject direct mutations of the fixed 16 kHz rate."""
+    import wave
+
+    from vocal_more.config import Config, reload_config
+    import vocal_more.core.asr_engine as asr_engine
+
+    config_path = tmp_path / "config.yaml"
+    debug_dir = tmp_path / "debug"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    monkeypatch.setenv("VOCAL_MORE_DEBUG_DIR", str(debug_dir))
+
+    with open(config_path, "w") as f:
+        yaml.dump(
+            {
+                "audio": {"sample_rate": 16000, "blocksize": 640},
+                "asr": {
+                    "model": "qwen3-asr-flash-realtime-2026-02-10",
+                    "language": "zh",
+                },
+            },
+            f,
+        )
+
+    config = reload_config()
+    deferred_connects = []
+    session_updates = []
+
+    class DeferredThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            deferred_connects.append(self._target)
+
+    class FakeConversation:
+        def __init__(self, model, url, callback):
+            self.callback = callback
+
+        def connect(self):
+            return None
+
+        def update_session(self, **kwargs):
+            session_updates.append(kwargs)
+            self.callback.on_event({"type": "session.updated"})
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(asr_engine.threading, "Thread", DeferredThread)
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
+
+    drain_contracts = []
+    original_drain_timeout = asr_engine._audio_queue_drain_timeout_seconds
+
+    def capture_drain_contract(pending_chunks, session_config):
+        drain_contracts.append(
+            (
+                session_config.audio.sample_rate,
+                session_config.audio.blocksize,
+            )
+        )
+        return original_drain_timeout(pending_chunks, session_config)
+
+    monkeypatch.setattr(
+        asr_engine,
+        "_audio_queue_drain_timeout_seconds",
+        capture_drain_contract,
+    )
+
+    engine = asr_engine.ASREngine()
+    queue_logs = []
+    engine._log_queue_state = lambda event, **payload: queue_logs.append(
+        (event, payload)
+    )
+    fallback_contracts = []
+
+    def fake_batch_fallback(audio_data, **_kwargs):
+        fallback_contracts.append(
+            (
+                engine._batch_fallback.config.audio.sample_rate,
+                engine._batch_fallback.config.audio.blocksize,
+                len(audio_data),
+            )
+        )
+        return "batch fallback"
+
+    engine._batch_fallback.transcribe = fake_batch_fallback
+
+    engine.start()
+    assert engine._active_trace.sample_rate == 16000
+    assert queue_logs[-1] == (
+        "session_start",
+        {"chunk_bytes": 1280, "chunk_ms": 40.0},
+    )
+
+    # RuntimeFacade may update the shared config while dictation is active.
+    # The already-recorded PCM still belongs to the 16 kHz / 640-frame plan.
+    config.audio.sample_rate = 24000
+    config.audio.blocksize = 960
+    deferred_connects.pop(0)()
+
+    first_params = session_updates[0]["transcription_params"]
+    assert first_params.sample_rate == 16000
+
+    engine._wait_for_audio_queue_drain = lambda timeout=None: False
+    one_second_pcm = b"\x01\x00" * 16000
+    assert engine.stop(pcm_data=one_second_pcm) == "batch fallback"
+
+    assert drain_contracts == [(16000, 640)]
+    assert fallback_contracts == [(16000, 640, len(one_second_pcm))]
+
+    traces = list(debug_dir.glob("*.json"))
+    wav_files = list(debug_dir.glob("*.wav"))
+    assert len(traces) == 1
+    assert len(wav_files) == 1
+    trace = json.loads(traces[0].read_text())
+    assert trace["sample_rate"] == 16000
+    assert trace["audio_duration_ms"] == 1000.0
+    with wave.open(str(wav_files[0]), "rb") as wav_file:
+        assert wav_file.getframerate() == 16000
+
+    # Even an in-process caller that bypasses AudioConfig.apply_update cannot
+    # advertise 24 kHz for the recorder's fixed 16 kHz PCM transport.
+    engine.start(audio_config=config.audio)
+    assert engine._active_trace.sample_rate == 16000
+    assert queue_logs[-1] == (
+        "session_start",
+        {"chunk_bytes": 1920, "chunk_ms": 60.0},
+    )
+    deferred_connects.pop(0)()
+    second_params = session_updates[1]["transcription_params"]
+    assert second_params.sample_rate == 16000
+
+    engine.close()
+
+
+def test_abort_startup_is_bounded_and_late_connect_cannot_pollute_next_session(
+    tmp_path, monkeypatch
+):
+    """Aborting microphone setup must invalidate, not wait for, a blocked connect."""
+    from vocal_more.config import Config, reload_config
+    import vocal_more.core.asr_engine as asr_engine
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    with open(config_path, "w") as output:
+        yaml.dump(
+            {
+                "asr": {
+                    "model": "qwen3-asr-flash-realtime-2026-02-10",
+                    "language": "zh",
+                }
+            },
+            output,
+        )
+    reload_config()
+
+    first_connect_started = threading.Event()
+    release_first_connect = threading.Event()
+    conversations = []
+    partials = []
+
+    class FakeConversation:
+        def __init__(self, model, url, callback):
+            self.callback = callback
+            self.closed = threading.Event()
+            self.update_calls = 0
+            self.appended_audio = []
+            self.index = len(conversations)
+            conversations.append(self)
+
+        def connect(self):
+            if self.index == 0:
+                first_connect_started.set()
+                assert release_first_connect.wait(timeout=2.0)
+
+        def update_session(self, **_kwargs):
+            self.update_calls += 1
+            self.callback.on_event({"type": "session.updated"})
+
+        def close(self):
+            self.closed.set()
+
+        def append_audio(self, audio_b64):
+            import base64
+
+            self.appended_audio.append(base64.b64decode(audio_b64))
+
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
+
+    engine = asr_engine.ASREngine(
+        on_partial_result=lambda result: partials.append(result.text)
+    )
+    engine.start()
+    assert first_connect_started.wait(timeout=0.5)
+    engine.send_audio(b"old-session-pcm")
+    assert _wait_until(lambda: engine._audio_queue.empty())
+
+    started_at = time.monotonic()
+    engine.abort_startup()
+    assert time.monotonic() - started_at < 0.5
+    assert engine.is_running() is False
+    assert engine._conversation is None
+    assert engine._session_ready is False
+
+    # A new session may begin immediately; the abandoned connect owns neither
+    # its callback nor the engine's conversation slot.
+    engine.start()
+    assert engine._connect_done.wait(timeout=0.5)
+    assert len(conversations) == 2
+    active_conversation = conversations[1]
+    assert engine._conversation is active_conversation
+    assert engine._session_ready is True
+    assert active_conversation.appended_audio == []
+
+    # The abandoned callback has its own trace and generation guard. SDK
+    # events from it cannot reach session two's UI or trace.
+    second_trace_event_count = len(engine._active_trace.events)
+    conversations[0].callback.on_event(
+        {
+            "type": "conversation.item.input_audio_transcription.text",
+            "text": "stale partial",
+        }
+    )
+    time.sleep(0.05)
+    assert partials == []
+    assert len(engine._active_trace.events) == second_trace_event_count
+
+    engine.send_audio(b"new-session-pcm")
+    assert _wait_until(
+        lambda: active_conversation.appended_audio == [b"new-session-pcm"]
+    )
+
+    release_first_connect.set()
+    assert conversations[0].closed.wait(timeout=0.5)
+    assert conversations[0].update_calls == 0
+    assert engine._conversation is active_conversation
+    assert engine._session_ready is True
+    assert active_conversation.appended_audio == [b"new-session-pcm"]
+
+    engine.close()
+
+
+def test_stale_sender_failure_cannot_release_the_next_session_pair(
+    tmp_path,
+    monkeypatch,
+):
+    """Cleanup from an old append failure must be generation-conditional."""
+    from vocal_more.config import Config, reload_config
+    import vocal_more.core.asr_engine as asr_engine
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    with open(config_path, "w") as output:
+        yaml.dump(
+            {
+                "asr": {
+                    "model": "qwen3-asr-flash-realtime-2026-02-10",
+                    "language": "zh",
+                }
+            },
+            output,
+        )
+    reload_config()
+
+    cleanup_entered = threading.Event()
+    cleanup_finished = threading.Event()
+    release_cleanup = threading.Event()
+    conversations = []
+
+    class FakeConversation:
+        def __init__(self, model, url, callback):
+            self.callback = callback
+            self.closed = False
+            self.index = len(conversations)
+            conversations.append(self)
+
+        def connect(self):
+            return None
+
+        def update_session(self, **_kwargs):
+            self.callback.on_event({"type": "session.updated"})
+
+        def append_audio(self, _audio_b64):
+            if self.index == 0:
+                raise RuntimeError("old transport failed")
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
+
+    engine = asr_engine.ASREngine()
+    original_close_session_pair = engine._close_session_pair
+
+    def delayed_close_session_pair(*, expected_generation=None):
+        cleanup_entered.set()
+        assert release_cleanup.wait(timeout=1.0)
+        try:
+            original_close_session_pair(expected_generation=expected_generation)
+        finally:
+            cleanup_finished.set()
+
+    monkeypatch.setattr(engine, "_close_session_pair", delayed_close_session_pair)
+
+    engine.start()
+    assert engine._connect_done.wait(timeout=0.5)
+    first_generation = engine._session_generation
+    engine.send_audio(b"old-session-pcm")
+    assert cleanup_entered.wait(timeout=0.5)
+
+    # Advance ownership while the old sender is paused after append_audio raised.
+    engine.abort_startup()
+    engine.start()
+    assert engine._connect_done.wait(timeout=0.5)
+    active_conversation = conversations[1]
+    assert engine._session_generation > first_generation
+    assert engine._conversation is active_conversation
+    assert engine._callback is active_conversation.callback
+
+    release_cleanup.set()
+    assert cleanup_finished.wait(timeout=0.5)
+    assert engine._conversation is active_conversation
+    assert engine._callback is active_conversation.callback
+    assert active_conversation.closed is False
+
+    engine.close()

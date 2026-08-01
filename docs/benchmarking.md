@@ -1,5 +1,30 @@
 # 语音转写质量与延迟基准
 
+本轮 Apple 原生音频实现没有实际打开麦克风，也没有执行硬件 ABBA。以下工具和
+门槛定义的是如何取得证据；静态 probe、离线指标或代码通过测试，都不能单独支持
+“automatic 优于 manual”或“多通道提高收音质量”的结论。
+
+Apple AGC 与手动增益的本地声学 A/B 使用独立的成对录音工具，参见
+[`audio-quality-benchmark.md`](audio-quality-benchmark.md)。该工具不调用云端，
+也不把 dBFS/SNR 代理冒充转写准确率或感知音质。
+
+声学报告同时提供通用 automatic/manual 对比与约束更严格的 Apple 专属 AGC
+delta。手写 `caller_attestation`、PortAudio、软件回退、设备/默认路由漂移或不同
+backend/converter 的 pair 只能进入通用诊断。Apple 专属结果要求采集工具生成的
+runtime sidecar/hash 已验证，并要求 automatic/manual 共享同一 VPIO、设备、源/输出
+格式、高通与麦克风模式；Voice Processing 均启用，只有 AGC getter 在两边分别为
+`true`/`false`，且无 fallback、丢块或 runtime fault。采集命令的 `--microphone`
+参数是预期的精确 runtime-reported default-device name，不是备注标签或硬件 UID；
+suite 内观察到的默认设备身份漂移会被拒绝。当前名称与 `system_default` 是 recorder
+在 `AVAudioEngine` 启动前查询到的证据，不能证明底层 CoreAudio route 在采样期间
+未变化。更强的路由同一性验证需要未来绑定 AudioObjectID/持久 UID，或观测 engine
+实际 route。
+
+设备源采样率由 macOS route 协商（内建麦克风常见为 48 kHz），但 Vocal More 的
+应用、ASR 和 WAV 传输契约固定为 16 kHz、mono、signed PCM16。Apple 专属 pair
+需要相同 source format/converter 和相同固定输出格式；旧 `audio.sample_rate`
+配置只为兼容读取并归一化为 16 kHz，不是可变端到端采样率开关。
+
 ## 1. 这个基准解决什么问题
 
 语音产品最容易误报的是延迟。把一段三秒音频瞬间塞进 WebSocket，

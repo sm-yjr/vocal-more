@@ -75,6 +75,9 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
             "Review the suggested term “{term}” in Dictionary settings."
         ),
         "mode_microphone_unavailable": "Could not start microphone: {details}",
+        "mode_microphone_permission_requested": (
+            "Microphone access was requested. Allow it in the system prompt, then start again."
+        ),
         "mode_microphone_start_timeout": (
             "Microphone did not respond in time. Dictation was reset; try again."
         ),
@@ -101,6 +104,7 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "environment_check_api_key": "API Key",
         "environment_check_accessibility": "Accessibility",
         "environment_check_input_device": "Input Device",
+        "environment_check_microphone_permission": "Microphone Permission",
         "environment_check_hotkey_listener": "Hotkey Listener",
         "environment_value_api_key_ok": "Configured",
         "environment_value_api_key_error": "Missing",
@@ -108,6 +112,10 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "environment_value_accessibility_error": "Missing",
         "environment_value_input_device_ok": "Available",
         "environment_value_input_device_error": "Unavailable",
+        "environment_value_input_device_unknown": "Hidden Until Permission",
+        "environment_value_microphone_permission_ok": "Granted",
+        "environment_value_microphone_permission_error": "Denied",
+        "environment_value_microphone_permission_unknown": "Not Requested",
         "environment_value_hotkey_listener_ok": "Running",
         "environment_value_hotkey_listener_error": "Failed",
         "environment_value_hotkey_listener_unknown": "Not Started",
@@ -177,6 +185,9 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
             "请在词典设置中确认建议词条“{term}”。"
         ),
         "mode_microphone_unavailable": "无法启动麦克风：{details}",
+        "mode_microphone_permission_requested": (
+            "已请求麦克风权限。请在系统提示中允许访问，然后再次开始录音。"
+        ),
         "mode_microphone_start_timeout": (
             "麦克风启动超时，听写已自动复位，请重试。"
         ),
@@ -203,6 +214,7 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "environment_check_api_key": "API Key",
         "environment_check_accessibility": "辅助功能",
         "environment_check_input_device": "输入设备",
+        "environment_check_microphone_permission": "麦克风权限",
         "environment_check_hotkey_listener": "热键监听",
         "environment_value_api_key_ok": "已配置",
         "environment_value_api_key_error": "缺失",
@@ -210,6 +222,10 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "environment_value_accessibility_error": "缺失",
         "environment_value_input_device_ok": "可用",
         "environment_value_input_device_error": "不可用",
+        "environment_value_input_device_unknown": "授权后可见",
+        "environment_value_microphone_permission_ok": "已授权",
+        "environment_value_microphone_permission_error": "被拒绝",
+        "environment_value_microphone_permission_unknown": "尚未请求",
         "environment_value_hotkey_listener_ok": "运行中",
         "environment_value_hotkey_listener_error": "启动失败",
         "environment_value_hotkey_listener_unknown": "未启动",
@@ -234,3 +250,18 @@ def t(language: object, key: str, **kwargs) -> str:
     if kwargs:
         return template.format(**kwargs)
     return template
+
+
+def format_microphone_start_error(language: object, error: Exception) -> str:
+    """Map structured recorder failures to one user-facing localized message."""
+    if getattr(error, "code", None) == "microphone_permission_requested":
+        return t(language, "mode_microphone_permission_requested")
+    if bool(getattr(error, "startup_timed_out", False)):
+        return t(language, "mode_microphone_start_timeout")
+    if bool(getattr(error, "device_change_detected", False)):
+        return t(language, "mode_microphone_device_changed")
+    return t(
+        language,
+        "mode_microphone_unavailable",
+        details=str(error),
+    )

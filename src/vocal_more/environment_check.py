@@ -7,6 +7,7 @@ from typing import Literal, Optional
 
 from .config import Config
 from .core.audio_recorder import AudioRecorder
+from .core.macos_audio_diagnostics import microphone_permission_status
 
 EnvironmentStatus = Literal["ok", "error", "unknown"]
 
@@ -72,6 +73,27 @@ def _check_input_device() -> EnvironmentCheckResult:
     )
 
 
+def _check_microphone_permission() -> EnvironmentCheckResult:
+    permission = microphone_permission_status()
+    if permission == "authorized":
+        return EnvironmentCheckResult(
+            "microphone_permission",
+            "ok",
+            permission,
+        )
+    if permission in ("denied", "restricted"):
+        return EnvironmentCheckResult(
+            "microphone_permission",
+            "error",
+            permission,
+        )
+    return EnvironmentCheckResult(
+        "microphone_permission",
+        "unknown",
+        permission,
+    )
+
+
 def _check_hotkey_listener(hotkey_listener_ready: Optional[bool]) -> EnvironmentCheckResult:
     if hotkey_listener_ready is True:
         return EnvironmentCheckResult("hotkey_listener", "ok", "running")
@@ -85,9 +107,20 @@ def run_environment_checks(
     hotkey_listener_ready: Optional[bool] = None,
 ) -> list[EnvironmentCheckResult]:
     """Run the user-visible environment checks."""
+    permission = _check_microphone_permission()
+    input_device = (
+        EnvironmentCheckResult(
+            "input_device",
+            "unknown",
+            "visibility_limited",
+        )
+        if permission.details in ("not_determined", "denied", "restricted")
+        else _check_input_device()
+    )
     return [
         _check_api_key(config),
         _check_accessibility(),
-        _check_input_device(),
+        permission,
+        input_device,
         _check_hotkey_listener(hotkey_listener_ready),
     ]

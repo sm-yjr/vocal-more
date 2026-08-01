@@ -519,6 +519,29 @@ def test_default_mode_change_waits_until_idle_before_switching_runtime_mode(
     assert app._current_mode is app._walkie_talkie
 
 
+def test_gain_mode_change_immediately_refreshes_the_planned_audio_status(monkeypatch):
+    _install_rumps_stub(monkeypatch)
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    runtime = SimpleNamespace(apply_update=MagicMock())
+    app._get_runtime = MagicMock(return_value=runtime)
+    app.config = SimpleNamespace(save=MagicMock())
+    app._refresh_quick_settings_menu = MagicMock()
+    app._refresh_microphone_status_menu = MagicMock()
+
+    app._on_settings_config_change("audio.gain_mode", "automatic")
+
+    runtime.apply_update.assert_called_once_with(
+        "audio.gain_mode",
+        "automatic",
+    )
+    app._refresh_microphone_status_menu.assert_called_once_with(
+        update_settings_window=True,
+    )
+
+
 def test_build_menu_adds_quick_settings_and_marks_current_config(
     tmp_path, monkeypatch
 ):
@@ -625,6 +648,11 @@ def test_refresh_devices_rebuilds_status_menu_and_clears_missing_selection(
     app._walkie_talkie = _RuntimeModeDouble(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
     app._realtime_long = _RuntimeModeDouble(_recorder=MagicMock(), state=app_module.ModeState.IDLE)
     app._current_mode = app._realtime_long
+    app._current_mode.audio_input_status = {
+        "phase": "planned",
+        "device_name": "Built-in Mic",
+        "requested_gain_mode": "automatic",
+    }
     app._runtime = SimpleNamespace(
         apply_update=lambda key, value: app.config.apply_update(key, value)
     )
@@ -659,6 +687,9 @@ def test_refresh_devices_rebuilds_status_menu_and_clears_missing_selection(
         "Microphone Settings...",
     ]
     app._settings_window.update_devices.assert_called_once_with(devices, None)
+    app._settings_window.update_audio_input_status.assert_called_once_with(
+        app._current_mode.audio_input_status
+    )
     app._refresh_environment_status.assert_called_once_with()
 
 
@@ -1109,10 +1140,152 @@ def test_recording_state_forwards_actual_audio_input_status(tmp_path, monkeypatc
     app._get_icon_path = lambda _name: None
     app._current_mode = SimpleNamespace(audio_input_status=status)
     app._settings_window = MagicMock()
+    app._settings_window.is_visible.return_value = True
 
     app._apply_state_change(app_module.ModeState.RECORDING)
 
     app._settings_window.update_audio_input_status.assert_called_once_with(status)
+
+
+@pytest.mark.parametrize(
+    "settings_window",
+    [
+        None,
+        SimpleNamespace(
+            is_visible=lambda: False,
+            update_audio_input_status=lambda _status: pytest.fail(
+                "hidden settings must not receive runtime status"
+            ),
+        ),
+    ],
+)
+def test_state_change_does_not_read_audio_status_when_settings_is_not_visible(
+    tmp_path,
+    monkeypatch,
+    settings_window,
+):
+    """Idle UI transitions must not enter a potentially blocking native getter."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    class BlockingStatusMode:
+        @property
+        def audio_input_status(self):
+            pytest.fail("hidden settings must not read recorder status")
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._state_item = SimpleNamespace(title="")
+    app._capsule = MagicMock()
+    app._get_icon_path = lambda _name: None
+    app._current_mode = BlockingStatusMode()
+    app._settings_window = settings_window
+
+    app._apply_state_change(app_module.ModeState.RECORDING)
+
+    app._capsule.update_state.assert_called_once_with("recording")
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        {"phase": "active", "native_backend": "objective_cpp"},
+        {
+            "phase": "inactive",
+            "last_session": {
+                "phase": "completed",
+                "native_backend": "objective_cpp",
+            },
+        },
+    ],
+)
+def test_opening_settings_injects_the_current_modes_runtime_snapshot(
+    tmp_path,
+    monkeypatch,
+    status,
+):
+    """Opening later must not replace active/last-session facts with a plan."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._dependencies_ready = True
+    app._refresh_environment_status = MagicMock()
+    app._list_devices = MagicMock(return_value=[])
+    app._clear_missing_configured_microphone = MagicMock()
+    app._populate_microphone_device_menu = MagicMock()
+    app._quick_microphone_item = MagicMock()
+    app._get_dict_entries = MagicMock(return_value=[])
+    app._dictionary_learning = None
+    app._environment_checks = []
+    app._settings_window = MagicMock()
+    app._current_mode = SimpleNamespace(audio_input_status=status)
+
+    app._show_settings(initial_tab="audio")
+
+    assert app._settings_window.show.call_args.kwargs["audio_input_status"] == status
+
+
+def test_opening_settings_replaces_constructor_only_audio_status_with_live_probe(
+    tmp_path,
+    monkeypatch,
+):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._dependencies_ready = True
+    app._refresh_environment_status = MagicMock()
+    app._list_devices = MagicMock(return_value=[])
+    app._clear_missing_configured_microphone = MagicMock()
+    app._populate_microphone_device_menu = MagicMock()
+    app._quick_microphone_item = MagicMock()
+    app._get_dict_entries = MagicMock(return_value=[])
+    app._dictionary_learning = None
+    app._environment_checks = []
+    app._settings_window = MagicMock()
+    app._current_mode = SimpleNamespace(
+        audio_input_status={
+            "phase": "planned",
+            "processing_mode": "pending",
+            "native_backend": "pending",
+            "last_session": None,
+        }
+    )
+
+    app._show_settings(initial_tab="audio")
+
+    assert app._settings_window.show.call_args.kwargs["audio_input_status"] is None
 
 
 def test_processing_stage_callback_forwards_to_capsule(tmp_path, monkeypatch):

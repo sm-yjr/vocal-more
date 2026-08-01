@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import base64
+from copy import deepcopy
 import io
 import threading
 import wave
 from typing import Callable, Optional
+
+from ..domain.audio_contract import (
+    OUTPUT_CHANNELS,
+    OUTPUT_SAMPLE_RATE_HZ,
+    PCM_SAMPLE_WIDTH_BYTES,
+)
+from ..localization import format_microphone_start_error
 
 
 class MicTestController:
@@ -42,83 +50,198 @@ class MicTestController:
         self._recorder = None
         self._pcm_data: bytes | None = None
         self._timer = None
+        self._lifecycle_lock = threading.Lock()
+        self._session_generation = 0
+        self._starting_generation: int | None = None
 
     @property
     def is_running(self) -> bool:
-        return self._recorder is not None
+        with self._lifecycle_lock:
+            return self._recorder is not None
 
     def start(self) -> None:
         self.cleanup()
 
+        with self._lifecycle_lock:
+            self._session_generation += 1
+            generation = self._session_generation
+            self._starting_generation = generation
+            self._pcm_data = None
+
         config = self._config_provider()
+        recorder = None
+        started = False
         try:
-            self._recorder = self._recorder_factory(
+            recorder = self._recorder_factory(
                 on_audio_level=self._handle_audio_level,
             )
-            self._recorder.set_gain(config.audio.gain)
-            self._recorder.set_highpass_filter(config.audio.highpass_filter)
-            self._recorder.set_highpass_freq(config.audio.highpass_freq)
-            self._recorder.set_soft_limiter(config.audio.soft_limiter)
-            self._recorder.start()
-            self._emit_input_status(self._recorder)
+            session_audio_config = deepcopy(config.audio)
+            start_session = getattr(
+                recorder,
+                "start_capture_session",
+                None,
+            )
+            if callable(start_session):
+                start_session(session_audio_config)
+            else:
+                # Compatibility for injected recorders that predate atomic
+                # capture plans. Production AudioRecorder takes the branch
+                # above so no mixed old/new configuration can reach a test.
+                recorder.set_gain_mode(session_audio_config.gain_mode)
+                recorder.set_gain(session_audio_config.gain)
+                recorder.set_highpass_filter(
+                    session_audio_config.highpass_filter
+                )
+                recorder.set_highpass_freq(
+                    session_audio_config.highpass_freq
+                )
+                recorder.set_soft_limiter(
+                    session_audio_config.soft_limiter
+                )
+                recorder.start()
+            started = True
+            self._emit_input_status(recorder)
+            timer = self._timer_factory(
+                self._auto_stop_seconds,
+                lambda: self._auto_stop(generation),
+            )
+            if hasattr(timer, "daemon"):
+                timer.daemon = True
         except Exception as exc:
-            self._emit_input_status(self._recorder)
-            self._recorder = None
-            self._emit_error(str(exc))
+            self._emit_input_status(recorder)
+            with self._lifecycle_lock:
+                report_error = (
+                    self._session_generation == generation
+                    and self._starting_generation == generation
+                )
+                if self._starting_generation == generation:
+                    self._starting_generation = None
+            if started and recorder is not None:
+                try:
+                    recorder.stop()
+                except Exception:
+                    pass
+            if report_error:
+                self._emit_error(
+                    format_microphone_start_error(
+                        getattr(getattr(config, "ui", None), "language", "en"),
+                        exc,
+                    )
+                )
             return
 
-        if self._on_started is not None:
+        with self._lifecycle_lock:
+            accepted = (
+                self._session_generation == generation
+                and self._starting_generation == generation
+            )
+            if accepted:
+                self._starting_generation = None
+                self._recorder = recorder
+                self._timer = timer
+
+        if not accepted:
+            timer.cancel()
+            try:
+                recorder.stop()
+            except Exception:
+                pass
+            return
+
+        timer.start()
+        with self._lifecycle_lock:
+            still_active = (
+                self._session_generation == generation
+                and self._recorder is recorder
+            )
+        if still_active and self._on_started is not None:
             self._on_started()
 
-        self._timer = self._timer_factory(self._auto_stop_seconds, self._auto_stop)
-        if hasattr(self._timer, "daemon"):
-            self._timer.daemon = True
-        self._timer.start()
-
     def stop(self) -> None:
-        if self._timer is not None:
-            self._timer.cancel()
-            self._timer = None
+        self._stop(expected_generation=None)
 
-        if self._recorder is None:
-            return
+    def _stop(self, *, expected_generation: int | None) -> None:
+        with self._lifecycle_lock:
+            if (
+                expected_generation is not None
+                and expected_generation != self._session_generation
+            ):
+                return
+            recorder = self._recorder
+            timer = self._timer
+            if recorder is None:
+                # A manual stop during startup invalidates the unpublished
+                # recorder. Repeated stop calls while another caller owns the
+                # recorder are idempotent and must not invalidate its result.
+                if (
+                    expected_generation is None
+                    and self._starting_generation is not None
+                ):
+                    self._session_generation += 1
+                    self._starting_generation = None
+                return
+            self._recorder = None
+            self._timer = None
+            self._session_generation += 1
+            completion_generation = self._session_generation
+
+        if timer is not None:
+            timer.cancel()
 
         try:
-            recorder = self._recorder
-            self._pcm_data = recorder.stop()
-            self._emit_input_status(recorder)
-            self._recorder = None
-            if self._on_complete is not None:
+            pcm_data = recorder.stop()
+            with self._lifecycle_lock:
+                publish = (
+                    self._session_generation == completion_generation
+                    and self._recorder is None
+                )
+                if publish:
+                    self._pcm_data = pcm_data
+            if publish:
+                self._emit_input_status(recorder)
+            if publish and self._on_complete is not None:
                 self._on_complete()
         except Exception as exc:
-            self._recorder = None
-            self._emit_error(str(exc))
+            with self._lifecycle_lock:
+                report_error = (
+                    self._session_generation == completion_generation
+                    and self._recorder is None
+                )
+            if report_error:
+                self._emit_error(str(exc))
 
     def play(self) -> None:
-        if not self._pcm_data:
+        with self._lifecycle_lock:
+            pcm_data = self._pcm_data
+        if not pcm_data:
             return
 
         buffer = io.BytesIO()
         with wave.open(buffer, "wb") as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(16000)
-            wav_file.writeframes(self._pcm_data)
+            wav_file.setnchannels(OUTPUT_CHANNELS)
+            wav_file.setsampwidth(PCM_SAMPLE_WIDTH_BYTES)
+            wav_file.setframerate(OUTPUT_SAMPLE_RATE_HZ)
+            wav_file.writeframes(pcm_data)
 
         if self._on_playback is not None:
             self._on_playback(base64.b64encode(buffer.getvalue()).decode("ascii"))
 
     def cleanup(self) -> None:
-        if self._timer is not None:
-            self._timer.cancel()
+        with self._lifecycle_lock:
+            self._session_generation += 1
+            self._starting_generation = None
+            timer = self._timer
+            recorder = self._recorder
             self._timer = None
-        if self._recorder is not None:
+            self._recorder = None
+            self._pcm_data = None
+        if timer is not None:
+            timer.cancel()
+        if recorder is not None:
             try:
-                self._recorder.stop()
+                recorder.stop()
             except Exception:
                 pass
-            self._recorder = None
-        self._pcm_data = None
 
     def handle_device_changed(self) -> None:
         if not self.is_running:
@@ -128,19 +251,25 @@ class MicTestController:
             self._emit_error(self._device_changed_error())
 
     def apply_audio_setting(self, key: object, value: object) -> None:
-        if self._recorder is None or not isinstance(key, str):
+        if not isinstance(key, str):
             return
-        if key == "audio.gain":
-            self._recorder.set_gain(float(value))
-        elif key == "audio.highpass_filter":
-            self._recorder.set_highpass_filter(bool(value))
-        elif key == "audio.highpass_freq":
-            self._recorder.set_highpass_freq(int(value))
-        elif key == "audio.soft_limiter":
-            self._recorder.set_soft_limiter(bool(value))
+        with self._lifecycle_lock:
+            recorder = self._recorder
+            if recorder is None:
+                return
+            if key == "audio.gain_mode":
+                recorder.set_gain_mode(str(value))
+            elif key == "audio.gain":
+                recorder.set_gain(float(value))
+            elif key == "audio.highpass_filter":
+                recorder.set_highpass_filter(bool(value))
+            elif key == "audio.highpass_freq":
+                recorder.set_highpass_freq(int(value))
+            elif key == "audio.soft_limiter":
+                recorder.set_soft_limiter(bool(value))
 
-    def _auto_stop(self) -> None:
-        self.stop()
+    def _auto_stop(self, generation: int) -> None:
+        self._stop(expected_generation=generation)
 
     def _handle_audio_level(self, rms: float) -> None:
         if self._on_level is not None:

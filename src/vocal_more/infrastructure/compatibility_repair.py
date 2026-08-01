@@ -90,7 +90,15 @@ def _repair_yaml_file(
         result.backup_path = str(backup_path)
         result.details.append("backup_created")
 
-    _write_yaml_data(path, normalized_data)
+    try:
+        _write_yaml_data(path, normalized_data)
+    except Exception as exc:
+        # Loading can still normalize the original data in memory. A read-only
+        # config should not prevent the app from starting merely because a new
+        # compatibility field could not be persisted yet.
+        result.error = str(exc)
+        result.details.append("normalized_write_failed")
+        return result
     result.changed = True
     result.details.append("normalized")
     return result

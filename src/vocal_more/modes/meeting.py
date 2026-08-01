@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from types import SimpleNamespace
 from typing import Callable, Optional
 
@@ -9,8 +10,8 @@ from ..application.background_executor import BackgroundExecutor, TaskHandle
 from ..application.meeting_jobs import MeetingNotesRecordingRunner
 from ..application.meeting_notes import DEFAULT_MEETING_NOTES_MODEL, MeetingNotesService
 from ..config import get_config
-from ..core.audio_recorder import AudioRecorder, AudioRecorderStartError
-from ..localization import t
+from ..core.audio_recorder import AudioRecorder
+from ..localization import format_microphone_start_error, t
 from .base_mode import BaseMode, ModeState
 
 
@@ -77,8 +78,9 @@ class MeetingMode(BaseMode):
         self._active_session_token = session_token
         self._active_recording_id = None
         self._set_state(ModeState.STARTING)
+        session_audio_config = deepcopy(self.config.audio)
         try:
-            self._recorder.start()
+            self._start_audio_capture(session_audio_config)
         except Exception as exc:
             if (
                 not self._is_active_session(session_token)
@@ -97,18 +99,9 @@ class MeetingMode(BaseMode):
 
     def _report_startup_failure(self, exc: Exception) -> None:
         if self.on_error:
-            if isinstance(exc, AudioRecorderStartError) and exc.startup_timed_out:
-                self.on_error(t(self.config.ui.language, "mode_microphone_start_timeout"))
-            elif isinstance(exc, AudioRecorderStartError) and exc.device_change_detected:
-                self.on_error(t(self.config.ui.language, "mode_microphone_device_changed"))
-            else:
-                self.on_error(
-                    t(
-                        self.config.ui.language,
-                        "mode_microphone_unavailable",
-                        details=str(exc),
-                    )
-                )
+            self.on_error(
+                format_microphone_start_error(self.config.ui.language, exc)
+            )
         self._set_state(ModeState.FAILED)
         self._set_state(ModeState.IDLE)
 

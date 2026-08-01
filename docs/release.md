@@ -3,6 +3,9 @@
 Vocal-More ships macOS builds from version tags through GitHub Actions. Pushing
 a tag such as `v0.2.2` or `0.2.2` starts `.github/workflows/release.yml`.
 The current release runner is Apple Silicon, so official DMGs are arm64-only.
+The application and bundled binary wheels require macOS 14.0 or newer; this
+floor is declared with `LSMinimumSystemVersion` and is also used when compiling
+the native audio library.
 
 The workflow checks that the tag version matches `pyproject.toml`, runs tests,
 imports the Developer ID certificate, builds a signed DMG, notarizes and
@@ -18,6 +21,30 @@ signed delta update, and uploads the resulting `.delta` alongside the new full
 DMG. Sparkle uses the matching delta when possible and automatically falls
 back to the full DMG if the installed app does not match or the patch cannot be
 applied.
+
+The app build compiles `libvocal_more_audio.dylib` with the Apple SDK, embeds it
+under `Vocal More.app/Contents/Frameworks`, prunes the complete bundle, and then
+signs the dylib as a nested Mach-O before signing the app. The library exposes a
+versioned C ABI and links only Apple system frameworks and runtime libraries
+under `/System/Library` and `/usr/lib`—including AVFoundation, Accelerate,
+Foundation, libc++, and libSystem. It does not receive a separate entitlement;
+microphone permission belongs to the main signed app identity.
+
+After notarization and stapling, the release workflow mounts the final DMG
+read-only and verifies the exact app that will be uploaded. The verifier checks
+that the native library exists, is arm64-only, declares macOS 14.0, has the
+expected `@rpath` install name, links only Apple system dependencies, exports
+the required C ABI, and carries a valid nested code signature:
+
+```bash
+python3 packaging/macos/verify_release_artifact.py \
+  "dist/Vocal-More-$(python3 packaging/macos/read_version.py).dmg"
+```
+
+Routine feature verification should run the test suites and
+`scripts/build_native_audio.sh`; it must not build an unsigned local DMG. The
+official tagged workflow remains responsible for the DMG, Developer ID
+signature, notarization, stapling, release upload, and signed Sparkle appcast.
 
 ## Required GitHub Secrets
 

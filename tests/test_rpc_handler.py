@@ -404,8 +404,14 @@ def test_dispatch_set_config_updates_audio_recorders(handler):
 
     assert result["ok"] is True
     assert handler.config.audio.highpass_freq == 380
-    handler._walkie_talkie._recorder.set_highpass_freq.assert_called_with(380)
-    handler._realtime_long._recorder.set_highpass_freq.assert_called_with(380)
+    handler._walkie_talkie._recorder.apply_capture_config.assert_called_with(
+        handler.config.audio
+    )
+    handler._realtime_long._recorder.apply_capture_config.assert_called_with(
+        handler.config.audio
+    )
+    handler._walkie_talkie._recorder.set_highpass_freq.assert_not_called()
+    handler._realtime_long._recorder.set_highpass_freq.assert_not_called()
 
 
 def test_dispatch_set_config_refreshes_idle_asr_runtime_for_asr_and_llm_changes(handler):
