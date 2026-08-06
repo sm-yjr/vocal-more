@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller folder build for the Windows notification-area host."""
+"""PyInstaller folder build for the Windows desktop host."""
 
 from pathlib import Path
 
@@ -9,14 +9,20 @@ from PyInstaller.utils.hooks import collect_all
 ROOT = Path(SPECPATH).resolve().parents[1]
 SRC = ROOT / "src"
 LAUNCHER = ROOT / "packaging" / "windows" / "vocal_more_launcher.py"
+ICON = ROOT / "packaging" / "windows" / "VocalMore.ico"
 
 binaries = []
-datas = []
+datas = [(str(ICON), "resources/windows")]
 hiddenimports = [
     "vocal_more.windows_app",
+    "vocal_more.windows_desktop_ui",
     "vocal_more.windows_rpc_handler",
+    "vocal_more.windows_trigger",
     "vocal_more.infrastructure.windows_app_context",
     "pynput.keyboard._win32",
+    "tkinter",
+    "tkinter.messagebox",
+    "tkinter.ttk",
 ]
 
 # These packages use runtime discovery or ship non-Python assets. Keep the
@@ -59,6 +65,7 @@ exe = EXE(
     [("X utf8", None, "OPTION")],
     exclude_binaries=True,
     name="Vocal More",
+    icon=str(ICON),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

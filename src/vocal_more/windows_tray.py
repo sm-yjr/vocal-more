@@ -1,4 +1,4 @@
-"""Minimal Windows notification-area host implemented with the Win32 API."""
+"""Native Windows notification-area host implemented with the Win32 API."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ from ctypes import wintypes
 import queue
 import sys
 from typing import Callable
+
+from .paths import bundled_resource_path
 
 
 # Window and shell messages.
@@ -45,6 +47,9 @@ _MF_SEPARATOR = 0x00000800
 _TPM_RIGHTBUTTON = 0x0002
 _TPM_RETURNCMD = 0x0100
 
+_IMAGE_ICON = 1
+_LR_LOADFROMFILE = 0x0010
+_LR_DEFAULTSIZE = 0x0040
 _IDI_APPLICATION = 32512
 
 _CMD_TOGGLE = 1001
@@ -52,9 +57,10 @@ _CMD_MODE_WALKIE = 1002
 _CMD_MODE_REALTIME = 1003
 _CMD_MODE_MEETING = 1004
 _CMD_AUTO_PASTE = 1005
-_CMD_OPEN_CONFIG = 1006
-_CMD_OPEN_DATA = 1007
-_CMD_QUIT = 1008
+_CMD_SETTINGS = 1006
+_CMD_OPEN_CONFIG = 1007
+_CMD_OPEN_DATA = 1008
+_CMD_QUIT = 1009
 
 _ACTIONS = {
     _CMD_TOGGLE: "toggle",
@@ -62,6 +68,7 @@ _ACTIONS = {
     _CMD_MODE_REALTIME: "mode:realtime_long",
     _CMD_MODE_MEETING: "mode:meeting",
     _CMD_AUTO_PASTE: "toggle_auto_paste",
+    _CMD_SETTINGS: "settings",
     _CMD_OPEN_CONFIG: "open_config",
     _CMD_OPEN_DATA: "open_data",
     _CMD_QUIT: "quit",
@@ -153,12 +160,13 @@ _TEXT = {
         "start": "开始听写 ({trigger})",
         "stop": "停止听写 ({trigger})",
         "cancel": "取消当前任务",
+        "settings": "设置…",
         "mode": "录音模式",
         "walkie_talkie": "按住说话",
         "realtime_long": "长语音听写",
         "meeting": "会议记录",
         "auto_paste": "自动粘贴",
-        "open_config": "打开配置文件",
+        "open_config": "高级：打开配置文件",
         "open_data": "打开数据目录",
         "quit": "退出",
         "api_missing": "未配置 DashScope API Key",
@@ -175,12 +183,13 @@ _TEXT = {
         "start": "Start dictation ({trigger})",
         "stop": "Stop dictation ({trigger})",
         "cancel": "Cancel current task",
+        "settings": "Settings…",
         "mode": "Recording mode",
         "walkie_talkie": "Push to Talk",
         "realtime_long": "Long Dictation",
         "meeting": "Meeting",
         "auto_paste": "Auto paste",
-        "open_config": "Open config file",
+        "open_config": "Advanced: Open config file",
         "open_data": "Open data folder",
         "quit": "Quit",
         "api_missing": "DashScope API key is not configured",
@@ -208,6 +217,7 @@ class WindowsTray:
         self._icon_added = False
         self._closing = False
         self._class_name = "VocalMoreWindowsTrayWindow"
+        self._owned_icon = None
 
         self._user32 = ctypes.windll.user32
         self._shell32 = ctypes.windll.shell32
@@ -254,6 +264,17 @@ class WindowsTray:
         user32.DefWindowProcW.restype = _LRESULT
         user32.LoadIconW.argtypes = [wintypes.HINSTANCE, ctypes.c_void_p]
         user32.LoadIconW.restype = wintypes.HICON
+        user32.LoadImageW.argtypes = [
+            wintypes.HINSTANCE,
+            wintypes.LPCWSTR,
+            wintypes.UINT,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.UINT,
+        ]
+        user32.LoadImageW.restype = wintypes.HANDLE
+        user32.DestroyIcon.argtypes = [wintypes.HICON]
+        user32.DestroyIcon.restype = wintypes.BOOL
         user32.RegisterWindowMessageW.argtypes = [wintypes.LPCWSTR]
         user32.RegisterWindowMessageW.restype = wintypes.UINT
         user32.CreatePopupMenu.argtypes = []
@@ -352,7 +373,7 @@ class WindowsTray:
 
     def _create_window(self) -> None:
         self._hinstance = self._kernel32.GetModuleHandleW(None)
-        icon = self._load_system_icon()
+        icon = self._load_application_icon()
         window_class = _WNDCLASSW(
             style=0,
             lpfnWndProc=self._wndproc,
@@ -398,7 +419,7 @@ class WindowsTray:
                     self._show_menu()
                     return 0
                 if mouse_message == _WM_LBUTTONDBLCLK:
-                    self._dispatch_action("toggle")
+                    self._dispatch_action("settings")
                     return 0
             elif message == _WM_COMMAND:
                 command_id = int(wparam) & 0xFFFF
@@ -417,6 +438,7 @@ class WindowsTray:
                 return 0
             elif message == _WM_DESTROY:
                 self._remove_icon()
+                self._destroy_owned_icon()
                 self._user32.PostQuitMessage(0)
                 return 0
             elif self._taskbar_created and message == self._taskbar_created:
@@ -458,7 +480,7 @@ class WindowsTray:
         self._nid.uID = 1
         self._nid.uFlags = _NIF_MESSAGE | _NIF_ICON | _NIF_TIP
         self._nid.uCallbackMessage = _WM_TRAY
-        self._nid.hIcon = self._load_system_icon()
+        self._nid.hIcon = self._load_application_icon()
         self._nid.szTip = self._tooltip(snapshot)[:127]
         self._icon_added = bool(
             self._shell32.Shell_NotifyIconW(_NIM_ADD, ctypes.byref(self._nid))
@@ -526,6 +548,7 @@ class WindowsTray:
 
         toggle_label = self._toggle_label(snapshot, text)
         self._append(menu, _MF_STRING, _CMD_TOGGLE, toggle_label)
+        self._append(menu, _MF_STRING, _CMD_SETTINGS, text["settings"])
         self._append(menu, _MF_SEPARATOR, 0, None)
 
         mode_commands = (
@@ -565,11 +588,33 @@ class WindowsTray:
         if command:
             self._user32.PostMessageW(self._hwnd, _WM_COMMAND, command, 0)
 
-    def _load_system_icon(self):
-        return self._user32.LoadIconW(
-            None,
-            ctypes.c_void_p(_IDI_APPLICATION),
+    def _load_application_icon(self):
+        if self._owned_icon:
+            return self._owned_icon
+        candidates = (
+            bundled_resource_path("resources", "windows", "VocalMore.ico"),
+            bundled_resource_path("packaging", "windows", "VocalMore.ico"),
         )
+        for path in candidates:
+            if not path.exists():
+                continue
+            handle = self._user32.LoadImageW(
+                None,
+                str(path),
+                _IMAGE_ICON,
+                0,
+                0,
+                _LR_LOADFROMFILE | _LR_DEFAULTSIZE,
+            )
+            if handle:
+                self._owned_icon = handle
+                return handle
+        return self._user32.LoadIconW(None, ctypes.c_void_p(_IDI_APPLICATION))
+
+    def _destroy_owned_icon(self) -> None:
+        if self._owned_icon:
+            self._user32.DestroyIcon(self._owned_icon)
+            self._owned_icon = None
 
     def _append(self, menu, flags: int, identifier: int, label: str | None) -> None:
         self._user32.AppendMenuW(

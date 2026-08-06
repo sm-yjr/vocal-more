@@ -1,6 +1,6 @@
 """Pure rendering tests for the Windows notification-area shell."""
 
-from vocal_more.windows_tray import TraySnapshot, WindowsTray, _TEXT
+from vocal_more.windows_tray import TraySnapshot, WindowsTray, _ACTIONS, _TEXT
 
 
 def test_idle_menu_invites_user_to_start_with_trigger():
@@ -25,3 +25,9 @@ def test_processing_stage_is_more_specific_than_generic_state():
 
     assert WindowsTray._state_label(snapshot, _TEXT["en"]) == "Transcribing"
     assert "Transcribing" in WindowsTray._tooltip(snapshot)
+
+
+def test_tray_exposes_standard_settings_action():
+    assert "settings" in _ACTIONS.values()
+    assert _TEXT["zh"]["settings"] == "设置…"
+    assert _TEXT["en"]["settings"] == "Settings…"

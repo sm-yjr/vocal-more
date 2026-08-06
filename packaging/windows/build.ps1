@@ -17,6 +17,8 @@ if (-not (Test-Path $Python)) {
 $DistDir = Join-Path $Root "dist"
 $WorkDir = Join-Path $Root "build\windows"
 $AppDir = Join-Path $DistDir "Vocal More"
+$Icon = Join-Path $ScriptDir "VocalMore.ico"
+$IconPreview = Join-Path $ScriptDir "VocalMore.png"
 $Version = (& $Python (Join-Path $ScriptDir "read_version.py")).Trim()
 if (-not $Version) {
     throw "Could not read project version"
@@ -27,6 +29,11 @@ Remove-Item -Recurse -Force $WorkDir -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force $AppDir -ErrorAction SilentlyContinue
 Remove-Item -Force $Archive -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $DistDir | Out-Null
+
+& $Python (Join-Path $ScriptDir "make_icon.py") $Icon --png $IconPreview
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Icon)) {
+    throw "Windows icon generation failed"
+}
 
 Push-Location $Root
 try {

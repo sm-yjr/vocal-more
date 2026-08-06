@@ -12,6 +12,10 @@ packaging/macos/.VocalMore.*.png
 dist/*.dmg
 dist/dmg-staging/
 
+# Generated Windows packaging assets
+packaging/windows/VocalMore.ico
+packaging/windows/VocalMore.png
+
 # macOS
 .DS_Store
 
