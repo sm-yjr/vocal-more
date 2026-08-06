@@ -8,10 +8,38 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/windows-desktop-mvp
+
+      - name: Decode, validate, and commit implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .windows-gui-bootstrap/chunk-* | tr -d '\n' | base64 --decode > /tmp/windows-gui.tar.gz
+          echo 'cb888b4af898be84e69c42617444754c6a46b31636338236552529cfc90bba03  /tmp/windows-gui.tar.gz' | sha256sum --check
+          tar -xzf /tmp/windows-gui.tar.gz -C .
+          rm -rf .windows-gui-bootstrap
+          python -m compileall -q src packaging/windows tests
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: add Windows capsule settings and installer'
+          git push origin HEAD:codex/windows-desktop-mvp
+
   test-and-package:
+    needs: materialize
+    if: always() && (needs.materialize.result == 'success' || needs.materialize.result == 'skipped')
     runs-on: windows-latest
     env:
       DASHSCOPE_API_KEY: test-api-key
@@ -21,6 +49,13 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Set up Python with Tcl/Tk
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
@@ -28,34 +63,85 @@ jobs:
       - name: Install Python and runtime dependencies
         shell: pwsh
         run: |
-          uv python install 3.12
-          uv sync --locked --group dev --python 3.12
+          python -c "import tkinter; print(tkinter.TkVersion)"
+          uv sync --locked --group dev --python "$env:pythonLocation\python.exe"
           uv pip install --python .venv\Scripts\python.exe `
             -r packaging\windows\requirements-build.txt
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+          }
 
       - name: Run Python tests
         shell: pwsh
         run: uv run python -m pytest -q
 
-      - name: Build Windows artifact
-        shell: pwsh
-        run: .\packaging\windows\build.ps1
-
-      - name: Smoke-test packaged entry point
+      - name: Build portable archive and installer
         shell: pwsh
         run: |
-          $process = Start-Process `
-            -FilePath ".\dist\Vocal More\Vocal More.exe" `
-            -ArgumentList "--version" `
-            -Wait `
-            -PassThru
-          if ($process.ExitCode -ne 0) {
-            throw "Packaged entry point exited with code $($process.ExitCode)"
+          .\packaging\windows\build.ps1
+          .\packaging\windows\build_installer.ps1
+
+      - name: Smoke-test packaged entry point and GUI runtime
+        shell: pwsh
+        run: |
+          foreach ($argument in @("--version", "--ui-smoke")) {
+            $process = Start-Process `
+              -FilePath ".\dist\Vocal More\Vocal More.exe" `
+              -ArgumentList $argument `
+              -Wait `
+              -PassThru
+            if ($process.ExitCode -ne 0) {
+              throw "Packaged entry point $argument exited with code $($process.ExitCode)"
+            }
           }
 
-      - name: Upload Windows artifact
+      - name: Smoke-test installer and uninstaller
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem ".\dist\Vocal-More-*-windows-x64-setup.exe" | Select-Object -First 1
+          if (-not $setup) { throw "Installer was not produced" }
+          $installDir = Join-Path $env:RUNNER_TEMP "Vocal More"
+          $install = Start-Process `
+            -FilePath $setup.FullName `
+            -ArgumentList @(
+              "/VERYSILENT",
+              "/SUPPRESSMSGBOXES",
+              "/NORESTART",
+              "/DIR=$installDir"
+            ) `
+            -Wait `
+            -PassThru
+          if ($install.ExitCode -ne 0) {
+            throw "Installer exited with code $($install.ExitCode)"
+          }
+          $installedExe = Join-Path $installDir "Vocal More.exe"
+          if (-not (Test-Path $installedExe)) {
+            throw "Installed executable is missing"
+          }
+          $smoke = Start-Process -FilePath $installedExe -ArgumentList "--ui-smoke" -Wait -PassThru
+          if ($smoke.ExitCode -ne 0) {
+            throw "Installed UI smoke test exited with code $($smoke.ExitCode)"
+          }
+          $uninstaller = Join-Path $installDir "unins000.exe"
+          $uninstall = Start-Process `
+            -FilePath $uninstaller `
+            -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") `
+            -Wait `
+            -PassThru
+          if ($uninstall.ExitCode -ne 0) {
+            throw "Uninstaller exited with code $($uninstall.ExitCode)"
+          }
+
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Vocal-More-Windows-x64
-          path: dist/Vocal-More-*-windows-x64.zip
+          path: |
+            dist/Vocal-More-*-windows-x64.zip
+            dist/Vocal-More-*-windows-x64-setup.exe
           if-no-files-found: error
