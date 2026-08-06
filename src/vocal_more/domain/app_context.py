@@ -14,7 +14,7 @@ CONTEXT_CATEGORIES: tuple[ContextCategory, ...] = (
     "writing",
 )
 
-_DEVELOPMENT_BUNDLE_IDS = {
+_DEVELOPMENT_APP_IDS = {
     "com.apple.dt.xcode",
     "com.github.wez.wezterm",
     "com.googlecode.iterm2",
@@ -24,12 +24,22 @@ _DEVELOPMENT_BUNDLE_IDS = {
     "com.mitchellh.ghostty",
     "com.sublimetext.4",
     "dev.warp.warp-stable",
+    "code.exe",
+    "codium.exe",
+    "devenv.exe",
+    "idea64.exe",
+    "pycharm64.exe",
+    "rider64.exe",
+    "webstorm64.exe",
+    "wezterm-gui.exe",
+    "windowsterminal.exe",
+    "wt.exe",
 }
 _DEVELOPMENT_PREFIXES = (
     "com.jetbrains.",
     "com.todesktop.230313mzl4w4u92",
 )
-_MESSAGING_BUNDLE_IDS = {
+_MESSAGING_APP_IDS = {
     "com.apple.mobilemail",
     "com.apple.MobileSMS",
     "com.hnc.discord",
@@ -38,8 +48,16 @@ _MESSAGING_BUNDLE_IDS = {
     "com.tinyspeck.slackmacgap",
     "com.tencent.qq",
     "com.electron.lark",
+    "discord.exe",
+    "feishu.exe",
+    "lark.exe",
+    "ms-teams.exe",
+    "qq.exe",
+    "slack.exe",
+    "teams.exe",
+    "wechat.exe",
 }
-_WRITING_BUNDLE_IDS = {
+_WRITING_APP_IDS = {
     "com.apple.iwork.pages",
     "com.apple.notes",
     "com.apple.textedit",
@@ -47,6 +65,11 @@ _WRITING_BUNDLE_IDS = {
     "md.obsidian",
     "net.shinyfrog.bear",
     "notion.id",
+    "notepad.exe",
+    "notion.exe",
+    "obsidian.exe",
+    "onenote.exe",
+    "winword.exe",
 }
 
 _CONTEXT_INSTRUCTIONS: dict[ContextCategory, str] = {
@@ -75,16 +98,16 @@ class AppContext:
 
 
 def classify_app_context(bundle_id: str) -> AppContext:
-    """Map a bundle identifier to a coarse category without reading app content."""
+    """Map an app identifier to a coarse category without reading app content."""
     normalized = str(bundle_id or "").strip()
     lookup = normalized.lower()
-    if lookup in {item.lower() for item in _DEVELOPMENT_BUNDLE_IDS} or any(
+    if lookup in {item.lower() for item in _DEVELOPMENT_APP_IDS} or any(
         lookup.startswith(prefix.lower()) for prefix in _DEVELOPMENT_PREFIXES
     ):
         category: ContextCategory = "development"
-    elif lookup in {item.lower() for item in _MESSAGING_BUNDLE_IDS}:
+    elif lookup in {item.lower() for item in _MESSAGING_APP_IDS}:
         category = "messaging"
-    elif lookup in {item.lower() for item in _WRITING_BUNDLE_IDS}:
+    elif lookup in {item.lower() for item in _WRITING_APP_IDS}:
         category = "writing"
     else:
         category = "general"

@@ -8,6 +8,8 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from vocal_more.application.lazy_resource import LazyResource, initialized_resource
 from vocal_more.ui.lazy_settings_window import LazySettingsWindow
 
@@ -35,6 +37,7 @@ def test_package_facades_do_not_eagerly_import_heavy_runtime_modules():
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS menu bar app only")
 def test_menu_app_construction_defers_heavy_runtime_until_status_item_exists():
     root = Path(__file__).resolve().parents[1]
     env = dict(os.environ)

@@ -496,7 +496,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -1872,12 +1872,12 @@ dependencies = [
     { name = "numpy", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "openai" },
     { name = "pynput" },
-    { name = "pyobjc-framework-avfoundation" },
-    { name = "pyobjc-framework-quartz" },
-    { name = "pyobjc-framework-webkit" },
+    { name = "pyobjc-framework-avfoundation", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-webkit", marker = "sys_platform == 'darwin'" },
     { name = "pyperclip" },
     { name = "pyyaml" },
-    { name = "rumps" },
+    { name = "rumps", marker = "sys_platform == 'darwin'" },
     { name = "sounddevice" },
 ]
 
@@ -1886,7 +1886,7 @@ dev = [
     { name = "pytest" },
 ]
 packaging = [
-    { name = "py2app" },
+    { name = "py2app", marker = "sys_platform == 'darwin'" },
     { name = "setuptools" },
 ]
 
@@ -1897,19 +1897,19 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "openai", specifier = ">=2.31.0" },
     { name = "pynput", specifier = ">=1.7.6" },
-    { name = "pyobjc-framework-avfoundation", specifier = ">=10.0" },
-    { name = "pyobjc-framework-quartz", specifier = ">=10.0" },
-    { name = "pyobjc-framework-webkit", specifier = ">=10.0" },
+    { name = "pyobjc-framework-avfoundation", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
+    { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
+    { name = "pyobjc-framework-webkit", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
     { name = "pyperclip", specifier = ">=1.8.2" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rumps", specifier = ">=0.4.0" },
+    { name = "rumps", marker = "sys_platform == 'darwin'", specifier = ">=0.4.0" },
     { name = "sounddevice", specifier = ">=0.4.6" },
 ]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.0.2" }]
 packaging = [
-    { name = "py2app", specifier = "==0.28.10" },
+    { name = "py2app", marker = "sys_platform == 'darwin'", specifier = "==0.28.10" },
     { name = "setuptools", specifier = "==69.5.1" },
 ]
 

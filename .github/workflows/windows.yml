@@ -1,0 +1,61 @@
+name: Windows
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: windows-latest
+    env:
+      DASHSCOPE_API_KEY: test-api-key
+      PYTHONIOENCODING: "utf-8"
+      PYTHONUNBUFFERED: "1"
+      PYTHONUTF8: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python and runtime dependencies
+        shell: pwsh
+        run: |
+          uv python install 3.12
+          uv sync --locked --group dev --python 3.12
+          uv pip install --python .venv\Scripts\python.exe `
+            -r packaging\windows\requirements-build.txt
+
+      - name: Run Python tests
+        shell: pwsh
+        run: uv run python -m pytest -q
+
+      - name: Build Windows artifact
+        shell: pwsh
+        run: .\packaging\windows\build.ps1
+
+      - name: Smoke-test packaged entry point
+        shell: pwsh
+        run: |
+          $process = Start-Process `
+            -FilePath ".\dist\Vocal More\Vocal More.exe" `
+            -ArgumentList "--version" `
+            -Wait `
+            -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Packaged entry point exited with code $($process.ExitCode)"
+          }
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vocal-More-Windows-x64
+          path: dist/Vocal-More-*-windows-x64.zip
+          if-no-files-found: error
