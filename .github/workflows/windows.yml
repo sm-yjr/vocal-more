@@ -8,38 +8,10 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  materialize:
-    if: github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out feature branch
-        uses: actions/checkout@v4
-        with:
-          ref: codex/windows-desktop-mvp
-
-      - name: Decode and commit implementation
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat .phase2-bootstrap/chunk-* | base64 --decode > /tmp/windows-gui.tar.gz
-          tar -tzf /tmp/windows-gui.tar.gz >/dev/null
-          tar -xzf /tmp/windows-gui.tar.gz -C .
-          rm -rf .phase2-bootstrap .windows-gui-bootstrap
-          python -m compileall -q src packaging/windows tests
-          find . -type d -name __pycache__ -prune -exec rm -rf {} +
-          git diff --check
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git commit -m 'feat: add Windows capsule settings and installer'
-          git push origin HEAD:codex/windows-desktop-mvp
-
   test-and-package:
-    needs: materialize
-    if: always() && (needs.materialize.result == 'success' || needs.materialize.result == 'skipped')
     runs-on: windows-latest
     env:
       DASHSCOPE_API_KEY: test-api-key
@@ -49,8 +21,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
