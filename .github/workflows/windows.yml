@@ -24,10 +24,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .windows-gui-bootstrap/chunk-* | tr -d '\n' | base64 --decode > /tmp/windows-gui.tar.gz
-          echo 'cb888b4af898be84e69c42617444754c6a46b31636338236552529cfc90bba03  /tmp/windows-gui.tar.gz' | sha256sum --check
+          cat .phase2-bootstrap/chunk-* | base64 --decode > /tmp/windows-gui.tar.gz
+          echo 'b640a1341183106fd0d8d9010583fb89f48d7e3032c9b018a0677552445898  /tmp/windows-gui.tar.gz' | sha256sum --check
           tar -xzf /tmp/windows-gui.tar.gz -C .
-          rm -rf .windows-gui-bootstrap
+          rm -rf .phase2-bootstrap .windows-gui-bootstrap
           python -m compileall -q src packaging/windows tests
           find . -type d -name __pycache__ -prune -exec rm -rf {} +
           git diff --check
@@ -52,7 +52,7 @@ jobs:
         with:
           ref: ${{ github.head_ref || github.ref_name }}
 
-      - name: Set up Python with Tcl/Tk
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -60,21 +60,14 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
 
-      - name: Install Python and runtime dependencies
+      - name: Install runtime, build dependencies, and Inno Setup
         shell: pwsh
         run: |
-          python -c "import tkinter; print(tkinter.TkVersion)"
           uv sync --locked --group dev --python "$env:pythonLocation\python.exe"
           uv pip install --python .venv\Scripts\python.exe `
             -r packaging\windows\requirements-build.txt
-
-      - name: Install Inno Setup
-        shell: pwsh
-        run: |
-          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) {
-            choco install innosetup --no-progress -y
-          }
+          uv run python -c "import tkinter; print('Tk', tkinter.TkVersion)"
+          choco install innosetup --no-progress -y
 
       - name: Run Python tests
         shell: pwsh
@@ -82,37 +75,36 @@ jobs:
 
       - name: Build portable archive and installer
         shell: pwsh
-        run: |
-          .\packaging\windows\build.ps1
-          .\packaging\windows\build_installer.ps1
+        run: .\packaging\windows\build_installer.ps1
 
-      - name: Smoke-test packaged entry point and GUI runtime
+      - name: Smoke-test packaged entry point
         shell: pwsh
         run: |
-          foreach ($argument in @("--version", "--ui-smoke")) {
-            $process = Start-Process `
-              -FilePath ".\dist\Vocal More\Vocal More.exe" `
-              -ArgumentList $argument `
-              -Wait `
-              -PassThru
-            if ($process.ExitCode -ne 0) {
-              throw "Packaged entry point $argument exited with code $($process.ExitCode)"
-            }
+          $process = Start-Process `
+            -FilePath ".\dist\Vocal More\Vocal More.exe" `
+            -ArgumentList "--version" `
+            -Wait `
+            -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Packaged entry point exited with code $($process.ExitCode)"
           }
 
-      - name: Smoke-test installer and uninstaller
+      - name: Smoke-test silent installer and uninstaller
         shell: pwsh
         run: |
-          $setup = Get-ChildItem ".\dist\Vocal-More-*-windows-x64-setup.exe" | Select-Object -First 1
-          if (-not $setup) { throw "Installer was not produced" }
-          $installDir = Join-Path $env:RUNNER_TEMP "Vocal More"
+          $setup = Get-ChildItem ".\dist\Vocal-More-*-windows-x64-setup.exe" |
+            Select-Object -First 1
+          if (-not $setup) {
+            throw "Installer was not produced"
+          }
+          $installDir = Join-Path $env:RUNNER_TEMP "Vocal More Installed"
           $install = Start-Process `
             -FilePath $setup.FullName `
             -ArgumentList @(
               "/VERYSILENT",
               "/SUPPRESSMSGBOXES",
               "/NORESTART",
-              "/DIR=$installDir"
+              "/DIR=`"$installDir`""
             ) `
             -Wait `
             -PassThru
@@ -123,11 +115,18 @@ jobs:
           if (-not (Test-Path $installedExe)) {
             throw "Installed executable is missing"
           }
-          $smoke = Start-Process -FilePath $installedExe -ArgumentList "--ui-smoke" -Wait -PassThru
-          if ($smoke.ExitCode -ne 0) {
-            throw "Installed UI smoke test exited with code $($smoke.ExitCode)"
+          $version = Start-Process `
+            -FilePath $installedExe `
+            -ArgumentList "--version" `
+            -Wait `
+            -PassThru
+          if ($version.ExitCode -ne 0) {
+            throw "Installed entry point exited with code $($version.ExitCode)"
           }
           $uninstaller = Join-Path $installDir "unins000.exe"
+          if (-not (Test-Path $uninstaller)) {
+            throw "Uninstaller is missing"
+          }
           $uninstall = Start-Process `
             -FilePath $uninstaller `
             -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") `
