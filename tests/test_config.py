@@ -164,7 +164,16 @@ def test_config_get_config_dir(monkeypatch):
     )
 
     config_dir = Config.get_config_dir()
-    assert config_dir == Path.home() / ".vocal-more"
+    if os.name == "nt":
+        roaming = os.environ.get("APPDATA")
+        expected = (
+            Path(roaming) / "Vocal More"
+            if roaming
+            else Path.home() / "AppData" / "Roaming" / "Vocal More"
+        )
+    else:
+        expected = Path.home() / ".vocal-more"
+    assert config_dir == expected
 
 
 def test_config_ensure_api_key_with_env():

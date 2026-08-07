@@ -1,0 +1,116 @@
+name: Windows
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: windows-latest
+    env:
+      DASHSCOPE_API_KEY: test-api-key
+      PYTHONIOENCODING: "utf-8"
+      PYTHONUNBUFFERED: "1"
+      PYTHONUTF8: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install runtime, build dependencies, and Inno Setup
+        shell: pwsh
+        run: |
+          uv sync --locked --group dev --python "$env:pythonLocation\python.exe"
+          uv pip install --python .venv\Scripts\python.exe `
+            -r packaging\windows\requirements-build.txt
+          uv run python -c "import tkinter; print('Tk', tkinter.TkVersion)"
+          choco install innosetup --no-progress -y
+
+      - name: Run Python tests
+        shell: pwsh
+        run: uv run python -m pytest -q
+
+      - name: Build portable archive and installer
+        shell: pwsh
+        run: .\packaging\windows\build_installer.ps1
+
+      - name: Smoke-test packaged entry point
+        shell: pwsh
+        run: |
+          $process = Start-Process `
+            -FilePath ".\dist\Vocal More\Vocal More.exe" `
+            -ArgumentList "--version" `
+            -Wait `
+            -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Packaged entry point exited with code $($process.ExitCode)"
+          }
+
+      - name: Smoke-test silent installer and uninstaller
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem ".\dist\Vocal-More-*-windows-x64-setup.exe" |
+            Select-Object -First 1
+          if (-not $setup) {
+            throw "Installer was not produced"
+          }
+          $installDir = Join-Path $env:RUNNER_TEMP "Vocal More Installed"
+          $install = Start-Process `
+            -FilePath $setup.FullName `
+            -ArgumentList @(
+              "/VERYSILENT",
+              "/SUPPRESSMSGBOXES",
+              "/NORESTART",
+              "/DIR=`"$installDir`""
+            ) `
+            -Wait `
+            -PassThru
+          if ($install.ExitCode -ne 0) {
+            throw "Installer exited with code $($install.ExitCode)"
+          }
+          $installedExe = Join-Path $installDir "Vocal More.exe"
+          if (-not (Test-Path $installedExe)) {
+            throw "Installed executable is missing"
+          }
+          $version = Start-Process `
+            -FilePath $installedExe `
+            -ArgumentList "--version" `
+            -Wait `
+            -PassThru
+          if ($version.ExitCode -ne 0) {
+            throw "Installed entry point exited with code $($version.ExitCode)"
+          }
+          $uninstaller = Join-Path $installDir "unins000.exe"
+          if (-not (Test-Path $uninstaller)) {
+            throw "Uninstaller is missing"
+          }
+          $uninstall = Start-Process `
+            -FilePath $uninstaller `
+            -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") `
+            -Wait `
+            -PassThru
+          if ($uninstall.ExitCode -ne 0) {
+            throw "Uninstaller exited with code $($uninstall.ExitCode)"
+          }
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vocal-More-Windows-x64
+          path: |
+            dist/Vocal-More-*-windows-x64.zip
+            dist/Vocal-More-*-windows-x64-setup.exe
+          if-no-files-found: error

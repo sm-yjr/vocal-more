@@ -1,0 +1,109 @@
+"""Cross-platform shortcut tests for KeyboardSimulator."""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from types import SimpleNamespace
+
+import vocal_more.core.keyboard_sim as keyboard_sim
+
+
+class _FakeKeyboard:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, object]] = []
+
+    @contextmanager
+    def pressed(self, key):
+        self.events.append(("modifier_down", key))
+        try:
+            yield self
+        finally:
+            self.events.append(("modifier_up", key))
+
+    def press(self, key):
+        self.events.append(("press", key))
+
+    def release(self, key):
+        self.events.append(("release", key))
+
+    def type(self, text):
+        self.events.append(("type", text))
+
+
+class _FakeClipboard:
+    def __init__(self) -> None:
+        self.value = "before"
+
+    def paste(self):
+        return self.value
+
+    def copy(self, text):
+        self.value = text
+
+
+def _keys():
+    return SimpleNamespace(
+        cmd="cmd",
+        ctrl="ctrl",
+        backspace="backspace",
+        shift="shift",
+        left="left",
+    )
+
+
+def test_windows_paste_uses_ctrl_v(monkeypatch):
+    keyboard = _FakeKeyboard()
+    clipboard = _FakeClipboard()
+    monkeypatch.setattr(keyboard_sim, "Key", _keys())
+    monkeypatch.setattr(keyboard_sim.time, "sleep", lambda _seconds: None)
+
+    simulator = keyboard_sim.KeyboardSimulator(
+        platform_name="win32",
+        keyboard=keyboard,
+        clipboard=clipboard,
+    )
+    simulator.paste_text("hello")
+
+    assert clipboard.value == "hello"
+    assert keyboard.events == [
+        ("modifier_down", "ctrl"),
+        ("press", "v"),
+        ("release", "v"),
+        ("modifier_up", "ctrl"),
+    ]
+
+
+def test_macos_paste_keeps_command_v(monkeypatch):
+    keyboard = _FakeKeyboard()
+    monkeypatch.setattr(keyboard_sim, "Key", _keys())
+    monkeypatch.setattr(keyboard_sim.time, "sleep", lambda _seconds: None)
+
+    simulator = keyboard_sim.KeyboardSimulator(
+        platform_name="darwin",
+        keyboard=keyboard,
+        clipboard=_FakeClipboard(),
+    )
+    simulator.paste_text("hello")
+
+    assert keyboard.events[0] == ("modifier_down", "cmd")
+
+
+def test_windows_select_all_uses_ctrl_a_then_paste(monkeypatch):
+    keyboard = _FakeKeyboard()
+    monkeypatch.setattr(keyboard_sim, "Key", _keys())
+    monkeypatch.setattr(keyboard_sim.time, "sleep", lambda _seconds: None)
+
+    simulator = keyboard_sim.KeyboardSimulator(
+        platform_name="win32",
+        keyboard=keyboard,
+        clipboard=_FakeClipboard(),
+    )
+    simulator.select_all_and_replace("replacement")
+
+    assert keyboard.events[:4] == [
+        ("modifier_down", "ctrl"),
+        ("press", "a"),
+        ("release", "a"),
+        ("modifier_up", "ctrl"),
+    ]
+    assert ("press", "v") in keyboard.events

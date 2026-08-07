@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import platform
 import threading
 
 from .application.dictionary_edit_observer import DictionaryEditObserver
@@ -38,6 +39,24 @@ class _CurrentAPIKeyModelClient:
         return client.classify(evidence)
 
 
+class _UnavailableFocusedTextProvider:
+    """No-op provider for platforms without an accessibility text adapter."""
+
+    @staticmethod
+    def capture_focused():
+        return None
+
+    @staticmethod
+    def capture_target(_snapshot):
+        return None
+
+
+def _focused_text_provider():
+    if platform.system() == "Darwin":
+        return MacOSFocusedTextProvider()
+    return _UnavailableFocusedTextProvider()
+
+
 def build_dictionary_learning_runtime(
     *,
     config=None,
@@ -60,7 +79,7 @@ def build_dictionary_learning_runtime(
     return AutomaticDictionaryLearningCoordinator(
         config=config,
         observer_factory=lambda **kwargs: DictionaryEditObserver(
-            provider=MacOSFocusedTextProvider(),
+            provider=_focused_text_provider(),
             **kwargs,
         ),
         repository=repository,

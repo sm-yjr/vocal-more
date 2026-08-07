@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import platform
 
 from ..domain.app_context import (
     AppContext,
@@ -18,6 +19,11 @@ SENSITIVE_BUNDLE_IDS = {
     "com.apple.passwords",
     "com.bitwarden.desktop",
     "com.lastpass.lastpass",
+    "1password.exe",
+    "bitwarden.exe",
+    "keepass.exe",
+    "keepassxc.exe",
+    "lastpass.exe",
 }
 
 
@@ -91,15 +97,27 @@ class ContextPersonalizationService:
             self._repository.reset()
 
 
+def _platform_app_provider() -> Callable[[], str]:
+    system = platform.system()
+    if system == "Windows":
+        from ..infrastructure.windows_app_context import foreground_process_name
+
+        return foreground_process_name
+    if system == "Darwin":
+        from ..infrastructure.macos_app_context import frontmost_bundle_id
+
+        return frontmost_bundle_id
+    return lambda: ""
+
+
 def build_context_personalization_service(*, config, paths=None):
     from ..infrastructure.context_profile_repository import ContextProfileRepository
-    from ..infrastructure.macos_app_context import frontmost_bundle_id
     from ..paths import default_app_paths
 
     app_paths = paths or default_app_paths()
     return ContextPersonalizationService(
         config=config.context_personalization,
-        app_provider=frontmost_bundle_id,
+        app_provider=_platform_app_provider(),
         repository=ContextProfileRepository(app_paths.context_profile_path),
     )
 

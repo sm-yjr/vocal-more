@@ -72,7 +72,10 @@ def test_py2app_bundles_avfoundation_voice_processing_bridge():
     assert '"AVFoundation"' in setup_text
     assert '"CoreAudio"' in setup_text
     assert '"CoreMedia"' in setup_text
-    assert '"pyobjc-framework-AVFoundation>=10.0"' in pyproject
+    assert (
+        '"pyobjc-framework-AVFoundation>=10.0; sys_platform == \'darwin\'"'
+        in pyproject
+    )
 
 
 def test_py2app_declares_signed_sparkle_feed():

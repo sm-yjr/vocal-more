@@ -30,7 +30,12 @@ class AppPaths:
 
 
 def default_data_dir() -> Path:
-    """Return the default per-user data directory."""
+    """Return the conventional per-user data directory for this platform."""
+    if sys.platform == "win32":
+        roaming = os.environ.get("APPDATA", "").strip()
+        if roaming:
+            return Path(roaming) / "Vocal More"
+        return Path.home() / "AppData" / "Roaming" / "Vocal More"
     return Path.home() / ".vocal-more"
 
 
@@ -43,7 +48,8 @@ def bundled_resource_path(*parts: str) -> Path:
     """Return the best candidate path for an app resource.
 
     During development resources live at the repository root. In a macOS app
-    bundle, py2app copies them under Contents/Resources.
+    bundle, py2app copies them under Contents/Resources. PyInstaller exposes its
+    extraction root through ``sys._MEIPASS`` on Windows.
     """
     relative_path = Path(*parts)
     for root in _resource_roots():
@@ -73,6 +79,8 @@ def _resource_roots() -> list[Path]:
 
 
 def _macos_bundle_resource_root() -> Path | None:
+    if sys.platform != "darwin":
+        return None
     try:
         from Foundation import NSBundle
     except Exception:

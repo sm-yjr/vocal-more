@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 from pathlib import Path
 
 import pytest
@@ -213,12 +214,14 @@ def test_capture_protocol_writes_runtime_observed_controls_and_valid_manifest(
         for session in runtime["sessions"]
     )
     for private_output in (manifest_path, report_path, runtime_path):
-        assert private_output.stat().st_mode & 0o777 == 0o600
+        if os.name != "nt":
+            assert private_output.stat().st_mode & 0o777 == 0o600
         assert str(tmp_path.resolve()) not in private_output.read_text(
             encoding="utf-8"
         )
     for capture in (tmp_path / "captures").glob("*.wav"):
-        assert capture.stat().st_mode & 0o777 == 0o600
+        if os.name != "nt":
+            assert capture.stat().st_mode & 0o777 == 0o600
 
 
 def test_automatic_software_fallback_is_recorded_but_not_claimed_as_apple_agc(
