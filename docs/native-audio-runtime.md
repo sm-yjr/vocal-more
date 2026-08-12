@@ -68,6 +68,13 @@ failure, or engine startup failure makes this adapter unavailable. The Python
 factory then tries the PyObjC Voice Processing adapter and finally PortAudio.
 The saved user mode is not changed by a runtime fallback.
 
+Studio Display intentionally uses the PortAudio/CoreAudio compatibility path
+even when the native library is available. Hardware measurements showed about
+1.3 seconds to start VoiceProcessingIO on this route, compared with roughly
+0.58 seconds to receive the first compatibility-path frame. Keeping an input
+engine running while idle would hide latency by continuously occupying the
+microphone, so the lower-latency route is selected instead.
+
 ## C ABI rules
 
 The public header is `native/audio/include/vocal_more_audio.h`. ABI version 1
@@ -148,7 +155,7 @@ device enumeration and reports `planned_input` as structured `unknown`.
 The probe is deliberately observation-only. On the first explicit recording
 or microphone-test action, `not_determined` instead causes an asynchronous
 `AVCaptureDevice.requestAccess` call and an immediate recoverable result that
-asks the user to try again. That action never starts the 1.5-second device
+asks the user to try again. That action never starts the 3-second device
 deadline and is never replayed automatically after the permission callback.
 Only a later explicit action that observes `authorized` may discover devices
 and start a stream.

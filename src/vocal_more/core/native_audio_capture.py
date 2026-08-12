@@ -534,8 +534,12 @@ class NativeMacOSVoiceProcessingStream:
                 if self._handle is not handle:
                     return
             try:
-                with self._foreign_call_lock:
-                    packet = self._api.read(handle, timeout_seconds=0.05)
+                # vm_audio_stop() ends the PCM queue that wakes this bounded
+                # read. Sharing the foreign-call lock with stop can starve that
+                # wakeup and leave VoiceProcessingIO occupied for the next
+                # recording. Every close path still joins this consumer before
+                # destroy, or defers destroy until that join completes.
+                packet = self._api.read(handle, timeout_seconds=0.05)
             except NativeAudioEnd:
                 return
             except Exception as exc:

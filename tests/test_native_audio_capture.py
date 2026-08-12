@@ -93,6 +93,79 @@ def test_native_stream_drains_pcm_on_a_non_realtime_consumer_thread():
     assert stream.diagnostics.agc_enabled is True
 
 
+def test_native_stop_can_interrupt_a_blocked_consumer_read():
+    """Stop must reach the native queue while its consumer is waiting on it."""
+    from vocal_more.core.native_audio_capture import (
+        NativeAudioDiagnostics,
+        NativeAudioEnd,
+        NativeMacOSVoiceProcessingStream,
+    )
+
+    class FakeAPI:
+        def __init__(self) -> None:
+            self.read_entered = threading.Event()
+            self.read_finished = threading.Event()
+            self.read_starved = threading.Event()
+            self.stop_called = threading.Event()
+
+        def create(self, _config):
+            return object()
+
+        def start(self, _handle):
+            return NativeAudioDiagnostics(
+                backend="objective_cpp",
+                source_sample_rate_hz=48000.0,
+                agc_enabled=False,
+                dropped_blocks=0,
+            )
+
+        def read(self, _handle, *, timeout_seconds):
+            del timeout_seconds
+            self.read_entered.set()
+            if not self.stop_called.wait(0.2):
+                self.read_starved.set()
+            self.read_finished.set()
+            raise NativeAudioEnd()
+
+        def stop(self, _handle):
+            self.stop_called.set()
+
+        def destroy(self, _handle):
+            assert self.read_finished.is_set()
+
+        def set_dsp(self, _handle, _config):
+            return None
+
+        def diagnostics(self, _handle):
+            return NativeAudioDiagnostics(
+                backend="objective_cpp",
+                source_sample_rate_hz=48000.0,
+                agc_enabled=False,
+                dropped_blocks=0,
+            )
+
+    api = FakeAPI()
+    stream = NativeMacOSVoiceProcessingStream(
+        pcm_callback=lambda _pcm, _rms: None,
+        sample_rate=16000,
+        blocksize=640,
+        automatic_gain=False,
+        gain=1.0,
+        highpass_filter=True,
+        highpass_freq=200,
+        soft_limiter=True,
+        api=api,
+    )
+
+    stream.start()
+    assert api.read_entered.wait(0.5)
+    stream.close()
+
+    assert api.stop_called.is_set()
+    assert api.read_finished.is_set()
+    assert api.read_starved.is_set() is False
+
+
 def test_native_stream_forwards_live_dsp_updates_but_not_agc_mode():
     from vocal_more.core.native_audio_capture import (
         NativeAudioDiagnostics,

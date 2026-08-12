@@ -716,6 +716,15 @@ def test_start_timeout_keeps_dictation_control_responsive_and_releases_late_stre
     assert recorder._stream is None
 
 
+def test_default_start_deadline_covers_observed_slow_coreaudio_routes():
+    """Normal external-display routes can need more than the former 1.5 seconds."""
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    recorder = AudioRecorder()
+
+    assert recorder._start_timeout == 3.0
+
+
 def test_start_deadline_covers_blocked_device_enumeration(monkeypatch):
     """CoreAudio discovery must run behind the same hard startup deadline."""
     import vocal_more.core.audio_recorder as audio_recorder_module
@@ -2443,6 +2452,74 @@ def test_external_microphone_does_not_claim_voice_processing(monkeypatch):
     assert status["phase"] == "planned"
     assert status["agc_enabled_observed"] is None
     assert status["last_session"] is None
+
+
+def test_studio_display_prefers_low_latency_capture_over_voice_processing(
+    monkeypatch,
+):
+    """The external-display route must not reintroduce a one-second startup gap."""
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    stream_kwargs = []
+
+    class FakeStream:
+        samplerate = 16000
+
+        def __init__(self, **kwargs):
+            stream_kwargs.append(kwargs)
+
+        def start(self):
+            return None
+
+        def abort(self):
+            return None
+
+        def close(self):
+            return None
+
+    fake_sd = type(
+        "FakeSoundDevice",
+        (),
+        {
+            "InputStream": FakeStream,
+            "PortAudioError": RuntimeError,
+            "CallbackFlags": object,
+            "default": _fake_default_device(2),
+            "query_devices": staticmethod(
+                lambda: [
+                    {
+                        "index": 2,
+                        "name": "Studio Display Microphone",
+                        "max_input_channels": 1,
+                    }
+                ]
+            ),
+        },
+    )()
+    monkeypatch.setattr(audio_recorder_module, "sd", fake_sd)
+    monkeypatch.setattr(audio_recorder_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        audio_recorder_module,
+        "_macos_voice_processing_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        audio_recorder_module,
+        "_build_macos_voice_processing_stream",
+        lambda **_kwargs: pytest.fail(
+            "Studio Display must stay on the low-latency capture path"
+        ),
+    )
+
+    recorder = AudioRecorder(channels=1)
+    recorder.start()
+
+    assert len(stream_kwargs) == 1
+    assert recorder.input_status["native_backend"] == "portaudio"
+    assert recorder.input_status["processing_mode"] == "system_managed_mono"
+    assert recorder.input_status["echo_cancellation"] == "unavailable"
+    recorder.stop()
 
 
 def test_macos_array_falls_back_to_system_beamformed_mono_when_format_is_rejected(

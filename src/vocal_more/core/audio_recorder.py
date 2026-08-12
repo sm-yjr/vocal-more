@@ -33,7 +33,7 @@ _PORTAUDIO_RESET_LOCK = threading.Lock()
 _STREAM_RELEASE_THREAD_NAME = "vocal-more-audio-stream-release"
 _STREAM_START_THREAD_NAME = "vocal-more-audio-stream-start"
 _NATIVE_DRAIN_THREAD_NAME = "vocal-more-native-audio-drain"
-_DEFAULT_START_TIMEOUT_SECONDS = 1.5
+_DEFAULT_START_TIMEOUT_SECONDS = 3.0
 _NATIVE_DRAIN_TIMEOUT_SECONDS = 0.5
 _MAX_MACOS_ARRAY_CHANNELS = 3
 _MACOS_ARRAY_DEVICE_MARKERS = (
@@ -45,6 +45,9 @@ _MACOS_ARRAY_DEVICE_MARKERS = (
     "内建麦克风",
     "内置麦克风",
     "麦克风阵列",
+)
+_MACOS_LOW_LATENCY_ROUTE_MARKERS = (
+    "studio display",
 )
 
 
@@ -1243,6 +1246,16 @@ class AudioRecorder:
         device: Optional[dict],
     ) -> bool:
         if not self._is_macos_builtin_microphone(device):
+            return False
+        # Studio Display's VoiceProcessingIO route spends roughly 0.6 s
+        # enabling voice processing and another 0.45 s starting the engine on
+        # observed hardware. The CoreAudio compatibility route reaches its
+        # first frame in about half that time and matches the pre-native app's
+        # dictation behavior. Prefer complete sentence capture over AEC on this
+        # route; keeping a prewarmed input engine alive would leave the user's
+        # microphone continuously occupied while the app is idle.
+        name = str(device.get("name", "")).strip().lower() if device else ""
+        if any(marker in name for marker in _MACOS_LOW_LATENCY_ROUTE_MARKERS):
             return False
         target_index = (
             self._default_input_device_index()

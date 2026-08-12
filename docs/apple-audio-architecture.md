@@ -23,7 +23,7 @@ Core Audio 和 AVFoundation 公共接口暴露设备、流、格式与逻辑通�
 
 ### 1.1 首次麦克风权限入口
 
-TCC 状态必须在设备发现和 1.5 秒 Core Audio 启动 deadline 之前判定。若首次明确的录音或麦克风测试观察到 `not_determined`，应用调用异步的 `AVCaptureDevice.requestAccess(for:completionHandler:)`，立即把本次模式复位并提示用户授权后再次触发；它不等待 completion handler，不进入设备启动 deadline，也不会在用户已经松开快捷键后自动重放原意图。[Apple 的 requestAccess 文档](https://developer.apple.com/documentation/avfoundation/avcapturedevice/requestaccess%28for%3Acompletionhandler%3A%29)。
+TCC 状态必须在设备发现和 3 秒 Core Audio 启动 deadline 之前判定。若首次明确的录音或麦克风测试观察到 `not_determined`，应用调用异步的 `AVCaptureDevice.requestAccess(for:completionHandler:)`，立即把本次模式复位并提示用户授权后再次触发；它不等待 completion handler，不进入设备启动 deadline，也不会在用户已经松开快捷键后自动重放原意图。[Apple 的 requestAccess 文档](https://developer.apple.com/documentation/avfoundation/avcapturedevice/requestaccess%28for%3Acompletionhandler%3A%29)。
 
 这样把“等待用户做隐私决定”和“设备/驱动是否在 deadline 内启动”分成两个不同故障域。`denied` / `restricted` 直接返回权限错误；只有后续一次明确动作观察到 `authorized`，才进入设备发现和原生流启动。静态 capability probe 只读授权状态、selectors 和 dylib ABI，永远不调用 `requestAccess`，也不打开麦克风。
 
@@ -123,7 +123,7 @@ AVAudioEngine VoiceProcessingIO tap
 
 启动时在 `AVAudioEngine.startAndReturnError` 成功后再次读取 Voice Processing 和 AGC 状态。只有 getter 与请求模式一致，状态才标记为已验证；否则销毁该流并进入可观测回退。停止顺序先禁止新 tap 输入，再移除 tap、排空 raw 队列、向 `AVAudioConverter` 发送 EOS、发布最终不足一块的尾帧，最后结束 PCM 队列。
 
-回退顺序是：Objective-C++ 原生库 → PyObjC Voice Processing → PortAudio。回退不修改用户保存的 `gain_mode`；`automatic` 回退时恢复保存的软件 gain 和 limiter，并在 `last_session` 中留下结构化 code/stage。PyObjC 是兼容路径，不是实时安全基准路径。
+回退顺序是：Objective-C++ 原生库 → PyObjC Voice Processing → PortAudio。Studio Display 是经过实机计时确认的低延迟例外：VoiceProcessingIO 首帧约需 1.3 秒，兼容路径约需 0.58 秒，因此直接使用 PortAudio/CoreAudio，避免漏掉听写句首。应用不会通过空闲时持续占用麦克风来隐藏启动成本。回退不修改用户保存的 `gain_mode`；`automatic` 回退时恢复保存的软件 gain 和 limiter，并在 `last_session` 中留下结构化 code/stage。PyObjC 是兼容路径，不是实时安全基准路径。
 
 完整的 ABI、构建和故障边界见 [`native-audio-runtime.md`](native-audio-runtime.md)。只有将来引入自有高优先级实时辅助线程时才评估 Audio Workgroups；当前 tap 线程由 Apple 管理，而 converter/DSP worker 允许有界排队。[Audio Workgroups](https://developer.apple.com/videos/play/wwdc2020/10224/)。
 

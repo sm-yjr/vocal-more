@@ -68,7 +68,7 @@ owned by their mode.
 ### 5. Audio stream startup worker contains CoreAudio/PortAudio stalls
 
 `AudioRecorder.start()` opens the native input stream on one isolated daemon
-thread and waits at most 1.5 seconds. This boundary exists because CoreAudio
+thread and waits at most 3 seconds. This boundary exists because CoreAudio
 and PortAudio can block indefinitely after sleep/wake, a default-device change,
 or a Bluetooth route transition.
 
@@ -76,7 +76,7 @@ Microphone privacy admission precedes that worker. When an explicit recording
 action first observes TCC `not_determined`, it starts the asynchronous
 `AVCaptureDevice.requestAccess` request, returns a recoverable “grant access and
 try again” result, and lets the mode leave `STARTING`. It does not enumerate
-devices, consume the 1.5-second deadline, wait for the completion handler, or
+devices, consume the 3-second deadline, wait for the completion handler, or
 automatically replay the released hotkey action. A later explicit action must
 observe `authorized` before device startup is admitted. Static capability
 probing never requests access.
@@ -154,7 +154,7 @@ variable-rate session.
 explicit `pending` placeholder; Core Audio device enumeration, selector probes
 and stream construction run either during an explicit idle inspection or on
 the bounded startup worker. A wedged `query_devices()` therefore cannot prevent
-mode dependency construction, and the 1.5 s command-facing start deadline also
+mode dependency construction, and the 3 s command-facing start deadline also
 covers route discovery rather than starting only after discovery returns.
 
 Stopping detaches the active PortAudio stream and snapshots the completed PCM
@@ -168,6 +168,10 @@ first attempts the bundled Objective-C++ AVAudioEngine runtime, then the PyObjC
 Voice Processing adapter. Apple's I/O unit subtracts audio playing from the
 current output device from the microphone uplink, while AVAudioConverter
 band-limits and converts the hardware-rate tap into fixed 16 kHz mono blocks.
+Studio Display is routed through the lower-latency CoreAudio compatibility path:
+measured VoiceProcessingIO startup on that external-display route exceeds one
+second and loses the beginning of dictation. The app does not keep a microphone
+engine running while idle merely to hide that cost.
 In automatic gain mode, verified Apple AGC owns level control and Vocal More
 bypasses software gain and limiting. DSP ownership follows the post-start
 VP/AGC getter snapshots rather than the aggregate quality flag: a drop can make
