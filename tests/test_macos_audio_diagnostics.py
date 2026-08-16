@@ -342,13 +342,13 @@ class _ABISymbol:
 
 def _fake_native_library(observed: int = 1, *, missing: set[str] | None = None):
     from vocal_more.core.native_audio_capture import (
-        NATIVE_AUDIO_ABI_V1_REQUIRED_SYMBOLS,
+        NATIVE_AUDIO_ABI_V2_REQUIRED_SYMBOLS,
     )
 
     missing = missing or set()
     values = {
         name: (lambda: None)
-        for name in NATIVE_AUDIO_ABI_V1_REQUIRED_SYMBOLS
+        for name in NATIVE_AUDIO_ABI_V2_REQUIRED_SYMBOLS
         if name not in missing
     }
     values["vm_audio_abi_version"] = _ABISymbol(observed)

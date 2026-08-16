@@ -90,6 +90,11 @@ const en = {
   lastSessionVerified: "Verified",
   lastSessionUnverified: "Not verified",
   runtimeDrops: "Dropped audio blocks",
+  captureBackend: "Microphone engine",
+  captureBackendHint:
+    "Low latency starts fastest. Apple voice processing adds echo cancellation and Apple AGC but starts more slowly.",
+  lowLatencyCapture: "Low latency",
+  appleVoiceProcessingCapture: "Apple voice processing",
   gainControlHint:
     "Apple automatic gain avoids manual calibration on supported built-in microphones. Manual gain remains available for whisper presets and fallback inputs.",
   automaticAppleGain: "Automatic (Apple)",
@@ -366,6 +371,11 @@ const zh: Copy = {
   lastSessionVerified: "已验证",
   lastSessionUnverified: "未验证",
   runtimeDrops: "丢弃的音频块",
+  captureBackend: "麦克风引擎",
+  captureBackendHint:
+    "低延迟模式启动最快；Apple 语音处理提供回声消除和 Apple 自动增益，但启动更慢。",
+  lowLatencyCapture: "低延迟",
+  appleVoiceProcessingCapture: "Apple 语音处理",
   gainControlHint:
     "受支持的内建麦克风优先使用 Apple 自动增益，无需手动校准；轻声预设和回退输入仍可使用软件增益。",
   automaticAppleGain: "自动（Apple）",

@@ -24,13 +24,21 @@
 
 namespace {
 
-constexpr uint32_t kABIVersion = 1;
+constexpr uint32_t kABIVersion = 2;
 constexpr uint32_t kMinimumQueueBlocks = 4;
 constexpr uint32_t kMaximumQueueBlocks = 256;
 constexpr uint32_t kMaximumBlockFrames = 16384;
 constexpr int32_t kMinimumSampleRate = 8000;
 constexpr int32_t kMaximumSampleRate = 384000;
 constexpr uint32_t kMaximumNativeBufferFrames = 65536;
+
+uint64_t monotonic_now_ns() noexcept {
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()
+        ).count()
+    );
+}
 
 void write_error(char *buffer, size_t capacity, const char *message) noexcept {
     if (buffer == nullptr || capacity == 0) {
@@ -241,9 +249,12 @@ private:
 };
 
 struct RealtimeTapContext {
-    explicit RealtimeTapContext(RawQueue *requested_queue) : queue(requested_queue) {}
+    RealtimeTapContext(RawQueue *requested_queue, uint64_t requested_start_time_ns)
+        : queue(requested_queue), start_time_ns(requested_start_time_ns) {}
 
     RawQueue *queue;
+    uint64_t start_time_ns;
+    std::atomic<uint64_t> first_tap_latency_ns{0};
     std::atomic<bool> accepting{false};
     std::atomic<uint32_t> callbacks_in_flight{0};
 };
@@ -422,7 +433,13 @@ struct vm_audio_stream {
     std::atomic<bool> observed_agc{false};
     std::atomic<uint64_t> runtime_fault_count{0};
     std::atomic<int32_t> runtime_fault_code{VM_AUDIO_RUNTIME_FAULT_NONE};
+    std::atomic<uint64_t> start_time_ns{0};
+    std::atomic<uint64_t> first_tap_latency_ns{0};
+    std::atomic<uint64_t> first_pcm_latency_ns{0};
     std::mutex lifecycle_mutex;
+    uint32_t native_buffer_frames = 0;
+    uint32_t raw_capacity = 0;
+    bool paused = false;
     bool stop_completed = false;
 };
 
@@ -477,7 +494,18 @@ void publish_pending(vm_audio_stream *stream, uint32_t frames) noexcept {
         limiter,
         rms
     );
-    stream->pcm_queue->push(stream->pcm_work.data(), frames, rms);
+    if (stream->pcm_queue->push(stream->pcm_work.data(), frames, rms)) {
+        uint64_t expected = 0;
+        const uint64_t started = stream->start_time_ns.load(std::memory_order_acquire);
+        const uint64_t now = monotonic_now_ns();
+        const uint64_t latency = now > started ? now - started : 1;
+        stream->first_pcm_latency_ns.compare_exchange_strong(
+            expected,
+            latency,
+            std::memory_order_release,
+            std::memory_order_relaxed
+        );
+    }
 }
 
 void consume_converted(
@@ -641,6 +669,146 @@ void stop_accepting_tap_callbacks(
     }
 }
 
+bool install_session_locked(
+    vm_audio_stream *stream,
+    char *error_buffer,
+    size_t error_capacity
+) {
+    AVAudioEngine *engine = stream->engine;
+    AVAudioInputNode *input_node = stream->input_node;
+    if (engine == nil || input_node == nil || stream->converter == nil ||
+        stream->raw_capacity == 0 || stream->native_buffer_frames == 0) {
+        write_error(error_buffer, error_capacity, "Native audio graph is unavailable");
+        return false;
+    }
+
+    stream->start_time_ns.store(monotonic_now_ns(), std::memory_order_release);
+    stream->first_tap_latency_ns.store(0, std::memory_order_release);
+    stream->first_pcm_latency_ns.store(0, std::memory_order_release);
+    stream->pending_frames = 0;
+    stream->hp_previous_input = 0.0F;
+    stream->hp_previous_output = 0.0F;
+    [stream->converter reset];
+    stream->pcm_queue = std::make_unique<PCMQueue>(
+        stream->queue_blocks,
+        stream->block_frames
+    );
+    stream->raw_queue = std::make_unique<RawQueue>(
+        stream->queue_blocks,
+        stream->raw_capacity
+    );
+    stream->tap_context = std::make_shared<RealtimeTapContext>(
+        stream->raw_queue.get(),
+        stream->start_time_ns.load(std::memory_order_acquire)
+    );
+    stream->tap_context->accepting.store(true, std::memory_order_seq_cst);
+    const std::shared_ptr<RealtimeTapContext> captured_context =
+        stream->tap_context;
+    [input_node installTapOnBus:0
+        bufferSize:stream->native_buffer_frames
+        format:nil
+        block:^(AVAudioPCMBuffer *buffer, AVAudioTime *when) {
+            (void)when;
+            RealtimeTapCallbackScope callback_scope(captured_context.get());
+            if (!callback_scope.accepting()) {
+                return;
+            }
+            const AVAudioFrameCount frames = buffer.frameLength;
+            float *const *channels = buffer.floatChannelData;
+            if (frames == 0 || channels == nullptr || channels[0] == nullptr) {
+                return;
+            }
+            uint64_t expected = 0;
+            const uint64_t now = monotonic_now_ns();
+            const uint64_t latency = now > captured_context->start_time_ns
+                ? now - captured_context->start_time_ns
+                : 1;
+            captured_context->first_tap_latency_ns.compare_exchange_strong(
+                expected,
+                latency,
+                std::memory_order_release,
+                std::memory_order_relaxed
+            );
+            captured_context->queue->push(channels[0], frames);
+        }];
+    stream->worker = std::thread(worker_main, stream, stream->raw_capacity);
+    // Mark the session active before starting the engine so the unified pause
+    // path can dismantle a partially installed tap/worker on start failure.
+    stream->started.store(true, std::memory_order_release);
+    [engine prepare];
+    NSError *start_error = nil;
+    if (![engine startAndReturnError:&start_error]) {
+        write_error(
+            error_buffer,
+            error_capacity,
+            start_error.localizedDescription ?: @"AVAudioEngine failed to start"
+        );
+        return false;
+    }
+    if (!input_node.isVoiceProcessingEnabled ||
+        input_node.isVoiceProcessingAGCEnabled != stream->automatic_gain) {
+        write_error(
+            error_buffer,
+            error_capacity,
+            "Running voice-processing state mismatch"
+        );
+        return false;
+    }
+    stream->observed_agc.store(
+        input_node.isVoiceProcessingAGCEnabled,
+        std::memory_order_release
+    );
+    stream->started.store(true, std::memory_order_release);
+    stream->paused = false;
+    return true;
+}
+
+bool pause_session_locked(vm_audio_stream *stream) noexcept {
+    if (!stream->started.load(std::memory_order_acquire)) {
+        return stream->paused;
+    }
+    const std::shared_ptr<RealtimeTapContext> tap_context = stream->tap_context;
+    if (tap_context != nullptr) {
+        tap_context->accepting.store(false, std::memory_order_seq_cst);
+    }
+    @try {
+        [stream->input_node removeTapOnBus:0];
+    } @catch (NSException *exception) {
+        (void)exception;
+        record_runtime_fault(stream, VM_AUDIO_RUNTIME_FAULT_REMOVE_TAP_FAILED);
+    }
+    @try {
+        [stream->engine pause];
+    } @catch (NSException *exception) {
+        (void)exception;
+        record_runtime_fault(stream, VM_AUDIO_RUNTIME_FAULT_ENGINE_STOP_FAILED);
+    }
+    stop_accepting_tap_callbacks(tap_context);
+    if (tap_context != nullptr) {
+        stream->first_tap_latency_ns.store(
+            tap_context->first_tap_latency_ns.load(std::memory_order_acquire),
+            std::memory_order_release
+        );
+    }
+    if (stream->raw_queue != nullptr) {
+        stream->raw_queue->end();
+    }
+    try {
+        if (stream->worker.joinable()) {
+            stream->worker.join();
+        } else if (stream->pcm_queue != nullptr) {
+            stream->pcm_queue->end();
+        }
+    } catch (...) {
+        return false;
+    }
+    stream->started.store(false, std::memory_order_release);
+    stream->tap_context.reset();
+    stream->raw_queue.reset();
+    stream->paused = true;
+    return true;
+}
+
 bool stop_stream_locked(vm_audio_stream *stream) noexcept {
     if (stream->stop_completed) {
         return true;
@@ -651,7 +819,7 @@ bool stop_stream_locked(vm_audio_stream *stream) noexcept {
     }
     AVAudioInputNode *input_node = stream->input_node;
     AVAudioEngine *engine = stream->engine;
-    if (input_node != nil) {
+    if (input_node != nil && stream->started.load(std::memory_order_acquire)) {
         @try {
             [input_node removeTapOnBus:0];
         } @catch (NSException *exception) {
@@ -708,6 +876,7 @@ bool stop_stream_locked(vm_audio_stream *stream) noexcept {
     stream->converter = nil;
     stream->input_node = nil;
     stream->engine = nil;
+    stream->paused = false;
     stream->stop_completed = true;
     return true;
 }
@@ -786,6 +955,9 @@ int32_t vm_audio_start(
                 );
                 return -1;
             }
+            stream->start_time_ns.store(monotonic_now_ns(), std::memory_order_release);
+            stream->first_tap_latency_ns.store(0, std::memory_order_release);
+            stream->first_pcm_latency_ns.store(0, std::memory_order_release);
 
             const int32_t result = run_abi_guarded(
                 [&]() -> int32_t {
@@ -873,6 +1045,8 @@ int32_t vm_audio_start(
                                 4096,
                                 native_buffer_frames * 4
                             );
+                            stream->native_buffer_frames = native_buffer_frames;
+                            stream->raw_capacity = raw_capacity;
                             AVAudioFormat *source_format = [[AVAudioFormat alloc]
                                 initStandardFormatWithSampleRate:source_rate channels:1];
                             AVAudioFormat *target_format = [[AVAudioFormat alloc]
@@ -914,7 +1088,8 @@ int32_t vm_audio_start(
                             );
                             stream->tap_context =
                                 std::make_shared<RealtimeTapContext>(
-                                    stream->raw_queue.get()
+                                    stream->raw_queue.get(),
+                                    stream->start_time_ns.load(std::memory_order_acquire)
                                 );
                             stream->converter = converter;
                             stream->converter_input = converter_input;
@@ -947,6 +1122,19 @@ int32_t vm_audio_start(
                                         float *const *channels = buffer.floatChannelData;
                                         if (frames > 0 && channels != nullptr &&
                                             channels[0] != nullptr) {
+                                            uint64_t expected = 0;
+                                            const uint64_t started =
+                                                captured_context->start_time_ns;
+                                            const uint64_t now = monotonic_now_ns();
+                                            const uint64_t latency = now > started
+                                                ? now - started
+                                                : 1;
+                                            captured_context->first_tap_latency_ns.compare_exchange_strong(
+                                                expected,
+                                                latency,
+                                                std::memory_order_release,
+                                                std::memory_order_relaxed
+                                            );
                                             captured_context->queue->push(
                                                 channels[0],
                                                 frames
@@ -1086,6 +1274,75 @@ int32_t vm_audio_stop(
     );
 }
 
+int32_t vm_audio_pause(
+    vm_audio_stream *stream,
+    char *error_buffer,
+    size_t error_capacity
+) {
+    write_error(error_buffer, error_capacity, "");
+    if (stream == nullptr) {
+        write_error(error_buffer, error_capacity, "Native audio handle is null");
+        return -1;
+    }
+    return run_abi_guarded(
+        [&]() -> int32_t {
+            std::lock_guard<std::mutex> lifecycle_guard(stream->lifecycle_mutex);
+            if (stream->stop_completed || !pause_session_locked(stream)) {
+                write_error(error_buffer, error_capacity, "Native audio session could not pause");
+                return -1;
+            }
+            return 0;
+        },
+        error_buffer,
+        error_capacity
+    );
+}
+
+int32_t vm_audio_resume(
+    vm_audio_stream *stream,
+    char *error_buffer,
+    size_t error_capacity
+) {
+    write_error(error_buffer, error_capacity, "");
+    if (stream == nullptr) {
+        write_error(error_buffer, error_capacity, "Native audio handle is null");
+        return -1;
+    }
+    return run_abi_guarded(
+        [&]() -> int32_t {
+            std::lock_guard<std::mutex> lifecycle_guard(stream->lifecycle_mutex);
+            if (stream->started.load(std::memory_order_acquire)) {
+                return 0;
+            }
+            if (stream->stop_completed || !stream->paused) {
+                write_error(error_buffer, error_capacity, "Native audio stream is not resumable");
+                return -1;
+            }
+            const int32_t resume_result = run_abi_guarded(
+                [&]() -> int32_t {
+                    return install_session_locked(
+                        stream,
+                        error_buffer,
+                        error_capacity
+                    ) ? 0 : -1;
+                },
+                error_buffer,
+                error_capacity
+            );
+            if (resume_result != 0) {
+                // Ensure a partially installed tap/worker cannot outlive the
+                // failed resume. The initialized graph remains terminally
+                // stoppable, but callers should discard this warm handle.
+                pause_session_locked(stream);
+                return -1;
+            }
+            return 0;
+        },
+        error_buffer,
+        error_capacity
+    );
+}
+
 void vm_audio_destroy(vm_audio_stream *stream) {
     if (stream == nullptr) {
         return;
@@ -1145,6 +1402,24 @@ int32_t vm_audio_runtime_fault_code(vm_audio_stream *stream) {
     return stream == nullptr
         ? VM_AUDIO_RUNTIME_FAULT_NONE
         : stream->runtime_fault_code.load(std::memory_order_acquire);
+}
+
+uint64_t vm_audio_first_tap_latency_ns(vm_audio_stream *stream) {
+    if (stream == nullptr) {
+        return 0;
+    }
+    if (stream->tap_context != nullptr) {
+        return stream->tap_context->first_tap_latency_ns.load(
+            std::memory_order_acquire
+        );
+    }
+    return stream->first_tap_latency_ns.load(std::memory_order_acquire);
+}
+
+uint64_t vm_audio_first_pcm_latency_ns(vm_audio_stream *stream) {
+    return stream == nullptr
+        ? 0
+        : stream->first_pcm_latency_ns.load(std::memory_order_acquire);
 }
 
 int32_t vm_audio_test_process(
@@ -1331,7 +1606,7 @@ int32_t vm_audio_test_queue(
         // after stop_accepting_tap_callbacks() returns.
         for (uint32_t iteration = 0; iteration < 512; ++iteration) {
             RawQueue tap_queue(4, 1);
-            auto context = std::make_shared<RealtimeTapContext>(&tap_queue);
+            auto context = std::make_shared<RealtimeTapContext>(&tap_queue, 0);
             context->accepting.store(true, std::memory_order_seq_cst);
             std::atomic<bool> ready{false};
             std::atomic<bool> go{false};

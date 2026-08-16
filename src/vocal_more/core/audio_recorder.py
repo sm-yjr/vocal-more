@@ -35,6 +35,7 @@ _STREAM_START_THREAD_NAME = "vocal-more-audio-stream-start"
 _NATIVE_DRAIN_THREAD_NAME = "vocal-more-native-audio-drain"
 _DEFAULT_START_TIMEOUT_SECONDS = 3.0
 _NATIVE_DRAIN_TIMEOUT_SECONDS = 0.5
+_FIRST_PCM_TIMEOUT_SECONDS = 0.75
 _MAX_MACOS_ARRAY_CHANNELS = 3
 _MACOS_ARRAY_DEVICE_MARKERS = (
     "macbook",
@@ -141,9 +142,16 @@ class _StartupAudioGate:
 class _VerifiedStreamCandidate:
     """A running capture stream whose provisional callbacks need release."""
 
-    def __init__(self, stream, gate: _StartupAudioGate) -> None:
+    def __init__(
+        self,
+        stream,
+        gate: _StartupAudioGate,
+        *,
+        requires_first_pcm: bool = False,
+    ) -> None:
         self.stream = stream
         self.gate = gate
+        self.requires_first_pcm = bool(requires_first_pcm)
 
 
 def _macos_voice_processing_available() -> bool:
@@ -231,18 +239,24 @@ class AudioRecorder:
         self._on_audio_level = on_audio_level
         self._use_config_device = device is None
         self._device_name: Optional[str] = device if device is not None else config.audio.input_device
+        self._capture_backend: str = config.audio.capture_backend
         self._gain_mode: str = config.audio.gain_mode
         self._gain: float = config.audio.gain
         self._apple_agc_active = False
         self._highpass_filter: bool = config.audio.highpass_filter
         self._soft_limiter: bool = config.audio.soft_limiter
         self._start_timeout = max(0.01, float(start_timeout))
+        self._first_pcm_timeout = _FIRST_PCM_TIMEOUT_SECONDS
         self._microphone_permission_requested = False
 
         self._stream: Optional[sd.InputStream] = None
+        self._warm_voice_stream = None
         self._stream_release_thread: Optional[threading.Thread] = None
         self._stream_start_thread: Optional[threading.Thread] = None
         self._start_generation = 0
+        self._first_pcm_generation = 0
+        self._first_pcm_event = threading.Event()
+        self._startup_timing_ns: dict[str, int] = {}
         self._array_processing_active = False
         self._last_input_session: Optional[dict] = None
         # Construction happens on the app dependency bootstrap worker. Core
@@ -351,6 +365,7 @@ class AudioRecorder:
                 if not self._is_recording:
                     return
                 self._audio_buffer.append(audio_data)
+                self._mark_first_pcm_locked()
 
             if status_fault is not None:
                 # Attribute flags only after this block crosses the same
@@ -382,6 +397,7 @@ class AudioRecorder:
                 if not self._is_recording:
                     return
                 self._audio_buffer.append(audio_data)
+                self._mark_first_pcm_locked()
                 on_audio_chunk = self.on_audio_chunk
                 on_audio_level = self._on_audio_level
             if on_audio_chunk:
@@ -424,6 +440,7 @@ class AudioRecorder:
         self,
         capture_plan: Optional[dict[str, object]],
     ) -> None:
+        requested_at_ns = time.monotonic_ns()
         with self._lock:
             if self._is_recording:
                 return
@@ -459,6 +476,12 @@ class AudioRecorder:
             self._mark_input_inactive(phase="starting")
             self._start_generation += 1
             generation = self._start_generation
+            self._first_pcm_generation = generation
+            self._first_pcm_event = threading.Event()
+            self._startup_timing_ns = {
+                "request": requested_at_ns,
+                "permission_admitted": time.monotonic_ns(),
+            }
 
         done = threading.Event()
         result_box: dict[str, object] = {}
@@ -507,6 +530,49 @@ class AudioRecorder:
             if isinstance(error, AudioRecorderStartError):
                 raise error
             raise AudioRecorderStartError(str(error)) from error
+
+        first_pcm_event = self._first_pcm_event
+        requires_first_pcm = bool(result_box.get("requires_first_pcm"))
+        if requires_first_pcm and not first_pcm_event.wait(
+            timeout=self._first_pcm_timeout
+        ):
+            stream = None
+            with self._lock:
+                if generation == self._start_generation:
+                    self._start_generation += 1
+                self._is_recording = False
+                stream = self._stream
+                self._stream = None
+                self._array_processing_active = False
+                self._apple_agc_active = False
+                self._audio_buffer = []
+                self._input_status["first_pcm_observed"] = False
+                self._input_status["startup_timing_ms"] = (
+                    self._startup_timing_snapshot_locked()
+                )
+                self._mark_input_inactive(phase="failed")
+            if stream is not None:
+                self._release_stream_async(stream)
+            raise AudioRecorderStartError(
+                "Microphone backend started but produced no audio frame within "
+                f"{self._first_pcm_timeout:.2f}s",
+                startup_timed_out=True,
+                code="first_pcm_timeout",
+                stage="first_pcm",
+            )
+
+        with self._lock:
+            if generation != self._start_generation or not self._is_recording:
+                raise AudioRecorderStartError(
+                    "Microphone startup was cancelled before its first audio frame",
+                    code="startup_cancelled",
+                    stage="first_pcm",
+                )
+            self._startup_timing_ns.setdefault("start_return", time.monotonic_ns())
+            self._input_status["first_pcm_observed"] = first_pcm_event.is_set()
+            self._input_status["startup_timing_ms"] = (
+                self._startup_timing_snapshot_locked()
+            )
 
     def _admit_microphone_permission_locked(self) -> None:
         """Admit one explicit capture without consuming device-start time.
@@ -575,11 +641,18 @@ class AudioRecorder:
         """Own one potentially blocking native startup attempt."""
         stream = None
         startup_gate = None
+        with self._lock:
+            if generation == self._start_generation:
+                self._startup_timing_ns.setdefault(
+                    "worker_started",
+                    time.monotonic_ns(),
+                )
         try:
             result = self._start_stream_with_recovery()
             if isinstance(result, _VerifiedStreamCandidate):
                 stream = result.stream
                 startup_gate = result.gate
+                result_box["requires_first_pcm"] = result.requires_first_pcm
             else:
                 stream = result
         except Exception as exc:
@@ -591,6 +664,10 @@ class AudioRecorder:
                 )
                 if accepted:
                     self._stream = stream
+                    self._startup_timing_ns.setdefault(
+                        "backend_ready",
+                        time.monotonic_ns(),
+                    )
                 else:
                     self._array_processing_active = False
                     self._apple_agc_active = False
@@ -615,6 +692,44 @@ class AudioRecorder:
                 if self._stream_start_thread is threading.current_thread():
                     self._stream_start_thread = None
             done.set()
+
+    def _mark_first_pcm_locked(self) -> None:
+        """Publish the first accepted PCM timestamp for the active generation."""
+        if (
+            self._first_pcm_generation != self._start_generation
+            or self._first_pcm_event.is_set()
+        ):
+            return
+        self._startup_timing_ns.setdefault("first_accepted_pcm", time.monotonic_ns())
+        self._first_pcm_event.set()
+
+    def _startup_timing_snapshot_locked(self) -> dict[str, float]:
+        """Return privacy-safe monotonic startup durations in milliseconds."""
+        points = self._startup_timing_ns
+        request = points.get("request")
+        if request is None:
+            return {}
+
+        def elapsed(end: str, start: str = "request") -> Optional[float]:
+            end_ns = points.get(end)
+            start_ns = points.get(start)
+            if end_ns is None or start_ns is None:
+                return None
+            return round(max(0, end_ns - start_ns) / 1_000_000, 3)
+
+        values = {
+            "permission_admitted_ms": elapsed("permission_admitted"),
+            "worker_started_ms": elapsed("worker_started"),
+            "device_resolved_ms": elapsed("device_resolved"),
+            "backend_ready_ms": elapsed("backend_ready"),
+            "first_accepted_pcm_ms": elapsed("first_accepted_pcm"),
+            "ready_to_first_pcm_ms": elapsed(
+                "first_accepted_pcm",
+                "backend_ready",
+            ),
+            "start_return_ms": elapsed("start_return"),
+        }
+        return {key: value for key, value in values.items() if value is not None}
 
     def _activate_startup_gate(
         self,
@@ -691,7 +806,16 @@ class AudioRecorder:
         drain_thread = None
         drain_fault_code = None
         drain_fault_detail = None
-        drain = getattr(stream_to_drain, "drain", None)
+        reuse_voice_stream = bool(
+            stream_to_drain is not None
+            and self._capture_backend == "voice_processing"
+            and getattr(stream_to_drain, "supports_warm_reuse", False)
+        )
+        drain = getattr(
+            stream_to_drain,
+            "pause_for_reuse" if reuse_voice_stream else "drain",
+            None,
+        )
         if callable(drain):
             (
                 drain_thread,
@@ -758,7 +882,14 @@ class AudioRecorder:
                 self._audio_buffer = []
 
         if stream is not None:
-            self._release_stream_async(stream, after_thread=drain_thread)
+            if reuse_voice_stream and drain_fault_code is None:
+                with self._lock:
+                    previous_warm = self._warm_voice_stream
+                    self._warm_voice_stream = stream
+                if previous_warm is not None and previous_warm is not stream:
+                    self._release_stream_async(previous_warm)
+            else:
+                self._release_stream_async(stream, after_thread=drain_thread)
 
         return audio_data
 
@@ -916,6 +1047,11 @@ class AudioRecorder:
             )
 
         device_index = self._resolve_device()
+        with self._lock:
+            self._startup_timing_ns.setdefault(
+                "device_resolved",
+                time.monotonic_ns(),
+            )
 
         try:
             return self._open_stream_with_fallback(device_index)
@@ -1054,6 +1190,15 @@ class AudioRecorder:
                     f"falling back to CoreAudio input: {voice_processing_error}"
                 )
 
+        # A mode/config switch away from Apple voice processing must release
+        # the retained graph before opening PortAudio, otherwise the dormant
+        # VPIO unit can unnecessarily hold CoreAudio resources.
+        with self._lock:
+            stale_warm_stream = self._warm_voice_stream
+            self._warm_voice_stream = None
+        if stale_warm_stream is not None:
+            self._release_stream_async(stale_warm_stream)
+
         capture_channels, array_processing = self._capture_profile(device_index)
         with self._lock:
             self._apple_agc_active = False
@@ -1135,18 +1280,41 @@ class AudioRecorder:
             # be correct when queued Float32 frames are released.
             with self._lock:
                 self._apple_agc_active = self._gain_mode == "automatic"
-            voice_stream = builder(
-                callback=gate.float_callback,
-                pcm_callback=gate.pcm_callback,
-                sample_rate=self.sample_rate,
-                blocksize=self.blocksize,
-                automatic_gain=self._gain_mode == "automatic",
-                gain=self._gain,
-                highpass_filter=self._highpass_filter,
-                highpass_freq=self._hp_freq,
-                soft_limiter=self._soft_limiter,
+            with self._lock:
+                warm_stream = self._warm_voice_stream
+                self._warm_voice_stream = None
+            warm_matches = bool(
+                warm_stream is not None
+                and getattr(warm_stream, "matches_capture_config", lambda **_: False)(
+                    sample_rate=self.sample_rate,
+                    blocksize=self.blocksize,
+                    automatic_gain=self._gain_mode == "automatic",
+                )
             )
-            voice_stream.start()
+            if warm_matches:
+                voice_stream = warm_stream
+                voice_stream.set_dsp(
+                    gain=self._gain,
+                    highpass_filter=self._highpass_filter,
+                    highpass_freq=self._hp_freq,
+                    soft_limiter=self._soft_limiter,
+                )
+                voice_stream.resume(pcm_callback=gate.pcm_callback)
+            else:
+                if warm_stream is not None:
+                    self._release_stream_async(warm_stream)
+                voice_stream = builder(
+                    callback=gate.float_callback,
+                    pcm_callback=gate.pcm_callback,
+                    sample_rate=self.sample_rate,
+                    blocksize=self.blocksize,
+                    automatic_gain=self._gain_mode == "automatic",
+                    gain=self._gain,
+                    highpass_filter=self._highpass_filter,
+                    highpass_freq=self._hp_freq,
+                    soft_limiter=self._soft_limiter,
+                )
+                voice_stream.start()
             active_status = self._status_for_device(
                 device_index,
                 device,
@@ -1172,7 +1340,13 @@ class AudioRecorder:
                     is True
                     and active_status.get("agc_enabled_observed") is True
                 )
-            return _VerifiedStreamCandidate(voice_stream, gate)
+            return _VerifiedStreamCandidate(
+                voice_stream,
+                gate,
+                requires_first_pcm=bool(
+                    getattr(voice_stream, "requires_first_pcm_on_start", False)
+                ),
+            )
         except Exception:
             gate.reject()
             with self._lock:
@@ -1207,7 +1381,11 @@ class AudioRecorder:
             gate.reject()
             self._release_stream_async(stream)
             raise
-        return _VerifiedStreamCandidate(stream, gate)
+        return _VerifiedStreamCandidate(
+            stream,
+            gate,
+            requires_first_pcm=type(stream).__module__.startswith("sounddevice"),
+        )
 
     def _capture_profile(self, device_index: Optional[int]) -> tuple[int, bool]:
         """Choose device input channels without changing mono ASR output."""
@@ -1245,6 +1423,8 @@ class AudioRecorder:
         device_index: Optional[int],
         device: Optional[dict],
     ) -> bool:
+        if self._capture_backend != "voice_processing":
+            return False
         if not self._is_macos_builtin_microphone(device):
             return False
         # Studio Display's VoiceProcessingIO route spends roughly 0.6 s
@@ -1252,8 +1432,8 @@ class AudioRecorder:
         # observed hardware. The CoreAudio compatibility route reaches its
         # first frame in about half that time and matches the pre-native app's
         # dictation behavior. Prefer complete sentence capture over AEC on this
-        # route; keeping a prewarmed input engine alive would leave the user's
-        # microphone continuously occupied while the app is idle.
+        # route; the VPIO warm-resume optimization is intentionally limited to
+        # the built-in microphone path measured and verified below.
         name = str(device.get("name", "")).strip().lower() if device else ""
         if any(marker in name for marker in _MACOS_LOW_LATENCY_ROUTE_MARKERS):
             return False
@@ -1340,6 +1520,10 @@ class AudioRecorder:
             "output_channels": OUTPUT_CHANNELS,
             "converter_name": None,
             "capture_block_frames": self.blocksize,
+            "first_pcm_observed": False,
+            "startup_timing_ms": {},
+            "native_first_tap_ms": None,
+            "native_first_pcm_ms": None,
             "queue_dropped_blocks": 0,
             "recorder_fault_count": 0,
             "recorder_fault_code": None,
@@ -1452,6 +1636,10 @@ class AudioRecorder:
                 "AVAudioConverter" if voice_processing_path else None
             ),
             "capture_block_frames": self.blocksize,
+            "first_pcm_observed": False,
+            "startup_timing_ms": {},
+            "native_first_tap_ms": None,
+            "native_first_pcm_ms": None,
             "queue_dropped_blocks": 0,
             "recorder_fault_count": 0,
             "recorder_fault_code": None,
@@ -1574,6 +1762,16 @@ class AudioRecorder:
                 "active_microphone_mode": cls._diagnostic_value(
                     diagnostics,
                     "active_microphone_mode",
+                    None,
+                ),
+                "native_first_tap_ms": cls._diagnostic_value(
+                    diagnostics,
+                    "first_tap_latency_ms",
+                    None,
+                ),
+                "native_first_pcm_ms": cls._diagnostic_value(
+                    diagnostics,
+                    "first_pcm_latency_ms",
                     None,
                 ),
             }
@@ -1784,6 +1982,11 @@ class AudioRecorder:
         """Set the input device by name. Takes effect on next start()."""
         self._set_capture_config_value("_device_name", name)
 
+    def set_capture_backend(self, backend: str) -> None:
+        """Select the next session's latency/processing trade-off."""
+        if backend in ("low_latency", "voice_processing"):
+            self._set_capture_config_value("_capture_backend", backend)
+
     @staticmethod
     def _normalized_capture_plan(audio_config: object) -> dict[str, object]:
         gain_mode = str(getattr(audio_config, "gain_mode", "manual"))
@@ -1792,6 +1995,11 @@ class AudioRecorder:
         input_device = getattr(audio_config, "input_device", None)
         if input_device is not None:
             input_device = str(input_device).strip() or None
+        capture_backend = str(
+            getattr(audio_config, "capture_backend", "low_latency")
+        )
+        if capture_backend not in ("low_latency", "voice_processing"):
+            capture_backend = "low_latency"
         return {
             "sample_rate": OUTPUT_SAMPLE_RATE_HZ,
             "blocksize": max(1, int(getattr(audio_config, "blocksize", 640))),
@@ -1803,6 +2011,7 @@ class AudioRecorder:
                 ),
             ),
             "_device_name": input_device,
+            "_capture_backend": capture_backend,
             "_gain_mode": gain_mode,
             "_gain": float(getattr(audio_config, "gain", 1.0)),
             "_highpass_filter": bool(

@@ -236,7 +236,7 @@ describe("settings application", () => {
 
     expect(screen.getByText("输入处理状态")).toBeVisible()
     expect(screen.getByText("MacBook Pro麦克风 · 1 通道")).toBeVisible()
-    expect(screen.getByText("Apple 语音处理")).toBeVisible()
+    expect(screen.getAllByText("Apple 语音处理")[0]).toBeVisible()
     expect(screen.getByText("回声消除将在录音时启用")).toBeVisible()
     expect(screen.getByText("已授权")).toBeVisible()
     expect(screen.getByText("等待下一次录音验证 · 录音启动时选择")).toBeVisible()

@@ -899,6 +899,7 @@ def test_late_voice_processing_start_cannot_reactivate_agc_after_timeout(monkeyp
     )
 
     recorder = AudioRecorder(start_timeout=0.03)
+    recorder.set_capture_backend("voice_processing")
     recorder.set_gain_mode("automatic")
     with pytest.raises(AudioRecorderStartError) as exc_info:
         recorder.start()
@@ -1271,6 +1272,7 @@ def test_macos_builtin_default_microphone_prefers_voice_processing_for_aec(
             recorder.input_status["phase"]
         ),
     )
+    recorder.set_capture_backend("voice_processing")
     recorder.set_gain_mode("automatic")
     recorder.start()
 
@@ -1934,6 +1936,7 @@ def test_voice_processing_failure_falls_back_and_reports_aec_inactive(monkeypatc
         on_audio_chunk=delivered_chunks.append,
         on_audio_level=delivered_levels.append,
     )
+    recorder.set_capture_backend("voice_processing")
     recorder.set_gain_mode("automatic")
     recorder.start()
 
@@ -2051,6 +2054,7 @@ def test_native_start_failure_retries_pyobjc_before_portaudio(monkeypatch):
     )
 
     recorder = AudioRecorder()
+    recorder.set_capture_backend("voice_processing")
     recorder.set_gain_mode("automatic")
     recorder.start()
 
@@ -2164,6 +2168,7 @@ def test_observed_apple_agc_bypasses_software_gain_even_when_session_unverified(
         published.set()
 
     recorder = AudioRecorder(on_audio_chunk=observe)
+    recorder.set_capture_backend("voice_processing")
     recorder.set_gain_mode("automatic")
     recorder.set_gain(10.0)
     recorder.set_highpass_filter(False)
@@ -2259,6 +2264,7 @@ def test_verified_start_is_not_timed_out_by_a_blocking_startup_observer(
         on_audio_chunk=blocking_observer,
         start_timeout=0.05,
     )
+    recorder.set_capture_backend("voice_processing")
     recorder.start()
 
     assert recorder.is_recording() is True
@@ -2349,6 +2355,7 @@ def test_startup_gate_overflow_remains_unverified_through_last_session(
             published.set()
 
     recorder = AudioRecorder(on_audio_chunk=observe)
+    recorder.set_capture_backend("voice_processing")
     recorder.set_gain_mode("automatic")
     recorder.start()
     assert published.wait(timeout=0.5)
@@ -2409,8 +2416,10 @@ def test_unexpected_voice_processing_bug_is_not_hidden_by_portaudio_fallback(
         lambda **_kwargs: BrokenVoiceProcessingStream(),
     )
 
+    recorder = AudioRecorder()
+    recorder.set_capture_backend("voice_processing")
     with pytest.raises(AudioRecorderStartError, match="programming defect"):
-        AudioRecorder().start()
+        recorder.start()
 
 
 def test_external_microphone_does_not_claim_voice_processing(monkeypatch):

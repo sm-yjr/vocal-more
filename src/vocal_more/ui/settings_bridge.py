@@ -22,6 +22,7 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
         "capture_channels",
         "blocksize",
         "input_device",
+        "capture_backend",
         "gain_mode",
         "gain",
         "highpass_filter",

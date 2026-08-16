@@ -9,6 +9,7 @@ export type SettingsTab =
 
 export interface AudioConfig {
   input_device?: string | null
+  capture_backend?: "low_latency" | "voice_processing"
   capture_channels?: number
   gain_mode?: "automatic" | "manual"
   gain?: number
@@ -155,6 +156,10 @@ export interface AudioInputStatus {
   output_channels?: number
   converter_name?: string | null
   capture_block_frames?: number
+  first_pcm_observed?: boolean
+  startup_timing_ms?: Record<string, number>
+  native_first_tap_ms?: number | null
+  native_first_pcm_ms?: number | null
   queue_dropped_blocks?: number
   runtime_fault_count?: number
   runtime_fault_code?: string | null
@@ -350,6 +355,7 @@ export interface FormState {
   }
   audio: {
     input_device: string | null
+    capture_backend: "low_latency" | "voice_processing"
     gain_mode: "automatic" | "manual"
     gain: number
     highpass_filter: boolean

@@ -126,6 +126,7 @@ class BaseMode(ABC):
             ("set_blocksize", "blocksize"),
             ("set_capture_channels", "capture_channels"),
             ("set_device", "input_device"),
+            ("set_capture_backend", "capture_backend"),
             ("set_gain_mode", "gain_mode"),
             ("set_gain", "gain"),
             ("set_highpass_filter", "highpass_filter"),

@@ -373,11 +373,11 @@ def _probe_native_audio_library(
 
     compatible = observed == expected
     if compatible:
-        from .native_audio_capture import NATIVE_AUDIO_ABI_V1_REQUIRED_SYMBOLS
+        from .native_audio_capture import NATIVE_AUDIO_ABI_V2_REQUIRED_SYMBOLS
 
         missing_symbols = sorted(
             name
-            for name in NATIVE_AUDIO_ABI_V1_REQUIRED_SYMBOLS
+            for name in NATIVE_AUDIO_ABI_V2_REQUIRED_SYMBOLS
             if not callable(getattr(library, name, None))
         )
         if missing_symbols:

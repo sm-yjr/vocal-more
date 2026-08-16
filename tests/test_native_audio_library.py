@@ -39,7 +39,7 @@ def test_native_audio_library_builds_and_uses_accelerate_dsp(tmp_path):
 
     library = ctypes.CDLL(str(output))
     library.vm_audio_abi_version.restype = ctypes.c_uint32
-    assert library.vm_audio_abi_version() == 1
+    assert library.vm_audio_abi_version() == 2
 
     library.vm_audio_test_process.argtypes = [
         ctypes.POINTER(ctypes.c_float),

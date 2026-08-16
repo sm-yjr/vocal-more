@@ -54,7 +54,7 @@ Apple AGC active XOR software gain/limiter active
 
 Apple 将 `isVoiceProcessingAGCEnabled` 定义为可读写状态，并说明默认开启；因此不能只调用 setter 就宣称 AGC 生效，必须 getter 回读一致后再旁路软件增益。[Apple AGC 属性说明](https://developer.apple.com/documentation/avfaudio/avaudioinputnode/isvoiceprocessingagcenabled)；[Voice Processing 启用接口](https://developer.apple.com/documentation/avfaudio/avaudioionode/setvoiceprocessingenabled%28_%3A%29)。
 
-“旁路软件增益”和“整条录音已验证”是两个状态。只要 engine 启动后的 getter 快照明确显示 Voice Processing 与 AGC 均开启，就必须继续旁路软件 gain/limiter；丢块或 converter fault 只会把该 session 标为未验证，不能因此重新叠加软件增益。ABI v1 不把这两个快照描述成持续轮询的 live getter。
+“旁路软件增益”和“整条录音已验证”是两个状态。只要 engine 启动后的 getter 快照明确显示 Voice Processing 与 AGC 均开启，就必须继续旁路软件 gain/limiter；丢块或 converter fault 只会把该 session 标为未验证，不能因此重新叠加软件增益。原生 ABI 不把这两个快照描述成持续轮询的 live getter。
 
 公开接口明确说明 Voice Processing 会从输入中去除本机当前播放的音频，并提供一个总开关和独立 AGC 状态；它没有提供可独立验证的“降噪已开启”状态。因而产品可以声明 Voice Processing 与 AGC getter 已验证，不能把不可见的系统处理细分成已验证 NS。噪声底、风扇噪声与语音可懂度属于硬件 A/B 结果，不属于 API 状态。
 

@@ -63,6 +63,7 @@ VALID_DEFAULT_MODES = ("walkie_talkie", "realtime_long", "meeting")
 ASRLanguage = Literal["zh", "en", "auto"]
 PolishMode = Literal["dictation", "prompt"]
 GainMode = Literal["automatic", "manual"]
+CaptureBackend = Literal["low_latency", "voice_processing"]
 POLISH_PROMPT_OVERRIDE_CATEGORIES = (
     "output_type",
     "level",
@@ -89,6 +90,7 @@ class AudioConfig:
     capture_channels: int = 1
     blocksize: int = 640
     input_device: Optional[str] = None
+    capture_backend: CaptureBackend = "low_latency"
     gain_mode: GainMode = "automatic"
     gain: float = 2.0
     highpass_filter: bool = True
@@ -553,6 +555,12 @@ class AppConfig:
         elif field_name == "input_device":
             device = str(value).strip() if value else ""
             self.audio.input_device = device or None
+        elif field_name == "capture_backend":
+            self.audio.capture_backend = (
+                value
+                if value in ("low_latency", "voice_processing")
+                else "low_latency"
+            )
         elif field_name == "gain_mode":
             if value in ("automatic", "manual"):
                 self.audio.gain_mode = value
@@ -745,6 +753,7 @@ class AppConfig:
                 "capture_channels": self.audio.capture_channels,
                 "blocksize": self.audio.blocksize,
                 "input_device": self.audio.input_device,
+                "capture_backend": self.audio.capture_backend,
                 "gain_mode": self.audio.gain_mode,
                 "gain": self.audio.gain,
                 "highpass_filter": self.audio.highpass_filter,

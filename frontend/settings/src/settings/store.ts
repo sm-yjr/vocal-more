@@ -455,6 +455,10 @@ export class SettingsStore {
       },
       audio: {
         input_device: audio.input_device ?? null,
+        capture_backend:
+          audio.capture_backend === "voice_processing"
+            ? "voice_processing"
+            : "low_latency",
         gain_mode: audio.gain_mode === "manual" ? "manual" : "automatic",
         gain: typeof audio.gain === "number" ? audio.gain : 2,
         highpass_filter: audio.highpass_filter !== false,

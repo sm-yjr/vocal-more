@@ -18,13 +18,15 @@ import time
 from typing import Callable, Optional, Protocol
 
 
-NATIVE_AUDIO_ABI_VERSION = 1
-NATIVE_AUDIO_ABI_V1_REQUIRED_SYMBOLS = (
+NATIVE_AUDIO_ABI_VERSION = 2
+NATIVE_AUDIO_ABI_V2_REQUIRED_SYMBOLS = (
     "vm_audio_abi_version",
     "vm_audio_create",
     "vm_audio_start",
     "vm_audio_read",
     "vm_audio_stop",
+    "vm_audio_pause",
+    "vm_audio_resume",
     "vm_audio_destroy",
     "vm_audio_set_dsp",
     "vm_audio_source_sample_rate",
@@ -32,7 +34,12 @@ NATIVE_AUDIO_ABI_V1_REQUIRED_SYMBOLS = (
     "vm_audio_dropped_blocks",
     "vm_audio_runtime_fault_count",
     "vm_audio_runtime_fault_code",
+    "vm_audio_first_tap_latency_ns",
+    "vm_audio_first_pcm_latency_ns",
 )
+# Compatibility alias for older diagnostics/tests importing the original
+# public name. Its contents describe the currently required ABI.
+NATIVE_AUDIO_ABI_V1_REQUIRED_SYMBOLS = NATIVE_AUDIO_ABI_V2_REQUIRED_SYMBOLS
 _LIBRARY_NAME = "libvocal_more_audio.dylib"
 _CONSUMER_THREAD_NAME = "vocal-more-native-audio-consumer"
 _NATIVE_STOP_TIMEOUT_SECONDS = 2.0
@@ -96,7 +103,7 @@ class NativeAudioDiagnostics:
     dropped_blocks: int
     source_channels: int = 1
     # Voice Processing and AGC are verified snapshots taken at engine start;
-    # ABI v1 does not continuously poll those Audio Unit properties.
+    # The ABI does not continuously poll those Audio Unit properties.
     voice_processing_enabled: bool = False
     start_verified: bool = False
     # True means the latest requested native counter/mode read succeeded. It
@@ -107,6 +114,8 @@ class NativeAudioDiagnostics:
     runtime_fault_code: str | None = None
     preferred_microphone_mode: str | None = None
     active_microphone_mode: str | None = None
+    first_tap_latency_ms: float | None = None
+    first_pcm_latency_ms: float | None = None
 
 
 class NativeAudioAPI(Protocol):
@@ -122,6 +131,10 @@ class NativeAudioAPI(Protocol):
     ) -> NativeAudioPacket | None: ...
 
     def stop(self, handle) -> None: ...
+
+    def pause(self, handle) -> None: ...
+
+    def resume(self, handle) -> NativeAudioDiagnostics: ...
 
     def destroy(self, handle) -> None: ...
 
@@ -245,6 +258,18 @@ class _CtypesNativeAudioAPI:
             ctypes.c_size_t,
         ]
         lib.vm_audio_stop.restype = ctypes.c_int32
+        lib.vm_audio_pause.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_char),
+            ctypes.c_size_t,
+        ]
+        lib.vm_audio_pause.restype = ctypes.c_int32
+        lib.vm_audio_resume.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_char),
+            ctypes.c_size_t,
+        ]
+        lib.vm_audio_resume.restype = ctypes.c_int32
         lib.vm_audio_destroy.argtypes = [ctypes.c_void_p]
         lib.vm_audio_destroy.restype = None
         lib.vm_audio_set_dsp.argtypes = [
@@ -265,6 +290,10 @@ class _CtypesNativeAudioAPI:
         lib.vm_audio_runtime_fault_count.restype = ctypes.c_uint64
         lib.vm_audio_runtime_fault_code.argtypes = [ctypes.c_void_p]
         lib.vm_audio_runtime_fault_code.restype = ctypes.c_int32
+        lib.vm_audio_first_tap_latency_ns.argtypes = [ctypes.c_void_p]
+        lib.vm_audio_first_tap_latency_ns.restype = ctypes.c_uint64
+        lib.vm_audio_first_pcm_latency_ns.argtypes = [ctypes.c_void_p]
+        lib.vm_audio_first_pcm_latency_ns.restype = ctypes.c_uint64
 
     @staticmethod
     def _handle_key(handle) -> int:
@@ -358,10 +387,28 @@ class _CtypesNativeAudioAPI:
                 self._error_text(error) or "Native audio engine failed to stop"
             )
 
+    def pause(self, handle) -> None:
+        error = self._error_buffer()
+        result = self._library.vm_audio_pause(handle, error, len(error))
+        if result != 0:
+            raise NativeAudioUnavailable(
+                self._error_text(error) or "Native audio engine failed to pause"
+            )
+
+    def resume(self, handle) -> NativeAudioDiagnostics:
+        error = self._error_buffer()
+        result = self._library.vm_audio_resume(handle, error, len(error))
+        if result != 0:
+            raise NativeAudioUnavailable(
+                self._error_text(error) or "Native audio engine failed to resume"
+            )
+        self._start_verified_handles.add(self._handle_key(handle))
+        return self.diagnostics(handle)
+
     def destroy(self, handle) -> None:
         key = self._handle_key(handle)
         if key not in self._configs:
-            # The Python adapter owns each ABI v1 handle exactly once. This
+            # The Python adapter owns each native handle exactly once. This
             # guard keeps facade close idempotent without claiming that the C
             # destroy function accepts a stale non-null pointer.
             return
@@ -401,6 +448,18 @@ class _CtypesNativeAudioAPI:
                 native_fault_code,
                 f"native_runtime_fault_{native_fault_code}",
             )
+        first_tap_reader = getattr(
+            self._library,
+            "vm_audio_first_tap_latency_ns",
+            None,
+        )
+        first_pcm_reader = getattr(
+            self._library,
+            "vm_audio_first_pcm_latency_ns",
+            None,
+        )
+        first_tap_ns = int(first_tap_reader(handle)) if callable(first_tap_reader) else 0
+        first_pcm_ns = int(first_pcm_reader(handle)) if callable(first_pcm_reader) else 0
         return NativeAudioDiagnostics(
             backend="objective_cpp",
             source_sample_rate_hz=float(
@@ -415,6 +474,8 @@ class _CtypesNativeAudioAPI:
             runtime_fault_code=runtime_fault_code,
             preferred_microphone_mode=preferred_microphone_mode,
             active_microphone_mode=active_microphone_mode,
+            first_tap_latency_ms=(first_tap_ns / 1_000_000 if first_tap_ns else None),
+            first_pcm_latency_ms=(first_pcm_ns / 1_000_000 if first_pcm_ns else None),
         )
 
 
@@ -423,6 +484,8 @@ class NativeMacOSVoiceProcessingStream:
 
     backend_name = "objective_cpp"
     delivers_processed_pcm = True
+    requires_first_pcm_on_start = True
+    supports_warm_reuse = True
 
     def __init__(
         self,
@@ -555,6 +618,82 @@ class NativeMacOSVoiceProcessingStream:
                 # terminating capture, while leaving an actionable diagnostic.
                 self._record_consumer_fault(exc, "native_pcm_callback_failed")
                 print(f"[AudioRecorder] Native PCM callback failed: {exc}")
+
+    def matches_capture_config(
+        self,
+        *,
+        sample_rate: int,
+        blocksize: int,
+        automatic_gain: bool,
+    ) -> bool:
+        return bool(
+            self._config.sample_rate == int(sample_rate)
+            and self._config.blocksize == int(blocksize)
+            and self._config.automatic_gain == bool(automatic_gain)
+        )
+
+    def pause_for_reuse(self) -> None:
+        """Drain one session while preserving the initialized VPIO graph."""
+        with self._lifecycle_lock:
+            deadline = time.monotonic() + _NATIVE_STOP_TIMEOUT_SECONDS
+            with self._lock:
+                handle = self._handle
+                consumer = self._consumer
+                if handle is None or self._closed:
+                    raise NativeAudioUnavailable("Native audio stream is closed")
+                if self._stopped:
+                    return
+                self._stopped = True
+            try:
+                with self._foreign_call_lock:
+                    self._api.pause(handle)
+            except Exception:
+                with self._lock:
+                    self._stopped = False
+                raise
+            if consumer is not None and consumer is not threading.current_thread():
+                consumer.join(timeout=max(0.0, deadline - time.monotonic()))
+                if consumer.is_alive():
+                    raise NativeAudioUnavailable(
+                        "Native audio consumer did not pause within two seconds"
+                    )
+            with self._foreign_call_lock:
+                observed = self._api.diagnostics(handle)
+            merged = self._merge_consumer_faults(observed)
+            with self._lock:
+                self._consumer = None
+                self._diagnostics = merged
+
+    def resume(
+        self,
+        *,
+        pcm_callback: Callable[[bytes, float], None],
+    ) -> None:
+        """Resume a paused VPIO graph with a fresh session callback."""
+        with self._lifecycle_lock:
+            with self._lock:
+                handle = self._handle
+                if handle is None or self._closed:
+                    raise NativeAudioUnavailable("Native audio stream is closed")
+                if not self._stopped:
+                    return
+                self._pcm_callback = pcm_callback
+            with self._foreign_call_lock:
+                diagnostics = self._api.resume(handle)
+            consumer = threading.Thread(
+                target=self._consume,
+                args=(handle,),
+                name=_CONSUMER_THREAD_NAME,
+                daemon=True,
+            )
+            with self._lock:
+                self._diagnostics = diagnostics
+                self._consumer = consumer
+                self._consumer_error = None
+                self._consumer_fault_count = 0
+                self._consumer_fault_code = None
+                self._stopped = False
+            consumer.start()
 
     def _record_consumer_fault(self, error: Exception, code: str) -> None:
         with self._lock:

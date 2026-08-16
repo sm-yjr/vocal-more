@@ -290,6 +290,7 @@ class MacOSVoiceProcessingStream:
 
     backend_name = "pyobjc"
     delivers_processed_pcm = False
+    requires_first_pcm_on_start = True
 
     def __init__(
         self,

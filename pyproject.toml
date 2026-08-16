@@ -1,6 +1,6 @@
 [project]
 name = "vocal-more"
-version = "0.3.15"
+version = "0.3.16"
 description = "Desktop voice recognition app for macOS and Windows with real-time ASR and text polishing"
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -36,6 +36,7 @@ packages = ["src/vocal_more"]
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "ruff>=0.16.3",
 ]
 packaging = [
     "py2app==0.28.10; sys_platform == 'darwin'",

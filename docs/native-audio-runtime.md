@@ -49,7 +49,7 @@ Apple AGC must be verified off; the native worker applies the configured gain
 and optional soft limiter.
 
 DSP ownership and session quality are separate. Voice Processing and AGC are
-verified snapshots taken immediately after the engine starts; ABI v1 does not
+verified snapshots taken immediately after the engine starts; the ABI does not
 continuously poll either Audio Unit property. If both start snapshots are
 `true`, software gain stays
 bypassed even when a later drop or runtime fault makes the session unverified.
@@ -77,7 +77,7 @@ microphone, so the lower-latency route is selected instead.
 
 ## C ABI rules
 
-The public header is `native/audio/include/vocal_more_audio.h`. ABI version 1
+The public header is `native/audio/include/vocal_more_audio.h`. ABI version 2
 uses fixed-width scalar types, opaque stream handles, caller-owned read and
 error buffers, and exported `vm_audio_*` functions. Objective-C/C++ objects are
 never exposed to Python.
@@ -85,10 +85,14 @@ never exposed to Python.
 Lifecycle:
 
 ```text
-create → start → read/set_dsp* → stop → read until END → destroy
+create → start → read/set_dsp* → pause → read until END
+                     ↑                ↓
+                     └──── resume ────┘
+paused/running → stop → read until END → destroy
 ```
 
-ABI v1 retains `set_dsp` for native harnesses and future controlled use, but the
+ABI v2 retains `set_dsp` for native harnesses and controlled session-boundary
+updates, but the
 application treats device, sample rate, block size, AGC, gain, HPF and limiter
 as one immutable capture-session plan. UI, menu and RPC edits made during an
 utterance are deferred and applied atomically at the next `start()` boundary;
@@ -96,10 +100,16 @@ the production app does not mutate native DSP mid-utterance.
 
 `stop` is idempotent while the handle remains owned. `destroy(nullptr)` is safe,
 but a successful `destroy(non_null_handle)` consumes that handle exactly once;
-reusing the stale pointer is undefined in ABI v1. The Python facade makes
+reusing the stale pointer is undefined. The Python facade makes
 `close()` idempotent by clearing its ownership before the one-shot C call. A
 future ABI that needs independently idempotent release must use a new handle
-contract/version rather than dereferencing a possibly freed v1 pointer.
+contract/version rather than dereferencing a possibly freed pointer.
+
+`pause` removes the input tap, pauses the engine, drains both queues, and joins
+the converter worker while retaining the initialized VoiceProcessingIO graph.
+`resume` installs fresh queues, a fresh tap context, and a fresh worker before
+restarting that graph. This avoids callbacks retaining stale queue pointers and
+reduces repeat-session startup latency without capturing audio while idle.
 
 Stop first publishes `accepting=false`, removes the tap, and stops the engine;
 it then completes the same sequentially-consistent handshake by waiting for the

@@ -87,6 +87,13 @@ class MicTestController:
                 # Compatibility for injected recorders that predate atomic
                 # capture plans. Production AudioRecorder takes the branch
                 # above so no mixed old/new configuration can reach a test.
+                set_capture_backend = getattr(
+                    recorder,
+                    "set_capture_backend",
+                    None,
+                )
+                if callable(set_capture_backend):
+                    set_capture_backend(session_audio_config.capture_backend)
                 recorder.set_gain_mode(session_audio_config.gain_mode)
                 recorder.set_gain(session_audio_config.gain)
                 recorder.set_highpass_filter(
@@ -259,6 +266,10 @@ class MicTestController:
                 return
             if key == "audio.gain_mode":
                 recorder.set_gain_mode(str(value))
+            elif key == "audio.capture_backend":
+                setter = getattr(recorder, "set_capture_backend", None)
+                if callable(setter):
+                    setter(str(value))
             elif key == "audio.gain":
                 recorder.set_gain(float(value))
             elif key == "audio.highpass_filter":

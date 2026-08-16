@@ -19,6 +19,7 @@ describe("settings store", () => {
       },
       audio: {
         input_device: "Built-in Microphone",
+        capture_backend: "low_latency",
         gain_mode: "manual",
         gain: 2,
         highpass_filter: true,

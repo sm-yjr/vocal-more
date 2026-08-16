@@ -57,16 +57,18 @@ jobs:
             npm --prefix frontend/settings test
             npm --prefix frontend/settings run typecheck
             npm --prefix frontend/settings run lint
-            npm --prefix frontend/settings run build
           ) &
           frontend_check_pid=$!
           uv run python -m pytest -q &
           python_check_pid=$!
 
-          status=0
-          wait "$frontend_check_pid" || status=$?
-          wait "$python_check_pid" || status=$?
-          exit "$status"
+          check_exit=0
+          wait "$frontend_check_pid" || check_exit=$?
+          wait "$python_check_pid" || check_exit=$?
+          exit "$check_exit"
+
+      - name: Build frontend bundle
+        run: npm --prefix frontend/settings run build
 
       - name: Prepare clean packaging environment
         run: |

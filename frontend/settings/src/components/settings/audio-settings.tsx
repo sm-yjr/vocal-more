@@ -77,6 +77,10 @@ export function AudioSettings({
 }) {
   const audio = snapshot.config.audio ?? {}
   const gainMode = audio.gain_mode === "manual" ? "manual" : "automatic"
+  const captureBackend =
+    audio.capture_backend === "voice_processing"
+      ? "voice_processing"
+      : "low_latency"
   const gainDb = gainToDb(typeof audio.gain === "number" ? audio.gain : 2)
   const waveformCeilingDbfs =
     typeof audio.waveform_ceiling_dbfs === "number"
@@ -321,6 +325,29 @@ export function AudioSettings({
       </SettingsCard>
 
       <SettingsCard>
+        <SettingsRow
+          label={copy.captureBackend}
+          description={copy.captureBackendHint}
+          htmlFor="audio-capture-backend"
+        >
+          <NativeSelect
+            id="audio-capture-backend"
+            aria-label={copy.captureBackend}
+            className="w-64"
+            value={captureBackend}
+            disabled={audioControlsBusy}
+            onChange={(event) =>
+              setConfig(store, "audio.capture_backend", event.target.value)
+            }
+          >
+            <NativeSelectOption value="low_latency">
+              {copy.lowLatencyCapture}
+            </NativeSelectOption>
+            <NativeSelectOption value="voice_processing">
+              {copy.appleVoiceProcessingCapture}
+            </NativeSelectOption>
+          </NativeSelect>
+        </SettingsRow>
         <SettingsRow
           label={copy.gainControl}
           description={copy.gainControlHint}

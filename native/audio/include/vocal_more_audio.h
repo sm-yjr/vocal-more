@@ -73,8 +73,22 @@ VM_AUDIO_EXPORT int32_t vm_audio_stop(
     size_t error_capacity
 );
 
+// Ends the current PCM session but retains the initialized VoiceProcessingIO
+// graph. vm_audio_resume() creates fresh queues/tap state for the next session.
+VM_AUDIO_EXPORT int32_t vm_audio_pause(
+    vm_audio_stream *stream,
+    char *error_buffer,
+    size_t error_capacity
+);
+
+VM_AUDIO_EXPORT int32_t vm_audio_resume(
+    vm_audio_stream *stream,
+    char *error_buffer,
+    size_t error_capacity
+);
+
 // Consumes one owned handle. Passing nullptr is allowed, but passing the same
-// non-null handle again after a successful destroy is undefined in ABI v1.
+// non-null handle again after a successful destroy is undefined.
 VM_AUDIO_EXPORT void vm_audio_destroy(vm_audio_stream *stream);
 
 VM_AUDIO_EXPORT void vm_audio_set_dsp(
@@ -90,6 +104,10 @@ VM_AUDIO_EXPORT bool vm_audio_agc_enabled(vm_audio_stream *stream);
 VM_AUDIO_EXPORT uint64_t vm_audio_dropped_blocks(vm_audio_stream *stream);
 VM_AUDIO_EXPORT uint64_t vm_audio_runtime_fault_count(vm_audio_stream *stream);
 VM_AUDIO_EXPORT int32_t vm_audio_runtime_fault_code(vm_audio_stream *stream);
+// Monotonic durations relative to the current vm_audio_start() call. A zero
+// value means the corresponding first-frame stage has not occurred yet.
+VM_AUDIO_EXPORT uint64_t vm_audio_first_tap_latency_ns(vm_audio_stream *stream);
+VM_AUDIO_EXPORT uint64_t vm_audio_first_pcm_latency_ns(vm_audio_stream *stream);
 
 // Pure DSP smoke-test hook. It does not construct an engine or access a device.
 VM_AUDIO_EXPORT int32_t vm_audio_test_process(
