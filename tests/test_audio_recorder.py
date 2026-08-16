@@ -264,14 +264,17 @@ def test_audio_callback_drops_chunk_if_stop_wins_during_processing():
     recorder._soft_limiter = False
     recorder._is_recording = True
 
-    class StopDuringConversion(np.ndarray):
-        def astype(self, dtype, *args, **kwargs):
-            if np.dtype(dtype) == np.dtype(np.int16):
-                recorder._is_recording = False
-            return super().astype(dtype, *args, **kwargs)
+    original_encode = recorder._encode_pcm
+
+    def stop_during_conversion(processed):
+        result = original_encode(processed)
+        recorder._is_recording = False
+        return result
+
+    recorder._encode_pcm = stop_during_conversion
 
     recorder._audio_callback(
-        np.ones((1600, 1), dtype=np.float32).view(StopDuringConversion),
+        np.ones((1600, 1), dtype=np.float32),
         1600,
         {},
         0,
@@ -1957,8 +1960,8 @@ def test_voice_processing_failure_falls_back_and_reports_aec_inactive(monkeypatc
     recorder.stop()
 
 
-def test_native_start_failure_retries_pyobjc_before_portaudio(monkeypatch):
-    """A loadable dylib may still fail on one route; retain Apple's PyObjC path."""
+def test_native_start_failure_falls_back_to_raw_portaudio(monkeypatch):
+    """A failed optional VPIO graph must retain standard microphone capture."""
     import vocal_more.core.audio_recorder as audio_recorder_module
     from vocal_more.core.audio_recorder import AudioRecorder
     from vocal_more.core.native_audio_capture import NativeAudioUnavailable
@@ -1977,34 +1980,11 @@ def test_native_start_failure_retries_pyobjc_before_portaudio(monkeypatch):
         def close(self):
             attempts.append("native_close")
 
-    class SuccessfulPyObjCStream:
-        backend_name = "pyobjc"
-        delivers_processed_pcm = False
-
-        def __init__(self, callback):
-            self._callback = callback
+    class SuccessfulPortAudioStream:
+        def __init__(self, **_kwargs):
+            attempts.append("portaudio")
 
         def start(self):
-            attempts.append("pyobjc")
-            self._callback(
-                np.ones((640, 1), dtype=np.float32) * 0.1,
-                640,
-                {},
-                0,
-            )
-
-        @property
-        def diagnostics(self):
-            return {
-                "backend": "pyobjc",
-                "source_sample_rate_hz": 48000.0,
-                "source_channels": 1,
-                "voice_processing_enabled": True,
-                "agc_enabled": True,
-                "dropped_blocks": 0,
-            }
-
-        def drain(self):
             return None
 
         def abort(self):
@@ -2017,9 +1997,7 @@ def test_native_start_failure_retries_pyobjc_before_portaudio(monkeypatch):
         "FakeSoundDevice",
         (),
         {
-            "InputStream": lambda **_kwargs: pytest.fail(
-                "PyObjC must be attempted before PortAudio"
-            ),
+            "InputStream": SuccessfulPortAudioStream,
             "PortAudioError": RuntimeError,
             "CallbackFlags": object,
             "default": _fake_default_device(0),
@@ -2046,23 +2024,44 @@ def test_native_start_failure_retries_pyobjc_before_portaudio(monkeypatch):
         "_build_macos_voice_processing_stream",
         lambda **_kwargs: FailingNativeStream(),
     )
-    monkeypatch.setattr(
-        audio_recorder_module,
-        "_build_pyobjc_voice_processing_stream",
-        lambda **kwargs: SuccessfulPyObjCStream(kwargs["callback"]),
-        raising=False,
-    )
-
     recorder = AudioRecorder()
     recorder.set_capture_backend("voice_processing")
     recorder.set_gain_mode("automatic")
     recorder.start()
 
-    assert attempts == ["native", "native_close", "pyobjc"]
-    assert recorder.input_status["native_backend"] == "pyobjc"
-    assert recorder.input_status["gain_control"] == "apple_agc"
+    assert attempts == ["native", "native_close", "portaudio"]
+    assert recorder.input_status["processing_mode"] == "system_managed_mono"
+    assert recorder.input_status["gain_control"] == "software_fallback"
     assert recorder.input_status["gain_control_verified"] is True
     recorder.stop()
+
+
+def test_native_voice_builder_drops_float_callback_for_pcm_backend(monkeypatch):
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    import vocal_more.core.native_audio_capture as native_audio_capture
+
+    observed = {}
+
+    def fake_builder(**kwargs):
+        observed.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(
+        native_audio_capture,
+        "build_native_voice_processing_stream",
+        fake_builder,
+    )
+
+    result = audio_recorder_module._build_macos_voice_processing_stream(
+        callback=lambda *_args: None,
+        pcm_callback=lambda *_args: None,
+        sample_rate=16000,
+    )
+
+    assert result is not None
+    assert "callback" not in observed
+    assert callable(observed["pcm_callback"])
+    assert observed["sample_rate"] == 16000
 
 
 def test_observed_apple_agc_bypasses_software_gain_even_when_session_unverified(
@@ -2071,24 +2070,11 @@ def test_observed_apple_agc_bypasses_software_gain_even_when_session_unverified(
     """Loss telemetry must not cause Apple AGC and software gain to stack."""
     import vocal_more.core.audio_recorder as audio_recorder_module
     from vocal_more.core.audio_recorder import AudioRecorder
-    from vocal_more.core.native_audio_capture import NativeAudioUnavailable
-
     delivered = []
     published = threading.Event()
 
-    class FailingNativeStream:
-        def start(self):
-            raise NativeAudioUnavailable(
-                "native route unavailable",
-                code="native_audio_start_failed",
-                stage="engine_start",
-            )
-
-        def close(self):
-            return None
-
-    class LossyPyObjCStream:
-        backend_name = "pyobjc"
+    class LossyNativeStream:
+        backend_name = "native"
         delivers_processed_pcm = False
 
         def __init__(self, callback):
@@ -2105,7 +2091,7 @@ def test_observed_apple_agc_bypasses_software_gain_even_when_session_unverified(
         @property
         def diagnostics(self):
             return {
-                "backend": "pyobjc",
+                "backend": "native",
                 "source_sample_rate_hz": 48000.0,
                 "source_channels": 1,
                 "voice_processing_enabled": True,
@@ -2155,12 +2141,7 @@ def test_observed_apple_agc_bypasses_software_gain_even_when_session_unverified(
     monkeypatch.setattr(
         audio_recorder_module,
         "_build_macos_voice_processing_stream",
-        lambda **_kwargs: FailingNativeStream(),
-    )
-    monkeypatch.setattr(
-        audio_recorder_module,
-        "_build_pyobjc_voice_processing_stream",
-        lambda **kwargs: LossyPyObjCStream(kwargs["callback"]),
+        lambda **kwargs: LossyNativeStream(kwargs["callback"]),
     )
 
     def observe(chunk):
@@ -2726,6 +2707,105 @@ def test_highpass_filter_is_continuous_across_callback_blocks():
         return np.concatenate([np.frombuffer(chunk, dtype=np.int16) for chunk in output])
 
     assert np.array_equal(filter_chunks([signal]), filter_chunks([signal[:2], signal[2:]]))
+
+
+def test_warm_voice_stream_expires_and_releases_native_graph(monkeypatch):
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    timers = []
+
+    class FakeTimer:
+        def __init__(self, interval, callback, args):
+            self.interval = interval
+            self.callback = callback
+            self.args = args
+            self.cancelled = False
+            timers.append(self)
+
+        def start(self):
+            return None
+
+        def cancel(self):
+            self.cancelled = True
+
+    stream = MagicMock()
+    monkeypatch.setattr(audio_recorder_module.threading, "Timer", FakeTimer)
+    recorder = AudioRecorder()
+
+    recorder._retain_warm_voice_stream(stream)
+    timers[0].callback(*timers[0].args)
+
+    assert timers[0].interval == audio_recorder_module._WARM_VOICE_STREAM_TTL_SECONDS
+    stream.abort.assert_called_once_with()
+    stream.close.assert_called_once_with()
+    assert recorder._warm_voice_stream is None
+
+
+def test_warm_voice_stream_is_transferred_without_waiting_for_expiry(monkeypatch):
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    timers = []
+
+    class FakeTimer:
+        def __init__(self, interval, callback, args):
+            self.cancelled = False
+            timers.append(self)
+
+        def start(self):
+            return None
+
+        def cancel(self):
+            self.cancelled = True
+
+    stream = MagicMock()
+    monkeypatch.setattr(audio_recorder_module.threading, "Timer", FakeTimer)
+    recorder = AudioRecorder()
+    recorder._retain_warm_voice_stream(stream)
+
+    reused = recorder._take_warm_voice_stream()
+
+    assert reused is stream
+    assert timers[0].cancelled is True
+    stream.close.assert_not_called()
+
+
+@pytest.mark.parametrize("cycle_count", [10, 50])
+def test_repeated_warm_voice_cycles_keep_only_one_owned_stream(
+    monkeypatch,
+    cycle_count,
+):
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    class FakeTimer:
+        def __init__(self, _interval, _callback, args):
+            self.cancelled = False
+
+        def start(self):
+            return None
+
+        def cancel(self):
+            self.cancelled = True
+
+    streams = [MagicMock() for _ in range(cycle_count)]
+    monkeypatch.setattr(audio_recorder_module.threading, "Timer", FakeTimer)
+    recorder = AudioRecorder()
+    monkeypatch.setattr(
+        recorder,
+        "_release_stream_async",
+        lambda stream, **_kwargs: recorder._release_stream(stream),
+    )
+
+    for stream in streams:
+        previous = recorder._retain_warm_voice_stream(stream)
+        if previous is not None and previous is not stream:
+            recorder._release_stream_async(previous)
+    recorder.close()
+
+    assert recorder._warm_voice_stream is None
+    assert all(stream.close.call_count == 1 for stream in streams)
 
 
 def test_highpass_filter_rejects_dc_and_passes_high_frequency_signal():

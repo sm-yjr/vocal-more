@@ -1,6 +1,6 @@
 [project]
 name = "vocal-more"
-version = "0.3.16"
+version = "0.3.17"
 description = "Desktop voice recognition app for macOS and Windows with real-time ASR and text polishing"
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -9,15 +9,13 @@ dependencies = [
     "rumps>=0.4.0; sys_platform == 'darwin'",
     "pynput>=1.7.6",
     "sounddevice>=0.4.6",
-    "numpy>=1.24.0",
     "pyperclip>=1.8.2",
-    "dashscope>=1.14.0",
-    "chardet>=5.2.0,<6",
+    "dashscope==1.25.9",
+    "requests>=2.32.0",
     "pyyaml>=6.0",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-WebKit>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-AVFoundation>=10.0; sys_platform == 'darwin'",
-    "openai>=2.31.0",
 ]
 
 [project.scripts]
@@ -35,6 +33,7 @@ packages = ["src/vocal_more"]
 
 [dependency-groups]
 dev = [
+    "numpy>=1.24.0",
     "pytest>=9.0.2",
     "ruff>=0.16.3",
 ]

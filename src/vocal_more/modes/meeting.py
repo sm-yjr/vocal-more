@@ -238,3 +238,6 @@ class MeetingMode(BaseMode):
         if self.state != ModeState.IDLE:
             self.cancel(reason="mode_close")
         self._processing_executor.close(wait=True)
+        close_recorder = getattr(self._recorder, "close", None)
+        if callable(close_recorder):
+            close_recorder()

@@ -304,11 +304,40 @@ class SettingsWindow:
         self._on_sync_form_state(payload)
 
     def _on_window_close_requested(self) -> None:
-        """Persist the latest form state and hide the settings window."""
+        """Persist form state and release the heavyweight WebKit surface."""
         self._mic_test_controller.cleanup()
         self._request_form_state_sync()
-        if self._window:
-            self._window.orderOut_(None)
+        self._teardown_surface()
+
+    def _teardown_surface(self) -> None:
+        """Drop the hidden window/WebView so WebKit can reclaim its processes."""
+        self._stop_js_drain()
+        controller = getattr(self, "_content_controller", None)
+        if controller is not None:
+            try:
+                controller.removeScriptMessageHandlerForName_("settings")
+            except objc.error as exc:
+                print(f"[Settings] Message handler was already detached: {exc}")
+            controller.removeAllUserScripts()
+
+        webview = getattr(self, "_webview", None)
+        if webview is not None:
+            webview.stopLoading()
+            webview.removeFromSuperview()
+
+        window = getattr(self, "_window", None)
+        if window is not None:
+            # Detach the delegate first: windowShouldClose_ intentionally
+            # returns False for user clicks, but teardown owns final closure.
+            window.setDelegate_(None)
+            window.orderOut_(None)
+            window.close()
+
+        self._window = None
+        self._webview = None
+        self._content_controller = None
+        self._message_handler = None
+        self._window_delegate = None
 
     def _on_js_message(self, body: dict) -> None:
         """Handle messages from JavaScript (user interactions)."""
@@ -418,6 +447,8 @@ class SettingsWindow:
         audio_input_status: dict | None = None,
     ) -> None:
         """Show the settings window and populate with data."""
+        if self._window is None or self._webview is None:
+            self._setup()
         # Bring app to front
         _activate_menu_bar_app()
         self.set_interface_language(
@@ -469,8 +500,9 @@ class SettingsWindow:
     def close(self) -> None:
         """Release background resources owned by the settings window."""
         self._closed = True
-        self.hide()
-        self._stop_js_drain()
+        if getattr(self, "_window", None) is not None:
+            self._request_form_state_sync()
+        self._teardown_surface()
         self._mic_test_controller.cleanup()
         for executor in (
             self._model_check_tasks,

@@ -64,6 +64,47 @@ def test_js_messages_with_unknown_action_are_ignored():
     assert called["value"] is False
 
 
+def test_closing_settings_releases_webview_surface():
+    window = SettingsWindow.__new__(SettingsWindow)
+    window._mic_test_controller = MagicMock()
+    window._request_form_state_sync = MagicMock()
+    window._stop_js_drain = MagicMock()
+    window._content_controller = MagicMock()
+    window._webview = MagicMock()
+    window._window = MagicMock()
+    window._message_handler = MagicMock()
+    window._window_delegate = MagicMock()
+
+    window._on_window_close_requested()
+
+    window._request_form_state_sync.assert_called_once_with()
+    assert window._content_controller is None
+    assert window._webview is None
+    assert window._window is None
+
+
+def test_show_recreates_released_settings_surface():
+    window = SettingsWindow.__new__(SettingsWindow)
+    window._window = None
+    window._webview = None
+    window._setup = MagicMock(
+        side_effect=lambda: (
+            setattr(window, "_window", MagicMock()),
+            setattr(window, "_webview", MagicMock()),
+        )
+    )
+    window._inject_data_and_reload = MagicMock()
+    window.set_interface_language = MagicMock()
+    window._recording_store = None
+    window._context_personalization = None
+    window._current_audio_input_status = MagicMock(return_value={})
+
+    window.show(config={"ui": {}}, asr_models=[], llm_models=[], devices=[], dictionary=[])
+
+    window._setup.assert_called_once_with()
+    window._window.makeKeyAndOrderFront_.assert_called_once_with(None)
+
+
 def test_update_devices_can_sync_selected_device_to_frontend():
     """Backend refreshes should also correct the frontend's selected mic state."""
     calls = []

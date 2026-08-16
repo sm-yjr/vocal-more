@@ -33,9 +33,9 @@ APP = [
             "SURequireSignedFeed": True,
             "NSHighResolutionCapable": True,
             "LSUIElement": True,
-            # The official arm64 bundle's Python and NumPy Mach-O payloads use
-            # macOS 14 as their deployment floor. Keep Info.plist honest rather
-            # than allowing a partial launch on an older system.
+            # The official arm64 bundle's Python runtime uses macOS 14 as its
+            # deployment floor. Keep Info.plist honest rather than allowing a
+            # partial launch on an older system.
             "LSMinimumSystemVersion": "14.0",
             "NSMicrophoneUsageDescription": (
                 "Vocal More needs microphone access to convert your voice to text."
@@ -56,10 +56,7 @@ OPTIONS = {
         "dashscope",
         "_sounddevice_data",
         "certifi",
-        "chardet",
         "charset_normalizer",
-        "numpy",
-        "openai",
         "pynput",
         "pyperclip",
         "rumps",
@@ -85,6 +82,10 @@ OPTIONS = {
         "tkinter",
         "idlelib",
         "turtle",
+        "numpy",
+        "openai",
+        "vocal_more.audio_quality_benchmark",
+        "vocal_more.core.macos_voice_capture",
     ],
     "resources": [
         (

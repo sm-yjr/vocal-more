@@ -166,12 +166,13 @@ def test_bundle_pruner_removes_only_non_runtime_python_payload(tmp_path):
         python_lib / "numpy" / "tests" / "test_core.py",
         python_lib / "numpy" / "typing.pyi",
         python_lib / "numpy" / "py.typed",
+        python_lib / "dashscope" / "resources" / "qwen.tiktoken",
+        python_lib / "openai" / "__pycache__" / "client.cpython-312.pyc",
     ]
     preserved = [
         python_lib / "numpy" / "__init__.py",
         python_lib / "numpy" / "testing" / "__init__.py",
         python_lib / "future_dependency" / "tests" / "runtime_fixture.py",
-        python_lib / "openai" / "__pycache__" / "client.cpython-312.pyc",
         app / "Contents" / "Resources" / "resources" / "tests" / "fixture.json",
     ]
     for path in [*removable, *preserved]:
@@ -191,7 +192,7 @@ def test_bundle_pruner_removes_only_non_runtime_python_payload(tmp_path):
 
     assert all(not path.exists() for path in removable)
     assert all(path.exists() for path in preserved)
-    assert "Removed 4 files" in result.stdout
+    assert "Removed 6 files" in result.stdout
 
 
 def test_bundle_pruner_rejects_non_app_targets(tmp_path):
@@ -221,6 +222,16 @@ def test_build_prunes_python_payload_before_embedding_and_signing_sparkle():
     sign_sparkle = build_script.index('sign_sparkle.sh')
 
     assert prune < embed_sparkle < sign_sparkle
+
+
+def test_build_installs_dependencies_from_frozen_lockfile():
+    build_script = (ROOT / "packaging" / "macos" / "build_app.sh").read_text()
+
+    assert (
+        "uv export --frozen --no-dev --group packaging --no-hashes"
+        in build_script
+    )
+    assert "pip install -r /dev/stdin" in build_script
 
 
 def test_bundle_optimizer_thins_non_sparkle_macho_files(tmp_path):

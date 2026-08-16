@@ -60,10 +60,15 @@ else
   rm -rf "$BUILD_VENV"
   "$BUILD_PYTHON" -m venv "$BUILD_VENV"
   "$BUILD_VENV/bin/python" -m pip install --upgrade pip >/dev/null
-  "$BUILD_VENV/bin/python" -m pip install \
-    -e "$ROOT" \
-    'py2app==0.28.10' \
-    'setuptools==69.5.1'
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "uv is required to install the locked macOS build environment." >&2
+    exit 1
+  fi
+  (
+    cd "$ROOT"
+    uv export --frozen --no-dev --group packaging --no-hashes |
+      "$BUILD_VENV/bin/python" -m pip install -r /dev/stdin
+  )
 fi
 
 cd "$ROOT/packaging/macos"

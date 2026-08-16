@@ -73,6 +73,7 @@ from ..infrastructure.asr.trace import (
     update_trace_ids_from_response as _update_trace_ids_from_response,
     update_trace_usage_from_response as _update_trace_usage_from_response,
 )
+from ..infrastructure.openai_compatible import OpenAICompatibleClient
 from ..infrastructure.pricing import (
     build_asr_billing,
     extract_usage_from_response as _extract_usage_from_response,
@@ -95,8 +96,8 @@ OMNI_OFFLINE_SILENCE_RMS_THRESHOLD = 0.015
 INLINE_RESPONSE_START_TIMEOUT_SECONDS = 3.0
 INLINE_RESPONSE_TRANSCRIPT_TIMEOUT_SECONDS = 5.0
 INLINE_RESPONSE_LATE_START_GRACE_SECONDS = 1.0
-WARM_KEEPER_CHECK_INTERVAL_SECONDS = 5.0
-WARM_KEEPER_MAX_IDLE_SECONDS = 600.0
+WARM_KEEPER_CHECK_INTERVAL_SECONDS = 15.0
+WARM_KEEPER_MAX_IDLE_SECONDS = 60.0
 WARM_KEEPER_SHUTDOWN_TIMEOUT_SECONDS = 0.25
 REALTIME_CLOSE_TIMEOUT_SECONDS = 0.25
 MAX_ADAPTIVE_RESPONSE_START_TIMEOUT_SECONDS = 20.0
@@ -1287,8 +1288,7 @@ class BatchASREngine:
             else:
                 prompt = "请将以下音频准确转录为文字，直接输出转录结果。"
 
-            from openai import OpenAI
-            client = OpenAI(
+            client = OpenAICompatibleClient(
                 api_key=dashscope.api_key or os.environ.get("DASHSCOPE_API_KEY", ""),
                 base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
             )

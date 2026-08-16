@@ -1552,7 +1552,6 @@ def test_batch_debug_trace_writes_stage_timings(tmp_path, monkeypatch):
 def test_omni_offline_trace_records_service_request_id(tmp_path, monkeypatch):
     """Omni offline traces should include the provider request ID and completion ID."""
     from vocal_more.config import Config, reload_config
-    import openai
 
     asr_engine = importlib.import_module("vocal_more.core.asr_engine")
 
@@ -1595,7 +1594,7 @@ def test_omni_offline_trace_records_service_request_id(tmp_path, monkeypatch):
         def __init__(self, *args, **kwargs):
             self.chat = SimpleNamespace(completions=FakeCompletions())
 
-    monkeypatch.setattr(openai, "OpenAI", FakeOpenAI)
+    monkeypatch.setattr(asr_engine, "OpenAICompatibleClient", FakeOpenAI)
 
     engine = asr_engine.BatchASREngine()
     assert engine._transcribe_omni_offline(b"\x01\x00" * 4000) == "你好，世界"
@@ -2001,7 +2000,7 @@ def test_abandoned_warm_keeper_exits_after_failed_reconnect(monkeypatch):
 
 
 def test_warm_keeper_closes_connection_after_maximum_idle_time(monkeypatch):
-    """The keeper should release an unused connection after ten minutes."""
+    """The keeper should release an unused connection after its idle TTL."""
     import vocal_more.core.asr_engine as asr_engine
 
     class FakeStop:

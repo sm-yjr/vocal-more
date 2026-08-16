@@ -1,6 +1,8 @@
 """Audio recording module using sounddevice."""
 
 import io
+from array import array
+import math
 import os
 from collections import deque
 from pathlib import Path
@@ -10,7 +12,6 @@ import time
 import wave
 from typing import Callable, Optional
 
-import numpy as np
 import sounddevice as sd
 
 from ..config import get_config
@@ -19,7 +20,6 @@ from .macos_audio_diagnostics import (
     microphone_permission_status,
     request_microphone_access,
 )
-from .macos_voice_capture import VoiceProcessingUnavailable
 from .native_audio_capture import NativeAudioUnavailable
 
 _PORTAUDIO_RECOVERY_MARKERS = (
@@ -36,6 +36,7 @@ _NATIVE_DRAIN_THREAD_NAME = "vocal-more-native-audio-drain"
 _DEFAULT_START_TIMEOUT_SECONDS = 3.0
 _NATIVE_DRAIN_TIMEOUT_SECONDS = 0.5
 _FIRST_PCM_TIMEOUT_SECONDS = 0.75
+_WARM_VOICE_STREAM_TTL_SECONDS = 30.0
 _MAX_MACOS_ARRAY_CHANNELS = 3
 _MACOS_ARRAY_DEVICE_MARKERS = (
     "macbook",
@@ -72,12 +73,12 @@ class _StartupAudioGate:
         self._dropped = 0
 
     def float_callback(self, indata, frames, time_info, status) -> None:
-        # PyObjC's converter output is reusable; retain an owned copy while the
-        # engine's getter state is still provisional.
+        # PortAudio and AVAudioEngine reuse callback storage. Retain an owned
+        # Float32 byte copy while the candidate is still provisional.
         event = (
             "float",
             (
-                np.asarray(indata, dtype=np.float32).copy(),
+                AudioRecorder._copy_float_buffer(indata),
                 int(frames),
                 # AudioRecorder does not consume timing metadata. PortAudio
                 # supplies a CFFI struct that is not necessarily dict-convertible.
@@ -155,21 +156,16 @@ class _VerifiedStreamCandidate:
 
 
 def _macos_voice_processing_available() -> bool:
-    from .macos_voice_capture import voice_processing_available
+    from .native_audio_capture import native_audio_library_available
 
-    return voice_processing_available()
+    return native_audio_library_available()
 
 
 def _build_macos_voice_processing_stream(**kwargs):
-    from .macos_voice_capture import build_voice_processing_stream
+    from .native_audio_capture import build_native_voice_processing_stream
 
-    return build_voice_processing_stream(**kwargs)
-
-
-def _build_pyobjc_voice_processing_stream(**kwargs):
-    from .macos_voice_capture import build_pyobjc_voice_processing_stream
-
-    return build_pyobjc_voice_processing_stream(**kwargs)
+    kwargs.pop("callback", None)
+    return build_native_voice_processing_stream(**kwargs)
 
 
 class AudioRecorderStartError(RuntimeError):
@@ -251,6 +247,8 @@ class AudioRecorder:
 
         self._stream: Optional[sd.InputStream] = None
         self._warm_voice_stream = None
+        self._warm_voice_stream_timer: Optional[threading.Timer] = None
+        self._warm_voice_stream_generation = 0
         self._stream_release_thread: Optional[threading.Thread] = None
         self._stream_start_thread: Optional[threading.Thread] = None
         self._start_generation = 0
@@ -296,7 +294,7 @@ class AudioRecorder:
         self._hp_prev_out = 0.0
 
     def _audio_callback(
-        self, indata: np.ndarray, frames: int, time_info: dict, status: sd.CallbackFlags
+        self, indata, frames: int, time_info: dict, status: sd.CallbackFlags
     ) -> None:
         """Callback for audio stream."""
         with self._lock:
@@ -321,11 +319,11 @@ class AudioRecorder:
         # capsules, so treat them only as signals that can be coherently mixed.
         # The ASR wire format remains mono. This also fixes configured stereo
         # devices producing invalid interleaved data when HPF is disabled.
-        mono_input = self._coherent_array_downmix(indata)
+        mono_input = self._coherent_array_downmix(indata, frames)
 
         # 1. High-pass filter: remove low-frequency rumble (fans, hum, plosives)
         if highpass_filter:
-            samples = mono_input[:, 0].tolist()
+            samples = mono_input
             alpha = self._hp_alpha
             prev_in = self._hp_prev_in
             prev_out = self._hp_prev_out
@@ -336,19 +334,19 @@ class AudioRecorder:
                 out[i] = prev_out
             self._hp_prev_in = prev_in
             self._hp_prev_out = prev_out
-            filtered = np.asarray(out, dtype=np.float32).reshape(-1, 1)
+            filtered = out
         else:
             filtered = mono_input
 
         # 2. Compute RMS on filtered signal
-        rms = float(np.sqrt(np.mean(filtered ** 2)))
+        rms = math.sqrt(math.fsum(value * value for value in filtered) / len(filtered)) if filtered else 0.0
 
         # 3. Gain + limiter
         if gain != 1.0:
             if soft_limiter:
-                processed = np.tanh(filtered * gain)
+                processed = [math.tanh(value * gain) for value in filtered]
             else:
-                processed = np.clip(filtered * gain, -1.0, 1.0)
+                processed = [max(-1.0, min(1.0, value * gain)) for value in filtered]
         else:
             processed = filtered
 
@@ -356,9 +354,7 @@ class AudioRecorder:
         # Band-limited native SRC may overshoot source peaks slightly. Clip at
         # the integer boundary even when no gain stage is active so float-to-
         # int conversion cannot wrap +1.001 into a large negative sample.
-        audio_data = (
-            np.clip(processed, -1.0, 1.0) * 32767
-        ).astype(np.int16).tobytes()
+        audio_data = self._encode_pcm(processed)
 
         with self._observer_lock:
             with self._lock:
@@ -389,6 +385,16 @@ class AudioRecorder:
                     on_audio_level(rms)
                 except Exception:
                     self._record_recorder_fault("audio_level_observer_failed")
+
+    @staticmethod
+    def _encode_pcm(processed) -> bytes:
+        return array(
+            "h",
+            (
+                int(max(-1.0, min(1.0, value)) * 32767)
+                for value in processed
+            ),
+        ).tobytes()
 
     def _native_pcm_callback(self, audio_data: bytes, rms: float) -> None:
         """Accept PCM produced by the native worker, never the realtime tap."""
@@ -883,15 +889,79 @@ class AudioRecorder:
 
         if stream is not None:
             if reuse_voice_stream and drain_fault_code is None:
-                with self._lock:
-                    previous_warm = self._warm_voice_stream
-                    self._warm_voice_stream = stream
+                previous_warm = self._retain_warm_voice_stream(stream)
                 if previous_warm is not None and previous_warm is not stream:
                     self._release_stream_async(previous_warm)
             else:
                 self._release_stream_async(stream, after_thread=drain_thread)
 
         return audio_data
+
+    def _retain_warm_voice_stream(self, stream):
+        """Keep a paused VPIO graph briefly, then release it while idle."""
+        with self._lock:
+            previous_warm = self._warm_voice_stream
+            previous_timer = self._warm_voice_stream_timer
+            self._warm_voice_stream_generation += 1
+            generation = self._warm_voice_stream_generation
+            self._warm_voice_stream = stream
+            timer = threading.Timer(
+                _WARM_VOICE_STREAM_TTL_SECONDS,
+                self._expire_warm_voice_stream,
+                args=(generation, stream),
+            )
+            timer.name = "vocal-more-warm-voice-expiry"
+            timer.daemon = True
+            self._warm_voice_stream_timer = timer
+        if previous_timer is not None:
+            previous_timer.cancel()
+        timer.start()
+        return previous_warm
+
+    def _take_warm_voice_stream(self):
+        """Transfer warm-stream ownership to a new recording attempt."""
+        with self._lock:
+            stream = self._warm_voice_stream
+            timer = self._warm_voice_stream_timer
+            self._warm_voice_stream = None
+            self._warm_voice_stream_timer = None
+            self._warm_voice_stream_generation += 1
+        if timer is not None:
+            timer.cancel()
+        return stream
+
+    def _expire_warm_voice_stream(self, generation: int, stream) -> None:
+        with self._lock:
+            if (
+                generation != self._warm_voice_stream_generation
+                or stream is not self._warm_voice_stream
+            ):
+                return
+            self._warm_voice_stream = None
+            self._warm_voice_stream_timer = None
+        # This callback already owns a daemon timer thread, so another release
+        # worker would only add a transient thread without reducing latency.
+        self._release_stream(stream)
+
+    def _drop_warm_voice_stream(self) -> None:
+        stream = self._take_warm_voice_stream()
+        if stream is not None:
+            self._release_stream_async(stream)
+
+    def close(self) -> None:
+        """Release active and retained Core Audio resources owned by recorder."""
+        with self._lock:
+            recording = self._is_recording or self._is_stopping
+        if recording:
+            self.stop()
+        self._drop_warm_voice_stream()
+        release_thread = self._stream_release_thread
+        if (
+            release_thread is not None
+            and release_thread is not threading.current_thread()
+            and release_thread.is_alive()
+        ):
+            release_thread.join(timeout=1.0)
 
     @staticmethod
     def _release_stream(stream) -> None:
@@ -1124,13 +1194,10 @@ class AudioRecorder:
                     break
 
                 chunk = pcm_data[offset : offset + block_bytes]
-                samples = (
-                    np.frombuffer(chunk, dtype="<i2")
-                    .astype(np.float32)
-                    .reshape(-1, self.channels)
-                    / 32768.0
-                )
-                self._audio_callback(samples, len(samples), {}, 0)
+                pcm_samples = array("h")
+                pcm_samples.frombytes(chunk)
+                samples = array("f", (value / 32768.0 for value in pcm_samples))
+                self._audio_callback(samples, len(samples) // self.channels, {}, 0)
         finally:
             self._benchmark_replay_done.set()
 
@@ -1161,28 +1228,16 @@ class AudioRecorder:
                 except NativeAudioUnavailable as exc:
                     native_failure = exc
                     break
-                except VoiceProcessingUnavailable as exc:
-                    voice_processing_error = exc
-                    break
-
+                except Exception as exc:
+                    # Older injected adapters use the former PyObjC error
+                    # class. Recognize its structured contract without
+                    # importing the NumPy-backed fallback module at runtime.
+                    if exc.__class__.__name__ == "VoiceProcessingUnavailable":
+                        voice_processing_error = exc
+                        break
+                    raise
             if native_failure is not None:
-                try:
-                    return self._start_verified_voice_processing_candidate(
-                        _build_pyobjc_voice_processing_stream,
-                        device_index=device_index,
-                        device=device,
-                    )
-                except VoiceProcessingUnavailable as exc:
-                    voice_processing_error = VoiceProcessingUnavailable(
-                        "Objective-C++ voice processing failed: "
-                        f"{native_failure}; PyObjC voice processing failed: {exc}",
-                        code=getattr(exc, "code", "voice_processing_unavailable"),
-                        stage=getattr(exc, "stage", "voice_processing"),
-                    )
-                except NativeAudioUnavailable as exc:
-                    # The direct PyObjC builder should not normally emit this,
-                    # but preserve an expected fallback boundary if injected.
-                    voice_processing_error = exc
+                voice_processing_error = native_failure
 
             if voice_processing_error is not None:
                 print(
@@ -1193,9 +1248,7 @@ class AudioRecorder:
         # A mode/config switch away from Apple voice processing must release
         # the retained graph before opening PortAudio, otherwise the dormant
         # VPIO unit can unnecessarily hold CoreAudio resources.
-        with self._lock:
-            stale_warm_stream = self._warm_voice_stream
-            self._warm_voice_stream = None
+        stale_warm_stream = self._take_warm_voice_stream()
         if stale_warm_stream is not None:
             self._release_stream_async(stale_warm_stream)
 
@@ -1280,9 +1333,7 @@ class AudioRecorder:
             # be correct when queued Float32 frames are released.
             with self._lock:
                 self._apple_agc_active = self._gain_mode == "automatic"
-            with self._lock:
-                warm_stream = self._warm_voice_stream
-                self._warm_voice_stream = None
+            warm_stream = self._take_warm_voice_stream()
             warm_matches = bool(
                 warm_stream is not None
                 and getattr(warm_stream, "matches_capture_config", lambda **_: False)(
@@ -1367,11 +1418,12 @@ class AudioRecorder:
             float_callback=self._audio_callback,
             pcm_callback=self._native_pcm_callback,
         )
-        stream = sd.InputStream(
+        stream_factory = getattr(sd, "RawInputStream", sd.InputStream)
+        stream = stream_factory(
             samplerate=self.sample_rate,
             channels=channels,
             blocksize=self.blocksize,
-            dtype=np.float32,
+            dtype="float32",
             callback=gate.float_callback,
             device=device_index,
         )
@@ -1811,8 +1863,24 @@ class AudioRecorder:
         self._input_status = status
 
     @staticmethod
-    def _coherent_array_downmix(indata: np.ndarray) -> np.ndarray:
-        """Polarity-align coherent array channels and return float32 mono.
+    def _copy_float_buffer(indata) -> bytes:
+        try:
+            return memoryview(indata).cast("B").tobytes()
+        except (TypeError, ValueError):
+            flattened = []
+            for value in indata:
+                if isinstance(value, (list, tuple)):
+                    flattened.extend(value)
+                else:
+                    try:
+                        flattened.extend(value)
+                    except TypeError:
+                        flattened.append(value)
+            return array("f", (float(value) for value in flattened)).tobytes()
+
+    @classmethod
+    def _coherent_array_downmix(cls, indata, frames: int) -> list[float]:
+        """Polarity-align coherent array channels and return mono samples.
 
         macOS normally performs device-level beamforming for its built-in
         microphones. Some Core Audio devices nevertheless expose multiple
@@ -1823,49 +1891,63 @@ class AudioRecorder:
         channels, aligns polarity, and averages them. Uncorrelated channels are
         excluded so an unrelated noisy input cannot dominate the mix.
         """
-        samples = (
-            indata
-            if isinstance(indata, np.ndarray) and indata.dtype == np.float32
-            else np.asarray(indata, dtype=np.float32)
-        )
-        if samples.ndim == 1:
-            return samples.reshape(-1, 1)
-        if samples.shape[1] <= 1:
-            return samples[:, :1]
+        raw = array("f")
+        raw.frombytes(cls._copy_float_buffer(indata))
+        frame_count = max(0, int(frames))
+        if frame_count == 0:
+            return []
+        channels = max(1, len(raw) // frame_count)
+        if channels == 1:
+            return list(raw[:frame_count])
 
-        centered = samples - np.mean(samples, axis=0, keepdims=True)
-        energy = np.sqrt(np.sum(centered * centered, axis=0))
-        active = energy > 1e-7
-        if not np.any(active):
-            return np.mean(samples, axis=1, keepdims=True, dtype=np.float32)
+        columns = [list(raw[channel::channels][:frame_count]) for channel in range(channels)]
+        means = [math.fsum(column) / frame_count for column in columns]
+        centered = [
+            [value - means[channel] for value in columns[channel]]
+            for channel in range(channels)
+        ]
+        energy = [math.sqrt(math.fsum(value * value for value in column)) for column in centered]
+        active = [value > 1e-7 for value in energy]
+        if not any(active):
+            return [math.fsum(values) / channels for values in zip(*columns)]
 
-        denominator = np.outer(energy, energy)
-        correlation = np.zeros(
-            (samples.shape[1], samples.shape[1]),
-            dtype=np.float32,
-        )
-        np.divide(
-            centered.T @ centered,
-            denominator,
-            out=correlation,
-            where=denominator > 1e-12,
-        )
+        correlation = [[0.0] * channels for _ in range(channels)]
+        for left in range(channels):
+            for right in range(channels):
+                denominator = energy[left] * energy[right]
+                if denominator > 1e-12:
+                    numerator = math.fsum(
+                        a * b for a, b in zip(centered[left], centered[right])
+                    )
+                    correlation[left][right] = numerator / denominator
         # Pick the channel most coherent with the rest, rather than the loudest
         # channel, which may be dominated by a fan or keyboard.
-        reference = int(np.argmax(np.sum(np.abs(correlation), axis=1)))
-        anchor = int(np.flatnonzero(active)[0])
-        reference_correlation = correlation[reference]
-        included = active & (np.abs(reference_correlation) >= 0.15)
-        included[reference] = True
-        polarity = np.where(reference_correlation < 0, -1.0, 1.0).astype(
-            np.float32
+        reference = max(
+            range(channels),
+            key=lambda index: math.fsum(abs(value) for value in correlation[index]),
         )
-        aligned = samples[:, included] * polarity[included]
-        mixed = np.mean(aligned, axis=1, keepdims=True, dtype=np.float32)
+        anchor = active.index(True)
+        reference_correlation = correlation[reference]
+        included = [
+            index
+            for index in range(channels)
+            if active[index] and abs(reference_correlation[index]) >= 0.15
+        ]
+        if reference not in included:
+            included.append(reference)
+        mixed = [
+            math.fsum(
+                columns[channel][frame]
+                * (-1.0 if reference_correlation[channel] < 0 else 1.0)
+                for channel in included
+            )
+            / len(included)
+            for frame in range(frame_count)
+        ]
         # Coherence chooses the cleanest reference, but preserve the polarity
         # convention of the device's first active channel for stable output.
-        if correlation[reference, anchor] < 0:
-            mixed = -mixed
+        if correlation[reference][anchor] < 0:
+            mixed = [-value for value in mixed]
         return mixed
 
     @staticmethod

@@ -5,17 +5,15 @@ from __future__ import annotations
 import json
 from typing import Callable
 
-from openai import (
-    APIConnectionError,
-    APIStatusError,
-    APITimeoutError,
-    OpenAI,
-    RateLimitError,
-)
-
 from ..domain.dictionary_learning_models import (
     DictionaryLearningDecision,
     DictionaryLearningEvidence,
+)
+from ..infrastructure.openai_compatible import (
+    CompatibleConnectionError,
+    CompatibleStatusError,
+    CompatibleTimeoutError,
+    OpenAICompatibleClient,
 )
 
 
@@ -72,7 +70,7 @@ class DictionaryLearningModelClient:
         self,
         *,
         api_key: str,
-        client_factory: Callable[..., object] = OpenAI,
+        client_factory: Callable[..., object] = OpenAICompatibleClient,
     ) -> None:
         if not str(api_key).strip():
             raise ValueError("DashScope API key is required for dictionary learning")
@@ -103,12 +101,12 @@ class DictionaryLearningModelClient:
                 response_format={"type": "json_object"},
                 extra_body={"enable_thinking": False},
             )
-        except (APIConnectionError, APITimeoutError, RateLimitError) as exc:
+        except (CompatibleConnectionError, CompatibleTimeoutError) as exc:
             raise DictionaryLearningRequestError(
                 str(exc),
                 retryable=True,
             ) from exc
-        except APIStatusError as exc:
+        except CompatibleStatusError as exc:
             status_code = int(getattr(exc, "status_code", 0) or 0)
             retryable = status_code in (408, 409, 425, 429) or status_code >= 500
             raise DictionaryLearningRequestError(

@@ -16,8 +16,14 @@ from typing import Callable
 
 _REMOVABLE_DIRECTORY_NAMES = {"test", "tests"}
 _REMOVABLE_TEST_PACKAGE_NAMES = {"certifi", "numpy"}
+_REMOVABLE_CACHE_DIRECTORY_NAMES = {"__pycache__"}
 _REMOVABLE_FILE_NAMES = {"py.typed"}
 _REMOVABLE_FILE_SUFFIXES = {".pyi"}
+_REMOVABLE_PACKAGE_RESOURCES = {
+    # DashScope loads this tokenizer table only through its optional tokenizer
+    # API. Vocal More never tokenizes locally; ASR and LLM calls are remote.
+    ("dashscope", "resources", "qwen.tiktoken"),
+}
 _SUPPORTED_ARCHITECTURES = {"arm64", "x86_64"}
 _MACHO_MAGICS = {
     bytes.fromhex(value)
@@ -55,6 +61,8 @@ def _remove_path(path: Path) -> tuple[int, int]:
 
 
 def _is_removable_test_directory(path: Path, python_root: Path) -> bool:
+    if path.name in _REMOVABLE_CACHE_DIRECTORY_NAMES:
+        return True
     relative_parts = path.relative_to(python_root).parts
     if len(relative_parts) == 1:
         return path.name in _REMOVABLE_DIRECTORY_NAMES
@@ -109,6 +117,14 @@ def prune_app_bundle(app_path: Path) -> tuple[int, int]:
         ]
         for file_path in removable_files:
             file_count, byte_count = _remove_path(file_path)
+            removed_files += file_count
+            removed_bytes += byte_count
+
+        for relative_parts in _REMOVABLE_PACKAGE_RESOURCES:
+            resource = python_root.joinpath(*relative_parts)
+            if not resource.exists():
+                continue
+            file_count, byte_count = _remove_path(resource)
             removed_files += file_count
             removed_bytes += byte_count
 
