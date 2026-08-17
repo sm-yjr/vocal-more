@@ -5,6 +5,12 @@ on:
     tags:
       - "v*.*.*"
       - "*.*.*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to rebuild and republish"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -16,6 +22,7 @@ jobs:
       DASHSCOPE_API_KEY: test-api-key
       PYTHONUNBUFFERED: "1"
       NOTARY_PROFILE: vocal-more-notary
+      VOCAL_MORE_RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -83,7 +90,7 @@ jobs:
         run: |
           set -euo pipefail
           version="$(python3 packaging/macos/read_version.py)"
-          tag_version="${GITHUB_REF_NAME#v}"
+          tag_version="${VOCAL_MORE_RELEASE_TAG#v}"
           if [[ "$tag_version" != "$version" ]]; then
             echo "Tag version '$tag_version' does not match pyproject version '$version'." >&2
             exit 1
@@ -181,7 +188,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="$GITHUB_REF_NAME"
+          tag="$VOCAL_MORE_RELEASE_TAG"
           title="Vocal-More $VOCAL_MORE_VERSION"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release edit "$tag" \
@@ -202,7 +209,7 @@ jobs:
           set -euo pipefail
           : "${SPARKLE_PRIVATE_KEY:?Missing SPARKLE_PRIVATE_KEY secret}"
 
-          tag="$GITHUB_REF_NAME"
+          tag="$VOCAL_MORE_RELEASE_TAG"
           archive_name="$(basename "$DMG_PATH")"
           archive_stem="${archive_name%.dmg}"
           updates_dir="$RUNNER_TEMP/sparkle-updates"
@@ -266,6 +273,15 @@ jobs:
             fi
           done
           python3 packaging/macos/normalize_appcast_urls.py "$updates_dir/appcast.xml"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" |
+            "$sparkle_root/bin/sign_update" \
+              --ed-key-file - \
+              "$updates_dir/appcast.xml"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" |
+            "$sparkle_root/bin/sign_update" \
+              --verify \
+              --ed-key-file - \
+              "$updates_dir/appcast.xml"
           shopt -s nullglob
           delta_files=("$updates_dir"/*.delta)
           shopt -u nullglob
