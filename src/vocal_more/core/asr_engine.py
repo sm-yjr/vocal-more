@@ -46,6 +46,7 @@ from ..infrastructure.asr.response_parsing import (
     extract_text_from_realtime_item as _extract_text_from_realtime_item,
     prefer_longer_text as _prefer_longer_text,
 )
+from ..infrastructure.asr.qwen_audio_streaming import QwenAudioStreamingConversation
 from ..infrastructure.asr.routing import (
     direct_offline_fallback_model as _routing_direct_offline_fallback_model,
     join_transcript_segments as _routing_join_transcript_segments,
@@ -841,6 +842,15 @@ class BatchASREngine:
                 kwargs["context_instruction"] = context_instruction
             return self._transcribe_omni_offline(audio_data, **kwargs)
 
+        if model_info and model_info.get("protocol") == "audio_recognition":
+            kwargs = {
+                "model_override": model,
+                "language_override": language_override,
+            }
+            if context_instruction:
+                kwargs["context_instruction"] = context_instruction
+            return self._transcribe_audio_recognition(audio_data, **kwargs)
+
         kwargs = {
             "model_override": model,
             "language_override": language_override,
@@ -848,6 +858,89 @@ class BatchASREngine:
         if context_instruction:
             kwargs["context_instruction"] = context_instruction
         return self._transcribe_realtime_ws(audio_data, **kwargs)
+
+    def _transcribe_audio_recognition(
+        self,
+        audio_data: bytes,
+        model_override: Optional[str] = None,
+        language_override: Optional[str] = None,
+        context_instruction: str = "",
+    ) -> str:
+        """Transcribe complete PCM through DashScope's Recognition protocol."""
+        model = model_override or self.config.asr.model
+        trace = self._build_debug_trace(
+            backend="realtime_ws",
+            model=model,
+            audio_data=audio_data,
+            corpus_text=_get_corpus_text(),
+        )
+        completed = threading.Event()
+        final_segments: list[str] = []
+        latest_partial = ""
+        error_msg = ""
+
+        def on_partial(text: str) -> None:
+            nonlocal latest_partial
+            latest_partial = text
+            trace.partial_texts.append(text)
+
+        def on_final(text: str) -> None:
+            final_segments.append(text)
+            trace.final_transcripts.append(text)
+
+        def on_error(message: str) -> None:
+            nonlocal error_msg
+            error_msg = message
+            trace.error = message
+            completed.set()
+
+        def on_usage(usage: dict) -> None:
+            trace.usage = dict(usage)
+
+        conversation = QwenAudioStreamingConversation(
+            model=model,
+            sample_rate=self.config.audio.sample_rate,
+            language=_resolve_asr_language(
+                config=self.config,
+                language_override=language_override,
+            ),
+            context_instruction=context_instruction,
+            on_ready=lambda: None,
+            on_partial=on_partial,
+            on_final=on_final,
+            on_complete=completed.set,
+            on_error=on_error,
+            on_close=completed.set,
+            on_usage=on_usage,
+        )
+        result_text = ""
+        result_source = "empty"
+        try:
+            conversation.connect()
+            for offset in range(0, len(audio_data), REALTIME_CHUNK_SIZE):
+                chunk = audio_data[offset:offset + REALTIME_CHUNK_SIZE]
+                conversation.send_audio_frame(chunk)
+            conversation.commit()
+            if not completed.wait(timeout=30.0):
+                trace.recognition_timed_out = True
+            result_text = "".join(final_segments).strip() or latest_partial.strip()
+            result_source = "transcript" if result_text else "empty"
+            if self.config.enable_polish:
+                result_text = normalize_structured_list_spacing(result_text, self.config.llm)
+            trace.result_text = result_text
+        except Exception as exc:
+            error_msg = str(exc)
+            trace.error = error_msg
+            result_source = "error"
+        finally:
+            _finalize_trace(trace, result_source)
+            self._finalize_trace_billing(trace)
+            conversation.close()
+            self._dump_debug_artifacts(audio_data, trace)
+
+        if error_msg:
+            print(f"[BatchASR] Qwen Audio streaming error: {error_msg}")
+        return result_text
 
     def transcribe_with_system_prompt(
         self,
@@ -1440,6 +1533,75 @@ class StreamingASRCallback(OmniRealtimeCallback):
     def mark_client_event(self, event_type: str, **payload) -> None:
         self._record_event(event_type, **payload)
 
+    def recognition_ready(self) -> None:
+        self._enqueue_inbound_event(
+            {
+                "kind": "session_updated",
+                "event_type": "task.started",
+                "t_ms": self._elapsed_ms(),
+                "metadata": {},
+            }
+        )
+
+    def recognition_partial(self, text: str) -> None:
+        self._enqueue_inbound_event(
+            {
+                "kind": "transcript_partial",
+                "event_type": "result.generated.partial",
+                "t_ms": self._elapsed_ms(),
+                "metadata": {},
+                "text": text,
+            }
+        )
+
+    def recognition_final(self, text: str) -> None:
+        self._enqueue_inbound_event(
+            {
+                "kind": "transcript_completed",
+                "event_type": "result.generated.final",
+                "t_ms": self._elapsed_ms(),
+                "metadata": {},
+                "transcript": text,
+            }
+        )
+
+    def recognition_complete(self) -> None:
+        self._enqueue_inbound_event(
+            {
+                "kind": "recognition_complete",
+                "event_type": "task.finished",
+                "t_ms": self._elapsed_ms(),
+                "metadata": {},
+            }
+        )
+
+    def recognition_error(self, message: str) -> None:
+        self._enqueue_inbound_event(
+            {
+                "kind": "error",
+                "event_type": "task.failed",
+                "t_ms": self._elapsed_ms(),
+                "metadata": {},
+                "error_message": message,
+            }
+        )
+
+    def recognition_closed(self) -> None:
+        self._enqueue_inbound_event(
+            {
+                "kind": "socket_close",
+                "event_type": "socket.close",
+                "t_ms": self._elapsed_ms(),
+                "metadata": {},
+                "code": None,
+                "message": "",
+            }
+        )
+
+    def recognition_usage(self, usage: dict) -> None:
+        if self._debug_trace is not None:
+            self._debug_trace.usage = dict(usage)
+
     def on_open(self):
         print("[StreamingASR] Connection opened")
         self._enqueue_inbound_event(
@@ -1718,6 +1880,13 @@ class StreamingASRCallback(OmniRealtimeCallback):
             self._record_event(event_type, t_ms=event_t_ms, **metadata, transcript=transcript)
             return
 
+        if kind == "recognition_complete":
+            self._transcription_completed.set()
+            self._complete_event.set()
+            if self._on_complete:
+                self._on_complete()
+            return
+
         if kind == "socket_close":
             self._complete_event.set()
             self._session_updated.set()
@@ -1878,7 +2047,7 @@ class ASREngine:
         self.on_final_result = on_final_result
         self.on_error = on_error
 
-        self._conversation: Optional[OmniRealtimeConversation] = None
+        self._conversation: Optional[Any] = None
         self._callback: Optional[StreamingASRCallback] = None
         self._is_running = False
         self._accepting_audio = False
@@ -1997,7 +2166,7 @@ class ASREngine:
             kwargs["context_instruction"] = self._context_instruction
         return self._batch_fallback.transcribe(pcm_data, **kwargs)
 
-    def _close_conversation(self, conversation: Optional[OmniRealtimeConversation]) -> None:
+    def _close_conversation(self, conversation: Optional[Any]) -> None:
         if conversation is None:
             return
 
@@ -2028,7 +2197,7 @@ class ASREngine:
         *,
         expected_generation: Optional[int] = None,
     ) -> tuple[
-        Optional[OmniRealtimeConversation],
+        Optional[Any],
         Optional[StreamingASRCallback],
     ]:
         with self._lock:
@@ -2093,24 +2262,40 @@ class ASREngine:
         context_instruction: str = "",
         session_config=None,
         is_cancelled: Optional[Callable[[], bool]] = None,
-    ) -> OmniRealtimeConversation:
+    ) -> Any:
         session_config = session_config or self._session_config
-        conversation = OmniRealtimeConversation(
-            model=model_id,
-            url="wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
-            callback=callback,
-        )
+        if model_info and model_info.get("protocol") == "audio_recognition":
+            conversation = QwenAudioStreamingConversation(
+                model=model_id,
+                sample_rate=session_config.audio.sample_rate,
+                language=_resolve_asr_language(config=session_config),
+                context_instruction=context_instruction,
+                on_ready=callback.recognition_ready,
+                on_partial=callback.recognition_partial,
+                on_final=callback.recognition_final,
+                on_complete=callback.recognition_complete,
+                on_error=callback.recognition_error,
+                on_close=callback.recognition_closed,
+                on_usage=callback.recognition_usage,
+            )
+        else:
+            conversation = OmniRealtimeConversation(
+                model=model_id,
+                url="wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
+                callback=callback,
+            )
         try:
             conversation.connect()
             if is_cancelled is not None and is_cancelled():
                 raise _ASRSessionAborted("ASR session was invalidated during connect")
-            conversation.update_session(
-                **_build_session_kwargs(
-                    model_info,
-                    config=session_config,
-                    context_instruction=context_instruction,
+            if not (model_info and model_info.get("protocol") == "audio_recognition"):
+                conversation.update_session(
+                    **_build_session_kwargs(
+                        model_info,
+                        config=session_config,
+                        context_instruction=context_instruction,
+                    )
                 )
-            )
             self._wait_for_session_updated(
                 callback,
                 timeout=10.0,
@@ -2368,14 +2553,17 @@ class ASREngine:
                         time.sleep(0.01)
                         continue
 
-                    audio_b64 = base64.b64encode(chunk).decode("ascii")
                     with self._lock:
                         if (
                             session_generation == self._session_generation
                             and conversation is self._conversation
                         ):
                             self._conversation_is_clean = False
-                    conversation.append_audio(audio_b64)
+                    if hasattr(conversation, "send_audio_frame"):
+                        conversation.send_audio_frame(chunk)
+                    else:
+                        audio_b64 = base64.b64encode(chunk).decode("ascii")
+                        conversation.append_audio(audio_b64)
                     break
             except Exception as exc:
                 print(f"[StreamingASR] Failed to append audio chunk: {exc}")

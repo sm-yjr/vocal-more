@@ -910,6 +910,7 @@ def test_parse_asr_model_valid():
     assert _parse_asr_model("qwen3.5-omni-plus-realtime") == "qwen3.5-omni-plus-realtime"
     assert _parse_asr_model("qwen3-asr-flash") == "qwen3-asr-flash"
     assert _parse_asr_model("qwen3-asr-flash-realtime-2026-02-10") == "qwen3-asr-flash-realtime-2026-02-10"
+    assert _parse_asr_model("qwen-audio-3.0-asr-flash-streaming") == "qwen-audio-3.0-asr-flash-streaming"
 
 
 def test_parse_asr_model_unknown_falls_back():
@@ -947,6 +948,12 @@ def test_get_asr_model_info():
     assert info2 is not None
     assert info2["input_audio_transcription_model"] == "gummy-realtime-v1"
     assert info2["handles_inline_polish"] is True
+
+    info3 = get_asr_model_info("qwen-audio-3.0-asr-flash-streaming")
+    assert info3 is not None
+    assert info3["transport"] == "realtime_ws"
+    assert info3["protocol"] == "audio_recognition"
+    assert info3["handles_inline_polish"] is False
 
     assert get_asr_model_info("nonexistent") is None
 

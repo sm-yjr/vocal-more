@@ -57,6 +57,15 @@ ASR_MODEL_CATALOG = [
     },
     {"separator": True, "display_name": "───────────"},
     {
+        "id": "qwen-audio-3.0-asr-flash-streaming",
+        "display_name": "Qwen Audio 3.0 Fast",
+        "transport": "realtime_ws",
+        "protocol": "audio_recognition",
+        "supports_transcription_params": False,
+        "input_audio_transcription_model": None,
+        "handles_inline_polish": False,
+    },
+    {
         "id": "qwen3-asr-flash-realtime-2026-02-10",
         "display_name": "Legacy Fast",
         "transport": "realtime_ws",
