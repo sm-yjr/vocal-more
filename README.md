@@ -1,6 +1,6 @@
 # Vocal-More
 
-Vocal-More is a desktop voice-recognition application with real-time speech-to-text and optional text polishing. It runs as a native menu-bar app on macOS and as a notification-area app on Windows.
+Vocal-More is a desktop voice-recognition application with real-time speech-to-text and optional text polishing. It runs natively on macOS, Windows, and Ubuntu GNOME Wayland.
 
 ## Features
 
@@ -8,14 +8,16 @@ Vocal-More is a desktop voice-recognition application with real-time speech-to-t
 - Realtime and file ASR with selectable Qwen models
 - Optional LLM polishing, dictionary corpus, recording history, and foreground-app adaptation
 - Auto-paste into the active application
-- Native global triggers: Fn on macOS and a selectable F8–F12 or modifier trigger on Windows
+- Native global triggers: Fn on macOS, selectable triggers on Windows, and F8–F12 through a GNOME Shell extension on Linux
 - macOS menu-bar UI with Apple Voice Processing and verified AGC
 - Windows notification-area UI with a floating capsule, standard settings window, portable ZIP, and per-user installer
+- Ubuntu GNOME 50 GTK4 settings, Shell capsule/menu, AT-SPI integration, and confirmed Wayland clipboard paste
 
 ## Requirements
 
 - macOS 14 or newer on Apple Silicon for the official DMG
 - Windows 10 or Windows 11 x64 for the Windows build
+- Ubuntu 26.04 LTS amd64 with GNOME Shell 50 in a Wayland session for the Linux deb
 - DashScope API key
 - Python 3.10+ for source installations; release CI uses Python 3.12
 
@@ -43,6 +45,17 @@ Both artifacts are currently unsigned, so Windows SmartScreen may warn on first 
 
 See [docs/windows.md](docs/windows.md) for behavior, privacy boundaries, packaging, and known limitations.
 
+## Ubuntu 26.04 installation
+
+Install the amd64 package, enable `vocal-more@sm-yjr.com` in the GNOME Extensions app, then sign out and back in once. The first application launch displays the same one-time guide.
+
+```bash
+sudo apt install ./vocal-more_<version>_amd64.deb
+vocal-more --settings
+```
+
+The Shell extension owns F8–F12 capture, the non-focus-stealing capsule, panel controls, and `Ctrl+V` injection. Dictated text stays in the GTK clipboard and never appears in the public D-Bus snapshot or paste signal. See [docs/linux.md](docs/linux.md).
+
 ## Source installation
 
 ### macOS
@@ -63,6 +76,16 @@ py -3.12 -m venv .venv
 uv sync --locked --group dev --python .venv\Scripts\python.exe
 $env:PYTHONUTF8 = "1"
 $env:DASHSCOPE_API_KEY = "your-api-key"
+uv run vocal-more
+```
+
+### Ubuntu 26.04
+
+Install the system GTK/PortAudio dependencies, then use the locked environment:
+
+```bash
+sudo apt install python3-dev python3-gi gir1.2-gtk-4.0 gir1.2-atspi-2.0 portaudio19-dev libsndfile1 flac
+uv sync --locked --group dev --python /usr/bin/python3
 uv run vocal-more
 ```
 
@@ -91,11 +114,11 @@ dist\Vocal-More-<version>-windows-x64-setup.exe
 
 ## Configuration
 
-Persistent configuration is stored at `~/.vocal-more/config.yaml` on macOS and `%APPDATA%\Vocal More\config.yaml` on Windows. The Windows GUI applies common settings through the same serialized runtime configuration path; the YAML file remains available for advanced options.
+Persistent configuration is stored at `~/.vocal-more/config.yaml` on macOS and `%APPDATA%\Vocal More\config.yaml` on Windows. Linux follows XDG: configuration under `$XDG_CONFIG_HOME/vocal-more`, recordings/databases under `$XDG_DATA_HOME/vocal-more`, and logs/support bundles under `$XDG_STATE_HOME/vocal-more`. A legacy Linux `~/.vocal-more` tree is copied once without deleting the source.
 
-Vocal More exposes one downstream audio contract: 16 kHz, mono, signed PCM16. macOS prefers Apple Voice Processing and `AVAudioConverter`; Windows uses PortAudio through `sounddevice` with the shared software gain, high-pass filter, and limiter.
+Vocal More exposes one downstream audio contract: 16 kHz, mono, signed PCM16. macOS prefers Apple Voice Processing and `AVAudioConverter`; Windows and Linux use PortAudio through `sounddevice` with the shared software gain, high-pass filter, and limiter. Linux labels this path as software gain and uses verified lossless FLAC for eligible background archival.
 
-Automatic dictionary learning from post-paste edits currently requires macOS Accessibility. On Windows, context personalization reads only the foreground executable basename and never reads window titles or document text.
+Automatic dictionary learning uses macOS Accessibility or Linux AT-SPI, fails closed for password/unsupported fields, and remains disabled by default. Linux context personalization receives only the stable desktop app ID from Shell; it never reads window titles or document content.
 
 ## Verification
 

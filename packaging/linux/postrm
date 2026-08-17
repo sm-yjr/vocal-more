@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+if command -v glib-compile-schemas >/dev/null 2>&1; then
+  glib-compile-schemas /usr/share/glib-2.0/schemas
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+fi
+# Per-user data under XDG_CONFIG_HOME/XDG_DATA_HOME/XDG_STATE_HOME is
+# deliberately preserved across package removal and upgrades.

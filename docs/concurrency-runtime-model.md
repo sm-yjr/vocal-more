@@ -6,6 +6,20 @@ The goal is not to eliminate every background thread. The goal is to make thread
 
 ## Current Domains
 
+### Linux host and Shell boundaries
+
+On Ubuntu GNOME, the GTK main thread exclusively owns GTK4 widgets, the
+Wayland clipboard, and the exported session D-Bus object. Audio callbacks only
+publish immutable level/PCM values; they do not touch GTK or D-Bus.
+
+The GNOME Shell extension runs inside the compositor process and owns global
+F8–F12 events, `St` actors, focused desktop app IDs, and virtual-keyboard paste
+injection. The D-Bus boundary carries state snapshots and opaque paste request
+IDs only. A dictation worker may wait for a bounded `CompletePaste`
+acknowledgement, while GTK clipboard and signal work is marshalled through the
+GLib main context. Shutdown fails pending paste requests before closing the
+serialized command coordinator and mode workers.
+
 ### 1. Main thread owns UI
 
 Only the main thread may touch AppKit/WebKit UI state:

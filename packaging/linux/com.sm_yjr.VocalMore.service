@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=com.sm_yjr.VocalMore
+Exec=/usr/bin/vocal-more --service

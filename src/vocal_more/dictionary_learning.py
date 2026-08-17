@@ -54,6 +54,13 @@ class _UnavailableFocusedTextProvider:
 def _focused_text_provider():
     if platform.system() == "Darwin":
         return MacOSFocusedTextProvider()
+    if platform.system() == "Linux":
+        from .core.linux_accessibility_text import LinuxFocusedTextProvider
+        from .infrastructure.linux_app_context import current_desktop_app_id
+
+        return LinuxFocusedTextProvider(
+            app_id_provider=current_desktop_app_id,
+        )
     return _UnavailableFocusedTextProvider()
 
 
@@ -62,9 +69,14 @@ def build_dictionary_learning_runtime(
     config=None,
 ) -> AutomaticDictionaryLearningCoordinator:
     config = config or get_config()
+    data_dir = getattr(config, "get_data_dir", None)
     config_dir = getattr(config, "get_config_dir", None)
     repository = DictionaryLearningRepository(
-        base_dir=config_dir() if callable(config_dir) else None
+        base_dir=(
+            data_dir() if callable(data_dir)
+            else config_dir() if callable(config_dir)
+            else None
+        )
     )
     processor = DictionaryLearningProcessor(
         repository=repository,

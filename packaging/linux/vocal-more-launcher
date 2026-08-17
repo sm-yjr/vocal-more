@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+export PYTHONPATH="/opt/vocal-more/lib${PYTHONPATH:+:$PYTHONPATH}"
+exec /usr/bin/python3 -m vocal_more.entrypoint "$@"

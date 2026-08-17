@@ -7,8 +7,10 @@ import time
 import pyperclip
 from pynput.keyboard import Controller, Key
 
+from .text_output import PasteOutcome, TextOutputPort
 
-class KeyboardSimulator:
+
+class KeyboardSimulator(TextOutputPort):
     """Type, select, and paste text into the currently focused application."""
 
     def __init__(
@@ -36,21 +38,33 @@ class KeyboardSimulator:
             if delay > 0:
                 time.sleep(delay)
 
-    def paste_text(self, text: str) -> None:
-        """Copy text to the clipboard and send the platform paste shortcut."""
+    def paste_text(self, text: str) -> PasteOutcome:
+        """Copy text and send the platform paste shortcut.
+
+        The clipboard write happens before the shortcut.  If shortcut
+        injection fails, the copied text remains available for a user retry;
+        callers receive a failed outcome and must not report a successful
+        insertion.
+        """
         try:
-            self._clipboard.paste()
-        except Exception:
-            pass
+            # Touching the previous clipboard value keeps compatibility with
+            # clipboard providers that require an active owner before copy.
+            try:
+                self._clipboard.paste()
+            except Exception:
+                pass
 
-        self._clipboard.copy(text)
-        time.sleep(0.05)
+            self._clipboard.copy(text)
+            time.sleep(0.05)
 
-        with self._keyboard.pressed(self._shortcut_modifier):
-            self._keyboard.press("v")
-            self._keyboard.release("v")
+            with self._keyboard.pressed(self._shortcut_modifier):
+                self._keyboard.press("v")
+                self._keyboard.release("v")
 
-        time.sleep(0.05)
+            time.sleep(0.05)
+        except Exception as exc:
+            return PasteOutcome.failed(str(exc))
+        return PasteOutcome.succeeded()
 
     def delete_chars(self, count: int, delay: float = 0.01) -> None:
         """Delete characters using Backspace."""

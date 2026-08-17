@@ -34,6 +34,15 @@ _DEVELOPMENT_APP_IDS = {
     "wezterm-gui.exe",
     "windowsterminal.exe",
     "wt.exe",
+    # Common Linux desktop IDs reported by GNOME Shell's WindowTracker.
+    "org.gnome.Builder",
+    "org.gnome.Terminal",
+    "org.gnome.Console",
+    "org.gnome.Console.desktop",
+    "com.visualstudio.code",
+    "code",
+    "code-url-handler",
+    "com.jetbrains.IntelliJ-IDEA",
 }
 _DEVELOPMENT_PREFIXES = (
     "com.jetbrains.",
@@ -56,6 +65,11 @@ _MESSAGING_APP_IDS = {
     "slack.exe",
     "teams.exe",
     "wechat.exe",
+    "org.telegram.desktop",
+    "com.discordapp.Discord",
+    "com.slack.Slack",
+    "us.zoom.Zoom",
+    "com.microsoft.Teams",
 }
 _WRITING_APP_IDS = {
     "com.apple.iwork.pages",
@@ -70,6 +84,10 @@ _WRITING_APP_IDS = {
     "obsidian.exe",
     "onenote.exe",
     "winword.exe",
+    "org.gnome.TextEditor",
+    "org.gnome.gedit",
+    "org.libreoffice.LibreOffice",
+    "libreoffice-writer",
 }
 
 _CONTEXT_INSTRUCTIONS: dict[ContextCategory, str] = {

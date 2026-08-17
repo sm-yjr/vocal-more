@@ -1,0 +1,80 @@
+name: Linux
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+    container: ubuntu:26.04
+    env:
+      DASHSCOPE_API_KEY: test-api-key
+      PYTHONUNBUFFERED: "1"
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install build and GNOME dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git build-essential python3 python3-dev \
+            python3-gi gir1.2-gtk-4.0 gir1.2-atspi-2.0 \
+            libportaudio2 portaudio19-dev libsndfile1 flac \
+            gnome-shell glib2.0-bin desktop-file-utils dbus-x11 dpkg-dev unzip
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install Python dependencies
+        run: uv sync --locked --group dev --python /usr/bin/python3
+
+      - name: Run Python tests
+        run: uv run python -m pytest -q
+
+      - name: Validate GNOME extension metadata and schemas
+        run: |
+          python3 -m json.tool \
+            packaging/linux/gnome-extension/vocal-more@sm-yjr.com/metadata.json \
+            >/dev/null
+          glib-compile-schemas --strict --dry-run \
+            packaging/linux/gnome-extension/vocal-more@sm-yjr.com/schemas
+
+      - name: Smoke-test Desktop1 on an isolated session bus
+        run: PYTHONPATH=src dbus-run-session -- /usr/bin/python3 packaging/linux/dbus_smoke.py
+
+      - name: Load the extension in isolated GNOME Shell 50
+        run: packaging/linux/gnome-extension/tests/test_shell_extension.sh
+
+      - name: Build deb
+        run: ./packaging/linux/build_deb.sh
+
+      - name: Install, smoke-test, and remove deb
+        run: |
+          package="$(find dist -maxdepth 1 -name 'vocal-more_*_amd64.deb' -print -quit)"
+          test -n "$package"
+          apt-get install -y "$package"
+          vocal-more --version
+          test -f /usr/share/doc/vocal-more/LICENSE
+          test -f /usr/share/gnome-shell/extensions/vocal-more@sm-yjr.com/extension.js
+          mkdir -p /tmp/vocal-more-user-data
+          touch /tmp/vocal-more-user-data/preserved
+          XDG_DATA_HOME=/tmp/vocal-more-user-data apt-get remove -y vocal-more
+          test -f /tmp/vocal-more-user-data/preserved
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vocal-More-Ubuntu-26.04-amd64
+          path: dist/vocal-more_*_amd64.deb
+          if-no-files-found: error

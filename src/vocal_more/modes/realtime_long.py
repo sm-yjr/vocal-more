@@ -11,10 +11,17 @@ from ..application.lazy_resource import LazyResource
 from ..config import asr_model_handles_inline_polish, get_config
 from ..core.audio_recorder import AudioRecorder
 from ..core.asr_engine import ASREngine
-from ..core.keyboard_sim import KeyboardSimulator
+from ..core.text_output import TextOutputPort
 from ..dictionary import normalize_terms
 from ..localization import format_microphone_start_error, t
 from .base_mode import BaseMode, ModeState
+
+
+def KeyboardSimulator(*args, **kwargs):
+    """Lazy compatibility factory; Linux injects a TextOutputPort instead."""
+    from ..core.keyboard_sim import KeyboardSimulator as Adapter
+
+    return Adapter(*args, **kwargs)
 
 
 class RealtimeLongMode(BaseMode):
@@ -39,6 +46,7 @@ class RealtimeLongMode(BaseMode):
         recording_store: Optional[object] = None,
         dictionary_learning: Optional[object] = None,
         context_personalization: Optional[object] = None,
+        text_output: Optional[TextOutputPort] = None,
     ):
         super().__init__(
             on_state_change,
@@ -65,11 +73,17 @@ class RealtimeLongMode(BaseMode):
             on_audio_level=on_audio_level,
             on_audio_chunk=self._on_audio_chunk,
         )
-        self._keyboard = KeyboardSimulator()
+        # ``None`` keeps direct construction backwards compatible.  Desktop
+        # composition roots inject a concrete port, which is required for the
+        # Linux Wayland output adapter.
+        if text_output is None:
+            text_output = KeyboardSimulator()
+        self._text_output = text_output
+        self._keyboard = self._text_output  # compatibility for old integrations
         self._workflow = DictationWorkflow(
             config=self.config,
             asr_engine=self._asr,
-            keyboard=self._keyboard,
+            text_output=self._text_output,
             recording_store=self._recording_store,
             normalize_text=normalize_terms,
             dictionary_learning=dictionary_learning,

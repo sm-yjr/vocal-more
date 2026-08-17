@@ -15,9 +15,12 @@ def main() -> None:
         from .app import main as platform_main
     elif sys.platform == "win32":
         from .windows_app import main as platform_main
+    elif sys.platform.startswith("linux"):
+        from .linux_app import main as platform_main
     else:
         raise SystemExit(
-            "Vocal More currently provides desktop hosts for macOS and Windows. "
+            "Vocal More currently provides desktop hosts for macOS, Windows, "
+            "and Ubuntu GNOME Wayland. "
             "Use `python -m vocal_more.serve` for the headless RPC service."
         )
     platform_main()

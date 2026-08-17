@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.vocal-more"
+          path="/org/gnome/shell/extensions/vocal-more/">
+    <key name="linux-accelerator" type="as">
+      <default>['F8']</default>
+      <summary>Vocal More trigger key</summary>
+      <description>One of F8, F9, F10, F11, or F12. The host application keeps this value in sync with hotkey.linux_accelerator.</description>
+    </key>
+    <key name="auto-paste" type="b">
+      <default>true</default>
+      <summary>Paste completed dictation automatically</summary>
+      <description>When enabled, the Shell extension sends Ctrl+V after the host puts text on the Wayland clipboard.</description>
+    </key>
+    <key name="mode" type="s">
+      <default>'walkie_talkie'</default>
+      <summary>Vocal More dictation mode</summary>
+      <description>One of walkie_talkie, realtime_long, or meeting.</description>
+    </key>
+  </schema>
+</schemalist>

@@ -93,6 +93,13 @@ def _build_recording_retry_runtime(*, config: object, recording_store: object):
     )
 
 
+def _build_default_text_output():
+    """Build the legacy desktop output adapter only when a root needs it."""
+    from .core.keyboard_sim import KeyboardSimulator
+
+    return KeyboardSimulator()
+
+
 def build_menu_app_dependencies(
     app,
     *,
@@ -110,6 +117,7 @@ def build_menu_app_dependencies(
     recording_retry_factory=_build_recording_retry_runtime,
     dictionary_learning_factory=None,
     context_personalization_factory=None,
+    text_output_factory=None,
 ) -> MenuAppDependencies:
     config = config or get_config()
     if dictionary_learning_factory is None:
@@ -133,8 +141,17 @@ def build_menu_app_dependencies(
         on_finish=app._on_capsule_finish,
     )
     recording_store = recording_store_factory()
+    # Keep the legacy path lazy: when no platform adapter is supplied, the
+    # modes retain their backwards-compatible KeyboardSimulator fallback.
+    # Linux supplies ``text_output_factory`` explicitly so both modes share
+    # the GTK/Wayland output port.
+    text_output = (
+        (text_output_factory or _build_default_text_output)()
+        if text_output_factory is not None
+        else None
+    )
 
-    walkie_talkie = walkie_talkie_factory(
+    walkie_kwargs = dict(
         on_state_change=app._on_state_change,
         on_result=app._on_result,
         on_partial_result=app._on_partial_result,
@@ -146,7 +163,10 @@ def build_menu_app_dependencies(
         dictionary_learning=dictionary_learning,
         context_personalization=context_personalization,
     )
-    realtime_long = realtime_long_factory(
+    if text_output is not None:
+        walkie_kwargs["text_output"] = text_output
+    walkie_talkie = walkie_talkie_factory(**walkie_kwargs)
+    realtime_kwargs = dict(
         on_state_change=app._on_state_change,
         on_result=app._on_result,
         on_partial_result=app._on_partial_result,
@@ -158,6 +178,9 @@ def build_menu_app_dependencies(
         dictionary_learning=dictionary_learning,
         context_personalization=context_personalization,
     )
+    if text_output is not None:
+        realtime_kwargs["text_output"] = text_output
+    realtime_long = realtime_long_factory(**realtime_kwargs)
     meeting = meeting_factory(
         on_state_change=app._on_state_change,
         on_result=app._on_result,
@@ -269,6 +292,7 @@ def build_rpc_handler_dependencies(
     recording_retry_factory=_build_recording_retry_runtime,
     dictionary_learning_factory=None,
     context_personalization_factory=None,
+    text_output_factory=None,
 ) -> RPCHandlerDependencies:
     config = config or get_config()
     if dictionary_learning_factory is None:
@@ -292,9 +316,14 @@ def build_rpc_handler_dependencies(
             )
         )
     recording_store = recording_store_factory()
+    text_output = (
+        (text_output_factory or _build_default_text_output)()
+        if text_output_factory is not None
+        else None
+    )
     text_polisher = text_polisher_factory() if config.api_key else None
 
-    walkie_talkie = walkie_talkie_factory(
+    walkie_kwargs = dict(
         on_state_change=handler._on_state_change,
         on_result=handler._on_result,
         on_partial_result=handler._on_partial_result,
@@ -306,7 +335,10 @@ def build_rpc_handler_dependencies(
         dictionary_learning=dictionary_learning,
         context_personalization=context_personalization,
     )
-    realtime_long = realtime_long_factory(
+    if text_output is not None:
+        walkie_kwargs["text_output"] = text_output
+    walkie_talkie = walkie_talkie_factory(**walkie_kwargs)
+    realtime_kwargs = dict(
         on_state_change=handler._on_state_change,
         on_result=handler._on_result,
         on_partial_result=handler._on_partial_result,
@@ -318,6 +350,9 @@ def build_rpc_handler_dependencies(
         dictionary_learning=dictionary_learning,
         context_personalization=context_personalization,
     )
+    if text_output is not None:
+        realtime_kwargs["text_output"] = text_output
+    realtime_long = realtime_long_factory(**realtime_kwargs)
     meeting = meeting_factory(
         on_state_change=handler._on_state_change,
         on_result=handler._on_result,

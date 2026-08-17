@@ -17,7 +17,8 @@ DEBUG_TRACE_LIMIT = 3
 
 
 def default_debug_dir() -> Path:
-    return Config.get_config_dir() / "debug"
+    state_dir = getattr(Config, "get_state_dir", None)
+    return (state_dir() if callable(state_dir) else Config.get_config_dir()) / "debug"
 
 
 def ensure_runtime_debug_dir_env() -> Path:
@@ -130,7 +131,9 @@ def export_support_bundle(
     app_version: str,
 ) -> Path:
     """Write a support bundle zip and return its path."""
-    support_dir = Config.get_config_dir() / "support"
+    state_dir = getattr(Config, "get_state_dir", None)
+    support_root = state_dir() if callable(state_dir) else Config.get_config_dir()
+    support_dir = support_root / "support"
     support_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = support_dir / (
         f"vocal-more-diagnostics-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"

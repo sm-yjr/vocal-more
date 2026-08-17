@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from ..config import asr_model_handles_inline_polish
+from ..core.text_output import PasteOutcome
 from ..infrastructure.pricing import merge_billing
 
 
@@ -31,14 +32,20 @@ class DictationWorkflow:
         *,
         config,
         asr_engine,
-        keyboard,
+        keyboard=None,
+        text_output=None,
         recording_store=None,
         normalize_text: Callable[[str], str] | None = None,
         dictionary_learning=None,
     ) -> None:
         self.config = config
         self._asr_engine = asr_engine
-        self._keyboard = keyboard
+        # ``keyboard`` is the pre-Linux constructor name.  Keep accepting it
+        # for existing callers while making the architecture boundary explicit
+        # for new composition roots.
+        self._text_output = text_output if text_output is not None else keyboard
+        if self._text_output is None:
+            raise TypeError("DictationWorkflow requires a text_output port")
         self._recording_store = recording_store
         self._normalize_text = normalize_text or (lambda text: text)
         self._dictionary_learning = dictionary_learning
@@ -118,15 +125,6 @@ class DictationWorkflow:
                     warnings.append(messages.polish_error(str(exc)))
 
             billing = merge_billing(asr_billing, polish_billing)
-            if recording_id and self._recording_store is not None:
-                self._recording_store.update(
-                    recording_id,
-                    "success",
-                    raw_text,
-                    error=None,
-                    billing=billing,
-                )
-
             pasted = False
             if self.config.auto_paste and not _aborted():
                 learning_ticket = None
@@ -143,9 +141,34 @@ class DictationWorkflow:
                             "[DictationWorkflow] Dictionary observation "
                             f"preparation failed: {exc}"
                         )
-                self._keyboard.paste_text(final_text)
-                pasted = True
-                if learning_ticket is not None:
+                paste_result = self._text_output.paste_text(final_text)
+                if isinstance(paste_result, PasteOutcome):
+                    pasted = paste_result.success
+                    paste_error = paste_result.error
+                elif isinstance(paste_result, bool):
+                    # A few lightweight integrations used a boolean before
+                    # PasteOutcome was introduced.  Preserve an explicit
+                    # ``False`` rather than accidentally reporting success.
+                    pasted = paste_result
+                    paste_error = None
+                elif paste_result is None:
+                    # Legacy output adapters returned None on success.
+                    pasted = True
+                    paste_error = None
+                else:
+                    # Keep third-party/test doubles that predate PasteOutcome
+                    # successful unless they expose an explicit ``success``
+                    # field.  This is a one-way compatibility path; built-in
+                    # adapters always return PasteOutcome.
+                    explicit_success = getattr(paste_result, "success", None)
+                    if explicit_success is None:
+                        pasted = True
+                        paste_error = None
+                    else:
+                        pasted = bool(explicit_success)
+                        paste_error = getattr(paste_result, "error", None)
+
+                if pasted and learning_ticket is not None:
                     try:
                         self._dictionary_learning.observe_after_paste(
                             learning_ticket
@@ -155,6 +178,46 @@ class DictationWorkflow:
                             "[DictationWorkflow] Dictionary observation "
                             f"startup failed: {exc}"
                         )
+
+                if not pasted:
+                    detail = str(paste_error or "paste failed")
+                    if recording_id and self._recording_store is not None:
+                        self._recording_store.update(
+                            recording_id,
+                            "failed",
+                            raw_text,
+                            error=detail,
+                            billing=billing,
+                        )
+                    paste_error_factory = getattr(messages, "paste_error", None)
+                    error_message = (
+                        paste_error_factory(detail)
+                        if callable(paste_error_factory)
+                        else (
+                            messages.processing_error(detail)
+                            if callable(getattr(messages, "processing_error", None))
+                            else f"Paste failed: {detail}"
+                        )
+                    )
+                    return DictationWorkflowResult(
+                        raw_text=raw_text,
+                        final_text=final_text,
+                        pasted=False,
+                        error_code="paste_failed",
+                        error_message=error_message,
+                        warnings=warnings,
+                        recording_id=recording_id,
+                        billing=billing,
+                    )
+
+            if recording_id and self._recording_store is not None:
+                self._recording_store.update(
+                    recording_id,
+                    "success",
+                    raw_text,
+                    error=None,
+                    billing=billing,
+                )
 
             return DictationWorkflowResult(
                 raw_text=raw_text,

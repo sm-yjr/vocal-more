@@ -47,6 +47,7 @@ from .waveform_calibration import (
 VALID_HOTKEYS = (
     "fn",
 )
+VALID_LINUX_ACCELERATORS = tuple(f"F{number}" for number in range(8, 13))
 LEGACY_BUILT_IN_HOTKEYS = (
     "right_cmd",
     "double_cmd",
@@ -153,6 +154,10 @@ class HotkeyConfig:
     active_hotkeys: list[str] = field(default_factory=lambda: ["fn"])
     custom_key: Optional[dict] = None
     custom_keys: list[dict] = field(default_factory=list)
+    # GNOME Shell 50 exposes these function-key accelerators to the Linux
+    # host.  Keep the field platform-neutral so config round-trips remain
+    # portable across macOS/Windows/Linux installations.
+    linux_accelerator: str = "F8"
 
 
 @dataclass
@@ -210,6 +215,16 @@ def _parse_builtin_hotkey(raw: object) -> str:
     if canonical in LEGACY_BUILT_IN_HOTKEYS:
         return "fn"
     return "fn"
+
+
+def _parse_linux_accelerator(raw: object) -> str:
+    """Normalize the Linux trigger to the supported F8-F12 range."""
+    if not isinstance(raw, str):
+        return "F8"
+    normalized = raw.strip().upper()
+    if normalized in VALID_LINUX_ACCELERATORS:
+        return normalized
+    return "F8"
 
 
 def _parse_hotkeys(raw: list) -> list[str]:
@@ -687,6 +702,8 @@ class AppConfig:
                 if self.hotkey.custom_keys
                 else None
             )
+        elif field_name == "linux_accelerator":
+            self.hotkey.linux_accelerator = _parse_linux_accelerator(value)
         else:
             raise ValueError(f"Unknown config key: hotkey.{field_name}")
 
@@ -799,6 +816,7 @@ class AppConfig:
                         else []
                     )
                 ),
+                "linux_accelerator": self.hotkey.linux_accelerator,
             },
             "ui": {
                 "language": self.ui.language,
@@ -855,9 +873,11 @@ __all__ = [
     "UIConfig",
     "VALID_DEFAULT_MODES",
     "VALID_HOTKEYS",
+    "VALID_LINUX_ACCELERATORS",
     "_parse_asr_language",
     "_parse_asr_model",
     "_parse_hotkeys",
+    "_parse_linux_accelerator",
     "_parse_level",
     "_parse_llm_model",
     "_parse_persona",

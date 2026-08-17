@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import sys
 
 import pytest
 import yaml
@@ -171,6 +172,10 @@ def test_config_get_config_dir(monkeypatch):
             if roaming
             else Path.home() / "AppData" / "Roaming" / "Vocal More"
         )
+    elif sys.platform.startswith("linux"):
+        expected = Path(
+            os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")
+        ) / "vocal-more"
     else:
         expected = Path.home() / ".vocal-more"
     assert config_dir == expected

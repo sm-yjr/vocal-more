@@ -1,0 +1,9 @@
+{
+  "uuid": "vocal-more@sm-yjr.com",
+  "name": "Vocal More",
+  "description": "Wayland-first voice dictation controls for Vocal More.",
+  "version": 1,
+  "shell-version": ["50"],
+  "url": "https://github.com/sm-yjr/vocal-more",
+  "settings-schema": "org.gnome.shell.extensions.vocal-more"
+}

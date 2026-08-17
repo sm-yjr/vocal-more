@@ -107,6 +107,10 @@ def _platform_app_provider() -> Callable[[], str]:
         from ..infrastructure.macos_app_context import frontmost_bundle_id
 
         return frontmost_bundle_id
+    if system == "Linux":
+        from ..infrastructure.linux_app_context import current_desktop_app_id
+
+        return current_desktop_app_id
     return lambda: ""
 
 

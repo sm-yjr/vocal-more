@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Vocal More
+Comment=Fast, low-voice dictation for GNOME Wayland
+Exec=vocal-more --settings
+Icon=com.sm_yjr.VocalMore
+Terminal=false
+Categories=Utility;Accessibility;Audio;
+StartupNotify=true
+DBusActivatable=false
+X-GNOME-UsesNotifications=true

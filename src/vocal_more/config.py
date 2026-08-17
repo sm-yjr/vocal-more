@@ -22,9 +22,11 @@ from .domain.config_models import (
     UIConfig,
     VALID_DEFAULT_MODES,
     VALID_HOTKEYS,
+    VALID_LINUX_ACCELERATORS,
     _parse_asr_language,
     _parse_asr_model,
     _parse_hotkeys,
+    _parse_linux_accelerator,
     _parse_level,
     _parse_llm_model,
     _parse_persona,
@@ -35,7 +37,7 @@ from .domain.config_models import (
     get_llm_model_info,
 )
 from .domain.model_catalog import ASR_MODEL_CATALOG, LLM_MODEL_CATALOG
-from .paths import default_data_dir
+from .paths import default_app_paths
 
 
 class Config(AppConfig):
@@ -43,7 +45,17 @@ class Config(AppConfig):
 
     @classmethod
     def get_config_dir(cls) -> Path:
-        return default_data_dir()
+        return default_app_paths().base_dir
+
+    @classmethod
+    def get_data_dir(cls) -> Path:
+        """Return the XDG data root (or the legacy root on other platforms)."""
+        return default_app_paths().data_dir
+
+    @classmethod
+    def get_state_dir(cls) -> Path:
+        """Return the XDG state/log root (or the legacy root on other platforms)."""
+        return default_app_paths().state_dir
 
     @classmethod
     def get_config_path(cls) -> Path:
@@ -52,6 +64,9 @@ class Config(AppConfig):
     @classmethod
     def load(cls) -> "Config":
         from .infrastructure.config_repository import ConfigRepository
+        from .paths import ensure_legacy_linux_migration
+
+        ensure_legacy_linux_migration()
 
         config = ConfigRepository(
             base_dir=cls.get_config_dir(),
@@ -121,9 +136,11 @@ __all__ = [
     "UIConfig",
     "VALID_DEFAULT_MODES",
     "VALID_HOTKEYS",
+    "VALID_LINUX_ACCELERATORS",
     "_parse_asr_language",
     "_parse_asr_model",
     "_parse_hotkeys",
+    "_parse_linux_accelerator",
     "_parse_level",
     "_parse_llm_model",
     "_parse_persona",

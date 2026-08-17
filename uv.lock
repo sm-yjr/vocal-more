@@ -1528,11 +1528,11 @@ version = "0.3.17"
 source = { editable = "." }
 dependencies = [
     { name = "dashscope" },
-    { name = "pynput" },
+    { name = "pynput", marker = "sys_platform != 'linux'" },
     { name = "pyobjc-framework-avfoundation", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-webkit", marker = "sys_platform == 'darwin'" },
-    { name = "pyperclip" },
+    { name = "pyperclip", marker = "sys_platform != 'linux'" },
     { name = "pyyaml" },
     { name = "requests" },
     { name = "rumps", marker = "sys_platform == 'darwin'" },
@@ -1554,11 +1554,11 @@ packaging = [
 [package.metadata]
 requires-dist = [
     { name = "dashscope", specifier = "==1.25.9" },
-    { name = "pynput", specifier = ">=1.7.6" },
+    { name = "pynput", marker = "sys_platform != 'linux'", specifier = ">=1.7.6" },
     { name = "pyobjc-framework-avfoundation", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
     { name = "pyobjc-framework-webkit", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
-    { name = "pyperclip", specifier = ">=1.8.2" },
+    { name = "pyperclip", marker = "sys_platform != 'linux'", specifier = ">=1.8.2" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.32.0" },
     { name = "rumps", marker = "sys_platform == 'darwin'", specifier = ">=0.4.0" },

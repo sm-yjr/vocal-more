@@ -9,6 +9,8 @@ __all__ = [
     "TextPolisher",
     "HotkeyManager",
     "KeyboardSimulator",
+    "PasteOutcome",
+    "TextOutputPort",
 ]
 
 _PUBLIC_IMPORTS = {
@@ -17,6 +19,8 @@ _PUBLIC_IMPORTS = {
     "TextPolisher": (".text_polisher", "TextPolisher"),
     "HotkeyManager": (".hotkey_manager", "HotkeyManager"),
     "KeyboardSimulator": (".keyboard_sim", "KeyboardSimulator"),
+    "PasteOutcome": (".text_output", "PasteOutcome"),
+    "TextOutputPort": (".text_output", "TextOutputPort"),
 }
 
 
