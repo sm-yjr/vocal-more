@@ -258,6 +258,18 @@ jobs:
           delta_files=("$updates_dir"/*.delta)
           shopt -u nullglob
 
+          for delta_path in "${delta_files[@]}"; do
+            delta_name="$(basename "$delta_path")"
+            normalized_name="${delta_name// /.}"
+            if [[ "$normalized_name" != "$delta_name" ]]; then
+              mv "$delta_path" "$updates_dir/$normalized_name"
+            fi
+          done
+          python3 packaging/macos/normalize_appcast_urls.py "$updates_dir/appcast.xml"
+          shopt -s nullglob
+          delta_files=("$updates_dir"/*.delta)
+          shopt -u nullglob
+
           if (( previous_archives > 0 && ${#delta_files[@]} == 0 )); then
             echo "Historical DMGs were available, but Sparkle generated no delta updates." >&2
             exit 1
@@ -266,6 +278,11 @@ jobs:
           if (( ${#delta_files[@]} > 0 )); then
             grep -q "<sparkle:deltas>" "$updates_dir/appcast.xml"
             grep -q "sparkle:deltaFrom=" "$updates_dir/appcast.xml"
+            grep -q "/releases/download/$tag/$archive_name" "$updates_dir/appcast.xml"
+            if grep -q '%20' "$updates_dir/appcast.xml"; then
+              echo "Sparkle appcast contains a GitHub-normalized asset mismatch." >&2
+              exit 1
+            fi
             gh release upload "$tag" "${delta_files[@]}" --clobber
           fi
 
