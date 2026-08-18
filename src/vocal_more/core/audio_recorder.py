@@ -13,6 +13,7 @@ import wave
 from typing import Callable, Optional
 
 import sounddevice as sd
+import numpy as np
 
 from ..config import get_config
 from ..domain.audio_contract import OUTPUT_CHANNELS, OUTPUT_SAMPLE_RATE_HZ
@@ -319,7 +320,7 @@ class AudioRecorder:
         # capsules, so treat them only as signals that can be coherently mixed.
         # The ASR wire format remains mono. This also fixes configured stereo
         # devices producing invalid interleaved data when HPF is disabled.
-        mono_input = self._coherent_array_downmix(indata, frames)
+        mono_input = self._mono_float32_input(indata, frames)
 
         # 1. High-pass filter: remove low-frequency rumble (fans, hum, plosives)
         if highpass_filter:
@@ -327,10 +328,11 @@ class AudioRecorder:
             alpha = self._hp_alpha
             prev_in = self._hp_prev_in
             prev_out = self._hp_prev_out
-            out = [0.0] * len(samples)
+            out = np.empty(len(samples), dtype=np.float32)
             for i, x in enumerate(samples):
-                prev_out = alpha * (prev_out + x - prev_in)
-                prev_in = x
+                sample = float(x)
+                prev_out = alpha * (prev_out + sample - prev_in)
+                prev_in = sample
                 out[i] = prev_out
             self._hp_prev_in = prev_in
             self._hp_prev_out = prev_out
@@ -339,14 +341,18 @@ class AudioRecorder:
             filtered = mono_input
 
         # 2. Compute RMS on filtered signal
-        rms = math.sqrt(math.fsum(value * value for value in filtered) / len(filtered)) if filtered else 0.0
+        rms = (
+            float(np.sqrt(np.mean(np.square(filtered, dtype=np.float64))))
+            if filtered.size
+            else 0.0
+        )
 
         # 3. Gain + limiter
         if gain != 1.0:
             if soft_limiter:
-                processed = [math.tanh(value * gain) for value in filtered]
+                processed = np.tanh(filtered * gain)
             else:
-                processed = [max(-1.0, min(1.0, value * gain)) for value in filtered]
+                processed = np.clip(filtered * gain, -1.0, 1.0)
         else:
             processed = filtered
 
@@ -388,13 +394,33 @@ class AudioRecorder:
 
     @staticmethod
     def _encode_pcm(processed) -> bytes:
-        return array(
-            "h",
-            (
-                int(max(-1.0, min(1.0, value)) * 32767)
-                for value in processed
-            ),
-        ).tobytes()
+        samples = np.asarray(processed, dtype=np.float32)
+        return (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+
+    @classmethod
+    def _mono_float32_input(cls, indata, frames: int) -> np.ndarray:
+        """Return a mono Float32 view for the common PortAudio callback path."""
+        frame_count = max(0, int(frames))
+        if frame_count == 0:
+            return np.empty(0, dtype=np.float32)
+
+        if isinstance(indata, (bytes, bytearray, memoryview)):
+            raw = np.frombuffer(indata, dtype=np.float32)
+            channels = max(1, raw.size // frame_count)
+            samples = raw[: frame_count * channels].reshape(frame_count, channels)
+        else:
+            samples = np.asarray(indata, dtype=np.float32)
+            if samples.ndim == 1:
+                samples = samples[:frame_count].reshape(frame_count, 1)
+            else:
+                samples = samples[:frame_count]
+
+        if samples.shape[1] == 1:
+            return samples[:, 0]
+        return np.asarray(
+            cls._coherent_array_downmix(samples, frame_count),
+            dtype=np.float32,
+        )
 
     def _native_pcm_callback(self, audio_data: bytes, rms: float) -> None:
         """Accept PCM produced by the native worker, never the realtime tap."""

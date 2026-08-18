@@ -2688,6 +2688,36 @@ def test_highpass_filter_matches_previous_sample_by_sample_implementation():
     assert np.max(np.abs(actual_pcm.astype(np.int32) - expected_pcm.astype(np.int32))) <= 1
 
 
+def test_portaudio_dsp_uses_vectorized_gain_limiter_and_encoding(monkeypatch):
+    """The compatibility callback must not call Python math per audio sample."""
+    import vocal_more.core.audio_recorder as audio_recorder_module
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    monkeypatch.setattr(
+        audio_recorder_module.math,
+        "tanh",
+        lambda _value: pytest.fail("sample-wise math.tanh must not run"),
+    )
+    frames = 640
+    recorder = AudioRecorder(sample_rate=16000, channels=1, blocksize=frames)
+    recorder._gain = 8.0
+    recorder._highpass_filter = True
+    recorder._soft_limiter = True
+    recorder._is_recording = True
+    chunks = []
+    recorder.on_audio_chunk = chunks.append
+
+    recorder._audio_callback(
+        np.linspace(-0.25, 0.25, frames, dtype=np.float32).reshape(-1, 1),
+        frames,
+        {},
+        0,
+    )
+
+    assert len(chunks) == 1
+    assert len(chunks[0]) == frames * 2
+
+
 def test_highpass_filter_is_continuous_across_callback_blocks():
     """Filter state must produce the same result for whole and split signals."""
     from vocal_more.core.audio_recorder import AudioRecorder

@@ -1593,10 +1593,12 @@ wheels = [
 
 [[package]]
 name = "vocal-more"
-version = "0.3.20"
+version = "0.3.21"
 source = { editable = "." }
 dependencies = [
     { name = "dashscope" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pynput" },
     { name = "pyobjc-framework-avfoundation", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
@@ -1610,8 +1612,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -1623,6 +1623,7 @@ packaging = [
 [package.metadata]
 requires-dist = [
     { name = "dashscope", specifier = "==1.25.23" },
+    { name = "numpy", specifier = ">=1.24.0" },
     { name = "pynput", specifier = ">=1.7.6" },
     { name = "pyobjc-framework-avfoundation", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
@@ -1636,7 +1637,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "numpy", specifier = ">=1.24.0" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "ruff", specifier = ">=0.16.3" },
 ]
