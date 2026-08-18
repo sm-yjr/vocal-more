@@ -61,6 +61,7 @@ ASR_MODEL_CATALOG = [
         "display_name": "Qwen Audio 3.0 Fast",
         "transport": "realtime_ws",
         "protocol": "audio_recognition",
+        "fallback_model": "qwen3-asr-flash",
         "supports_transcription_params": False,
         "input_audio_transcription_model": None,
         "handles_inline_polish": False,

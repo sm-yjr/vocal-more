@@ -953,6 +953,7 @@ def test_get_asr_model_info():
     assert info3 is not None
     assert info3["transport"] == "realtime_ws"
     assert info3["protocol"] == "audio_recognition"
+    assert info3["fallback_model"] == "qwen3-asr-flash"
     assert info3["handles_inline_polish"] is False
 
     assert get_asr_model_info("nonexistent") is None

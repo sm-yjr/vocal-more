@@ -87,7 +87,15 @@ class QwenAudioStreamingConversation:
         on_usage: Optional[Callable[[dict], None]] = None,
     ) -> None:
         self._closed = False
+        self._committing = False
         self._lock = threading.Lock()
+        self._send_lock = threading.Lock()
+        self._pending_audio = bytearray()
+        # DashScope recommends roughly 100 ms for Recognition binary frames.
+        # The macOS recorder normally supplies 40 ms blocks, so coalesce them
+        # here without changing the recorder's latency-sensitive contract.
+        self._frame_bytes = max(1, round(sample_rate * 2 * 0.1))
+        self._minimum_frame_bytes = max(1, round(sample_rate * 2 * 0.04))
         callback = _RecognitionCallbackBridge(
             on_ready=on_ready,
             on_partial=on_partial,
@@ -104,7 +112,22 @@ class QwenAudioStreamingConversation:
         if language:
             kwargs["language_hints"] = [language]
         if context_instruction:
-            kwargs["raw_input"] = context_instruction
+            # Recognition forwards ``raw_input`` as the run-task ``input``
+            # object. Qwen Audio 3.0 expects context messages under
+            # ``input.context``; a bare string makes the request malformed.
+            kwargs["raw_input"] = {
+                "context": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": context_instruction[:400],
+                            }
+                        ],
+                    }
+                ]
+            }
         self._recognition = Recognition(
             model=model,
             callback=callback,
@@ -123,15 +146,48 @@ class QwenAudioStreamingConversation:
         self.send_audio_frame(base64.b64decode(audio_b64))
 
     def send_audio_frame(self, pcm_bytes: bytes) -> None:
-        """Send PCM as a binary Recognition frame without JSON/Base64 transport."""
-        self._recognition.send_audio_frame(pcm_bytes)
+        """Coalesce recorder PCM into provider-sized binary frames."""
+        if not pcm_bytes:
+            return
+        with self._send_lock:
+            frames: list[bytes] = []
+            with self._lock:
+                if self._closed or self._committing:
+                    return
+                self._pending_audio.extend(pcm_bytes)
+                while len(self._pending_audio) >= self._frame_bytes:
+                    frames.append(bytes(self._pending_audio[: self._frame_bytes]))
+                    del self._pending_audio[: self._frame_bytes]
+            for frame in frames:
+                self._recognition.send_audio_frame(frame)
 
     def commit(self) -> None:
-        with self._lock:
-            if self._closed:
-                return
-            self._closed = True
-        self._recognition.stop()
+        with self._send_lock:
+            with self._lock:
+                if self._closed or self._committing:
+                    return
+                self._committing = True
+                trailing_audio = bytes(self._pending_audio)
+                self._pending_audio.clear()
+            if trailing_audio:
+                if len(trailing_audio) < self._minimum_frame_bytes:
+                    trailing_audio = trailing_audio.ljust(self._minimum_frame_bytes, b"\0")
+                try:
+                    self._recognition.send_audio_frame(trailing_audio)
+                except Exception:
+                    with self._lock:
+                        self._pending_audio[:0] = trailing_audio
+                        self._committing = False
+                    raise
+            try:
+                self._recognition.stop()
+            except Exception:
+                with self._lock:
+                    self._committing = False
+                raise
+            with self._lock:
+                self._closed = True
+                self._committing = False
 
     def create_response(self) -> None:
         """The dedicated ASR model has no inline response channel."""

@@ -920,6 +920,14 @@ class BatchASREngine:
             for offset in range(0, len(audio_data), REALTIME_CHUNK_SIZE):
                 chunk = audio_data[offset:offset + REALTIME_CHUNK_SIZE]
                 conversation.send_audio_frame(chunk)
+                # This path replays an already-recorded buffer. Recognition is
+                # a realtime protocol, so preserve the audio clock instead of
+                # flooding the WebSocket and immediately finishing the task.
+                if offset + len(chunk) < len(audio_data):
+                    time.sleep(
+                        len(chunk)
+                        / (self.config.audio.sample_rate * PCM_SAMPLE_WIDTH_BYTES)
+                    )
             conversation.commit()
             if not completed.wait(timeout=30.0):
                 trace.recognition_timed_out = True
@@ -2162,8 +2170,29 @@ class ASREngine:
 
     def _transcribe_batch_fallback(self, pcm_data: bytes) -> str:
         kwargs = {}
+        model_info = get_asr_model_info(self._session_model_id)
+        fallback_model = model_info.get("fallback_model") if model_info else None
         if self._context_instruction:
             kwargs["context_instruction"] = self._context_instruction
+        if fallback_model:
+            if self._batch_fallback._supports_short_file(pcm_data):
+                kwargs["model_override"] = fallback_model
+            else:
+                chunks = self._batch_fallback._split_audio_for_batch(
+                    pcm_data,
+                    max_duration_seconds=SHORT_FILE_MAX_DURATION_SECONDS,
+                )
+                transcripts = []
+                for chunk in chunks:
+                    chunk_text = self._batch_fallback.transcribe(
+                        chunk,
+                        model_override=fallback_model,
+                        allow_chunking=False,
+                        **kwargs,
+                    )
+                    if chunk_text.strip():
+                        transcripts.append(chunk_text.strip())
+                return _join_transcript_segments(transcripts)
         return self._batch_fallback.transcribe(pcm_data, **kwargs)
 
     def _close_conversation(self, conversation: Optional[Any]) -> None:
@@ -3159,12 +3188,33 @@ class ASREngine:
         if self._conversation:
             with self._lock:
                 self._conversation_is_clean = False
+            commit_error = ""
             try:
                 self._conversation.commit()
                 if self._callback:
                     self._callback.mark_client_event("client.commit")
-            except Exception:
-                pass
+            except Exception as exc:
+                commit_error = str(exc)
+                print(f"[StreamingASR] Commit failed: {commit_error}")
+
+            if commit_error:
+                self._log_fallback("commit_failed", error=commit_error)
+                if self._callback:
+                    self._callback.mark_client_event(
+                        "client.fallback.started",
+                        reason="commit_failed",
+                    )
+                self._finish_active_trace(
+                    pcm_data,
+                    result_source="batch_fallback" if pcm_data else "empty",
+                    fallback_reason="commit_failed",
+                )
+                self._close_session_pair(expected_generation=stop_generation)
+                if pcm_data:
+                    result = self._transcribe_batch_fallback(pcm_data)
+                    self._last_metering = self._batch_fallback.get_last_metering()
+                    return result
+                return ""
 
             should_request_response = bool(
                 self._callback

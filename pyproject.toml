@@ -1,6 +1,6 @@
 [project]
 name = "vocal-more"
-version = "0.3.18"
+version = "0.3.19"
 description = "Desktop voice recognition app for macOS and Windows with real-time ASR and text polishing"
 readme = "README.md"
 license = "GPL-3.0-only"
