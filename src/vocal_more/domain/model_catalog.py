@@ -67,6 +67,17 @@ ASR_MODEL_CATALOG = [
         "input_audio_transcription_model": None,
         "handles_inline_polish": True,
     },
+    {
+        "id": "qwen-audio-3.0-realtime-plus",
+        "display_name": "Qwen Audio 3.0 Realtime Plus",
+        "transport": "realtime_ws",
+        "protocol": "realtime_conversation",
+        "supports_transcription_params": False,
+        "input_audio_transcription_model": None,
+        "voice": "longanqian",
+        "handles_inline_polish": True,
+        "always_request_response": True,
+    },
     {"separator": True, "display_name": "───────────"},
     {
         "id": "qwen-audio-3.0-asr-flash-streaming",

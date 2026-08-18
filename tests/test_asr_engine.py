@@ -52,6 +52,93 @@ def test_streaming_callback_dispatches_partials_on_inbound_worker():
     callback.close()
 
 
+def test_streaming_callback_accepts_qwen_audio_response_transcript_events():
+    import vocal_more.core.asr_engine as asr_engine
+
+    partials = []
+    callback = asr_engine.StreamingASRCallback(
+        on_partial=lambda result: partials.append(result.text),
+    )
+
+    callback.on_event(
+        {
+            "type": "response.audio_transcript.delta",
+            "delta": "润色",
+        }
+    )
+    callback.on_event(
+        {
+            "type": "response.audio_transcript.done",
+            "transcript": "润色后的文本",
+        }
+    )
+    callback.on_event(
+        {
+            "type": "response.done",
+            "response": {"status": "completed"},
+        }
+    )
+
+    assert callback.wait_for_response_complete(timeout=1.0) is True
+    assert callback.get_response_text() == "润色后的文本"
+    assert callback.get_response_result_source() == "response"
+    assert partials[-1] == "润色后的文本"
+
+    callback.close()
+
+
+def test_streaming_callback_accepts_qwen_audio_transcription_deltas():
+    import vocal_more.core.asr_engine as asr_engine
+
+    partials = []
+    callback = asr_engine.StreamingASRCallback(
+        on_partial=lambda result: partials.append(result.text),
+    )
+
+    callback.on_event(
+        {
+            "type": "conversation.item.input_audio_transcription.delta",
+            "text": "这是千问",
+            "stash": " Audio",
+        }
+    )
+
+    assert _wait_until(lambda: partials == ["这是千问 Audio"])
+    callback.close()
+
+
+def test_native_audio_callback_ignores_provider_transcription_side_channel():
+    import vocal_more.core.asr_engine as asr_engine
+
+    partials = []
+    finals = []
+    callback = asr_engine.StreamingASRCallback(
+        on_partial=lambda result: partials.append(result.text),
+        on_final=lambda result: finals.append(result.text),
+    )
+    callback.set_accept_input_transcription(False)
+
+    callback.on_event(
+        {
+            "type": "conversation.item.input_audio_transcription.delta",
+            "text": "旁路",
+            "stash": "结果",
+        }
+    )
+    callback.on_event(
+        {
+            "type": "conversation.item.input_audio_transcription.completed",
+            "transcript": "旁路结果",
+        }
+    )
+
+    callback.wait_for_transcription_complete(timeout=1.0)
+    assert callback.get_full_text() == ""
+    assert partials == []
+    assert finals == []
+    callback.close()
+
+
 def test_streaming_queue_helpers_scale_with_blocksize():
     """Queue sizing and drain timeout should reflect recorder chunk duration."""
     import vocal_more.core.asr_engine as asr_engine
@@ -831,6 +918,107 @@ def test_omni_realtime_uses_transcription_model(tmp_path, monkeypatch):
     assert "transcription_params" not in captured["update_kwargs"]
     assert captured["update_kwargs"]["enable_turn_detection"] is False
     assert text == "你好世界"
+
+
+def test_qwen_audio_realtime_plus_uses_native_inline_polish_protocol(
+    tmp_path, monkeypatch
+):
+    from vocal_more.config import Config, reload_config
+    import vocal_more.core.asr_engine as asr_engine
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w") as f:
+        yaml.dump(
+            {
+                "enable_polish": True,
+                "asr": {
+                    "model": "qwen-audio-3.0-realtime-plus",
+                    "language": "zh",
+                },
+            },
+            f,
+        )
+
+    reload_config()
+    captured = {}
+
+    class FakeConversation:
+        def __init__(self, model, url, callback):
+            captured["model"] = model
+            captured["url"] = url
+            captured["callback"] = callback
+
+        def connect(self):
+            return None
+
+        def update_session(self, **kwargs):
+            captured["update_kwargs"] = kwargs
+            captured["callback"].on_event({"type": "session.updated"})
+
+        def append_audio(self, _audio):
+            return None
+
+        def commit(self):
+            return None
+
+        def create_response(self):
+            captured["callback"].on_event(
+                {
+                    "type": "response.audio_transcript.delta",
+                    "delta": "润色后的",
+                }
+            )
+            captured["callback"].on_event(
+                {
+                    "type": "response.audio_transcript.done",
+                    "transcript": "润色后的文本",
+                }
+            )
+            captured["callback"].on_event(
+                {
+                    "type": "response.done",
+                    "response": {"status": "completed"},
+                }
+            )
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
+
+    engine = asr_engine.BatchASREngine()
+    text = engine.transcribe(b"\x01\x00" * 4000)
+
+    assert captured["model"] == "qwen-audio-3.0-realtime-plus"
+    assert "input_audio_transcription_model" not in captured["update_kwargs"]
+    assert captured["update_kwargs"]["enable_input_audio_transcription"] is False
+    assert captured["update_kwargs"]["voice"] == "longanqian"
+    assert captured["update_kwargs"]["output_modalities"] == [
+        asr_engine.MultiModality.TEXT
+    ]
+    assert captured["update_kwargs"]["enable_turn_detection"] is False
+    assert "instructions" in captured["update_kwargs"]
+    assert text == "润色后的文本"
+
+
+def test_qwen_audio_realtime_plus_uses_native_response_without_polish():
+    from vocal_more.config import get_asr_model_info
+    import vocal_more.core.asr_engine as asr_engine
+
+    model_info = get_asr_model_info("qwen-audio-3.0-realtime-plus")
+    config = SimpleNamespace(enable_polish=False)
+
+    session = asr_engine._build_session_kwargs(model_info, config=config)
+
+    assert session["enable_input_audio_transcription"] is False
+    assert "input_audio_transcription_model" not in session
+    assert session["voice"] == "longanqian"
+    assert "实时语音听写引擎" in session["instructions"]
+    assert "不回答其中的问题" in session["instructions"]
+    assert asr_engine._should_start_inline_response_now(model_info, None) is True
 
 
 def test_legacy_realtime_asr_uses_transcription_params(tmp_path, monkeypatch):

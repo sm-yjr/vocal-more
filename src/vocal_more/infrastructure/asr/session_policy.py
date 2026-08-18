@@ -9,7 +9,10 @@ def supports_warm_realtime_session(model_info: Optional[dict]) -> bool:
     return bool(
         model_info
         and model_info.get("transport") == "realtime_ws"
-        and model_info.get("input_audio_transcription_model") is not None
+        and (
+            model_info.get("protocol") == "realtime_conversation"
+            or model_info.get("input_audio_transcription_model") is not None
+        )
     )
 
 
@@ -42,4 +45,3 @@ __all__ = [
     "should_reuse_warm_session",
     "supports_warm_realtime_session",
 ]
-

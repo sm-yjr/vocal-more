@@ -52,6 +52,27 @@ def test_omni_realtime_uses_usage_breakdown_when_available():
     assert billing["cost_cny"] == 0.00483
 
 
+def test_qwen_audio_realtime_plus_uses_official_token_prices():
+    billing = build_asr_billing(
+        model="qwen-audio-3.0-realtime-plus",
+        audio_seconds=5.0,
+        usage={
+            "input_tokens": 110,
+            "output_tokens": 20,
+            "total_tokens": 130,
+            "input_tokens_details": {"audio_tokens": 100, "text_tokens": 10},
+            "output_tokens_details": {"text_tokens": 20},
+        },
+    )
+
+    assert billing is not None
+    assert billing["pricing_basis"] == "token_usage"
+    assert billing["cost_breakdown_cny"]["input_audio"] == 0.004
+    assert billing["cost_breakdown_cny"]["input_text"] == 0.00005
+    assert billing["cost_breakdown_cny"]["output_text"] == 0.0008
+    assert billing["cost_cny"] == 0.00485
+
+
 def test_omni_estimates_audio_tokens_when_usage_missing():
     billing = build_asr_billing(
         model="qwen3.5-omni-flash",

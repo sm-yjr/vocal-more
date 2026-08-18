@@ -81,6 +81,7 @@ from ..infrastructure.pricing import (
 )
 from .text_polisher import (
     TextPolisher,
+    build_native_dictation_instructions,
     build_omni_inline_polish_instructions,
     normalize_structured_list_spacing,
 )
@@ -171,9 +172,22 @@ def _build_session_kwargs(
         enable_input_audio_transcription=True,
         enable_turn_detection=False,
     )
-    if model_info and model_info.get("input_audio_transcription_model") is not None:
-        # Omni models require a voice even for text-only output.
-        session_kwargs["voice"] = "Tina"
+    if model_info and model_info.get("protocol") == "realtime_conversation":
+        session_kwargs["voice"] = model_info.get("voice", "longanqian")
+        session_kwargs["enable_input_audio_transcription"] = False
+        if config.enable_polish:
+            session_kwargs["instructions"] = build_omni_inline_polish_instructions(
+                config.llm,
+                context_instruction=context_instruction,
+            )
+        else:
+            session_kwargs["instructions"] = build_native_dictation_instructions(
+                context_instruction=context_instruction,
+            )
+    elif model_info and model_info.get("input_audio_transcription_model") is not None:
+        # Realtime conversation models require a model-compatible voice even
+        # for text-only output.
+        session_kwargs["voice"] = model_info.get("voice", "Tina")
         session_kwargs["input_audio_transcription_model"] = model_info[
             "input_audio_transcription_model"
         ]
@@ -203,9 +217,21 @@ def _should_start_inline_response_now(
 ) -> bool:
     """Decide whether to issue response.create immediately after commit."""
     config = get_config()
+    if model_info and model_info.get("always_request_response"):
+        return True
     if not (config.enable_polish and model_info and model_info.get("handles_inline_polish")):
         return False
     return True
+
+
+def _is_realtime_conversation_model(model_info: Optional[dict]) -> bool:
+    return bool(
+        model_info
+        and (
+            model_info.get("protocol") == "realtime_conversation"
+            or model_info.get("input_audio_transcription_model") is not None
+        )
+    )
 
 
 def _get_omni_offline_fallback_model(model_id: str) -> Optional[str]:
@@ -383,6 +409,7 @@ class BatchASRCallback(OmniRealtimeCallback):
         on_final: Optional[Callable[[str], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
         on_complete: Optional[Callable[[], None]] = None,
+        accept_input_transcription: bool = True,
     ):
         self._on_text = on_text
         self._on_final = on_final
@@ -394,6 +421,9 @@ class BatchASRCallback(OmniRealtimeCallback):
         self._session_finished = threading.Event()
         self._session_updated = threading.Event()
         self._transcription_completed = threading.Event()
+        self._accept_input_transcription = accept_input_transcription
+        if not accept_input_transcription:
+            self._transcription_completed.set()
         self._response_completed = threading.Event()
         self._response_started = threading.Event()
         self._started_at = time.perf_counter()
@@ -457,15 +487,23 @@ class BatchASRCallback(OmniRealtimeCallback):
                 print("[ASRCallback] Session updated, ready to receive audio")
                 self._session_updated.set()
 
-            elif event_type == "conversation.item.input_audio_transcription.text":
-                text = response.get("text", "") or response.get("stash", "")
+            elif event_type in (
+                "conversation.item.input_audio_transcription.text",
+                "conversation.item.input_audio_transcription.delta",
+            ) and self._accept_input_transcription:
+                finalized = str(response.get("text", "") or "")
+                tentative = str(response.get("stash", "") or "")
+                text = finalized + tentative
                 if text and self._debug_trace is not None:
                     self._debug_trace.partial_texts.append(text)
                     self._record_event(event_type, **metadata, text=text)
                 if text and self._on_text:
                     self._on_text(text)
 
-            elif event_type == "conversation.item.input_audio_transcription.completed":
+            elif (
+                event_type == "conversation.item.input_audio_transcription.completed"
+                and self._accept_input_transcription
+            ):
                 transcript = response.get("transcript", "")
                 print(f"[ASRCallback] Final transcript: {transcript}")
                 with self._lock:
@@ -485,8 +523,16 @@ class BatchASRCallback(OmniRealtimeCallback):
                         self._response_text += delta
                     self._record_event(event_type, **metadata, delta=delta)
 
-            elif event_type == "response.text.done":
-                text = response.get("text", "")
+            elif event_type == "response.audio_transcript.delta":
+                delta = response.get("delta", "")
+                if delta:
+                    self._response_started.set()
+                    with self._lock:
+                        self._response_text += delta
+                    self._record_event(event_type, **metadata, delta=delta)
+
+            elif event_type in ("response.text.done", "response.audio_transcript.done"):
+                text = response.get("text", "") or response.get("transcript", "")
                 self._response_started.set()
                 self._response_text_done_received = True
                 with self._lock:
@@ -558,7 +604,12 @@ class BatchASRCallback(OmniRealtimeCallback):
                 self._session_finished.set()
                 self._record_event(event_type, **metadata, transcript=transcript)
 
-            elif event_type == "error":
+            elif event_type in (
+                "error",
+                "conversation.item.input_audio_transcription.failed",
+            ) and (
+                event_type == "error" or self._accept_input_transcription
+            ):
                 error_msg = response.get("error", {}).get("message", str(response))
                 print(f"[ASRCallback] Error: {error_msg}")
                 self._transcription_completed.set()
@@ -1125,7 +1176,13 @@ class BatchASREngine:
             error_msg = msg
             trace.error = msg
 
-        callback = BatchASRCallback(on_error=on_error)
+        model_info = get_asr_model_info(model)
+        callback = BatchASRCallback(
+            on_error=on_error,
+            accept_input_transcription=not bool(
+                model_info and model_info.get("always_request_response")
+            ),
+        )
         callback.set_debug_trace(trace)
         conversation: Optional[OmniRealtimeConversation] = None
 
@@ -1137,7 +1194,6 @@ class BatchASREngine:
             )
             conversation.connect()
 
-            model_info = get_asr_model_info(model)
             session_kwargs = _build_session_kwargs(
                 model_info,
                 config=self.config,
@@ -1243,8 +1299,8 @@ class BatchASREngine:
             print(f"[BatchASR] Final result: '{result_text}'")
 
             # Omni models don't support end_session; skip it and just close
-            is_omni = model_info and model_info.get("input_audio_transcription_model") is not None
-            if not is_omni:
+            is_realtime_conversation = _is_realtime_conversation_model(model_info)
+            if not is_realtime_conversation:
                 try:
                     conversation.end_session(timeout=5)
                     if not callback.wait_for_finish(timeout=5.0):
@@ -1481,6 +1537,7 @@ class StreamingASRCallback(OmniRealtimeCallback):
         self._lock = threading.Lock()
         self._session_updated = threading.Event()
         self._transcription_completed = threading.Event()
+        self._accept_input_transcription = True
         self._complete_event = threading.Event()
         self._response_completed = threading.Event()
         self._response_started = threading.Event()
@@ -1516,6 +1573,14 @@ class StreamingASRCallback(OmniRealtimeCallback):
         self._on_partial = on_partial
         self._on_final = on_final
         self._on_error = on_error
+
+    def set_accept_input_transcription(self, accept: bool) -> None:
+        """Control whether provider transcription side-channel events may affect results."""
+        self._accept_input_transcription = accept
+        if accept:
+            self._transcription_completed.clear()
+        else:
+            self._transcription_completed.set()
 
     def _elapsed_ms(self) -> float:
         return round((time.perf_counter() - self._started_at) * 1000, 2)
@@ -1656,11 +1721,19 @@ class StreamingASRCallback(OmniRealtimeCallback):
             elif event_type == "session.updated":
                 inbound_event["kind"] = "session_updated"
 
-            elif event_type == "conversation.item.input_audio_transcription.text":
+            elif event_type in (
+                "conversation.item.input_audio_transcription.text",
+                "conversation.item.input_audio_transcription.delta",
+            ) and self._accept_input_transcription:
                 inbound_event["kind"] = "transcript_partial"
-                inbound_event["text"] = response.get("text", "") or response.get("stash", "")
+                finalized = str(response.get("text", "") or "")
+                tentative = str(response.get("stash", "") or "")
+                inbound_event["text"] = finalized + tentative
 
-            elif event_type == "conversation.item.input_audio_transcription.completed":
+            elif (
+                event_type == "conversation.item.input_audio_transcription.completed"
+                and self._accept_input_transcription
+            ):
                 inbound_event["kind"] = "transcript_completed"
                 inbound_event["transcript"] = response.get("transcript", "")
 
@@ -1668,9 +1741,15 @@ class StreamingASRCallback(OmniRealtimeCallback):
                 inbound_event["kind"] = "response_delta"
                 inbound_event["delta"] = response.get("delta", "")
 
-            elif event_type == "response.text.done":
+            elif event_type == "response.audio_transcript.delta":
+                inbound_event["kind"] = "response_delta"
+                inbound_event["delta"] = response.get("delta", "")
+
+            elif event_type in ("response.text.done", "response.audio_transcript.done"):
                 inbound_event["kind"] = "response_text_done"
-                inbound_event["text"] = response.get("text", "")
+                inbound_event["text"] = response.get("text", "") or response.get(
+                    "transcript", ""
+                )
 
             elif event_type == "response.content_part.done":
                 inbound_event["kind"] = "response_content_part_done"
@@ -1703,7 +1782,12 @@ class StreamingASRCallback(OmniRealtimeCallback):
                 inbound_event["kind"] = "session_finished"
                 inbound_event["transcript"] = response.get("transcript", "")
 
-            elif event_type == "error":
+            elif event_type in (
+                "error",
+                "conversation.item.input_audio_transcription.failed",
+            ) and (
+                event_type == "error" or self._accept_input_transcription
+            ):
                 inbound_event["kind"] = "error"
                 inbound_event["error_message"] = response.get("error", {}).get("message", str(response))
 
@@ -2024,6 +2108,8 @@ class StreamingASRCallback(OmniRealtimeCallback):
             self._response_output_item_status = ""
         self._session_updated.clear()
         self._transcription_completed.clear()
+        if not self._accept_input_transcription:
+            self._transcription_completed.set()
         self._complete_event.clear()
         self._response_started.clear()
         self._response_completed.clear()
@@ -2293,6 +2379,9 @@ class ASREngine:
         is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> Any:
         session_config = session_config or self._session_config
+        callback.set_accept_input_transcription(
+            not bool(model_info and model_info.get("always_request_response"))
+        )
         if model_info and model_info.get("protocol") == "audio_recognition":
             conversation = QwenAudioStreamingConversation(
                 model=model_id,
@@ -3160,7 +3249,7 @@ class ASREngine:
 
         self._is_running = False
         model_info = get_asr_model_info(self._session_model_id)
-        is_omni = bool(model_info and model_info.get("input_audio_transcription_model") is not None)
+        is_realtime_conversation = _is_realtime_conversation_model(model_info)
         transcript_result = ""
         response_result = ""
         response_requested = False
@@ -3175,7 +3264,9 @@ class ASREngine:
             self._session_model_id,
             audio_duration_seconds,
         )
-        skip_inline_response = bool(pcm_data and is_omni and direct_offline_model)
+        skip_inline_response = bool(
+            pcm_data and is_realtime_conversation and direct_offline_model
+        )
         response_start_timeout = min(
             max(timeout, INLINE_RESPONSE_START_TIMEOUT_SECONDS),
             _adaptive_response_start_timeout(audio_duration_seconds),
@@ -3309,7 +3400,7 @@ class ASREngine:
                         context_instruction=self._context_instruction,
                     )
 
-            if not is_omni:
+            if not is_realtime_conversation:
                 try:
                     self._conversation.end_session(timeout=5)
                     if self._callback:

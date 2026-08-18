@@ -19,6 +19,12 @@ _ASR_AUDIO_SECONDS_PRICING = {
 }
 
 _OMNI_PRICING = {
+    "qwen-audio-3.0-realtime-plus": {
+        "input_text": 5.0,
+        "input_audio": 40.0,
+        "output_text": 40.0,
+        "output_audio": 150.0,
+    },
     "qwen3.5-omni-plus": {
         "input_text": 7.0,
         "input_audio": 53.0,

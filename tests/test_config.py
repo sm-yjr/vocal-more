@@ -968,6 +968,16 @@ def test_get_asr_model_info():
     assert info3["fallback_model"] == "qwen3-asr-flash"
     assert info3["handles_inline_polish"] is False
 
+    info4 = get_asr_model_info("qwen-audio-3.0-realtime-plus")
+    assert info4 is not None
+    assert info4["display_name"] == "Qwen Audio 3.0 Realtime Plus"
+    assert info4["transport"] == "realtime_ws"
+    assert info4["protocol"] == "realtime_conversation"
+    assert info4["input_audio_transcription_model"] is None
+    assert info4["voice"] == "longanqian"
+    assert info4["handles_inline_polish"] is True
+    assert info4["always_request_response"] is True
+
     assert get_asr_model_info("nonexistent") is None
 
 
