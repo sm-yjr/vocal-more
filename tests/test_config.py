@@ -884,6 +884,8 @@ def test_parse_llm_model_valid():
     """Test _parse_llm_model accepts valid catalog model IDs."""
     from vocal_more.config import _parse_llm_model
 
+    assert _parse_llm_model("qwen3.7-plus") == "qwen3.7-plus"
+    assert _parse_llm_model("qwen3.7-flash") == "qwen3.7-flash"
     assert _parse_llm_model("qwen3.6-plus") == "qwen3.6-plus"
     assert _parse_llm_model("qwen3.5-plus") == "qwen3.5-plus"
 
@@ -930,6 +932,16 @@ def test_get_llm_model_info():
     assert info["display_name"] == "Qwen 3.5 Plus"
     assert info["api"] == "multimodal_conversation"
     assert info["supports_thinking"] is True
+
+    for model_id, display_name in (
+        ("qwen3.7-plus", "Qwen 3.7 Plus"),
+        ("qwen3.7-flash", "Qwen 3.7 Flash"),
+    ):
+        info = get_llm_model_info(model_id)
+        assert info is not None
+        assert info["display_name"] == display_name
+        assert info["api"] == "multimodal_conversation"
+        assert info["supports_thinking"] is True
 
     assert get_llm_model_info("nonexistent") is None
 

@@ -9,14 +9,26 @@ ASRBackend = Literal["realtime_ws", "short_file", "omni_offline"]
 
 LLM_MODEL_CATALOG = [
     {
-        "id": "qwen3.5-plus",
-        "display_name": "Qwen 3.5 Plus",
+        "id": "qwen3.7-plus",
+        "display_name": "Qwen 3.7 Plus",
+        "api": "multimodal_conversation",
+        "supports_thinking": True,
+    },
+    {
+        "id": "qwen3.7-flash",
+        "display_name": "Qwen 3.7 Flash",
         "api": "multimodal_conversation",
         "supports_thinking": True,
     },
     {
         "id": "qwen3.6-plus",
         "display_name": "Qwen 3.6 Plus",
+        "api": "multimodal_conversation",
+        "supports_thinking": True,
+    },
+    {
+        "id": "qwen3.5-plus",
+        "display_name": "Qwen 3.5 Plus",
         "api": "multimodal_conversation",
         "supports_thinking": True,
     },

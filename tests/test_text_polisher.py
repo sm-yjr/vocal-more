@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 
@@ -159,8 +160,14 @@ def test_polish_non_catalog_model_uses_generation_api(tmp_path, monkeypatch):
     assert result.polished_text == "整理后的文本。"
 
 
-def test_qwen36_plus_routes_to_multimodal_api(tmp_path, monkeypatch):
-    """qwen3.6-plus is in catalog with api=multimodal_conversation, should use MultiModalConversation.call."""
+@pytest.mark.parametrize(
+    "model_id",
+    ["qwen3.6-plus", "qwen3.7-plus", "qwen3.7-flash"],
+)
+def test_modern_qwen_models_route_to_multimodal_api(
+    tmp_path, monkeypatch, model_id
+):
+    """Modern Qwen polish models should use MultiModalConversation.call."""
     from vocal_more.config import Config, reload_config
     from vocal_more.core.text_polisher import TextPolisher
 
@@ -169,7 +176,7 @@ def test_qwen36_plus_routes_to_multimodal_api(tmp_path, monkeypatch):
     monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
 
     with open(config_path, "w") as f:
-        yaml.dump({"llm": {"model": "qwen3.6-plus"}}, f)
+        yaml.dump({"llm": {"model": model_id}}, f)
 
     reload_config()
 
@@ -198,7 +205,7 @@ def test_qwen36_plus_routes_to_multimodal_api(tmp_path, monkeypatch):
     result = polisher.polish("嗯 这是测试")
 
     assert gen_called is False
-    assert captured["model"] == "qwen3.6-plus"
+    assert captured["model"] == model_id
     assert captured["enable_thinking"] is False
     assert captured["temperature"] == 0.0
     assert captured["max_tokens"] == 1024
