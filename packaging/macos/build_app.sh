@@ -90,6 +90,8 @@ ditto "$NATIVE_LIBRARY" \
   "$ROOT/packaging/macos/prune_app_bundle.py" \
   --target-arch "$TARGET_ARCH" \
   "$APP"
+VOCAL_MORE_PACKAGING_SMOKE_TEST=1 \
+  "$APP/Contents/MacOS/Vocal More"
 SPARKLE_ROOT="$("$ROOT/packaging/macos/install_sparkle.sh")"
 SPARKLE_FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
 mkdir -p "$APP/Contents/Frameworks"

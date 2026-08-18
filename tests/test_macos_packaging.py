@@ -5,12 +5,11 @@ from __future__ import annotations
 import ast
 import importlib.util
 import plistlib
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,6 +35,26 @@ def _load_py2app_plist() -> dict[str, ast.AST]:
                 }
 
     raise AssertionError("APP plist was not found in packaging/macos/setup.py")
+
+
+def _load_py2app_options() -> dict[str, ast.AST]:
+    tree = ast.parse((ROOT / "packaging" / "macos" / "setup.py").read_text())
+
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == "OPTIONS"
+            for target in node.targets
+        ):
+            continue
+        return {
+            key.value: value
+            for key, value in zip(node.value.keys, node.value.values)
+            if isinstance(key, ast.Constant)
+        }
+
+    raise AssertionError("OPTIONS was not found in packaging/macos/setup.py")
 
 
 def test_py2app_declares_microphone_usage_description():
@@ -76,6 +95,25 @@ def test_py2app_bundles_avfoundation_voice_processing_bridge():
         '"pyobjc-framework-AVFoundation>=10.0; sys_platform == \'darwin\'"'
         in pyproject
     )
+
+
+def test_py2app_bundles_numpy_for_the_audio_callback():
+    options = _load_py2app_options()
+    packages = ast.literal_eval(options["packages"])
+    excludes = ast.literal_eval(options["excludes"])
+
+    assert "numpy" in packages
+    assert "numpy" not in excludes
+
+
+def test_completed_app_runs_a_runtime_dependency_smoke_test():
+    launcher = (ROOT / "packaging" / "macos" / "vocal_more_launcher.py").read_text()
+    build_script = (ROOT / "packaging" / "macos" / "build_app.sh").read_text()
+
+    assert 'VOCAL_MORE_PACKAGING_SMOKE_TEST") == "1"' in launcher
+    assert "from vocal_more.core.audio_recorder import AudioRecorder" in launcher
+    assert "VOCAL_MORE_PACKAGING_SMOKE_TEST=1" in build_script
+    assert '"$APP/Contents/MacOS/Vocal More"' in build_script
 
 
 def test_py2app_declares_signed_sparkle_feed():
