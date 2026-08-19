@@ -66,6 +66,21 @@ def test_benchmark_wav_replay_is_disabled_without_trace_opt_in(
     assert recorder.benchmark_audio_delivery == "physical_microphone"
 
 
+def test_recording_tail_wait_requires_active_capture_and_is_interruptible():
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    recorder = AudioRecorder()
+    cancel_event = threading.Event()
+
+    assert recorder.wait_for_recording_tail(cancel_event, timeout=0) is False
+
+    recorder._is_recording = True
+    assert recorder.wait_for_recording_tail(cancel_event, timeout=0) is True
+
+    cancel_event.set()
+    assert recorder.wait_for_recording_tail(cancel_event, timeout=1) is False
+
+
 def test_benchmark_wav_replay_uses_real_audio_pipeline_without_portaudio(
     tmp_path,
     monkeypatch,

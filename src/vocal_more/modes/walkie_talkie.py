@@ -17,6 +17,9 @@ from ..localization import format_microphone_start_error, t
 from .base_mode import BaseMode, ModeState
 
 
+_RECORDING_TAIL_GRACE_SECONDS = 1.0
+
+
 class WalkieTalkieMode(BaseMode):
     """Walkie-talkie mode: hold Fn to record, release to process.
 
@@ -84,6 +87,9 @@ class WalkieTalkieMode(BaseMode):
         self._active_session_token = 0
         self._asr_session_token: Optional[int] = None
         self._asr_owner_lock = threading.Lock()
+        self._recorder_stop_lock = threading.Lock()
+        self._recorder_stopped_session: Optional[int] = None
+        self._pending_stop_cancel: Optional[threading.Event] = None
 
     def _prepare_app_context(self) -> str:
         self._active_app_context = None
@@ -227,7 +233,50 @@ class WalkieTalkieMode(BaseMode):
 
         self._set_state(ModeState.STOPPING)
         session_token = self._active_session_token
-        pcm_data = self._recorder.stop()
+        stop_cancel = threading.Event()
+        self._pending_stop_cancel = stop_cancel
+        self._processing_thread = self._processing_executor.submit(
+            self._stop_after_recording_tail,
+            session_token,
+            stop_cancel,
+        )
+
+    def _stop_after_recording_tail(
+        self,
+        session_token: int,
+        stop_cancel: threading.Event,
+    ) -> None:
+        """Capture the final spoken syllable, then stop and finish ASR."""
+        try:
+            waiter = getattr(type(self._recorder), "wait_for_recording_tail", None)
+            if callable(waiter) and not waiter(
+                self._recorder,
+                stop_cancel,
+                timeout=_RECORDING_TAIL_GRACE_SECONDS,
+            ):
+                return
+            if not self._is_active_session(session_token):
+                return
+            pcm_data = self._stop_recorder_once(session_token)
+            if pcm_data is None or not self._is_active_session(session_token):
+                return
+            self._process_stopped_recording(pcm_data, session_token)
+        finally:
+            if self._pending_stop_cancel is stop_cancel:
+                self._pending_stop_cancel = None
+
+    def _stop_recorder_once(self, session_token: int) -> Optional[bytes]:
+        with self._recorder_stop_lock:
+            if self._recorder_stopped_session == session_token:
+                return None
+            self._recorder_stopped_session = session_token
+        return self._recorder.stop()
+
+    def _process_stopped_recording(
+        self,
+        pcm_data: bytes,
+        session_token: int,
+    ) -> None:
 
         if len(pcm_data) < 3200:  # Less than 100ms of audio
             try:
@@ -241,11 +290,7 @@ class WalkieTalkieMode(BaseMode):
             return
 
         self._set_state(ModeState.PROCESSING)
-        self._processing_thread = self._processing_executor.submit(
-            self._finish_transcription,
-            pcm_data,
-            session_token,
-        )
+        self._finish_transcription(pcm_data, session_token)
 
     def _on_audio_chunk(self, chunk: bytes) -> None:
         """Forward audio chunks to streaming ASR in real-time."""
@@ -337,8 +382,15 @@ class WalkieTalkieMode(BaseMode):
         )
         self._active_session_token = self._invalidate_session(reason=reason)
         self._set_state(ModeState.CANCELLING)
-        if previous_state in (ModeState.STARTING, ModeState.RECORDING):
-            self._recorder.stop()
+        if previous_state in (
+            ModeState.STARTING,
+            ModeState.RECORDING,
+            ModeState.STOPPING,
+        ):
+            pending_stop = self._pending_stop_cancel
+            if pending_stop is not None:
+                pending_stop.set()
+            self._stop_recorder_once(cancelled_session_token)
             if previous_state == ModeState.STARTING:
                 self._abort_started_asr_startup(cancelled_session_token)
             else:

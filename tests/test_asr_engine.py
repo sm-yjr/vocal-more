@@ -107,6 +107,21 @@ def test_streaming_callback_accepts_qwen_audio_transcription_deltas():
     callback.close()
 
 
+def test_streaming_callback_drops_unrequested_audio_output_before_queueing():
+    import vocal_more.core.asr_engine as asr_engine
+
+    callback = asr_engine.StreamingASRCallback()
+    callback.on_event(
+        {
+            "type": "response.audio.delta",
+            "delta": "large-provider-audio-payload",
+        }
+    )
+
+    assert callback._event_queue.qsize() == 0
+    callback.close()
+
+
 def test_native_audio_callback_ignores_provider_transcription_side_channel():
     import vocal_more.core.asr_engine as asr_engine
 
@@ -964,7 +979,8 @@ def test_qwen_audio_realtime_plus_uses_native_inline_polish_protocol(
         def commit(self):
             return None
 
-        def create_response(self):
+        def create_response(self, *, output_modalities=None):
+            captured["response_modalities"] = output_modalities
             captured["callback"].on_event(
                 {
                     "type": "response.audio_transcript.delta",
@@ -999,6 +1015,7 @@ def test_qwen_audio_realtime_plus_uses_native_inline_polish_protocol(
     assert captured["update_kwargs"]["output_modalities"] == [
         asr_engine.MultiModality.TEXT
     ]
+    assert captured["response_modalities"] == [asr_engine.MultiModality.TEXT]
     assert captured["update_kwargs"]["enable_turn_detection"] is False
     assert "instructions" in captured["update_kwargs"]
     assert text == "润色后的文本"

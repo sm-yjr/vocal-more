@@ -47,6 +47,7 @@ from ..infrastructure.asr.response_parsing import (
     prefer_longer_text as _prefer_longer_text,
 )
 from ..infrastructure.asr.qwen_audio_streaming import QwenAudioStreamingConversation
+from ..infrastructure.asr.realtime_conversation import BufferedRealtimeConversation
 from ..infrastructure.asr.routing import (
     direct_offline_fallback_model as _routing_direct_offline_fallback_model,
     join_transcript_segments as _routing_join_transcript_segments,
@@ -222,6 +223,14 @@ def _should_start_inline_response_now(
     if not (config.enable_polish and model_info and model_info.get("handles_inline_polish")):
         return False
     return True
+
+
+def _create_inline_response(conversation: object, model_info: Optional[dict]) -> None:
+    """Request text-only output for native Qwen Audio dictation."""
+    if model_info and model_info.get("protocol") == "realtime_conversation":
+        conversation.create_response(output_modalities=[MultiModality.TEXT])
+        return
+    conversation.create_response()
 
 
 def _is_realtime_conversation_model(model_info: Optional[dict]) -> bool:
@@ -1224,7 +1233,7 @@ class BatchASREngine:
                 try:
                     response_requested = True
                     callback.mark_client_event("client.response.requested")
-                    conversation.create_response()
+                    _create_inline_response(conversation, model_info)
                 except Exception as response_error:
                     should_request_response = False
                     print(f"[BatchASR] Inline polish response failed: {response_error}")
@@ -1702,6 +1711,11 @@ class StreamingASRCallback(OmniRealtimeCallback):
     def on_event(self, response):
         try:
             event_type = response.get("type", "")
+            # Dictation sessions explicitly request text-only output. Ignore a
+            # provider-side audio stream before its large Base64 payload can
+            # enter the unbounded callback queue or debug trace.
+            if event_type in ("response.audio.delta", "response.audio.done"):
+                return
             metadata = _update_trace_ids_from_response(
                 self._debug_trace,
                 event_type,
@@ -2402,6 +2416,8 @@ class ASREngine:
                 url="wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
                 callback=callback,
             )
+            if model_info and model_info.get("protocol") == "realtime_conversation":
+                conversation = BufferedRealtimeConversation(conversation)
         try:
             conversation.connect()
             if is_cancelled is not None and is_cancelled():
@@ -3328,7 +3344,7 @@ class ASREngine:
                     response_requested = True
                     if self._callback:
                         self._callback.mark_client_event("client.response.requested")
-                    self._conversation.create_response()
+                    _create_inline_response(self._conversation, model_info)
                 except Exception as response_error:
                     should_request_response = False
                     print(f"[StreamingASR] Inline polish response failed: {response_error}")

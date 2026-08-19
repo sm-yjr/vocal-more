@@ -1176,7 +1176,102 @@ def test_walkie_talkie_reports_short_recordings_to_user(tmp_path, monkeypatch):
 
     assert errors == ["录音太短了，请稍微多按一会儿热键。"]
     assert mode.state == ModeState.IDLE
-    assert mode._processing_thread is None
+    assert mode._processing_thread is not None
+    mode._processing_thread.join(timeout=1)
+    assert mode._processing_thread.done()
+
+
+@pytest.mark.parametrize(
+    ("module_name", "mode_class_name", "stop_action"),
+    [
+        ("vocal_more.modes.walkie_talkie", "WalkieTalkieMode", "release"),
+        ("vocal_more.modes.realtime_long", "RealtimeLongMode", "press"),
+    ],
+)
+def test_streaming_mode_keeps_accepting_tail_audio_before_stop(
+    tmp_path,
+    monkeypatch,
+    module_name,
+    mode_class_name,
+    stop_action,
+):
+    from vocal_more.config import Config, reload_config
+    from vocal_more.modes.base_mode import ModeState
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    with open(config_path, "w") as output:
+        yaml.dump({"enable_polish": False, "auto_paste": False}, output)
+    reload_config()
+
+    wait_started = threading.Event()
+    allow_stop = threading.Event()
+    events = []
+    received = []
+
+    class FakeASREngine:
+        def __init__(self, **_kwargs):
+            return None
+
+        def start(self, **_kwargs):
+            return None
+
+        def send_audio(self, chunk):
+            received.append(chunk)
+
+        def stop(self, pcm_data=None):
+            events.append("asr.stop")
+            return "保留最后几个字"
+
+    class TailAwareRecorder:
+        def __init__(self, on_audio_level=None, on_audio_chunk=None):
+            self.on_audio_chunk = on_audio_chunk
+
+        def start(self):
+            return None
+
+        def wait_for_recording_tail(self, cancel_event, *, timeout):
+            events.append(("tail.wait", timeout))
+            wait_started.set()
+            while not allow_stop.wait(timeout=0.01):
+                if cancel_event.is_set():
+                    return False
+            return True
+
+        def stop(self):
+            events.append("recorder.stop")
+            return b"\x01\x00" * 4000
+
+    module = importlib.import_module(module_name)
+    monkeypatch.setattr(module, "ASREngine", FakeASREngine)
+    monkeypatch.setattr(module, "AudioRecorder", TailAwareRecorder)
+    monkeypatch.setattr(
+        module,
+        "KeyboardSimulator",
+        lambda: SimpleNamespace(paste_text=lambda _text: None),
+    )
+
+    mode = getattr(module, mode_class_name)()
+    mode.on_hotkey_pressed()
+    if stop_action == "release":
+        mode.on_hotkey_released()
+    else:
+        mode.on_hotkey_pressed()
+
+    assert wait_started.wait(timeout=0.5)
+    assert mode.state == ModeState.STOPPING
+    assert "recorder.stop" not in events
+
+    mode._recorder.on_audio_chunk(b"tail-audio")
+    allow_stop.set()
+    mode._processing_thread.join(timeout=1)
+
+    assert received == [b"tail-audio"]
+    assert events[0] == ("tail.wait", 1.0)
+    assert events.index("recorder.stop") < events.index("asr.stop")
+    assert mode.state == ModeState.IDLE
+    mode.close()
 
 
 def test_realtime_long_reports_microphone_start_failure(tmp_path, monkeypatch):

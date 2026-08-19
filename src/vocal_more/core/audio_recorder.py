@@ -39,6 +39,10 @@ _NATIVE_DRAIN_TIMEOUT_SECONDS = 0.5
 _FIRST_PCM_TIMEOUT_SECONDS = 0.75
 _WARM_VOICE_STREAM_TTL_SECONDS = 30.0
 _MAX_MACOS_ARRAY_CHANNELS = 3
+# Keep the vectorized first-order IIR numerically stable without returning to
+# a per-sample Python loop. At the highest supported cutoff, inverse filter
+# powers remain comfortably finite across this segment size.
+_HIGHPASS_VECTOR_SEGMENT_FRAMES = 128
 _MACOS_ARRAY_DEVICE_MARKERS = (
     "macbook",
     "imac",
@@ -324,19 +328,7 @@ class AudioRecorder:
 
         # 1. High-pass filter: remove low-frequency rumble (fans, hum, plosives)
         if highpass_filter:
-            samples = mono_input
-            alpha = self._hp_alpha
-            prev_in = self._hp_prev_in
-            prev_out = self._hp_prev_out
-            out = np.empty(len(samples), dtype=np.float32)
-            for i, x in enumerate(samples):
-                sample = float(x)
-                prev_out = alpha * (prev_out + sample - prev_in)
-                prev_in = sample
-                out[i] = prev_out
-            self._hp_prev_in = prev_in
-            self._hp_prev_out = prev_out
-            filtered = out
+            filtered = self._apply_highpass_filter(mono_input)
         else:
             filtered = mono_input
 
@@ -396,6 +388,44 @@ class AudioRecorder:
     def _encode_pcm(processed) -> bytes:
         samples = np.asarray(processed, dtype=np.float32)
         return (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+
+    def _apply_highpass_filter(self, samples: np.ndarray) -> np.ndarray:
+        """Apply the stateful first-order IIR in vectorized native kernels.
+
+        For ``y[n] = a * (y[n-1] + x[n] - x[n-1])``, expanding the recurrence
+        turns each short segment into cumulative sums and element-wise array
+        operations. Segmenting bounds inverse powers at high cutoff frequencies
+        while reducing Python dispatches from one per sample to roughly five
+        per 40 ms callback.
+        """
+        values = np.asarray(samples, dtype=np.float64)
+        if values.size == 0:
+            return np.empty(0, dtype=np.float32)
+
+        alpha = float(self._hp_alpha)
+        previous_input = float(self._hp_prev_in)
+        previous_output = float(self._hp_prev_out)
+        output = np.empty(values.size, dtype=np.float64)
+
+        for offset in range(0, values.size, _HIGHPASS_VECTOR_SEGMENT_FRAMES):
+            segment = values[offset : offset + _HIGHPASS_VECTOR_SEGMENT_FRAMES]
+            indices = np.arange(segment.size, dtype=np.float64)
+            differences = np.empty(segment.size, dtype=np.float64)
+            differences[0] = segment[0] - previous_input
+            if segment.size > 1:
+                np.subtract(segment[1:], segment[:-1], out=differences[1:])
+            powers = np.power(alpha, indices + 1.0)
+            inverse_powers = np.power(alpha, -indices)
+            filtered = powers * (
+                previous_output + np.cumsum(differences * inverse_powers)
+            )
+            output[offset : offset + segment.size] = filtered
+            previous_input = float(segment[-1])
+            previous_output = float(filtered[-1])
+
+        self._hp_prev_in = previous_input
+        self._hp_prev_out = previous_output
+        return output.astype(np.float32)
 
     @classmethod
     def _mono_float32_input(cls, indata, frames: int) -> np.ndarray:
@@ -922,6 +952,29 @@ class AudioRecorder:
                 self._release_stream_async(stream, after_thread=drain_thread)
 
         return audio_data
+
+    def wait_for_recording_tail(
+        self,
+        cancel_event: threading.Event,
+        *,
+        timeout: float = 1.0,
+    ) -> bool:
+        """Keep accepting microphone callbacks briefly before a normal stop.
+
+        A stop intent can arrive while the user's final syllable is still in
+        the Core Audio input path.  Native converter draining in ``stop()``
+        preserves frames already admitted by the backend, but it cannot admit
+        speech that reaches the callback after stop has detached the stream.
+        This interruptible grace period runs on the mode's finish worker while
+        the recorder and streaming ASR session remain active.
+
+        Returns ``True`` when the grace period completed normally and ``False``
+        when cancellation interrupted it or recording was already inactive.
+        """
+        with self._lock:
+            if not self._is_recording or self._is_stopping:
+                return False
+        return not cancel_event.wait(timeout=max(0.0, float(timeout)))
 
     def _retain_warm_voice_stream(self, stream):
         """Keep a paused VPIO graph briefly, then release it while idle."""
