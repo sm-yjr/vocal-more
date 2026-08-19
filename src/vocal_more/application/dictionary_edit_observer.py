@@ -2,23 +2,22 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from difflib import SequenceMatcher
 import re
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from difflib import SequenceMatcher
 
 from ..core.accessibility_text import FocusedTextSnapshot
 from ..domain.dictionary_learning_models import (
-    DictionaryLearningEvidence,
     MAX_EVIDENCE_TEXT_LENGTH,
+    DictionaryLearningEvidence,
 )
 from .dictionary_learning_candidates import (
     MAX_CANDIDATES_PER_OBSERVATION,
     edit_statistics,
 )
-
 
 _ZERO_WIDTH_RE = re.compile("[\u200b\u200c\u200d\ufeff]")
 
@@ -45,6 +44,14 @@ class _PastedBaseline:
 
 def _normalize_ax_text(value: str) -> str:
     return _ZERO_WIDTH_RE.sub("", value.replace("\r\n", "\n").replace("\r", "\n"))
+
+
+def _bounded_ax_text(value: str) -> str | None:
+    """Normalize one AXValue only when it is safe for edit observation."""
+    normalized = _normalize_ax_text(value)
+    if len(normalized) > MAX_EVIDENCE_TEXT_LENGTH:
+        return None
+    return normalized
 
 
 def _is_plausible_edit(baseline: str, edited: str) -> bool:
@@ -199,8 +206,13 @@ def _project_span_after_edit(
     span_end: int,
 ) -> str:
     """Map one baseline span into edited text while excluding outside edits."""
+    if (
+        len(baseline) > MAX_EVIDENCE_TEXT_LENGTH
+        or len(edited) > MAX_EVIDENCE_TEXT_LENGTH
+    ):
+        return ""
     projected: list[str] = []
-    matcher = SequenceMatcher(None, baseline, edited, autojunk=False)
+    matcher = SequenceMatcher(None, baseline, edited, autojunk=True)
     for tag, before_start, before_end, after_start, after_end in matcher.get_opcodes():
         if tag == "insert":
             if span_start <= before_start <= span_end:
@@ -264,6 +276,16 @@ class DictionaryEditObserver:
             return None
         if original.app_bundle_id in self._excluded_bundle_ids:
             return None
+        original_text = _bounded_ax_text(original.value)
+        normalized_paste = _normalize_ax_text(pasted_text)
+        if original_text is None or len(normalized_paste) > MAX_EVIDENCE_TEXT_LENGTH:
+            return None
+        selection_length = original.selection_length
+        projected_length = len(original_text) + len(normalized_paste)
+        if selection_length is not None:
+            projected_length -= min(len(original_text), max(0, selection_length))
+        if projected_length > MAX_EVIDENCE_TEXT_LENGTH:
+            return None
         return PasteObservation(
             original=original,
             raw_text=raw_text[:MAX_EVIDENCE_TEXT_LENGTH],
@@ -285,8 +307,10 @@ class DictionaryEditObserver:
         if baseline_capture is None:
             return None
 
-        original_text = _normalize_ax_text(ticket.original.value)
-        baseline_text = _normalize_ax_text(baseline_capture.baseline.value)
+        original_text = _bounded_ax_text(ticket.original.value)
+        baseline_text = _bounded_ax_text(baseline_capture.baseline.value)
+        if original_text is None or baseline_text is None:
+            return None
         pasted_span = _locate_pasted_span(
             original_text,
             baseline_text,
@@ -302,7 +326,7 @@ class DictionaryEditObserver:
         if baseline_capture.current is not None:
             if baseline_capture.current.is_secure:
                 return None
-            initial_text = _normalize_ax_text(baseline_capture.current.value)
+            initial_text = _bounded_ax_text(baseline_capture.current.value)
             if not initial_text:
                 return None
             initial_pasted = _project_span_after_edit(
@@ -336,7 +360,7 @@ class DictionaryEditObserver:
                 ):
                     if final.is_secure:
                         return None
-                    normalized = _normalize_ax_text(final.value)
+                    normalized = _bounded_ax_text(final.value)
                     if not normalized:
                         return None
                     current_pasted = _project_span_after_edit(
@@ -352,7 +376,7 @@ class DictionaryEditObserver:
                 break
             if current.is_secure:
                 return None
-            normalized = _normalize_ax_text(current.value)
+            normalized = _bounded_ax_text(current.value)
             if not normalized:
                 break
             current_pasted = _project_span_after_edit(
@@ -416,7 +440,9 @@ class DictionaryEditObserver:
                 final = self._capture_original_target(ticket)
                 if final is None or final.is_secure:
                     return None
-                normalized_final = _normalize_ax_text(final.value)
+                normalized_final = _bounded_ax_text(final.value)
+                if normalized_final is None:
+                    return None
                 baseline_text = _reconstruct_pasted_text(
                     ticket,
                     normalized_final,
@@ -430,7 +456,9 @@ class DictionaryEditObserver:
                 )
             if current.is_secure:
                 return None
-            normalized = _normalize_ax_text(current.value)
+            normalized = _bounded_ax_text(current.value)
+            if normalized is None:
+                return None
             expected = _expected_pasted_text(ticket)
             if expected is not None and normalized != _normalize_ax_text(
                 ticket.original.value

@@ -1593,7 +1593,7 @@ wheels = [
 
 [[package]]
 name = "vocal-more"
-version = "0.3.24"
+version = "0.3.25"
 source = { editable = "." }
 dependencies = [
     { name = "dashscope" },

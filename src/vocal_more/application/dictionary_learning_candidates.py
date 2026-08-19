@@ -7,7 +7,6 @@ from difflib import SequenceMatcher
 
 from ..domain.dictionary_learning_models import DictionaryLearningEvidence
 
-
 MAX_CANDIDATES_PER_OBSERVATION = 5
 _MERGE_EQUAL_GAP = 3
 _CONTEXT_CHARACTERS = 16
@@ -23,7 +22,7 @@ def _group_edit_opcodes(
         None,
         before,
         after,
-        autojunk=False,
+        autojunk=True,
     ).get_opcodes():
         if tag == "equal":
             continue

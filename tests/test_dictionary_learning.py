@@ -6,6 +6,8 @@ import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 
 def _evidence(**overrides):
     from vocal_more.domain.dictionary_learning_models import DictionaryLearningEvidence
@@ -1903,8 +1905,10 @@ def test_edit_observer_rejects_clear_and_large_rewrite():
     assert observer.observe(ticket) is None
 
 
-def test_edit_observer_keeps_late_correction_in_bounded_long_document_context():
-    from vocal_more.application.dictionary_edit_observer import DictionaryEditObserver
+def test_edit_observer_skips_long_document_before_sequence_matching(monkeypatch):
+    import vocal_more.application.dictionary_edit_observer as observer_module
+
+    DictionaryEditObserver = observer_module.DictionaryEditObserver
 
     prefix = "已有内容" * 2_500
     provider = _SnapshotProvider(
@@ -1929,13 +1933,54 @@ def test_edit_observer_keeps_late_correction_in_bounded_long_document_context():
         mode_name="realtime_long",
     )
 
-    evidence = observer.observe(ticket)
+    monkeypatch.setattr(
+        observer_module,
+        "SequenceMatcher",
+        lambda *_args, **_kwargs: pytest.fail(
+            "oversized AXValue must be rejected before SequenceMatcher"
+        ),
+    )
 
-    assert evidence is not None
-    assert len(evidence.baseline_text) <= 8_000
-    assert len(evidence.edited_text) <= 8_000
-    assert "阿里云白练" in evidence.baseline_text
-    assert "阿里云百炼" in evidence.edited_text
+    assert ticket is None
+    assert observer.observe(ticket) is None
+
+
+def test_edit_observer_stops_if_post_paste_ax_value_exceeds_limit(monkeypatch):
+    import vocal_more.application.dictionary_edit_observer as observer_module
+
+    provider = _SnapshotProvider(
+        [
+            _snapshot(""),
+            _snapshot("阿里云白练"),
+            _snapshot("已有内容" * 2_500 + "阿里云百炼"),
+            None,
+        ]
+    )
+    clock, sleep = _fake_time()
+    observer = observer_module.DictionaryEditObserver(
+        provider=provider,
+        clock=clock,
+        sleep=sleep,
+        poll_interval=0.25,
+    )
+    ticket = observer.prepare(
+        raw_text="阿里云白练",
+        pasted_text="阿里云白练",
+        recording_id=None,
+        mode_name="realtime_long",
+    )
+    matcher_calls = []
+    real_matcher = observer_module.SequenceMatcher
+
+    def tracked_matcher(*args, **kwargs):
+        matcher_calls.append(max(len(args[1]), len(args[2])))
+        return real_matcher(*args, **kwargs)
+
+    monkeypatch.setattr(observer_module, "SequenceMatcher", tracked_matcher)
+
+    assert ticket is not None
+    assert observer.observe(ticket) is None
+    assert matcher_calls == []
 
 
 class _ImmediateExecutor:
