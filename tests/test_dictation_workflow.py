@@ -3,6 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 
 def _messages():
     return SimpleNamespace(
@@ -123,6 +125,47 @@ def test_dictation_workflow_reports_empty_transcript_as_failure():
     keyboard.paste_text.assert_not_called()
     assert result.error_message == "empty transcript"
     assert result.error_code == "empty_transcription"
+
+
+@pytest.mark.parametrize(
+    "asr_model",
+    [
+        "qwen3-asr-flash",
+        "qwen3-asr-flash-realtime-2026-02-10",
+        "fun-asr-realtime",
+    ],
+)
+def test_legacy_and_fun_asr_models_use_second_stage_polisher(asr_model):
+    from vocal_more.application.dictation_workflow import DictationWorkflow
+
+    asr = MagicMock()
+    asr.stop.return_value = "防御赛模型已经接好了"
+    polisher = MagicMock()
+    polisher.polish.return_value = SimpleNamespace(
+        polished_text="Fun-ASR Realtime 已经接好了。",
+        billing=None,
+    )
+    config = SimpleNamespace(
+        enable_polish=True,
+        auto_paste=False,
+        asr=SimpleNamespace(language="zh"),
+    )
+    workflow = DictationWorkflow(
+        config=config,
+        asr_engine=asr,
+        keyboard=MagicMock(),
+    )
+
+    result = workflow.finish_recording(
+        b"pcm",
+        mode_name="walkie_talkie",
+        asr_model=asr_model,
+        text_polisher=polisher,
+        messages=_messages(),
+    )
+
+    polisher.polish.assert_called_once_with("防御赛模型已经接好了")
+    assert result.final_text == "Fun-ASR Realtime 已经接好了。"
 
 
 def test_dictation_workflow_wraps_paste_with_best_effort_dictionary_observation():

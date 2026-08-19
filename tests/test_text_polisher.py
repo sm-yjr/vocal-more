@@ -117,6 +117,9 @@ def test_polish_uses_llm_with_no_thinking(tmp_path, monkeypatch):
     assert captured["enable_thinking"] is False
     assert captured["temperature"] == 0.0
     assert captured["max_tokens"] == 65536
+    system_prompt = captured["messages"][0]["content"][0]["text"]
+    assert "用户定义的专有名词词典" in system_prompt
+    assert "Vocal More（可能被误识别为：vocal mall）" in system_prompt
     assert "Vocal More 已经接好了" in captured["messages"][1]["content"][0]["text"]
     assert result.polished_text == "Vocal More 已经接好了。"
     assert result.used_llm is True
@@ -359,6 +362,30 @@ def test_prompt_polish_mode_routes_text_polisher_messages(tmp_path, monkeypatch)
     assert messages[0]["role"] == "system"
     assert "把口语化输入转换成任务式 Prompt" in messages[0]["content"]
     assert messages[1] == {"role": "user", "content": "帮我让模型分析这个 bug 怎么修"}
+
+
+def test_second_stage_prompt_includes_terms_without_aliases(tmp_path, monkeypatch):
+    from vocal_more.config import Config, reload_config
+    from vocal_more.dictionary import reload_dictionary
+    from vocal_more.core.text_polisher import TextPolisher
+
+    config_path = tmp_path / "config.yaml"
+    dictionary_path = tmp_path / "dictionary.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    config_path.write_text("{}", encoding="utf-8")
+    dictionary_path.write_text(
+        "entries:\n  - term: Fun-ASR Realtime\n",
+        encoding="utf-8",
+    )
+
+    reload_config()
+    reload_dictionary()
+
+    messages = TextPolisher()._build_messages("新增防御赛模型")
+
+    assert "用户定义的专有名词词典" in messages[0]["content"]
+    assert "Fun-ASR Realtime" in messages[0]["content"]
 
 
 def test_prompt_polish_mode_routes_omni_inline_instructions(tmp_path, monkeypatch):
