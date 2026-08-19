@@ -30,6 +30,17 @@ def test_qwen_audio_streaming_uses_official_per_second_price():
     assert billing["estimated"] is False
 
 
+def test_fun_asr_realtime_uses_official_per_second_price():
+    billing = build_asr_billing(
+        model="fun-asr-realtime",
+        audio_seconds=10.0,
+    )
+
+    assert billing is not None
+    assert billing["cost_cny"] == 0.0033
+    assert billing["estimated"] is False
+
+
 def test_omni_realtime_uses_usage_breakdown_when_available():
     billing = build_asr_billing(
         model="qwen3.5-omni-plus-realtime",

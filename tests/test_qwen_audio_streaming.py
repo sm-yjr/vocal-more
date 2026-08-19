@@ -54,7 +54,7 @@ def test_recognition_adapter_sends_binary_pcm_and_maps_sentence_snapshots(monkey
     monkeypatch.setattr(streaming, "RecognitionResult", FakeRecognitionResult)
 
     events = []
-    conversation = streaming.QwenAudioStreamingConversation(
+    conversation = streaming.StreamingRecognitionConversation(
         model="qwen-audio-3.0-asr-flash-streaming",
         sample_rate=16000,
         language="en",
@@ -113,7 +113,7 @@ def test_recognition_adapter_coalesces_macos_blocks_and_flushes_tail(monkeypatch
             pass
 
     monkeypatch.setattr(streaming, "Recognition", FakeRecognition)
-    conversation = streaming.QwenAudioStreamingConversation(
+    conversation = streaming.StreamingRecognitionConversation(
         model="qwen-audio-3.0-asr-flash-streaming",
         sample_rate=16000,
         language=None,
@@ -155,7 +155,7 @@ def test_recognition_adapter_retries_cleanup_after_stop_failure(monkeypatch):
                 raise RuntimeError("temporary stop failure")
 
     monkeypatch.setattr(streaming, "Recognition", FakeRecognition)
-    conversation = streaming.QwenAudioStreamingConversation(
+    conversation = streaming.StreamingRecognitionConversation(
         model="qwen-audio-3.0-asr-flash-streaming",
         sample_rate=16000,
         language=None,
@@ -178,7 +178,11 @@ def test_recognition_adapter_retries_cleanup_after_stop_failure(monkeypatch):
     assert len(captured["frames"][0]) == 1280
 
 
-def test_asr_engine_builds_recognition_protocol_instead_of_omni(monkeypatch):
+@pytest.mark.parametrize(
+    "model",
+    ["qwen-audio-3.0-asr-flash-streaming", "fun-asr-realtime"],
+)
+def test_asr_engine_builds_recognition_protocol_instead_of_omni(monkeypatch, model):
     import vocal_more.core.asr_engine as asr_engine
 
     captured = {}
@@ -193,7 +197,7 @@ def test_asr_engine_builds_recognition_protocol_instead_of_omni(monkeypatch):
         def close(self):
             pass
 
-    monkeypatch.setattr(asr_engine, "QwenAudioStreamingConversation", FakeConversation)
+    monkeypatch.setattr(asr_engine, "StreamingRecognitionConversation", FakeConversation)
     monkeypatch.setattr(
         asr_engine,
         "OmniRealtimeConversation",
@@ -208,7 +212,7 @@ def test_asr_engine_builds_recognition_protocol_instead_of_omni(monkeypatch):
     engine._close_conversation = lambda _conversation: None
     callback = asr_engine.StreamingASRCallback()
     conversation = engine._establish_conversation(
-        "qwen-audio-3.0-asr-flash-streaming",
+        model,
         {"protocol": "audio_recognition"},
         callback,
         context_instruction="context",
@@ -216,19 +220,23 @@ def test_asr_engine_builds_recognition_protocol_instead_of_omni(monkeypatch):
     )
 
     assert isinstance(conversation, FakeConversation)
-    assert captured["model"] == "qwen-audio-3.0-asr-flash-streaming"
+    assert captured["model"] == model
     assert captured["context_instruction"] == "context"
     callback.close()
 
 
-def test_batch_engine_routes_qwen_audio_to_recognition_protocol():
+@pytest.mark.parametrize(
+    "model",
+    ["qwen-audio-3.0-asr-flash-streaming", "fun-asr-realtime"],
+)
+def test_batch_engine_routes_native_streaming_models_to_recognition_protocol(model):
     from vocal_more.core import asr_engine
 
     engine = object.__new__(asr_engine.BatchASREngine)
     engine.config = SimpleNamespace(
         api_key="test-key",
         asr=SimpleNamespace(
-            model="qwen-audio-3.0-asr-flash-streaming",
+            model=model,
             backend="realtime_ws",
         )
     )
@@ -250,15 +258,19 @@ def test_batch_engine_routes_qwen_audio_to_recognition_protocol():
 
     assert result == "recognized"
     assert captured["audio"] == b"pcm"
-    assert captured["model_override"] == "qwen-audio-3.0-asr-flash-streaming"
+    assert captured["model_override"] == model
     assert captured["context_instruction"] == "context"
 
 
-def test_streaming_fallback_switches_new_model_to_legacy_short_file():
+@pytest.mark.parametrize(
+    "model",
+    ["qwen-audio-3.0-asr-flash-streaming", "fun-asr-realtime"],
+)
+def test_streaming_fallback_switches_native_model_to_short_file(model):
     from vocal_more.core import asr_engine
 
     engine = object.__new__(asr_engine.ASREngine)
-    engine._session_model_id = "qwen-audio-3.0-asr-flash-streaming"
+    engine._session_model_id = model
     engine._context_instruction = "Prefer Vocal More."
     captured = {}
 
@@ -343,7 +355,7 @@ def test_batch_recognition_replay_is_paced_and_keeps_partial_only_result(monkeyp
         def close(self):
             pass
 
-    monkeypatch.setattr(asr_engine, "QwenAudioStreamingConversation", FakeConversation)
+    monkeypatch.setattr(asr_engine, "StreamingRecognitionConversation", FakeConversation)
     monkeypatch.setattr(asr_engine.time, "sleep", sleeps.append)
     monkeypatch.setattr(
         asr_engine,

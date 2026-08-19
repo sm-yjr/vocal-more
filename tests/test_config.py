@@ -913,6 +913,7 @@ def test_parse_asr_model_valid():
     assert _parse_asr_model("qwen3-asr-flash") == "qwen3-asr-flash"
     assert _parse_asr_model("qwen3-asr-flash-realtime-2026-02-10") == "qwen3-asr-flash-realtime-2026-02-10"
     assert _parse_asr_model("qwen-audio-3.0-asr-flash-streaming") == "qwen-audio-3.0-asr-flash-streaming"
+    assert _parse_asr_model("fun-asr-realtime") == "fun-asr-realtime"
 
 
 def test_parse_asr_model_unknown_falls_back():
@@ -977,6 +978,14 @@ def test_get_asr_model_info():
     assert info4["voice"] == "longanqian"
     assert info4["handles_inline_polish"] is True
     assert info4["always_request_response"] is True
+
+    info5 = get_asr_model_info("fun-asr-realtime")
+    assert info5 is not None
+    assert info5["display_name"] == "Fun-ASR Realtime"
+    assert info5["transport"] == "realtime_ws"
+    assert info5["protocol"] == "audio_recognition"
+    assert info5["fallback_model"] == "qwen3-asr-flash"
+    assert info5["handles_inline_polish"] is False
 
     assert get_asr_model_info("nonexistent") is None
 

@@ -1,4 +1,4 @@
-"""DashScope Recognition adapter for Qwen-Audio streaming ASR."""
+"""DashScope Recognition adapter for provider-native streaming ASR."""
 
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ class _RecognitionCallbackBridge(RecognitionCallback):
         self._on_close()
 
 
-class QwenAudioStreamingConversation:
+class StreamingRecognitionConversation:
     """Expose ``Recognition`` through the conversation methods used by ASREngine."""
 
     def __init__(
@@ -113,8 +113,8 @@ class QwenAudioStreamingConversation:
             kwargs["language_hints"] = [language]
         if context_instruction:
             # Recognition forwards ``raw_input`` as the run-task ``input``
-            # object. Qwen Audio 3.0 expects context messages under
-            # ``input.context``; a bare string makes the request malformed.
+            # object. Provider-native streaming models expect context messages
+            # under ``input.context``; a bare string makes the request malformed.
             kwargs["raw_input"] = {
                 "context": [
                     {
@@ -202,4 +202,8 @@ class QwenAudioStreamingConversation:
             pass
 
 
-__all__ = ["QwenAudioStreamingConversation"]
+# Keep the original internal name for third-party extensions and older tests.
+QwenAudioStreamingConversation = StreamingRecognitionConversation
+
+
+__all__ = ["QwenAudioStreamingConversation", "StreamingRecognitionConversation"]

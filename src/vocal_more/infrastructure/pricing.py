@@ -9,6 +9,7 @@ from typing import Any
 CHINA_MAINLAND_REGION = "cn-beijing"
 
 _ASR_AUDIO_SECONDS_PRICING = {
+    "fun-asr-realtime": 0.00033,
     "qwen-audio-3.0-asr-flash-streaming": 0.00033,
     "qwen3-asr-flash": 0.00022,
     "qwen3-asr-flash-2026-02-10": 0.00022,

@@ -46,7 +46,7 @@ from ..infrastructure.asr.response_parsing import (
     extract_text_from_realtime_item as _extract_text_from_realtime_item,
     prefer_longer_text as _prefer_longer_text,
 )
-from ..infrastructure.asr.qwen_audio_streaming import QwenAudioStreamingConversation
+from ..infrastructure.asr.qwen_audio_streaming import StreamingRecognitionConversation
 from ..infrastructure.asr.realtime_conversation import BufferedRealtimeConversation
 from ..infrastructure.asr.routing import (
     direct_offline_fallback_model as _routing_direct_offline_fallback_model,
@@ -957,7 +957,7 @@ class BatchASREngine:
         def on_usage(usage: dict) -> None:
             trace.usage = dict(usage)
 
-        conversation = QwenAudioStreamingConversation(
+        conversation = StreamingRecognitionConversation(
             model=model,
             sample_rate=self.config.audio.sample_rate,
             language=_resolve_asr_language(
@@ -1007,7 +1007,7 @@ class BatchASREngine:
             self._dump_debug_artifacts(audio_data, trace)
 
         if error_msg:
-            print(f"[BatchASR] Qwen Audio streaming error: {error_msg}")
+            print(f"[BatchASR] Streaming recognition error: {error_msg}")
         return result_text
 
     def transcribe_with_system_prompt(
@@ -2397,7 +2397,7 @@ class ASREngine:
             not bool(model_info and model_info.get("always_request_response"))
         )
         if model_info and model_info.get("protocol") == "audio_recognition":
-            conversation = QwenAudioStreamingConversation(
+            conversation = StreamingRecognitionConversation(
                 model=model_id,
                 sample_rate=session_config.audio.sample_rate,
                 language=_resolve_asr_language(config=session_config),
