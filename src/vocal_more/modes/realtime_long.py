@@ -236,6 +236,16 @@ class RealtimeLongMode(BaseMode):
         """Stop recording and process."""
         self._set_state(ModeState.STOPPING)
         session_token = self._active_session_token
+        waiter = getattr(type(self._recorder), "wait_for_recording_tail", None)
+        if not callable(waiter):
+            pcm_data = self._stop_recorder_once(session_token)
+            if pcm_data is not None:
+                self._process_stopped_recording(
+                    pcm_data,
+                    session_token,
+                    finish_inline=False,
+                )
+            return
         stop_cancel = threading.Event()
         self._pending_stop_cancel = stop_cancel
         self._processing_thread = self._processing_executor.submit(
@@ -263,7 +273,11 @@ class RealtimeLongMode(BaseMode):
             pcm_data = self._stop_recorder_once(session_token)
             if pcm_data is None or not self._is_active_session(session_token):
                 return
-            self._process_stopped_recording(pcm_data, session_token)
+            self._process_stopped_recording(
+                pcm_data,
+                session_token,
+                finish_inline=True,
+            )
         finally:
             if self._pending_stop_cancel is stop_cancel:
                 self._pending_stop_cancel = None
@@ -279,6 +293,8 @@ class RealtimeLongMode(BaseMode):
         self,
         pcm_data: bytes,
         session_token: int,
+        *,
+        finish_inline: bool,
     ) -> None:
 
         if len(pcm_data) < 3200:
@@ -293,7 +309,14 @@ class RealtimeLongMode(BaseMode):
             return
 
         self._set_state(ModeState.PROCESSING)
-        self._finish_transcription(pcm_data, session_token)
+        if finish_inline:
+            self._finish_transcription(pcm_data, session_token)
+        else:
+            self._processing_thread = self._processing_executor.submit(
+                self._finish_transcription,
+                pcm_data,
+                session_token,
+            )
 
     def _on_audio_chunk(self, chunk: bytes) -> None:
         """Forward audio chunks to streaming ASR in real-time."""

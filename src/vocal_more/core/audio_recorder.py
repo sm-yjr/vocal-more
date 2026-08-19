@@ -1958,7 +1958,7 @@ class AudioRecorder:
             return array("f", (float(value) for value in flattened)).tobytes()
 
     @classmethod
-    def _coherent_array_downmix(cls, indata, frames: int) -> list[float]:
+    def _coherent_array_downmix(cls, indata, frames: int) -> np.ndarray:
         """Polarity-align coherent array channels and return mono samples.
 
         macOS normally performs device-level beamforming for its built-in
@@ -1970,64 +1970,50 @@ class AudioRecorder:
         channels, aligns polarity, and averages them. Uncorrelated channels are
         excluded so an unrelated noisy input cannot dominate the mix.
         """
-        raw = array("f")
-        raw.frombytes(cls._copy_float_buffer(indata))
         frame_count = max(0, int(frames))
         if frame_count == 0:
-            return []
-        channels = max(1, len(raw) // frame_count)
+            return np.empty(0, dtype=np.float32)
+        if isinstance(indata, (bytes, bytearray, memoryview)):
+            raw = np.frombuffer(indata, dtype=np.float32)
+        else:
+            raw = np.asarray(indata, dtype=np.float32).reshape(-1)
+        channels = max(1, raw.size // frame_count)
+        matrix = raw[: frame_count * channels].reshape(frame_count, channels)
         if channels == 1:
-            return list(raw[:frame_count])
+            return matrix[:, 0]
 
-        columns = [list(raw[channel::channels][:frame_count]) for channel in range(channels)]
-        means = [math.fsum(column) / frame_count for column in columns]
-        centered = [
-            [value - means[channel] for value in columns[channel]]
-            for channel in range(channels)
-        ]
-        energy = [math.sqrt(math.fsum(value * value for value in column)) for column in centered]
-        active = [value > 1e-7 for value in energy]
-        if not any(active):
-            return [math.fsum(values) / channels for values in zip(*columns)]
+        # Keep accumulation in float64, matching the precision of math.fsum,
+        # while NumPy performs the frame-wise work outside the Python GIL.
+        working = matrix.astype(np.float64, copy=False)
+        centered = working - np.mean(working, axis=0, keepdims=True)
+        energy = np.linalg.norm(centered, axis=0)
+        active = energy > 1e-7
+        if not np.any(active):
+            return np.mean(working, axis=1).astype(np.float32)
 
-        correlation = [[0.0] * channels for _ in range(channels)]
-        for left in range(channels):
-            for right in range(channels):
-                denominator = energy[left] * energy[right]
-                if denominator > 1e-12:
-                    numerator = math.fsum(
-                        a * b for a, b in zip(centered[left], centered[right])
-                    )
-                    correlation[left][right] = numerator / denominator
+        covariance = centered.T @ centered
+        denominator = np.outer(energy, energy)
+        correlation = np.zeros((channels, channels), dtype=np.float64)
+        np.divide(
+            covariance,
+            denominator,
+            out=correlation,
+            where=denominator > 1e-12,
+        )
         # Pick the channel most coherent with the rest, rather than the loudest
         # channel, which may be dominated by a fan or keyboard.
-        reference = max(
-            range(channels),
-            key=lambda index: math.fsum(abs(value) for value in correlation[index]),
-        )
-        anchor = active.index(True)
+        reference = int(np.argmax(np.sum(np.abs(correlation), axis=1)))
+        anchor = int(np.flatnonzero(active)[0])
         reference_correlation = correlation[reference]
-        included = [
-            index
-            for index in range(channels)
-            if active[index] and abs(reference_correlation[index]) >= 0.15
-        ]
-        if reference not in included:
-            included.append(reference)
-        mixed = [
-            math.fsum(
-                columns[channel][frame]
-                * (-1.0 if reference_correlation[channel] < 0 else 1.0)
-                for channel in included
-            )
-            / len(included)
-            for frame in range(frame_count)
-        ]
+        included = active & (np.abs(reference_correlation) >= 0.15)
+        included[reference] = True
+        signs = np.where(reference_correlation[included] < 0, -1.0, 1.0)
+        mixed = (working[:, included] @ signs) / int(np.count_nonzero(included))
         # Coherence chooses the cleanest reference, but preserve the polarity
         # convention of the device's first active channel for stable output.
         if correlation[reference][anchor] < 0:
-            mixed = [-value for value in mixed]
-        return mixed
+            mixed = -mixed
+        return mixed.astype(np.float32)
 
     @staticmethod
     def _default_input_device_index() -> Optional[int]:

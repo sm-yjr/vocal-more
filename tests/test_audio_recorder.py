@@ -2676,6 +2676,35 @@ def test_array_downmix_reinforces_coherent_voice_and_avoids_polarity_cancellatio
     assert np.sqrt(np.mean((output - voice) ** 2)) < 0.005
 
 
+def test_array_downmix_runs_frame_math_in_numpy(monkeypatch):
+    """The realtime callback must not build Python lists per audio sample."""
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    frames = 640
+    signal = np.linspace(-0.25, 0.25, frames, dtype=np.float32)
+    array_input = np.column_stack((signal, -signal, signal * 0.8))
+    calls = {"mean": 0, "norm": 0}
+    real_mean = np.mean
+    real_norm = np.linalg.norm
+
+    def tracked_mean(*args, **kwargs):
+        calls["mean"] += 1
+        return real_mean(*args, **kwargs)
+
+    def tracked_norm(*args, **kwargs):
+        calls["norm"] += 1
+        return real_norm(*args, **kwargs)
+
+    monkeypatch.setattr(np, "mean", tracked_mean)
+    monkeypatch.setattr(np.linalg, "norm", tracked_norm)
+
+    result = AudioRecorder._coherent_array_downmix(array_input, frames)
+
+    assert result.shape == (frames,)
+    assert result.dtype == np.float32
+    assert calls == {"mean": 1, "norm": 1}
+
+
 def test_highpass_filter_matches_previous_sample_by_sample_implementation():
     """The callback's list loop must retain the original IIR filter math."""
     from vocal_more.core.audio_recorder import AudioRecorder

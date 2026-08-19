@@ -1176,9 +1176,7 @@ def test_walkie_talkie_reports_short_recordings_to_user(tmp_path, monkeypatch):
 
     assert errors == ["录音太短了，请稍微多按一会儿热键。"]
     assert mode.state == ModeState.IDLE
-    assert mode._processing_thread is not None
-    mode._processing_thread.join(timeout=1)
-    assert mode._processing_thread.done()
+    assert mode._processing_thread is None
 
 
 @pytest.mark.parametrize(
