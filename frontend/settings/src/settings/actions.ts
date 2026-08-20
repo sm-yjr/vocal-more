@@ -86,6 +86,18 @@ export function setCustomKeys(
   })
 }
 
+export function setCommandKey(
+  store: SettingsStore,
+  commandKey: unknown,
+): void {
+  store.setConfig("hotkey.command_key", commandKey)
+  postSettingsMessage({
+    action: "setConfig",
+    key: "hotkey.command_key",
+    value: commandKey,
+  })
+}
+
 export function sendAction(
   action: string,
   data: Record<string, unknown> = {}

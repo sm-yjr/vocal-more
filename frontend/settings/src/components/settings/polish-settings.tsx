@@ -84,6 +84,7 @@ export function PolishSettings({
   const contextCounts = snapshot.contextProfile.counts
   const contextSummary = [
     `${copy.contextDevelopment} ${contextCounts.development ?? 0}`,
+    `${copy.contextTerminal} ${contextCounts.terminal ?? 0}`,
     `${copy.contextMessaging} ${contextCounts.messaging ?? 0}`,
     `${copy.contextWriting} ${contextCounts.writing ?? 0}`,
     `${copy.contextGeneral} ${contextCounts.general ?? 0}`,

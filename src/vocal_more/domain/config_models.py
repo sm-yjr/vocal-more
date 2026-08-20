@@ -153,6 +153,7 @@ class HotkeyConfig:
     active_hotkeys: list[str] = field(default_factory=lambda: ["fn"])
     custom_key: Optional[dict] = None
     custom_keys: list[dict] = field(default_factory=list)
+    command_key: Optional[dict] = None
 
 
 @dataclass
@@ -480,7 +481,7 @@ class AppConfig:
         elif section == "hotkey":
             # Read the compatibility field first so the plural field remains
             # authoritative even if a hand-edited YAML file changes key order.
-            prioritized_fields = ["custom_key", "custom_keys"]
+            prioritized_fields = ["custom_key", "custom_keys", "command_key"]
 
         seen = set()
         for field_name in prioritized_fields:
@@ -675,6 +676,13 @@ class AppConfig:
             self.hotkey.active_hotkeys = _parse_hotkeys(value if isinstance(value, list) else [])
         elif field_name == "custom_key":
             self.hotkey.custom_key = _validate_custom_key(value)
+            if (
+                self.hotkey.custom_key is not None
+                and self.hotkey.command_key is not None
+                and self.hotkey.custom_key["key_code"]
+                == self.hotkey.command_key["key_code"]
+            ):
+                self.hotkey.custom_key = None
             self.hotkey.custom_keys = (
                 [self.hotkey.custom_key]
                 if self.hotkey.custom_key is not None
@@ -682,11 +690,32 @@ class AppConfig:
             )
         elif field_name == "custom_keys":
             self.hotkey.custom_keys = _parse_custom_keys(value)
+            if self.hotkey.command_key is not None:
+                command_code = self.hotkey.command_key["key_code"]
+                self.hotkey.custom_keys = [
+                    key
+                    for key in self.hotkey.custom_keys
+                    if key["key_code"] != command_code
+                ]
             self.hotkey.custom_key = (
                 self.hotkey.custom_keys[0]
                 if self.hotkey.custom_keys
                 else None
             )
+        elif field_name == "command_key":
+            self.hotkey.command_key = _validate_custom_key(value)
+            if self.hotkey.command_key is not None:
+                command_code = self.hotkey.command_key["key_code"]
+                self.hotkey.custom_keys = [
+                    key
+                    for key in self.hotkey.custom_keys
+                    if key["key_code"] != command_code
+                ]
+                self.hotkey.custom_key = (
+                    self.hotkey.custom_keys[0]
+                    if self.hotkey.custom_keys
+                    else None
+                )
         else:
             raise ValueError(f"Unknown config key: hotkey.{field_name}")
 
@@ -799,6 +828,7 @@ class AppConfig:
                         else []
                     )
                 ),
+                "command_key": self.hotkey.command_key,
             },
             "ui": {
                 "language": self.ui.language,

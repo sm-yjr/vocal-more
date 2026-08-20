@@ -118,6 +118,7 @@ class RecordingStore:
                     entry.setdefault("error", None)
                     entry.setdefault("billing", None)
                     entry.setdefault("meeting", None)
+                    entry.setdefault("command", None)
                     normalized.append(entry)
             return normalized
         except (json.JSONDecodeError, OSError):
@@ -211,6 +212,7 @@ class RecordingStore:
             "transcript": None,
             "error": None,
             "meeting": None,
+            "command": None,
             "storage_format": "wav",
             "original_bytes": wav_path.stat().st_size,
             "stored_bytes": wav_path.stat().st_size,
@@ -233,6 +235,7 @@ class RecordingStore:
         error: Optional[str] = _MISSING,
         billing: Optional[dict] = _MISSING,
         meeting: Optional[dict] = _MISSING,
+        command: Optional[dict] = _MISSING,
     ) -> bool:
         """Update status and transcript for a recording."""
         updated = False
@@ -251,6 +254,8 @@ class RecordingStore:
                         rec["billing"] = billing
                     if meeting is not _MISSING:
                         rec["meeting"] = meeting
+                    if command is not _MISSING:
+                        rec["command"] = command
                     break
             if updated:
                 self._save_index()

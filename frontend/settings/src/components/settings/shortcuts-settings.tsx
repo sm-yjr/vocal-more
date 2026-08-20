@@ -8,7 +8,11 @@ import {
 } from "@/components/settings/settings-card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import { setActiveHotkeys, setCustomKeys } from "@/settings/actions"
+import {
+  setActiveHotkeys,
+  setCommandKey,
+  setCustomKeys,
+} from "@/settings/actions"
 import type { SettingsCopy } from "@/settings/i18n"
 import type { SettingsStore } from "@/settings/store"
 import type {
@@ -208,18 +212,26 @@ export function ShortcutsSettings({
       (hotkey.custom_key ? [hotkey.custom_key] : []),
     [hotkey.custom_key, hotkey.custom_keys],
   )
-  const [capturing, setCapturing] = useState(false)
+  const commandKey = hotkey.command_key ?? null
+  const [capturing, setCapturing] = useState<"dictation" | "command" | null>(null)
 
   useEffect(() => {
-    if (!capturing) return
+    if (capturing === null) return
     const onKeyDown = (event: KeyboardEvent) => {
       event.preventDefault()
       event.stopPropagation()
       const next = hotkeyForEvent(event)
-      setCapturing(false)
-      if (
-        next &&
+      setCapturing(null)
+      if (!next) return
+      if (capturing === "command") {
+        setCustomKeys(
+          store,
+          customKeys.filter((item) => item.key_code !== next.key_code),
+        )
+        setCommandKey(store, next)
+      } else if (
         customKeys.length < 8 &&
+        commandKey?.key_code !== next.key_code &&
         !customKeys.some((item) => item.key_code === next.key_code)
       ) {
         setCustomKeys(store, [...customKeys, next])
@@ -227,7 +239,7 @@ export function ShortcutsSettings({
     }
     document.addEventListener("keydown", onKeyDown, true)
     return () => document.removeEventListener("keydown", onKeyDown, true)
-  }, [capturing, customKeys, store])
+  }, [capturing, commandKey?.key_code, customKeys, store])
 
   return (
     <SettingsPage title={copy.shortcuts}>
@@ -292,11 +304,55 @@ export function ShortcutsSettings({
               {copy.customKeyLimit}
             </span>
             <Button
-              disabled={!capturing && customKeys.length >= 8}
-              variant={capturing ? "secondary" : "default"}
-              onClick={() => setCapturing((value) => !value)}
+              disabled={capturing === null && customKeys.length >= 8}
+              variant={capturing === "dictation" ? "secondary" : "default"}
+              onClick={() =>
+                setCapturing((value) =>
+                  value === "dictation" ? null : "dictation",
+                )
+              }
             >
-              {capturing ? copy.pressKey : copy.addKey}
+              {capturing === "dictation" ? copy.pressKey : copy.addKey}
+            </Button>
+          </div>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard
+        title={copy.commandKey}
+        description={copy.commandKeyHint}
+      >
+        <div className="space-y-3 p-4">
+          {commandKey ? (
+            <div className="flex h-11 items-center rounded-lg border bg-muted/30 px-3">
+              <Command className="mr-2 size-4 text-muted-foreground" />
+              <span className="flex-1 font-mono text-sm font-medium">
+                {commandKey.display_name}
+              </span>
+              <Button
+                aria-label={`${copy.remove} ${commandKey.display_name}`}
+                size="icon"
+                variant="ghost"
+                onClick={() => setCommandKey(store, null)}
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
+          ) : (
+            <div className="flex h-11 items-center justify-center rounded-lg border border-dashed bg-muted/20 text-sm text-muted-foreground">
+              {copy.notSet}
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button
+              variant={capturing === "command" ? "secondary" : "default"}
+              onClick={() =>
+                setCapturing((value) =>
+                  value === "command" ? null : "command",
+                )
+              }
+            >
+              {capturing === "command" ? copy.pressKey : copy.commandRecordKey}
             </Button>
           </div>
         </div>

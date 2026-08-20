@@ -57,6 +57,7 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
         "active_hotkeys",
         "custom_key",
         "custom_keys",
+        "command_key",
     },
     "ui": {
         "language",

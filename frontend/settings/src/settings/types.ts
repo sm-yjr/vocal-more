@@ -57,6 +57,7 @@ export interface HotkeyConfig {
   double_tap_threshold?: number
   custom_key?: CustomHotkey | null
   custom_keys?: CustomHotkey[]
+  command_key?: CustomHotkey | null
   [key: string]: unknown
 }
 
@@ -384,6 +385,7 @@ export interface FormState {
     double_tap_threshold: number
     custom_key: CustomHotkey | null
     custom_keys: CustomHotkey[]
+    command_key: CustomHotkey | null
   }
   dictionary_learning: {
     enabled: boolean

@@ -119,6 +119,12 @@ ASR_MODEL_CATALOG = [
 
 LLM_MODEL_IDS = {model["id"] for model in LLM_MODEL_CATALOG}
 ASR_MODEL_IDS = {model["id"] for model in ASR_MODEL_CATALOG if "id" in model}
+OMNI_COMMAND_MODEL_IDS = {
+    "qwen3.5-omni-flash-realtime",
+    "qwen3.5-omni-flash",
+    "qwen3.5-omni-plus-realtime",
+    "qwen3.5-omni-plus",
+}
 DEFAULT_ASR_MODEL_BY_BACKEND = {
     "realtime_ws": "qwen3.5-omni-flash-realtime",
     "short_file": "qwen3-asr-flash",
@@ -140,6 +146,11 @@ def asr_model_handles_inline_polish(model_id: str) -> bool:
     """Whether the ASR model can directly produce the final polished text."""
     info = get_asr_model_info(model_id)
     return bool(info and info.get("handles_inline_polish"))
+
+
+def supports_command_mode(model_id: str) -> bool:
+    """Return whether a model supports command execution with web search."""
+    return model_id in OMNI_COMMAND_MODEL_IDS
 
 
 def default_asr_model_for_backend(backend: ASRBackend) -> str:

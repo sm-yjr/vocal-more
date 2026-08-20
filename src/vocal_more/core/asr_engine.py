@@ -83,6 +83,7 @@ from ..infrastructure.pricing import (
 from .text_polisher import (
     TextPolisher,
     build_native_dictation_instructions,
+    build_omni_command_instructions,
     build_omni_inline_polish_instructions,
     normalize_structured_list_spacing,
 )
@@ -166,6 +167,7 @@ def _build_session_kwargs(
     config=None,
     language_override: Optional[str] = None,
     context_instruction: str = "",
+    command_mode: bool = False,
 ) -> dict:
     config = config or get_config()
     session_kwargs: dict = dict(
@@ -176,7 +178,13 @@ def _build_session_kwargs(
     if model_info and model_info.get("protocol") == "realtime_conversation":
         session_kwargs["voice"] = model_info.get("voice", "longanqian")
         session_kwargs["enable_input_audio_transcription"] = False
-        if config.enable_polish:
+        if command_mode:
+            session_kwargs["instructions"] = build_omni_command_instructions(
+                context_category=context_instruction or "general",
+            )
+            session_kwargs["enable_search"] = True
+            session_kwargs["search_options"] = {"enable_source": True}
+        elif config.enable_polish:
             session_kwargs["instructions"] = build_omni_inline_polish_instructions(
                 config.llm,
                 context_instruction=context_instruction,
@@ -192,7 +200,21 @@ def _build_session_kwargs(
         session_kwargs["input_audio_transcription_model"] = model_info[
             "input_audio_transcription_model"
         ]
-        if config.enable_polish and model_info.get("handles_inline_polish"):
+        if command_mode:
+            session_kwargs["instructions"] = build_omni_command_instructions(
+                context_category=context_instruction or "general",
+            )
+            session_kwargs["enable_search"] = True
+            session_kwargs["search_options"] = {"enable_source": True}
+        else:
+            # Warm realtime sessions are reused across intents, so explicitly
+            # turn search off when returning to ordinary dictation.
+            session_kwargs["enable_search"] = False
+        if (
+            not command_mode
+            and config.enable_polish
+            and model_info.get("handles_inline_polish")
+        ):
             session_kwargs["instructions"] = build_omni_inline_polish_instructions(
                 config.llm,
                 context_instruction=context_instruction,
@@ -215,8 +237,11 @@ def _should_request_inline_polish(model_info: Optional[dict], transcript: str) -
 def _should_start_inline_response_now(
     model_info: Optional[dict],
     _callback,
+    command_mode: bool = False,
 ) -> bool:
     """Decide whether to issue response.create immediately after commit."""
+    if command_mode:
+        return True
     config = get_config()
     if model_info and model_info.get("always_request_response"):
         return True
@@ -843,6 +868,7 @@ class BatchASREngine:
         *,
         allow_chunking: bool = True,
         context_instruction: str = "",
+        command_mode: bool = False,
     ) -> str:
         """Transcribe complete audio data.
 
@@ -855,6 +881,18 @@ class BatchASREngine:
         model_info = get_asr_model_info(model)
         transport = model_info["transport"] if model_info else self.config.asr.backend
         audio_duration_seconds = self._audio_duration_seconds(audio_data)
+
+        if command_mode and transport == "realtime_ws":
+            offline_model = _get_omni_offline_fallback_model(model)
+            if not offline_model:
+                raise RuntimeError("Command mode requires a Qwen3.5 Omni model")
+            return self.transcribe(
+                audio_data,
+                model_override=offline_model,
+                allow_chunking=False,
+                context_instruction=context_instruction,
+                command_mode=True,
+            )
 
         if allow_chunking and transport == "realtime_ws":
             fallback_model = _get_direct_offline_fallback_model(
@@ -887,6 +925,15 @@ class BatchASREngine:
             print("[BatchASR] short_file backend skipped, falling back to realtime_ws")
 
         if transport == "omni_offline":
+            if command_mode:
+                return self._transcribe_omni_offline(
+                    audio_data,
+                    model_override=model,
+                    system_prompt=build_omni_command_instructions(
+                        context_category=context_instruction or "general",
+                    ),
+                    enable_search=True,
+                )
             if allow_chunking:
                 chunks = self._split_audio_for_batch(audio_data)
                 if len(chunks) > 1:
@@ -1107,6 +1154,7 @@ class BatchASREngine:
         reason: str,
         trace: Optional[ASRDebugTrace] = None,
         context_instruction: str = "",
+        command_mode: bool = False,
     ) -> tuple[str, str]:
         fallback_model = _get_omni_offline_fallback_model(model)
         if fallback_model and audio_data:
@@ -1117,6 +1165,8 @@ class BatchASREngine:
             )
             try:
                 kwargs = {"model_override": fallback_model}
+                if command_mode:
+                    kwargs["command_mode"] = True
                 if context_instruction:
                     kwargs["context_instruction"] = context_instruction
                 return (
@@ -1125,6 +1175,9 @@ class BatchASREngine:
                 )
             except Exception as exc:
                 print(f"[BatchASR] Omni offline fallback failed: {exc}")
+
+        if command_mode:
+            return "", "empty"
 
         if transcript_text and self.config.enable_polish:
             print(
@@ -1423,6 +1476,7 @@ class BatchASREngine:
         model_override: Optional[str] = None,
         system_prompt: Optional[str] = None,
         context_instruction: str = "",
+        enable_search: bool = False,
     ) -> str:
         model = model_override or self.config.asr.model
         print(f"[BatchASR] Starting Omni offline transcription, audio size: {len(audio_data)} bytes")
@@ -1480,6 +1534,7 @@ class BatchASREngine:
                 modalities=["text"],
                 stream=True,
                 stream_options={"include_usage": True},
+                extra_body={"enable_search": True} if enable_search else None,
             )
             _update_trace_ids_from_openai_stream(trace, completion)
 
@@ -1494,7 +1549,7 @@ class BatchASREngine:
 
             elapsed = time.time() - t0
             result_text = result_text.strip()
-            if self.config.enable_polish:
+            if self.config.enable_polish and not enable_search:
                 result_text = normalize_structured_list_spacing(
                     result_text,
                     self.config.llm,
@@ -2190,6 +2245,7 @@ class ASREngine:
         self._active_trace: Optional[ASRDebugTrace] = None
         self._trace_warm_reused = False
         self._last_metering: dict[str, Any] | None = None
+        self._command_mode = False
 
         _apply_dashscope_api_key(self.config)
 
@@ -2270,6 +2326,8 @@ class ASREngine:
 
     def _transcribe_batch_fallback(self, pcm_data: bytes) -> str:
         kwargs = {}
+        if getattr(self, "_command_mode", False):
+            kwargs["command_mode"] = True
         model_info = get_asr_model_info(self._session_model_id)
         fallback_model = model_info.get("fallback_model") if model_info else None
         if self._context_instruction:
@@ -2391,6 +2449,7 @@ class ASREngine:
         context_instruction: str = "",
         session_config=None,
         is_cancelled: Optional[Callable[[], bool]] = None,
+        command_mode: bool = False,
     ) -> Any:
         session_config = session_config or self._session_config
         callback.set_accept_input_transcription(
@@ -2428,6 +2487,7 @@ class ASREngine:
                         model_info,
                         config=session_config,
                         context_instruction=context_instruction,
+                        command_mode=command_mode,
                     )
                 )
             self._wait_for_session_updated(
@@ -2777,6 +2837,7 @@ class ASREngine:
         *,
         context_instruction: str = "",
         audio_config=None,
+        command_mode: bool = False,
     ) -> None:
         """Start the ASR session. Non-blocking — session setup runs in background."""
         if self._is_running:
@@ -2796,6 +2857,7 @@ class ASREngine:
         self._session_config.audio.channels = OUTPUT_CHANNELS
         self._batch_fallback.config = self._session_config
         self._context_instruction = str(context_instruction or "").strip()
+        self._command_mode = bool(command_mode)
         self._session_model_id = self._session_config.asr.model
         model_info = get_asr_model_info(self._session_model_id)
         transport = (
@@ -2875,11 +2937,13 @@ class ASREngine:
         audio_config,
         *,
         context_instruction: str = "",
+        command_mode: bool = False,
     ) -> None:
         """Start using the recorder plan captured by the owning mode."""
         self.start(
             context_instruction=context_instruction,
             audio_config=audio_config,
+            command_mode=command_mode,
         )
 
     def refresh_runtime_config(self, drop_idle_session: bool = False) -> None:
@@ -2975,6 +3039,7 @@ class ASREngine:
                             model_info,
                             config=session_config,
                             context_instruction=context_instruction,
+                            command_mode=self._command_mode,
                         )
                     )
                     self._wait_for_session_updated(
@@ -3015,6 +3080,7 @@ class ASREngine:
                         context_instruction,
                         session_config,
                         is_cancelled=is_cancelled,
+                        command_mode=self._command_mode,
                     )
                     with self._lock:
                         if (
@@ -3281,7 +3347,10 @@ class ASREngine:
             audio_duration_seconds,
         )
         skip_inline_response = bool(
-            pcm_data and is_realtime_conversation and direct_offline_model
+            not self._command_mode
+            and pcm_data
+            and is_realtime_conversation
+            and direct_offline_model
         )
         response_start_timeout = min(
             max(timeout, INLINE_RESPONSE_START_TIMEOUT_SECONDS),
@@ -3326,7 +3395,11 @@ class ASREngine:
             should_request_response = bool(
                 self._callback
                 and not skip_inline_response
-                and _should_start_inline_response_now(model_info, self._callback)
+                and _should_start_inline_response_now(
+                    model_info,
+                    self._callback,
+                    command_mode=self._command_mode,
+                )
             )
             if skip_inline_response:
                 print(
@@ -3414,6 +3487,7 @@ class ASREngine:
                         response_fallback_reason,
                         trace=self._active_trace,
                         context_instruction=self._context_instruction,
+                        command_mode=self._command_mode,
                     )
 
             if not is_realtime_conversation:
@@ -3509,6 +3583,7 @@ class ASREngine:
         self._trace_warm_reused = False
         self._last_metering = None
         self._context_instruction = ""
+        self._command_mode = False
 
     def reset(self) -> None:
         """Reset the ASR engine state."""

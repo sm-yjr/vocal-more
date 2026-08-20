@@ -501,6 +501,9 @@ export class SettingsStore {
           hotkey.custom_keys ??
             (hotkey.custom_key ? [hotkey.custom_key] : []),
         ),
+        command_key: hotkey.command_key
+          ? clone(hotkey.command_key)
+          : null,
       },
       dictionary_learning: {
         enabled: learning.enabled === true,

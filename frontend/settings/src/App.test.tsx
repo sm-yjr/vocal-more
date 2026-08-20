@@ -484,7 +484,7 @@ describe("settings application", () => {
 
     await user.click(screen.getByRole("tab", { name: "润色" }))
     expect(
-      screen.getByText("开发 3 · 沟通 2 · 写作 4 · 通用 1"),
+      screen.getByText("开发 3 · 终端 0 · 沟通 2 · 写作 4 · 通用 1"),
     ).toBeVisible()
 
     await user.click(screen.getByRole("button", { name: "清除计数" }))
@@ -496,7 +496,7 @@ describe("settings application", () => {
       store.loadContextProfile({ counts: {}, total: 0 })
     })
     expect(
-      screen.getByText("开发 0 · 沟通 0 · 写作 0 · 通用 0"),
+      screen.getByText("开发 0 · 终端 0 · 沟通 0 · 写作 0 · 通用 0"),
     ).toBeVisible()
     expect(
       screen.getByRole("button", { name: "清除计数" }),

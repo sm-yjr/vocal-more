@@ -47,7 +47,8 @@ describe("settings store", () => {
         active_hotkeys: ["fn"],
         double_tap_threshold: 0.3,
         custom_key: null,
-        custom_keys: [],
+      custom_keys: [],
+      command_key: null,
       },
       dictionary_learning: {
         enabled: true,

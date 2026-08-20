@@ -99,8 +99,9 @@ def test_profile_repository_persists_only_aggregate_category_counts(tmp_path):
         "category_counts": {
             "development": 0,
             "general": 0,
-            "messaging": 1,
-            "writing": 0,
+                "messaging": 1,
+                "terminal": 0,
+                "writing": 0,
         },
     }
     assert "slack" not in serialized.lower()
@@ -127,8 +128,9 @@ def test_profile_repository_recovers_from_malformed_data_and_resets(tmp_path):
         "counts": {
             "development": 0,
             "general": 0,
-            "messaging": 0,
-            "writing": 0,
+                "messaging": 0,
+                "terminal": 0,
+                "writing": 0,
         },
         "total": 0,
     }

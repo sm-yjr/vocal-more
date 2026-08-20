@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Callable, Optional
 
 from ..application.background_executor import BackgroundExecutor, TaskHandle
+from ..application.command_workflow import CommandWorkflow
 from ..application.dictation_workflow import DictationWorkflow
 from ..application.lazy_resource import LazyResource
 from ..config import asr_model_handles_inline_polish, get_config
@@ -13,6 +14,8 @@ from ..core.audio_recorder import AudioRecorder
 from ..core.asr_engine import ASREngine
 from ..core.keyboard_sim import KeyboardSimulator
 from ..dictionary import normalize_terms
+from ..domain.input_intent import InputIntent
+from ..domain.model_catalog import supports_command_mode
 from ..localization import format_microphone_start_error, t
 from .base_mode import BaseMode, ModeState
 
@@ -77,6 +80,12 @@ class RealtimeLongMode(BaseMode):
             normalize_text=normalize_terms,
             dictionary_learning=dictionary_learning,
         )
+        self._command_workflow = CommandWorkflow(
+            config=self.config,
+            asr_engine=self._asr,
+            keyboard=self._keyboard,
+            recording_store=self._recording_store,
+        )
 
         self._processing_executor = BackgroundExecutor(
             max_workers=1,
@@ -90,6 +99,7 @@ class RealtimeLongMode(BaseMode):
         self._recorder_stop_lock = threading.Lock()
         self._recorder_stopped_session: Optional[int] = None
         self._pending_stop_cancel: Optional[threading.Event] = None
+        self._active_input_intent = InputIntent.DICTATION
 
     def _prepare_app_context(self) -> str:
         self._active_app_context = None
@@ -121,10 +131,13 @@ class RealtimeLongMode(BaseMode):
     def description(self) -> str:
         return "Press Fn to start, press again to stop and polish"
 
-    def on_hotkey_pressed(self) -> None:
+    def on_hotkey_pressed(
+        self,
+        intent: InputIntent = InputIntent.DICTATION,
+    ) -> None:
         """Toggle recording on hotkey press."""
         if self._state == ModeState.IDLE:
-            self._start_recording()
+            self._start_recording(intent)
         elif self._state == ModeState.RECORDING:
             self._stop_recording()
 
@@ -132,12 +145,34 @@ class RealtimeLongMode(BaseMode):
         """Not used in toggle mode."""
         pass
 
-    def _start_recording(self) -> None:
+    def _start_recording(
+        self,
+        intent: InputIntent = InputIntent.DICTATION,
+    ) -> None:
         """Start recording + streaming ASR."""
+        if intent == InputIntent.COMMAND and not supports_command_mode(
+            self.config.asr.model
+        ):
+            if self.on_error:
+                self.on_error(
+                    "指令模式仅支持 Qwen3.5 Omni 模型。"
+                    if self.config.ui.language == "zh"
+                    else "Command mode requires a Qwen3.5 Omni model."
+                )
+            self._set_state(ModeState.FAILED)
+            self._set_state(ModeState.IDLE)
+            return
         session_token = self._begin_session()
         self._active_session_token = session_token
         self._recording_asr_model = self.config.asr.model
+        self._active_input_intent = intent
         context_instruction = self._prepare_app_context()
+        if intent == InputIntent.COMMAND:
+            context_instruction = getattr(
+                self._active_app_context,
+                "category",
+                "general",
+            )
         self._set_state(ModeState.STARTING)
 
         session_audio_config = deepcopy(self.config.audio)
@@ -162,6 +197,7 @@ class RealtimeLongMode(BaseMode):
                 self._start_realtime_asr(
                     audio_config=session_audio_config,
                     context_instruction=context_instruction,
+                    command_mode=intent == InputIntent.COMMAND,
                 )
         except Exception as exc:
             print(f"[RealtimeLong] Failed to start realtime ASR: {exc}")
@@ -345,30 +381,48 @@ class RealtimeLongMode(BaseMode):
     def _finish_transcription(self, pcm_data: bytes, session_token: int) -> None:
         """Commit ASR, get result, polish, paste."""
         try:
-            result = self._workflow.finish_recording(
-                pcm_data,
-                mode_name="realtime_long",
-                asr_model=self._recording_asr_model,
-                text_polisher=self.text_polisher,
-                messages=SimpleNamespace(
-                    empty_transcription=t(
-                        self.config.ui.language,
-                        "settings_empty_transcription",
+            if self._active_input_intent == InputIntent.COMMAND:
+                result = self._command_workflow.finish_recording(
+                    pcm_data,
+                    asr_model=self._recording_asr_model,
+                    empty_message=(
+                        "没有生成可用的指令结果，请重试。"
+                        if self.config.ui.language == "zh"
+                        else "No command result was generated. Please try again."
                     ),
-                    processing_error=lambda details: t(
+                    error_message=lambda details: t(
                         self.config.ui.language,
                         "mode_processing_error",
                         details=details,
                     ),
-                    polish_error=lambda details: t(
-                        self.config.ui.language,
-                        "mode_polish_error",
-                        details=details,
+                    on_processing_stage=self._set_processing_stage,
+                    should_abort=lambda: not self._is_active_session(session_token),
+                )
+            else:
+                result = self._workflow.finish_recording(
+                    pcm_data,
+                    mode_name="realtime_long",
+                    asr_model=self._recording_asr_model,
+                    text_polisher=self.text_polisher,
+                    messages=SimpleNamespace(
+                        empty_transcription=t(
+                            self.config.ui.language,
+                            "settings_empty_transcription",
+                        ),
+                        processing_error=lambda details: t(
+                            self.config.ui.language,
+                            "mode_processing_error",
+                            details=details,
+                        ),
+                        polish_error=lambda details: t(
+                            self.config.ui.language,
+                            "mode_polish_error",
+                            details=details,
+                        ),
                     ),
-                ),
-                on_processing_stage=self._set_processing_stage,
-                should_abort=lambda: not self._is_active_session(session_token),
-            )
+                    on_processing_stage=self._set_processing_stage,
+                    should_abort=lambda: not self._is_active_session(session_token),
+                )
             if self._is_active_session(session_token):
                 if (
                     getattr(result, "pasted", False)
@@ -386,6 +440,7 @@ class RealtimeLongMode(BaseMode):
         finally:
             self._clear_asr_session_owner(session_token)
             self._clear_app_context()
+            self._active_input_intent = InputIntent.DICTATION
             if self._is_active_session(session_token):
                 self._set_state(ModeState.IDLE)
             elif self._state == ModeState.CANCELLING:
@@ -427,6 +482,7 @@ class RealtimeLongMode(BaseMode):
                 self._clear_asr_session_owner(cancelled_session_token)
 
         self._recording_asr_model = self.config.asr.model
+        self._active_input_intent = InputIntent.DICTATION
         self._clear_app_context()
         if previous_state == ModeState.PROCESSING:
             processing = self._processing_thread

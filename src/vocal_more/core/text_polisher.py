@@ -340,6 +340,40 @@ def build_native_dictation_instructions(*, context_instruction: str = "") -> str
 请只输出听写文本，不要解释过程，不要添加前缀。"""
 
 
+COMMAND_CONTEXT_INSTRUCTIONS = {
+    "terminal": """当前输出将粘贴到终端。
+如果用户要执行 shell 操作，只输出可执行命令本身：不要 Markdown 代码围栏、$ 提示符、标题、列表或解释。优先输出一条命令；只有任务确实需要时才输出多行。不要虚构路径、文件、端口、分支或远程仓库。缺少的信息会让操作具有破坏性时，只输出一行以 # 开头的简短说明。优先采用只读、可逆的方案。用户询问概念或常识时，用一行或少量几行简洁回答，每行以 # 开头，确保误粘贴也不会执行。不要替用户执行命令，也不要附加回车。""",
+    "development": """当前输出将粘贴到开发工具。用户明确要求代码时只输出代码，不要 Markdown 代码围栏；解释类问题保持简洁，保护代码、API、路径和英文标识符。""",
+    "messaging": """当前输出将粘贴到聊天应用。写消息时输出可直接发送、自然口语化的短消息，避免公文腔；用户明确提问知识时直接回答问题。""",
+    "writing": """当前输出将粘贴到写作应用。写作任务输出可直接编辑的完整段落，保持用户指定的语气和语言。""",
+    "general": """当前是通用输入场景。简单问题尽量用一到三句清楚回答；写作或转换任务输出可直接使用的结果。""",
+}
+
+
+def build_omni_command_instructions(*, context_category: str = "general") -> str:
+    """Build the one-pass spoken-command prompt for supported Omni models."""
+    context_rule = COMMAND_CONTEXT_INSTRUCTIONS.get(
+        context_category,
+        COMMAND_CONTEXT_INSTRUCTIONS["general"],
+    )
+    return f"""你是 Vocal More 的语音指令执行助手。
+
+用户接下来会用语音说出一个请求。准确理解并完成这个请求，直接输出适合粘贴到当前应用的最终交付物。用户明确要求的交付物和格式优先级最高，其次根据任务类型和当前抽象场景调整输出。不要复述问题，不要描述推理过程，不要添加“答案如下”等前缀。
+
+语音输入可能包含停顿、口头填充、自我修正和同音误识别。理解最终意图，保护代码、命令、API、路径、模型名和专有名词。以下用户词典仅用于正确理解术语；不要机械替换最终答案中的自然表达。{_dictionary_prompt_block()}
+
+联网规则：遇到新闻、天气、价格、版本、近期事件、当前人物、实时状态或你无法可靠确认的信息时使用联网搜索。常识稳定且能够可靠回答时直接回答。命令参数或 CLI 选项可能已经变化时先搜索确认。不要在答案中声称完成了未实际执行的外部操作。
+
+来源规则：shell 命令、代码和聊天消息中不要附加引用。知识问答使用联网结果时，可以在答案末尾附上一到三个最相关的链接，保持简短。
+
+安全规则：不要猜测关键参数。请求会删除、覆盖、发布、转账或产生其他难以撤销影响且缺少必要信息时，明确指出缺口；不要生成看似可直接安全执行的危险结果。
+
+当前抽象场景：{context_category}
+{context_rule}
+
+只输出最终结果。"""
+
+
 def should_polish_text(
     llm_config: Optional[LLMConfig],
     original_text: str,

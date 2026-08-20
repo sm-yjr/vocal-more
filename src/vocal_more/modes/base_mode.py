@@ -181,17 +181,21 @@ class BaseMode(ABC):
         *,
         audio_config: object,
         context_instruction: str = "",
+        command_mode: bool = False,
     ) -> None:
         """Start ASR from the exact recorder-plan snapshot for this session."""
         starter = getattr(self._asr, "start_with_audio_contract", None)
         if callable(starter):
-            starter(
-                audio_config,
-                context_instruction=context_instruction,
-            )
+            kwargs = {"context_instruction": context_instruction}
+            if command_mode:
+                kwargs["command_mode"] = True
+            starter(audio_config, **kwargs)
             return
-        if context_instruction:
-            self._asr.start(context_instruction=context_instruction)
+        if context_instruction or command_mode:
+            kwargs = {"context_instruction": context_instruction}
+            if command_mode:
+                kwargs["command_mode"] = True
+            self._asr.start(**kwargs)
         else:
             self._asr.start()
 

@@ -25,6 +25,7 @@ from .config import (
 )
 from .dictionary import get_dictionary, reload_dictionary
 from .domain.hotkey_gestures import HotkeyGestureAction, HotkeyGestureController
+from .domain.input_intent import InputIntent
 from .domain.waveform_calibration import waveform_level_from_rms
 from .localization import t
 from .modes.base_mode import ModeState
@@ -1454,6 +1455,13 @@ class VocalMoreApp(rumps.App):
             self._hotkey_gesture_controller = controller
         return controller
 
+    def _get_command_gesture_controller(self) -> HotkeyGestureController:
+        controller = getattr(self, "_command_gesture_controller", None)
+        if controller is None:
+            controller = HotkeyGestureController()
+            self._command_gesture_controller = controller
+        return controller
+
     def _uses_unified_dictation_gesture(self) -> bool:
         return self._current_mode is getattr(self, "_realtime_long", None)
 
@@ -1461,6 +1469,8 @@ class VocalMoreApp(rumps.App):
         self,
         event_time: float | None = None,
     ) -> None:
+        if getattr(self, "_command_session_active", False):
+            return
         command_time = time.monotonic() if event_time is None else event_time
         if self._uses_unified_dictation_gesture():
             action = self._get_hotkey_gesture_controller().on_pressed(
@@ -1495,6 +1505,8 @@ class VocalMoreApp(rumps.App):
         self,
         event_time: float | None = None,
     ) -> None:
+        if getattr(self, "_command_session_active", False):
+            return
         command_time = time.monotonic() if event_time is None else event_time
         if self._uses_unified_dictation_gesture():
             action = self._get_hotkey_gesture_controller().on_released(
@@ -1509,6 +1521,57 @@ class VocalMoreApp(rumps.App):
         if self._current_mode.state == ModeState.RECORDING:
             self._mark_live_benchmark_trace("speech_end", at=command_time)
         self._current_mode.on_hotkey_released()
+
+    def _on_command_pressed(self) -> None:
+        event_time = time.monotonic()
+        self._get_command_coordinator().submit(
+            lambda: self._handle_command_pressed(event_time),
+            command_name="command_pressed",
+        )
+
+    def _handle_command_pressed(self, event_time: float | None = None) -> None:
+        command_time = time.monotonic() if event_time is None else event_time
+        active_mode = getattr(self, "_current_mode", None)
+        command_active = bool(getattr(self, "_command_session_active", False))
+        if (
+            active_mode is not None
+            and active_mode.state != ModeState.IDLE
+            and not command_active
+        ):
+            return
+        if not command_active:
+            self._select_mode("realtime_long")
+        action = self._get_command_gesture_controller().on_pressed(
+            command_time,
+            self._current_mode.state,
+        )
+        if action == HotkeyGestureAction.START:
+            self._command_session_active = True
+            self._begin_live_benchmark_trace(command_time)
+            self._capsule.show("command")
+            self._current_mode.on_hotkey_pressed(InputIntent.COMMAND)
+        elif action == HotkeyGestureAction.STOP:
+            self._mark_live_benchmark_trace("speech_end", at=command_time)
+            self._current_mode.on_hotkey_pressed(InputIntent.COMMAND)
+
+    def _on_command_released(self) -> None:
+        event_time = time.monotonic()
+        self._get_command_coordinator().submit(
+            lambda: self._handle_command_released(event_time),
+            command_name="command_released",
+        )
+
+    def _handle_command_released(self, event_time: float | None = None) -> None:
+        command_time = time.monotonic() if event_time is None else event_time
+        if self._current_mode is not getattr(self, "_realtime_long", None):
+            return
+        action = self._get_command_gesture_controller().on_released(
+            command_time,
+            self._current_mode.state,
+        )
+        if action == HotkeyGestureAction.STOP:
+            self._mark_live_benchmark_trace("speech_end", at=command_time)
+            self._current_mode.on_hotkey_pressed(InputIntent.COMMAND)
 
     def _on_double_cmd(self) -> None:
         """Handle double Cmd key press."""
@@ -1595,6 +1658,7 @@ class VocalMoreApp(rumps.App):
             )
             self._capsule.set_processing_stage(stage)
         elif state == ModeState.IDLE:
+            self._command_session_active = False
             self._select_default_mode_when_safe()
 
     def _sync_audio_input_status(self) -> None:

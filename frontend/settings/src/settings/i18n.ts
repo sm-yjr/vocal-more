@@ -153,7 +153,7 @@ const en = {
     "Adapt output to a coarse local app category without reading the window.",
   contextAdaptation: "Adapt writing style",
   contextPrivacyBoundary:
-    "Only Messaging, Development, Writing, or General is sent. Window titles, focused text, clipboard data, transcripts, and app identities are never stored in this profile.",
+    "Only Terminal, Messaging, Development, Writing, or General is sent. Window titles, focused text, clipboard data, transcripts, and app identities are never stored in this profile.",
   contextExcludedApps: "Excluded app bundle IDs",
   contextExcludedAppsHint:
     "Comma-separated. Password managers are always excluded.",
@@ -161,6 +161,7 @@ const en = {
   contextActivityHint:
     "Only aggregate successful-paste counts are stored on this Mac.",
   contextDevelopment: "Development",
+  contextTerminal: "Terminal",
   contextMessaging: "Messaging",
   contextWriting: "Writing",
   contextGeneral: "General",
@@ -203,6 +204,10 @@ const en = {
   builtInHotkeys: "Built-in hotkeys",
   fnKey: "Fn key (Hold / Toggle)",
   customKey: "Additional shortcut keys",
+  commandKey: "Command mode shortcut",
+  commandKeyHint:
+    "Speech is treated as an instruction and answered by Qwen3.5 Omni with web search when needed.",
+  commandRecordKey: "Set command key…",
   shortcutGestureHint:
     "Every enabled key uses the same gesture: hold to talk, or tap for hands-free dictation.",
   customKeyLimit: "Up to 8 keys. Duplicate keys are ignored.",
@@ -432,12 +437,13 @@ const zh: Copy = {
     "只根据本地粗粒度 App 类别适配输出，不读取窗口内容。",
   contextAdaptation: "按场景适配表达",
   contextPrivacyBoundary:
-    "模型只会收到“沟通 / 开发 / 写作 / 通用”之一。画像不会保存窗口标题、焦点文本、剪贴板、转写原文或具体 App 身份。",
+    "模型只会收到“终端 / 沟通 / 开发 / 写作 / 通用”之一。画像不会保存窗口标题、焦点文本、剪贴板、转写原文或具体 App 身份。",
   contextExcludedApps: "排除的 App Bundle ID",
   contextExcludedAppsHint: "使用逗号分隔；密码管理器始终排除。",
   contextActivity: "本地类别活动",
   contextActivityHint: "本机只保存成功粘贴次数的分类汇总。",
   contextDevelopment: "开发",
+  contextTerminal: "终端",
   contextMessaging: "沟通",
   contextWriting: "写作",
   contextGeneral: "通用",
@@ -479,6 +485,10 @@ const zh: Copy = {
   builtInHotkeys: "内置热键",
   fnKey: "Fn 键（按住 / 切换）",
   customKey: "其他快捷键",
+  commandKey: "指令模式快捷键",
+  commandKeyHint:
+    "语音会被理解为指令，由 Qwen3.5 Omni 直接生成结果，并在需要时联网搜索。",
+  commandRecordKey: "设置指令按键…",
   shortcutGestureHint:
     "所有启用的按键使用相同手势：按住说话，或轻按进入免手持听写。",
   customKeyLimit: "最多 8 个按键；重复按键会被忽略。",

@@ -6,24 +6,37 @@ from dataclasses import dataclass
 from typing import Literal
 
 
-ContextCategory = Literal["general", "messaging", "development", "writing"]
+ContextCategory = Literal[
+    "general",
+    "messaging",
+    "development",
+    "terminal",
+    "writing",
+]
 CONTEXT_CATEGORIES: tuple[ContextCategory, ...] = (
     "development",
     "general",
     "messaging",
+    "terminal",
     "writing",
 )
 
-_DEVELOPMENT_APP_IDS = {
-    "com.apple.dt.xcode",
+_TERMINAL_APP_IDS = {
+    "com.apple.terminal",
     "com.github.wez.wezterm",
     "com.googlecode.iterm2",
+    "com.mitchellh.ghostty",
+    "dev.warp.warp-stable",
+    "wezterm-gui.exe",
+    "windowsterminal.exe",
+    "wt.exe",
+}
+_DEVELOPMENT_APP_IDS = {
+    "com.apple.dt.xcode",
     "com.jetbrains.intellij",
     "com.jetbrains.pycharm",
     "com.microsoft.vscode",
-    "com.mitchellh.ghostty",
     "com.sublimetext.4",
-    "dev.warp.warp-stable",
     "code.exe",
     "codium.exe",
     "devenv.exe",
@@ -31,9 +44,6 @@ _DEVELOPMENT_APP_IDS = {
     "pycharm64.exe",
     "rider64.exe",
     "webstorm64.exe",
-    "wezterm-gui.exe",
-    "windowsterminal.exe",
-    "wt.exe",
 }
 _DEVELOPMENT_PREFIXES = (
     "com.jetbrains.",
@@ -81,6 +91,10 @@ _CONTEXT_INSTRUCTIONS: dict[ContextCategory, str] = {
         "当前是即时沟通场景。保留自然聊天语气和短句，避免公文腔，"
         "不要把普通消息扩写成正式文档。"
     ),
+    "terminal": (
+        "当前是终端场景。保护命令、参数、路径、环境变量和英文标识符，"
+        "不要翻译或改写。"
+    ),
     "writing": (
         "当前是写作场景。优先形成连贯段落和清晰标点，保持原有语气，"
         "不要过度压缩有效信息。"
@@ -101,10 +115,12 @@ def classify_app_context(bundle_id: str) -> AppContext:
     """Map an app identifier to a coarse category without reading app content."""
     normalized = str(bundle_id or "").strip()
     lookup = normalized.lower()
-    if lookup in {item.lower() for item in _DEVELOPMENT_APP_IDS} or any(
+    if lookup in {item.lower() for item in _TERMINAL_APP_IDS}:
+        category: ContextCategory = "terminal"
+    elif lookup in {item.lower() for item in _DEVELOPMENT_APP_IDS} or any(
         lookup.startswith(prefix.lower()) for prefix in _DEVELOPMENT_PREFIXES
     ):
-        category: ContextCategory = "development"
+        category = "development"
     elif lookup in {item.lower() for item in _MESSAGING_APP_IDS}:
         category = "messaging"
     elif lookup in {item.lower() for item in _WRITING_APP_IDS}:

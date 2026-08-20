@@ -173,6 +173,8 @@ def build_menu_app_dependencies(
     hotkey_manager = hotkey_manager_factory(
         on_fn_pressed=app._on_fn_pressed,
         on_fn_released=app._on_fn_released,
+        on_command_pressed=app._on_command_pressed,
+        on_command_released=app._on_command_released,
         on_double_cmd=app._on_double_cmd,
         on_escape_pressed=app._on_escape_pressed,
     )
@@ -200,6 +202,7 @@ def build_menu_app_dependencies(
         on_set_active_hotkeys=getattr(hotkey_manager, "set_active_hotkeys", None),
         on_set_custom_key=getattr(hotkey_manager, "set_custom_key", None),
         on_set_custom_keys=getattr(hotkey_manager, "set_custom_keys", None),
+        on_set_command_key=getattr(hotkey_manager, "set_command_key", None),
         on_apply_interface_language=app._apply_interface_language,
         on_refresh_environment_status=app._refresh_environment_status,
         on_refresh_dictionary_learning=dictionary_learning.wake,
