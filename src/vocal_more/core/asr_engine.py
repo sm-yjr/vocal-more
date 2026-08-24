@@ -89,6 +89,7 @@ from .text_polisher import (
 )
 
 REALTIME_CHUNK_SIZE = 3200
+DASHSCOPE_REALTIME_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
 # The current public docs list qwen3-asr-flash as supporting audio up to 3 minutes / 10 MB.
 SHORT_FILE_MAX_DURATION_SECONDS = 180
 SHORT_FILE_MAX_BYTES = 10 * 1024 * 1024
@@ -101,7 +102,6 @@ INLINE_RESPONSE_START_TIMEOUT_SECONDS = 3.0
 INLINE_RESPONSE_TRANSCRIPT_TIMEOUT_SECONDS = 5.0
 INLINE_RESPONSE_LATE_START_GRACE_SECONDS = 1.0
 WARM_KEEPER_CHECK_INTERVAL_SECONDS = 15.0
-WARM_KEEPER_MAX_IDLE_SECONDS = 60.0
 WARM_KEEPER_SHUTDOWN_TIMEOUT_SECONDS = 0.25
 REALTIME_CLOSE_TIMEOUT_SECONDS = 0.25
 MAX_ADAPTIVE_RESPONSE_START_TIMEOUT_SECONDS = 20.0
@@ -312,6 +312,12 @@ def _streaming_audio_chunk_bytes(config=None) -> int:
         * OUTPUT_CHANNELS
         * PCM_SAMPLE_WIDTH_BYTES
     )
+
+
+def _dashscope_realtime_url(config=None) -> str:
+    """Return the configured public or workspace-specific realtime endpoint."""
+    config = config or get_config()
+    return str(getattr(config.asr, "realtime_url", "") or DASHSCOPE_REALTIME_URL)
 
 
 def _streaming_audio_chunk_duration_seconds(config=None) -> float:
@@ -1251,7 +1257,7 @@ class BatchASREngine:
         try:
             conversation = OmniRealtimeConversation(
                 model=model,
-                url="wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
+                url=_dashscope_realtime_url(self.config),
                 callback=callback,
             )
             conversation.connect()
@@ -2472,11 +2478,14 @@ class ASREngine:
         else:
             conversation = OmniRealtimeConversation(
                 model=model_id,
-                url="wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
+                url=_dashscope_realtime_url(session_config),
                 callback=callback,
             )
             if model_info and model_info.get("protocol") == "realtime_conversation":
-                conversation = BufferedRealtimeConversation(conversation)
+                conversation = BufferedRealtimeConversation(
+                    conversation,
+                    frame_bytes=_streaming_audio_chunk_bytes(session_config),
+                )
         try:
             conversation.connect()
             if is_cancelled is not None and is_cancelled():
@@ -2544,28 +2553,7 @@ class ASREngine:
                 idle_since = self._warm_session_idle_since
                 conversation = self._conversation
 
-            if idle_since is None or time.monotonic() - idle_since >= WARM_KEEPER_MAX_IDLE_SECONDS:
-                # _stop_warm_keeper may have timed out while this thread was
-                # between checks. Revalidate warm ownership in the same lock
-                # that detaches the pair so an abandoned keeper cannot close a
-                # newly started dictation session.
-                with self._lock:
-                    if (
-                        self._is_running
-                        or generation != self._warm_generation
-                        or stop_event.is_set()
-                    ):
-                        return
-                    stale = self._conversation
-                    stale_callback = self._callback
-                    self._conversation = None
-                    self._callback = None
-                    self._conversation_model_id = None
-                    self._conversation_is_clean = False
-                    self._session_ready = False
-                self._close_conversation(stale)
-                if stale_callback:
-                    stale_callback.close()
+            if idle_since is None:
                 return
 
             if _conversation_socket_connected(conversation):
@@ -2945,6 +2933,46 @@ class ASREngine:
             audio_config=audio_config,
             command_mode=command_mode,
         )
+
+    def prepare_idle_session(self, audio_config=None) -> bool:
+        """Actively establish and retain a clean session before dictation starts."""
+        _apply_dashscope_api_key(self.config)
+        session_config = deepcopy(self.config)
+        if audio_config is not None:
+            session_config.audio = deepcopy(audio_config)
+        session_config.audio.sample_rate = OUTPUT_SAMPLE_RATE_HZ
+        session_config.audio.channels = OUTPUT_CHANNELS
+        model_id = session_config.asr.model
+        model_info = get_asr_model_info(model_id)
+        if not _supports_warm_realtime_session(model_info):
+            return False
+
+        with self._lock:
+            if self._is_running:
+                return False
+            self._session_config = session_config
+            self._session_model_id = model_id
+            self._batch_fallback.config = session_config
+            if self._can_reuse_warm_session(model_info):
+                return True
+
+        self._start_warm_keeper(model_info)
+        return True
+
+    def wait_for_idle_session_ready(self, timeout: float = 10.0) -> bool:
+        """Wait for benchmark/diagnostic callers to observe a reusable warm session."""
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        while True:
+            with self._lock:
+                if self._is_running:
+                    return False
+                model_info = get_asr_model_info(self._session_model_id)
+                if self._can_reuse_warm_session(model_info):
+                    return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(0.01, remaining))
 
     def refresh_runtime_config(self, drop_idle_session: bool = False) -> None:
         """Apply current config and optionally drop any idle warm session."""

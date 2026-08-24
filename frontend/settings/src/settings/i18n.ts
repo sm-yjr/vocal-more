@@ -56,6 +56,9 @@ const en = {
   chinese: "中文",
   autoPaste: "Auto paste",
   autoPasteHint: "Paste transcribed text automatically with Cmd+V.",
+  nativeFastPaste: "Native fast paste",
+  nativeFastPasteHint:
+    "Use macOS pasteboard and native events without the compatibility delay. Falls back automatically if unavailable.",
   version: "Version",
   openConfig: "Open config file",
   inputDevice: "Input device",
@@ -146,6 +149,14 @@ const en = {
   backendOmni: "Omni Offline",
   language: "Recognition language",
   auto: "Auto",
+  realtimeEndpoint: "Realtime endpoint",
+  realtimeEndpointHint:
+    "Use the shared public service or a workspace-specific domain.",
+  publicEndpoint: "Public domain",
+  workspaceEndpoint: "Workspace domain",
+  workspaceEndpointUrl: "Workspace WebSocket URL",
+  workspaceEndpointHint:
+    "Enter the complete wss://…maas.aliyuncs.com/api-ws/v1/realtime URL and leave the field to save.",
   enablePolish: "Enable text polish",
   enablePolishHint: "Clean and organize transcription results.",
   contextPersonalization: "App context",
@@ -342,6 +353,9 @@ const zh: Copy = {
   chinese: "中文",
   autoPaste: "自动粘贴",
   autoPasteHint: "识别完成后通过 Cmd+V 自动粘贴文本。",
+  nativeFastPaste: "原生快速粘贴",
+  nativeFastPasteHint:
+    "使用 macOS 剪贴板和原生事件，省去兼容路径延迟；不可用时自动回退。",
   version: "版本",
   openConfig: "打开配置文件",
   inputDevice: "输入设备",
@@ -430,6 +444,13 @@ const zh: Copy = {
   backendOmni: "Omni 离线",
   language: "识别语言",
   auto: "自动",
+  realtimeEndpoint: "实时服务域名",
+  realtimeEndpointHint: "选择公共服务或工作空间专属域名。",
+  publicEndpoint: "公共域名",
+  workspaceEndpoint: "工作空间专属域名",
+  workspaceEndpointUrl: "专属 WebSocket 地址",
+  workspaceEndpointHint:
+    "填写完整的 wss://…maas.aliyuncs.com/api-ws/v1/realtime 地址，离开输入框后保存。",
   enablePolish: "启用文本润色",
   enablePolishHint: "清理和整理识别结果。",
   contextPersonalization: "App 上下文",

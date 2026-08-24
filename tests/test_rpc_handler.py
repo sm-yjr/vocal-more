@@ -293,6 +293,9 @@ def test_dispatch_hotkey_pressed_released(handler):
 
     handler.dispatch("hotkey_released", {})
     # Releasing with too little data returns to idle.
+    processing = handler._current_mode._processing_thread
+    assert processing is not None
+    processing.result(timeout=1)
     assert handler._notifications[-1] == ("state_changed", {"state": "idle"})
 
 

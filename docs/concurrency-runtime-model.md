@@ -259,12 +259,20 @@ shutdown budget to microphone startup. Its late candidate is still rejected by
 the same stop-event and generation checks. Explicit refresh, abort, and shutdown
 paths retain the bounded join for resource cleanup.
 
+After post-launch dependency checks, the selected mode actively creates its
+lazy ASR engine on the startup worker and asks its warm-keeper thread to
+establish a clean realtime conversation before the first dictation. A mode or
+ASR configuration change drops incompatible idle state and prewarms only the
+currently selected mode, avoiding one persistent socket per previously used
+mode.
+
 After a dictation finishes, the conversation that received its audio is closed
-and its callback worker is released. A warm-keeper thread then establishes a
-new conversation with no committed items and retains that clean connection for
-the next dictation. The engine marks a conversation consumed as soon as audio
-is appended, so exception paths cannot accidentally reuse a conversation that
-contains audio or history.
+and its callback worker is released. The warm keeper establishes a new
+conversation with no committed items and retains that clean connection until
+the next dictation, runtime refresh, or shutdown. It monitors the socket and
+reconnects after an idle disconnect. The engine marks a conversation consumed
+as soon as audio is appended, so exception paths cannot accidentally reuse a
+conversation that contains audio or history.
 
 Realtime conversation close is bounded on the caller and may finish on a daemon
 closer when the SDK or network stack stalls. Application quit also bounds its

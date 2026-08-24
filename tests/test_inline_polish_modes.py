@@ -175,10 +175,10 @@ def test_streaming_mode_accepts_recorder_startup_pcm_in_order(
 
     assert events == ["asr.start", "recorder.start"]
     assert received == early_chunks
-    assert asr_audio_contracts == [(16000, 640)]
+    assert asr_audio_contracts == [(16000, 1280)]
     # Sample rate is a fixed product contract owned by the recorder backend;
     # only callback block size is synchronized at a session boundary.
-    assert recorder_audio_contract == {"blocksize": 640}
+    assert recorder_audio_contract == {"blocksize": 1280}
     mode.cancel(reason="test_cleanup")
     mode.close()
 
@@ -1176,7 +1176,9 @@ def test_walkie_talkie_reports_short_recordings_to_user(tmp_path, monkeypatch):
 
     assert errors == ["录音太短了，请稍微多按一会儿热键。"]
     assert mode.state == ModeState.IDLE
-    assert mode._processing_thread is None
+    assert mode._processing_thread is not None
+    mode._processing_thread.join(timeout=1)
+    assert mode._processing_thread.done()
 
 
 @pytest.mark.parametrize(
@@ -1186,7 +1188,7 @@ def test_walkie_talkie_reports_short_recordings_to_user(tmp_path, monkeypatch):
         ("vocal_more.modes.realtime_long", "RealtimeLongMode", "press"),
     ],
 )
-def test_streaming_mode_keeps_accepting_tail_audio_before_stop(
+def test_streaming_mode_stops_without_fixed_tail_delay(
     tmp_path,
     monkeypatch,
     module_name,
@@ -1203,10 +1205,7 @@ def test_streaming_mode_keeps_accepting_tail_audio_before_stop(
         yaml.dump({"enable_polish": False, "auto_paste": False}, output)
     reload_config()
 
-    wait_started = threading.Event()
-    allow_stop = threading.Event()
     events = []
-    received = []
 
     class FakeASREngine:
         def __init__(self, **_kwargs):
@@ -1216,26 +1215,18 @@ def test_streaming_mode_keeps_accepting_tail_audio_before_stop(
             return None
 
         def send_audio(self, chunk):
-            received.append(chunk)
+            return None
 
         def stop(self, pcm_data=None):
             events.append("asr.stop")
             return "保留最后几个字"
 
-    class TailAwareRecorder:
+    class ImmediateStopRecorder:
         def __init__(self, on_audio_level=None, on_audio_chunk=None):
             self.on_audio_chunk = on_audio_chunk
 
         def start(self):
             return None
-
-        def wait_for_recording_tail(self, cancel_event, *, timeout):
-            events.append(("tail.wait", timeout))
-            wait_started.set()
-            while not allow_stop.wait(timeout=0.01):
-                if cancel_event.is_set():
-                    return False
-            return True
 
         def stop(self):
             events.append("recorder.stop")
@@ -1243,7 +1234,7 @@ def test_streaming_mode_keeps_accepting_tail_audio_before_stop(
 
     module = importlib.import_module(module_name)
     monkeypatch.setattr(module, "ASREngine", FakeASREngine)
-    monkeypatch.setattr(module, "AudioRecorder", TailAwareRecorder)
+    monkeypatch.setattr(module, "AudioRecorder", ImmediateStopRecorder)
     monkeypatch.setattr(
         module,
         "KeyboardSimulator",
@@ -1257,16 +1248,9 @@ def test_streaming_mode_keeps_accepting_tail_audio_before_stop(
     else:
         mode.on_hotkey_pressed()
 
-    assert wait_started.wait(timeout=0.5)
-    assert mode.state == ModeState.STOPPING
-    assert "recorder.stop" not in events
-
-    mode._recorder.on_audio_chunk(b"tail-audio")
-    allow_stop.set()
     mode._processing_thread.join(timeout=1)
 
-    assert received == [b"tail-audio"]
-    assert events[0] == ("tail.wait", 1.0)
+    assert not hasattr(mode, "_pending_stop_cancel")
     assert events.index("recorder.stop") < events.index("asr.stop")
     assert mode.state == ModeState.IDLE
     mode.close()

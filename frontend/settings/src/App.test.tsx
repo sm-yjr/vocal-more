@@ -127,6 +127,46 @@ describe("settings application", () => {
     expect(screen.getByLabelText("API Key")).toBeVisible()
   })
 
+  it("configures native fast paste and public or workspace realtime domains", async () => {
+    const user = userEvent.setup()
+    const data = makeInitData()
+    data.initial_tab = "general"
+    const { postMessage } = renderApp(data)
+
+    await user.click(
+      screen.getByRole("switch", { name: "原生快速粘贴" }),
+    )
+    expect(postMessage).toHaveBeenCalledWith({
+      action: "setConfig",
+      key: "native_fast_paste",
+      value: false,
+    })
+
+    await user.click(screen.getByRole("tab", { name: "识别" }))
+    const endpointMode = screen.getByRole("combobox", {
+      name: "实时服务域名",
+    })
+    await user.selectOptions(endpointMode, "workspace")
+
+    const endpoint =
+      "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+    const endpointInput = screen.getByLabelText("专属 WebSocket 地址")
+    await user.type(endpointInput, endpoint)
+    fireEvent.blur(endpointInput)
+    expect(postMessage).toHaveBeenCalledWith({
+      action: "setConfig",
+      key: "asr.realtime_url",
+      value: endpoint,
+    })
+
+    await user.selectOptions(endpointMode, "public")
+    expect(postMessage).toHaveBeenCalledWith({
+      action: "setConfig",
+      key: "asr.realtime_url",
+      value: "",
+    })
+  })
+
   it("checks DashScope Pro and Lite access independently", async () => {
     const user = userEvent.setup()
     const data = makeInitData()

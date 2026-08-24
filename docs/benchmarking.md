@@ -84,6 +84,25 @@ uv run python scripts/run_dictation_benchmark.py \
   --network current-connection-unmeasured
 ```
 
+模型、预热和 WebSocket 音频包实验可在同一 runner 中固定其他条件。例如：
+
+```bash
+uv run python scripts/run_dictation_benchmark.py \
+  --manifest eval/manifest.yaml \
+  --output eval/runs/omni-plus-40ms.json \
+  --model qwen3.5-omni-plus-realtime \
+  --audio-chunk-ms 40 \
+  --realtime-url wss://WORKSPACE.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime \
+  --trace-level paced_replay \
+  --network current-connection-unmeasured
+```
+
+对比 `qwen3.5-omni-plus-realtime`、`qwen3.5-omni-flash-realtime` 和
+`qwen-audio-3.0-realtime-plus` 时，应分别运行 40、80、100ms 三档，并保持语料、
+网络、预热状态与润色开关一致。runner 会在每个样本前等待干净的预热连接，并把
+`prewarm_ready`、`warm_session_reused`、实际包字节数写入报告。若要取得冷启动
+对照，追加 `--cold-start`。
+
 协议回放：
 
 ```bash

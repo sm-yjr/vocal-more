@@ -953,29 +953,6 @@ class AudioRecorder:
 
         return audio_data
 
-    def wait_for_recording_tail(
-        self,
-        cancel_event: threading.Event,
-        *,
-        timeout: float = 1.0,
-    ) -> bool:
-        """Keep accepting microphone callbacks briefly before a normal stop.
-
-        A stop intent can arrive while the user's final syllable is still in
-        the Core Audio input path.  Native converter draining in ``stop()``
-        preserves frames already admitted by the backend, but it cannot admit
-        speech that reaches the callback after stop has detached the stream.
-        This interruptible grace period runs on the mode's finish worker while
-        the recorder and streaming ASR session remain active.
-
-        Returns ``True`` when the grace period completed normally and ``False``
-        when cancellation interrupted it or recording was already inactive.
-        """
-        with self._lock:
-            if not self._is_recording or self._is_stopping:
-                return False
-        return not cancel_event.wait(timeout=max(0.0, float(timeout)))
-
     def _retain_warm_voice_stream(self, stream):
         """Keep a paused VPIO graph briefly, then release it while idle."""
         with self._lock:

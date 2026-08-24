@@ -24,13 +24,15 @@ def test_config_load(tmp_path, monkeypatch):
     assert config.audio.sample_rate == 16000
     assert config.audio.channels == 1
     assert config.audio.capture_channels == 1
-    assert config.audio.blocksize == 640
+    assert config.audio.blocksize == 1280
     assert config.audio.input_device is None
     assert config.audio.gain_mode == "automatic"
     assert config.asr.backend == "realtime_ws"
     assert config.asr.model == "qwen3.5-omni-flash-realtime"
     assert config.asr.language == "auto"
     assert config.asr.batch_mode == "manual"
+    assert config.asr.realtime_url == ""
+    assert config.native_fast_paste is False
     assert config.asr.use_dictionary_corpus is True
     assert config.asr.extra_corpus_terms == []
     assert config.llm.model == "qwen3.5-plus"
@@ -44,18 +46,70 @@ def test_config_load(tmp_path, monkeypatch):
     assert config.default_mode == "realtime_long"
 
 
-def test_legacy_default_audio_blocksize_migrates_to_low_latency_default(tmp_path, monkeypatch):
-    """A persisted historical default should not override the new default."""
+def test_config_accepts_workspace_specific_realtime_url():
+    from vocal_more.config import Config
+
+    config = Config()
+    config.apply_update(
+        "asr.realtime_url",
+        "wss://Example-Workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime/",
+    )
+
+    assert config.asr.realtime_url == (
+        "wss://example-workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+    )
+    assert config.to_dict()["asr"]["realtime_url"] == config.asr.realtime_url
+
+
+def test_config_accepts_explicit_public_realtime_url():
+    from vocal_more.config import Config
+
+    config = Config()
+    config.apply_update(
+        "asr.realtime_url",
+        "wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
+    )
+
+    assert config.asr.realtime_url == (
+        "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+    )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime",
+        "wss://evil.example/api-ws/v1/realtime",
+        "wss://workspace.cn-beijing.maas.aliyuncs.com/other",
+    ],
+)
+def test_config_rejects_non_dashscope_realtime_url(url):
+    from vocal_more.config import Config
+
+    with pytest.raises(ValueError, match="realtime_url"):
+        Config().apply_update("asr.realtime_url", url)
+
+
+@pytest.mark.parametrize("legacy_blocksize", [640, 1600])
+def test_legacy_default_audio_blocksize_migrates_to_80ms_default(
+    tmp_path,
+    monkeypatch,
+    legacy_blocksize,
+):
+    """Persisted historical defaults should migrate to the measured 80 ms size."""
     from vocal_more.config import Config
 
     config_path = tmp_path / "config.yaml"
     monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
     monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
-    config_path.write_text("audio:\n  blocksize: 1600\n", encoding="utf-8")
+    config_path.write_text(
+        f"audio:\n  blocksize: {legacy_blocksize}\n",
+        encoding="utf-8",
+    )
 
     config = Config.load()
 
-    assert config.audio.blocksize == 640
+    assert config.audio.blocksize == 1280
 
 
 def test_legacy_audio_gain_migrates_to_manual_without_changing_saved_gain(
@@ -553,6 +607,7 @@ def test_config_boolean_strings_parse_as_booleans():
 
     config.apply_update("enable_polish", "false")
     config.apply_update("auto_paste", "0")
+    config.apply_update("native_fast_paste", "false")
     config.apply_update("audio.highpass_filter", "no")
     config.apply_update("audio.soft_limiter", "off")
     config.apply_update("asr.use_dictionary_corpus", "false")
@@ -561,6 +616,7 @@ def test_config_boolean_strings_parse_as_booleans():
 
     assert config.enable_polish is False
     assert config.auto_paste is False
+    assert config.native_fast_paste is False
     assert config.audio.highpass_filter is False
     assert config.audio.soft_limiter is False
     assert config.asr.use_dictionary_corpus is False

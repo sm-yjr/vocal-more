@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 _MODULE_IMPORT_STARTED_AT = time.perf_counter()
 
@@ -895,12 +896,30 @@ class VocalMoreApp(rumps.App):
 
     def _select_mode(self, mode_name: str) -> None:
         """Select recording mode."""
+        selected = False
         if mode_name == "walkie_talkie":
             self._current_mode = self._walkie_talkie
+            selected = True
         elif mode_name == "realtime_long":
             self._current_mode = self._realtime_long
+            selected = True
         elif mode_name == "meeting":
             self._current_mode = self._meeting
+            selected = True
+        if selected and getattr(self, "_hotkey_listener_ready", None) is not None:
+            executor = getattr(self, "_startup_executor", None)
+            if executor is not None:
+                try:
+                    executor.submit(self._prewarm_current_asr)
+                except RuntimeError:
+                    pass
+
+    def _prewarm_current_asr(self) -> bool:
+        """Prepare the selected mode's ASR from a non-UI worker."""
+        if getattr(self, "_is_quitting", False):
+            return False
+        prewarm = getattr(getattr(self, "_current_mode", None), "prewarm_asr", None)
+        return bool(prewarm()) if callable(prewarm) else False
 
     def _all_modes(self) -> tuple[object, ...]:
         modes = [self._walkie_talkie, self._realtime_long]
@@ -1383,6 +1402,7 @@ class VocalMoreApp(rumps.App):
                 set_current_mode=lambda mode: self._select_mode(
                     self._mode_name_for_instance(mode, modes)
                 ),
+                prewarm_current_on_refresh=True,
             ),
             on_refresh_text_polisher=self._refresh_text_polisher,
             on_set_active_hotkeys=getattr(hotkey_manager, "set_active_hotkeys", None),
@@ -1875,6 +1895,7 @@ class VocalMoreApp(rumps.App):
         if not self._ensure_dependencies():
             return
         hotkey_listener_ready = bool(self._hotkey_manager.start())
+        self._prewarm_current_asr()
         checks = run_environment_checks(
             self.config,
             hotkey_listener_ready=hotkey_listener_ready,
@@ -1920,7 +1941,11 @@ def main() -> None:
 
     install_timestamped_stream("stdout")
     install_timestamped_stream("stderr")
-    _ensure_no_proxy("dashscope.aliyuncs.com")
+    proxy_bypass_hosts = ["dashscope.aliyuncs.com"]
+    realtime_host = urlsplit(get_config().asr.realtime_url).hostname
+    if realtime_host:
+        proxy_bypass_hosts.append(realtime_host)
+    _ensure_no_proxy(*proxy_bypass_hosts)
     app = build_menu_app(app_factory=VocalMoreApp)
     app.run()
 

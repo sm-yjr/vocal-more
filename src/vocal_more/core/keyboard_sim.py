@@ -1,9 +1,10 @@
-"""Cross-platform keyboard simulation using pynput and pyperclip."""
+"""Cross-platform keyboard simulation with an optional native macOS fast path."""
 
 from __future__ import annotations
 
 import sys
 import time
+
 import pyperclip
 from pynput.keyboard import Controller, Key
 
@@ -17,10 +18,15 @@ class KeyboardSimulator:
         platform_name: str | None = None,
         keyboard: object | None = None,
         clipboard=None,
+        native_fast_paste: bool | None = None,
+        native_paster=None,
     ) -> None:
         self._keyboard = keyboard if keyboard is not None else Controller()
         self._clipboard = clipboard if clipboard is not None else pyperclip
         current_platform = (platform_name or sys.platform).casefold()
+        self._platform_name = current_platform
+        self._native_fast_paste = native_fast_paste
+        self._native_paster = native_paster
         if current_platform == "darwin":
             self._shortcut_modifier = Key.cmd
         else:
@@ -38,9 +44,41 @@ class KeyboardSimulator:
 
     def paste_text(self, text: str) -> None:
         """Copy text to the clipboard and send the platform paste shortcut."""
+        if self._should_use_native_fast_paste():
+            try:
+                if self._native_paste_text(text):
+                    return
+            except Exception as exc:  # noqa: BLE001 - compatibility fallback boundary
+                print(
+                    "[KeyboardSimulator] Native fast paste failed; "
+                    f"using compatibility path: {exc}"
+                )
+
+        self._paste_text_compatible(text)
+
+    def _should_use_native_fast_paste(self) -> bool:
+        if self._platform_name != "darwin":
+            return False
+        if self._native_fast_paste is not None:
+            return bool(self._native_fast_paste)
+        try:
+            from ..config import get_config
+
+            return bool(get_config().native_fast_paste)
+        except (AttributeError, ImportError):
+            return False
+
+    def _native_paste_text(self, text: str) -> bool:
+        if self._native_paster is None:
+            from .macos_native_paste import MacOSNativePaste
+
+            self._native_paster = MacOSNativePaste()
+        return bool(self._native_paster.paste_text(text))
+
+    def _paste_text_compatible(self, text: str) -> None:
         try:
             self._clipboard.paste()
-        except Exception:
+        except Exception:  # noqa: BLE001,S110 - optional clipboard probe
             pass
 
         self._clipboard.copy(text)

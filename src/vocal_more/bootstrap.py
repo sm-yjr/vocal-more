@@ -194,6 +194,7 @@ def build_menu_app_dependencies(
                 "meeting": meeting,
             },
         )),
+        prewarm_current_on_refresh=True,
     )
     runtime = runtime_factory(
         config=config,

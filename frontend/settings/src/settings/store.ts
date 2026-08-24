@@ -446,6 +446,7 @@ export class SettingsStore {
       api_key: config.api_key ?? "",
       default_mode: config.default_mode ?? "realtime_long",
       auto_paste: config.auto_paste !== false,
+      native_fast_paste: config.native_fast_paste === true,
       enable_polish: config.enable_polish !== false,
       ui: {
         language: config.ui?.language ?? "zh",
@@ -477,6 +478,7 @@ export class SettingsStore {
         backend:
           selectedModel?.transport ?? asr.backend ?? "realtime_ws",
         language: asr.language ?? "auto",
+        realtime_url: asr.realtime_url ?? "",
       },
       llm: {
         model: llm.model ?? "qwen3.5-plus",

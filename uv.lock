@@ -1593,7 +1593,7 @@ wheels = [
 
 [[package]]
 name = "vocal-more"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "." }
 dependencies = [
     { name = "dashscope" },
@@ -1601,6 +1601,7 @@ dependencies = [
     { name = "numpy", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pynput" },
     { name = "pyobjc-framework-avfoundation", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-webkit", marker = "sys_platform == 'darwin'" },
     { name = "pyperclip" },
@@ -1626,6 +1627,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "pynput", specifier = ">=1.7.6" },
     { name = "pyobjc-framework-avfoundation", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
+    { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
     { name = "pyobjc-framework-webkit", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
     { name = "pyperclip", specifier = ">=1.8.2" },

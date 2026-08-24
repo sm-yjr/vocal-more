@@ -187,6 +187,19 @@ export function GeneralSettings({
             }
           />
         </SettingsRow>
+        <SettingsRow
+          label={copy.nativeFastPaste}
+          description={copy.nativeFastPasteHint}
+        >
+          <Switch
+            aria-label={copy.nativeFastPaste}
+            checked={config.native_fast_paste === true}
+            disabled={config.auto_paste === false}
+            onCheckedChange={(checked) =>
+              setConfig(store, "native_fast_paste", checked)
+            }
+          />
+        </SettingsRow>
       </SettingsCard>
 
       <SettingsCard>

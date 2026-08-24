@@ -16,6 +16,8 @@ class RuntimeModePort(Protocol):
 
     def refresh_asr_runtime(self) -> None: ...
 
+    def prewarm_asr(self) -> bool: ...
+
 
 class ModeRuntimePort(Protocol):
     """Operations RuntimeFacade needs without knowing concrete mode objects."""
@@ -39,10 +41,12 @@ class ModeRuntimeService:
         modes: Mapping[str, RuntimeModePort],
         get_current_mode: Callable[[], RuntimeModePort | None],
         set_current_mode: Callable[[RuntimeModePort], None],
+        prewarm_current_on_refresh: bool = False,
     ) -> None:
         self._modes = dict(modes)
         self._get_current_mode = get_current_mode
         self._set_current_mode = set_current_mode
+        self._prewarm_current_on_refresh = bool(prewarm_current_on_refresh)
 
     @property
     def current_mode_name(self) -> str:
@@ -69,6 +73,12 @@ class ModeRuntimeService:
     def refresh_asr_runtime(self) -> None:
         for mode in self._modes.values():
             mode.refresh_asr_runtime()
+        if not self._prewarm_current_on_refresh:
+            return
+        current_mode = self._get_current_mode()
+        prewarm = getattr(current_mode, "prewarm_asr", None)
+        if callable(prewarm):
+            prewarm()
 
 
 __all__ = ["ModeRuntimePort", "ModeRuntimeService", "RuntimeModePort"]

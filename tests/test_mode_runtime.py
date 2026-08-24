@@ -27,6 +27,7 @@ def _mode(*, idle: bool = True):
         runtime_is_idle=idle,
         apply_audio_runtime_config=MagicMock(),
         refresh_asr_runtime=MagicMock(),
+        prewarm_asr=MagicMock(return_value=True),
     )
 
 
@@ -84,6 +85,26 @@ def test_mode_runtime_broadcasts_runtime_updates_through_public_mode_ports():
     realtime.apply_audio_runtime_config.assert_called_once_with(audio_config)
     walkie.refresh_asr_runtime.assert_called_once_with()
     realtime.refresh_asr_runtime.assert_called_once_with()
+    walkie.prewarm_asr.assert_not_called()
+    realtime.prewarm_asr.assert_not_called()
+
+
+def test_mode_runtime_prewarms_only_selected_menu_mode_after_asr_refresh():
+    from vocal_more.application.mode_runtime import ModeRuntimeService
+
+    walkie = _mode()
+    realtime = _mode()
+    runtime = ModeRuntimeService(
+        modes={"walkie_talkie": walkie, "realtime_long": realtime},
+        get_current_mode=lambda: realtime,
+        set_current_mode=lambda _mode: None,
+        prewarm_current_on_refresh=True,
+    )
+
+    runtime.refresh_asr_runtime()
+
+    walkie.prewarm_asr.assert_not_called()
+    realtime.prewarm_asr.assert_called_once_with()
 
 
 def test_base_mode_runtime_port_keeps_private_resources_inside_the_mode():

@@ -35,6 +35,21 @@ def test_settings_bridge_rejects_unknown_config_keys():
         {"action": "setConfig", "key": "audio.gain", "value": 3.0}
     ) == {"action": "set_config", "key": "audio.gain", "value": 3.0}
     assert bridge.parse(
+        {"action": "setConfig", "key": "native_fast_paste", "value": False}
+    ) == {
+        "action": "set_config",
+        "key": "native_fast_paste",
+        "value": False,
+    }
+    endpoint = "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+    assert bridge.parse(
+        {"action": "setConfig", "key": "asr.realtime_url", "value": endpoint}
+    ) == {
+        "action": "set_config",
+        "key": "asr.realtime_url",
+        "value": endpoint,
+    }
+    assert bridge.parse(
         {"action": "setConfig", "key": "audio.gain_mode", "value": "automatic"}
     ) == {
         "action": "set_config",

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 from ..localization import UILanguage, normalize_ui_language
 from .audio_contract import OUTPUT_SAMPLE_RATE_HZ
@@ -78,6 +79,35 @@ HOTKEY_ALIASES = {
 }
 
 
+def _parse_realtime_url(value: object) -> str:
+    """Normalize an optional DashScope realtime WebSocket endpoint."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlsplit(raw)
+    hostname = (parsed.hostname or "").casefold()
+    if (
+        parsed.scheme.casefold() != "wss"
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.port not in (None, 443)
+        or parsed.path.rstrip("/") != "/api-ws/v1/realtime"
+        or parsed.query
+        or parsed.fragment
+        or not (
+            hostname == "dashscope.aliyuncs.com"
+            or hostname.endswith(".maas.aliyuncs.com")
+        )
+    ):
+        raise ValueError(
+            "ASR realtime_url must be the official public endpoint or a "
+            "wss://*.maas.aliyuncs.com/api-ws/v1/realtime workspace endpoint"
+        )
+    netloc = hostname if parsed.port is None else f"{hostname}:{parsed.port}"
+    return urlunsplit(("wss", netloc, "/api-ws/v1/realtime", "", ""))
+
+
 @dataclass
 class AudioConfig:
     """Audio recording configuration."""
@@ -88,7 +118,10 @@ class AudioConfig:
     sample_rate: int = OUTPUT_SAMPLE_RATE_HZ
     channels: int = 1
     capture_channels: int = 1
-    blocksize: int = 640
+    # 80 ms at the fixed 16 kHz PCM boundary. The provider matrix showed this
+    # to be the best latency/stability point across the supported realtime
+    # models while keeping callback and queue overhead bounded.
+    blocksize: int = 1280
     input_device: Optional[str] = None
     capture_backend: CaptureBackend = "low_latency"
     gain_mode: GainMode = "automatic"
@@ -123,6 +156,7 @@ class ASRConfig:
     model: str = "qwen3.5-omni-flash-realtime"
     language: ASRLanguage = "auto"
     batch_mode: Literal["manual"] = "manual"
+    realtime_url: str = ""
     use_dictionary_corpus: bool = True
     extra_corpus_terms: list[str] = field(default_factory=list)
 
@@ -366,6 +400,7 @@ class AppConfig:
     )
     enable_polish: bool = True
     auto_paste: bool = True
+    native_fast_paste: bool = False
     default_mode: str = "realtime_long"
 
     @classmethod
@@ -378,7 +413,13 @@ class AppConfig:
         audio_data = data.get("audio")
         legacy_existing_config = bool(data)
 
-        for key in ("api_key", "enable_polish", "auto_paste", "default_mode"):
+        for key in (
+            "api_key",
+            "enable_polish",
+            "auto_paste",
+            "native_fast_paste",
+            "default_mode",
+        ):
             if key in data:
                 config.apply_update(key, data[key])
 
@@ -454,7 +495,13 @@ class AppConfig:
         if not isinstance(form_state, dict):
             raise ValueError("Form state must be a dict")
 
-        for key in ("api_key", "default_mode", "auto_paste", "enable_polish"):
+        for key in (
+            "api_key",
+            "default_mode",
+            "auto_paste",
+            "native_fast_paste",
+            "enable_polish",
+        ):
             if key in form_state:
                 self.apply_update(key, form_state[key])
 
@@ -501,6 +548,8 @@ class AppConfig:
             self.enable_polish = parse_bool(value, self.enable_polish)
         elif field_name == "auto_paste":
             self.auto_paste = parse_bool(value, self.auto_paste)
+        elif field_name == "native_fast_paste":
+            self.native_fast_paste = parse_bool(value, self.native_fast_paste)
         elif field_name == "default_mode":
             self.default_mode = _parse_default_mode(value)
         else:
@@ -541,10 +590,10 @@ class AppConfig:
                 maximum=MAX_AUDIO_CHANNELS,
             )
         elif field_name == "blocksize":
-            # 1600 was the historical default. Treat it as an unset value when
-            # loading saved settings so existing users receive the lower-latency
-            # default without overriding deliberate custom block sizes.
-            if str(value).strip() == "1600":
+            # 1600 and 640 were historical defaults. Treat them as unset when
+            # loading saved settings so existing users receive the measured
+            # 80 ms provider packet size without rewriting custom values.
+            if str(value).strip() in {"640", "1600"}:
                 self.audio.blocksize = AudioConfig().blocksize
                 return
             self.audio.blocksize = clamp_int(
@@ -612,6 +661,8 @@ class AppConfig:
             self.asr.language = _parse_asr_language(value)
         elif field_name == "batch_mode":
             self.asr.batch_mode = _parse_batch_mode(str(value))
+        elif field_name == "realtime_url":
+            self.asr.realtime_url = _parse_realtime_url(value)
         elif field_name == "use_dictionary_corpus":
             self.asr.use_dictionary_corpus = parse_bool(
                 value,
@@ -795,6 +846,7 @@ class AppConfig:
                 "model": self.asr.model,
                 "language": self.asr.language,
                 "batch_mode": self.asr.batch_mode,
+                "realtime_url": self.asr.realtime_url,
                 "use_dictionary_corpus": self.asr.use_dictionary_corpus,
                 "extra_corpus_terms": self.asr.extra_corpus_terms,
             },
@@ -849,6 +901,7 @@ class AppConfig:
             },
             "enable_polish": self.enable_polish,
             "auto_paste": self.auto_paste,
+            "native_fast_paste": self.native_fast_paste,
             "default_mode": self.default_mode,
         }
 

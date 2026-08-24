@@ -12,6 +12,7 @@ _ALLOWED_TOP_LEVEL_CONFIG_KEYS = {
     "api_key",
     "default_mode",
     "auto_paste",
+    "native_fast_paste",
     "enable_polish",
 }
 
@@ -35,6 +36,7 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
         "model",
         "language",
         "batch_mode",
+        "realtime_url",
         "use_dictionary_corpus",
         "extra_corpus_terms",
     },

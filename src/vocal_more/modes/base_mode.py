@@ -1,6 +1,7 @@
 """Base class for recording modes."""
 
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from enum import Enum
 import threading
 from typing import Callable, Optional
@@ -157,6 +158,18 @@ class BaseMode(ABC):
         refresh = getattr(asr, "refresh_runtime_config", None)
         if callable(refresh):
             refresh(drop_idle_session=True)
+
+    def prewarm_asr(self) -> bool:
+        """Force lazy ASR creation and begin a clean idle connection."""
+        if not self.runtime_is_idle:
+            return False
+        resource = getattr(self, "_asr", None)
+        getter = getattr(resource, "get", None)
+        asr = getter() if callable(getter) else resource
+        prepare = getattr(type(asr), "prepare_idle_session", None)
+        if not callable(prepare):
+            return False
+        return bool(prepare(asr, deepcopy(getattr(self, "config").audio)))
 
     def _abort_realtime_asr_startup(self) -> None:
         """Boundedly invalidate an initialized ASR session during mode startup."""

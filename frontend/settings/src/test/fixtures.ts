@@ -7,6 +7,7 @@ export function makeInitData(): SettingsInitData {
       api_key: "sk-test",
       default_mode: "realtime_long",
       auto_paste: true,
+      native_fast_paste: true,
       enable_polish: true,
       ui: {
         language: "zh",
@@ -26,6 +27,7 @@ export function makeInitData(): SettingsInitData {
         model: "qwen3-asr-flash-realtime",
         backend: "realtime_ws",
         language: "auto",
+        realtime_url: "",
       },
       llm: {
         model: "qwen3.5-plus",

@@ -24,6 +24,7 @@ export interface AsrConfig {
   model?: string
   backend?: string
   language?: string
+  realtime_url?: string
   [key: string]: unknown
 }
 
@@ -66,6 +67,7 @@ export interface SettingsConfig {
   api_key?: string
   default_mode?: string
   auto_paste?: boolean
+  native_fast_paste?: boolean
   enable_polish?: boolean
   ui?: {
     language?: string
@@ -348,6 +350,7 @@ export interface FormState {
   api_key: string
   default_mode: string
   auto_paste: boolean
+  native_fast_paste: boolean
   enable_polish: boolean
   ui: {
     language: string
@@ -368,6 +371,7 @@ export interface FormState {
     model: string
     backend: string
     language: string
+    realtime_url: string
   }
   llm: {
     model: string

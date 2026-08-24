@@ -78,13 +78,20 @@ def _run_sample(
     trace_dir: Path,
     seen: set[Path],
     trace_level: str,
+    chunk_bytes: int,
+    prewarm: bool,
 ) -> dict:
     pcm_data = _read_pcm((manifest_dir / sample.audio).resolve())
+    prewarm_ready = False
     try:
+        if prewarm:
+            engine.prepare_idle_session()
+            prewarm_ready = engine.wait_for_idle_session_ready(timeout=12.0)
         engine.start()
         feed_audio(
             engine,
             pcm_data,
+            chunk_bytes=chunk_bytes,
             paced=trace_level == "paced_replay",
         )
         hypothesis = engine.stop(pcm_data=pcm_data)
@@ -95,6 +102,8 @@ def _run_sample(
             "hypothesis": hypothesis,
             "result_source": str(trace.get("result_source") or ""),
             "fallback_reason": str(trace.get("fallback_reason") or ""),
+            "prewarm_ready": prewarm_ready,
+            "warm_session_reused": bool(trace.get("warm_session_reused")),
             "timings_ms": timings_from_asr_trace(
                 trace,
                 trace_level=trace_level,
@@ -112,6 +121,8 @@ def _run_sample(
             "hypothesis": "",
             "result_source": "",
             "fallback_reason": "",
+            "prewarm_ready": prewarm_ready,
+            "warm_session_reused": False,
             "timings_ms": {
                 "first_feedback": None,
                 "first_partial": None,
@@ -129,10 +140,16 @@ def run_benchmark(
     trace_level: str,
     network_label: str,
     enable_polish: bool | None,
+    audio_chunk_ms: int,
+    prewarm: bool,
+    realtime_url: str = "",
 ) -> dict:
     manifest = load_manifest(manifest_path)
     config = copy.deepcopy(reload_config())
     config.apply_update("asr.model", model)
+    if realtime_url:
+        config.apply_update("asr.realtime_url", realtime_url)
+    config.audio.blocksize = round(config.audio.sample_rate * audio_chunk_ms / 1000)
     if enable_polish is not None:
         config.enable_polish = enable_polish
     config_module._config = config
@@ -158,6 +175,8 @@ def run_benchmark(
                             trace_dir=trace_dir,
                             seen=seen,
                             trace_level=trace_level,
+                            chunk_bytes=config.audio.blocksize * 2,
+                            prewarm=prewarm,
                         )
                     )
         finally:
@@ -175,6 +194,7 @@ def run_benchmark(
             "model": config.asr.model,
             "transport": config.asr.backend,
             "enable_polish": config.enable_polish,
+            "realtime_url": config.asr.realtime_url,
         },
         "trace_level": trace_level,
         "conditions": {
@@ -190,6 +210,9 @@ def run_benchmark(
                 if trace_level == "paced_replay"
                 else "unpaced"
             ),
+            "audio_chunk_ms": audio_chunk_ms,
+            "audio_chunk_bytes": config.audio.blocksize * 2,
+            "prewarm": prewarm,
         },
         "manifest_fingerprint": manifest.fingerprint,
         "results": results,
@@ -214,6 +237,23 @@ def _parser() -> argparse.ArgumentParser:
         default="unspecified",
         help="Human-readable network condition; no SSID is collected automatically",
     )
+    parser.add_argument(
+        "--audio-chunk-ms",
+        type=int,
+        choices=(40, 80, 100),
+        default=100,
+        help="PCM duration per realtime WebSocket audio packet",
+    )
+    parser.add_argument(
+        "--realtime-url",
+        default="",
+        help="Optional workspace-specific DashScope realtime WebSocket endpoint",
+    )
+    parser.add_argument(
+        "--cold-start",
+        action="store_true",
+        help="Skip idle-session prewarming before each sample",
+    )
     polish = parser.add_mutually_exclusive_group()
     polish.add_argument("--enable-polish", action="store_true")
     polish.add_argument("--disable-polish", action="store_true")
@@ -233,6 +273,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         trace_level=args.trace_level,
         network_label=args.network,
         enable_polish=enable_polish,
+        audio_chunk_ms=args.audio_chunk_ms,
+        prewarm=not args.cold_start,
+        realtime_url=args.realtime_url,
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

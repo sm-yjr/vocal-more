@@ -1164,6 +1164,58 @@ def test_refresh_runtime_config_drops_idle_warm_session(monkeypatch):
     assert engine._session_ready is False
 
 
+def test_prepare_idle_session_connects_workspace_endpoint(tmp_path, monkeypatch):
+    """Startup prewarming should create a reusable session on the saved endpoint."""
+    from vocal_more.config import Config, reload_config
+    import vocal_more.core.asr_engine as asr_engine
+
+    endpoint = (
+        "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+    )
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "asr": {
+                    "model": "qwen3.5-omni-plus-realtime",
+                    "realtime_url": endpoint,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    reload_config()
+    captured = {}
+
+    class FakeConversation:
+        def __init__(self, model, url, callback):
+            captured.update(model=model, url=url, callback=callback)
+            self.ws = SimpleNamespace(sock=SimpleNamespace(connected=False))
+
+        def connect(self):
+            self.ws.sock.connected = True
+
+        def update_session(self, **_kwargs):
+            captured["callback"].on_event({"type": "session.updated"})
+
+        def close(self):
+            self.ws.sock.connected = False
+
+    monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
+
+    engine = asr_engine.ASREngine()
+    try:
+        assert engine.prepare_idle_session() is True
+        assert engine.wait_for_idle_session_ready(timeout=1.0) is True
+        assert captured["model"] == "qwen3.5-omni-plus-realtime"
+        assert captured["url"] == endpoint
+        assert engine._conversation_is_clean is True
+    finally:
+        engine.close()
+
+
 def test_omni_inline_polish_uses_response_text_output(tmp_path, monkeypatch):
     """Omni inline polish should create a text response instead of returning raw transcription."""
     from vocal_more.config import Config, reload_config
@@ -2204,13 +2256,17 @@ def test_abandoned_warm_keeper_exits_after_failed_reconnect(monkeypatch):
     assert keeper.is_alive() is False
 
 
-def test_warm_keeper_closes_connection_after_maximum_idle_time(monkeypatch):
-    """The keeper should release an unused connection after its idle TTL."""
+def test_warm_keeper_retains_connected_session_until_stopped(monkeypatch):
+    """A prepared session should remain ready through long app idle periods."""
     import vocal_more.core.asr_engine as asr_engine
 
     class FakeStop:
+        def __init__(self):
+            self.wait_calls = 0
+
         def wait(self, _timeout):
-            return False
+            self.wait_calls += 1
+            return True
 
         def is_set(self):
             return False
@@ -2226,54 +2282,13 @@ def test_warm_keeper_closes_connection_after_maximum_idle_time(monkeypatch):
     monkeypatch.setattr(
         asr_engine.time,
         "monotonic",
-        lambda: asr_engine.WARM_KEEPER_MAX_IDLE_SECONDS,
+        lambda: 24 * 60 * 60,
     )
 
     engine._run_warm_keeper_loop()
 
-    conversation.close.assert_called_once()
-    assert engine._conversation is None
-
-
-def test_abandoned_warm_keeper_cannot_drop_a_new_active_session(monkeypatch):
-    """Idle-expiry cleanup must revalidate warm ownership atomically."""
-    import vocal_more.core.asr_engine as asr_engine
-
-    class FakeStop:
-        def is_set(self):
-            return False
-
-        def wait(self, _timeout):
-            return False
-
-    engine = asr_engine.ASREngine()
-    old_conversation = MagicMock()
-    old_callback = MagicMock()
-    new_conversation = MagicMock()
-    new_callback = MagicMock()
-    engine._conversation = old_conversation
-    engine._callback = old_callback
-    engine._conversation_model_id = engine._session_model_id
-    engine._warm_session_idle_since = 0.0
-    engine._warm_keeper_stop = FakeStop()
-
-    def advance_to_new_session():
-        # Model the owner timing out its keeper join and starting immediately.
-        with engine._lock:
-            engine._warm_generation += 1
-            engine._is_running = True
-            engine._conversation = new_conversation
-            engine._callback = new_callback
-        return asr_engine.WARM_KEEPER_MAX_IDLE_SECONDS
-
-    monkeypatch.setattr(asr_engine.time, "monotonic", advance_to_new_session)
-
-    engine._run_warm_keeper_loop()
-
-    assert engine._conversation is new_conversation
-    assert engine._callback is new_callback
-    new_conversation.close.assert_not_called()
-    new_callback.close.assert_not_called()
+    conversation.close.assert_not_called()
+    assert engine._conversation is conversation
     engine._warm_keeper_stop = threading.Event()
     engine.close()
 
@@ -3622,11 +3637,11 @@ def test_streaming_session_freezes_and_normalizes_audio_contract(
     assert engine._active_trace.sample_rate == 16000
     assert queue_logs[-1] == (
         "session_start",
-        {"chunk_bytes": 1280, "chunk_ms": 40.0},
+        {"chunk_bytes": 2560, "chunk_ms": 80.0},
     )
 
     # RuntimeFacade may update the shared config while dictation is active.
-    # The already-recorded PCM still belongs to the 16 kHz / 640-frame plan.
+    # The already-recorded PCM still belongs to the 16 kHz / 1280-frame plan.
     config.audio.sample_rate = 24000
     config.audio.blocksize = 960
     deferred_connects.pop(0)()
@@ -3638,8 +3653,8 @@ def test_streaming_session_freezes_and_normalizes_audio_contract(
     one_second_pcm = b"\x01\x00" * 16000
     assert engine.stop(pcm_data=one_second_pcm) == "batch fallback"
 
-    assert drain_contracts == [(16000, 640)]
-    assert fallback_contracts == [(16000, 640, len(one_second_pcm))]
+    assert drain_contracts == [(16000, 1280)]
+    assert fallback_contracts == [(16000, 1280, len(one_second_pcm))]
 
     traces = list(debug_dir.glob("*.json"))
     wav_files = list(debug_dir.glob("*.wav"))
