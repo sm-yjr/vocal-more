@@ -42,6 +42,7 @@ export interface LlmConfig {
   structured?: boolean
   tone?: string
   persona?: string
+  output_language?: string
   prompt_overrides?: Record<string, PromptOverride>
   [key: string]: unknown
 }
@@ -68,6 +69,8 @@ export interface SettingsConfig {
   default_mode?: string
   auto_paste?: boolean
   native_fast_paste?: boolean
+  restore_clipboard?: boolean
+  streaming_paste?: boolean
   enable_polish?: boolean
   ui?: {
     language?: string
@@ -351,6 +354,8 @@ export interface FormState {
   default_mode: string
   auto_paste: boolean
   native_fast_paste: boolean
+  restore_clipboard: boolean
+  streaming_paste: boolean
   enable_polish: boolean
   ui: {
     language: string
@@ -382,6 +387,7 @@ export interface FormState {
     structured: boolean
     tone: string
     persona: string
+    output_language: string
     prompt_overrides: Record<string, PromptOverride>
   }
   hotkey: {

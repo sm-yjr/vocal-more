@@ -447,6 +447,8 @@ export class SettingsStore {
       default_mode: config.default_mode ?? "realtime_long",
       auto_paste: config.auto_paste !== false,
       native_fast_paste: config.native_fast_paste === true,
+      restore_clipboard: config.restore_clipboard !== false,
+      streaming_paste: config.streaming_paste === true,
       enable_polish: config.enable_polish !== false,
       ui: {
         language: config.ui?.language ?? "zh",
@@ -490,6 +492,7 @@ export class SettingsStore {
         structured: llm.structured === true,
         tone: llm.tone ?? "neutral",
         persona: llm.persona ?? "default",
+        output_language: llm.output_language ?? "auto",
         prompt_overrides: clone(llm.prompt_overrides ?? {}),
       },
       hotkey: {

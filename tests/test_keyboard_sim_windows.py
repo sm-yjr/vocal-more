@@ -41,6 +41,44 @@ class _FakeClipboard:
         self.value = text
 
 
+class _BrokenSnapshotClipboard(_FakeClipboard):
+    def paste(self):
+        raise RuntimeError("clipboard unavailable")
+
+
+class _TimerRecorder:
+    """Stand-in for threading.Timer that never waits.
+
+    With ``run_immediately=True`` the restore callback runs synchronously on
+    ``start()``; otherwise the timer is recorded and must be fired manually.
+    """
+
+    def __init__(self, run_immediately: bool = True) -> None:
+        self.run_immediately = run_immediately
+        self.timers: list[SimpleNamespace] = []
+
+    def __call__(self, interval, function, args=(), kwargs=None):
+        recorder = self
+
+        def start() -> None:
+            if recorder.run_immediately:
+                function(*args)
+
+        timer = SimpleNamespace(
+            interval=interval,
+            function=function,
+            args=tuple(args),
+            daemon=False,
+            start=start,
+        )
+        self.timers.append(timer)
+        return timer
+
+    def fire_all(self) -> None:
+        for timer in self.timers:
+            timer.function(*timer.args)
+
+
 def _keys():
     return SimpleNamespace(
         cmd="cmd",
@@ -56,11 +94,13 @@ def test_windows_paste_uses_ctrl_v(monkeypatch):
     clipboard = _FakeClipboard()
     monkeypatch.setattr(keyboard_sim, "Key", _keys())
     monkeypatch.setattr(keyboard_sim.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(keyboard_sim.threading, "Timer", _TimerRecorder())
 
     simulator = keyboard_sim.KeyboardSimulator(
         platform_name="win32",
         keyboard=keyboard,
         clipboard=clipboard,
+        restore_clipboard=False,
     )
     simulator.paste_text("hello")
 
@@ -77,12 +117,14 @@ def test_macos_paste_keeps_command_v(monkeypatch):
     keyboard = _FakeKeyboard()
     monkeypatch.setattr(keyboard_sim, "Key", _keys())
     monkeypatch.setattr(keyboard_sim.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(keyboard_sim.threading, "Timer", _TimerRecorder())
 
     simulator = keyboard_sim.KeyboardSimulator(
         platform_name="darwin",
         keyboard=keyboard,
         clipboard=_FakeClipboard(),
         native_fast_paste=False,
+        restore_clipboard=False,
     )
     simulator.paste_text("hello")
 
@@ -114,6 +156,7 @@ def test_macos_native_fast_paste_falls_back_when_dispatch_fails(monkeypatch):
     native_paster = SimpleNamespace(paste_text=lambda _text: False)
     monkeypatch.setattr(keyboard_sim, "Key", _keys())
     monkeypatch.setattr(keyboard_sim.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(keyboard_sim.threading, "Timer", _TimerRecorder())
 
     simulator = keyboard_sim.KeyboardSimulator(
         platform_name="darwin",
@@ -121,6 +164,7 @@ def test_macos_native_fast_paste_falls_back_when_dispatch_fails(monkeypatch):
         clipboard=clipboard,
         native_fast_paste=True,
         native_paster=native_paster,
+        restore_clipboard=False,
     )
     simulator.paste_text("fallback")
 
@@ -132,11 +176,13 @@ def test_windows_select_all_uses_ctrl_a_then_paste(monkeypatch):
     keyboard = _FakeKeyboard()
     monkeypatch.setattr(keyboard_sim, "Key", _keys())
     monkeypatch.setattr(keyboard_sim.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(keyboard_sim.threading, "Timer", _TimerRecorder())
 
     simulator = keyboard_sim.KeyboardSimulator(
         platform_name="win32",
         keyboard=keyboard,
         clipboard=_FakeClipboard(),
+        restore_clipboard=False,
     )
     simulator.select_all_and_replace("replacement")
 
@@ -146,4 +192,94 @@ def test_windows_select_all_uses_ctrl_a_then_paste(monkeypatch):
         ("release", "a"),
         ("modifier_up", "ctrl"),
     ]
+    assert ("press", "v") in keyboard.events
+
+
+def test_windows_paste_restores_previous_clipboard(monkeypatch):
+    keyboard = _FakeKeyboard()
+    clipboard = _FakeClipboard()
+    recorder = _TimerRecorder(run_immediately=True)
+    monkeypatch.setattr(keyboard_sim, "Key", _keys())
+    monkeypatch.setattr(keyboard_sim.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(keyboard_sim.threading, "Timer", recorder)
+
+    simulator = keyboard_sim.KeyboardSimulator(
+        platform_name="win32",
+        keyboard=keyboard,
+        clipboard=clipboard,
+        restore_clipboard=True,
+    )
+    simulator.paste_text("hello")
+
+    # The restore timer ran synchronously and put the snapshot back.
+    assert len(recorder.timers) == 1
+    assert recorder.timers[0].daemon is True
+    assert clipboard.value == "before"
+    assert ("press", "v") in keyboard.events
+
+
+def test_windows_paste_skips_restore_when_clipboard_changed_elsewhere(monkeypatch):
+    keyboard = _FakeKeyboard()
+    clipboard = _FakeClipboard()
+    recorder = _TimerRecorder(run_immediately=False)
+    monkeypatch.setattr(keyboard_sim, "Key", _keys())
+    monkeypatch.setattr(keyboard_sim.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(keyboard_sim.threading, "Timer", recorder)
+
+    simulator = keyboard_sim.KeyboardSimulator(
+        platform_name="win32",
+        keyboard=keyboard,
+        clipboard=clipboard,
+        restore_clipboard=True,
+    )
+    simulator.paste_text("hello")
+    assert clipboard.value == "hello"
+
+    # Another app writes to the clipboard before the restore timer fires.
+    clipboard.copy("third-party")
+
+    recorder.fire_all()
+
+    assert clipboard.value == "third-party"
+
+
+def test_windows_paste_skips_restore_when_disabled(monkeypatch):
+    keyboard = _FakeKeyboard()
+    clipboard = _FakeClipboard()
+    recorder = _TimerRecorder(run_immediately=True)
+    monkeypatch.setattr(keyboard_sim, "Key", _keys())
+    monkeypatch.setattr(keyboard_sim.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(keyboard_sim.threading, "Timer", recorder)
+
+    simulator = keyboard_sim.KeyboardSimulator(
+        platform_name="win32",
+        keyboard=keyboard,
+        clipboard=clipboard,
+        restore_clipboard=False,
+    )
+    simulator.paste_text("hello")
+
+    assert clipboard.value == "hello"
+    assert recorder.timers == []
+
+
+def test_windows_paste_survives_snapshot_failure(monkeypatch):
+    keyboard = _FakeKeyboard()
+    clipboard = _BrokenSnapshotClipboard()
+    recorder = _TimerRecorder(run_immediately=True)
+    monkeypatch.setattr(keyboard_sim, "Key", _keys())
+    monkeypatch.setattr(keyboard_sim.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(keyboard_sim.threading, "Timer", recorder)
+
+    simulator = keyboard_sim.KeyboardSimulator(
+        platform_name="win32",
+        keyboard=keyboard,
+        clipboard=clipboard,
+        restore_clipboard=True,
+    )
+    # Snapshot raising must not break the paste itself.
+    simulator.paste_text("hello")
+
+    assert clipboard.value == "hello"
+    assert recorder.timers == []
     assert ("press", "v") in keyboard.events

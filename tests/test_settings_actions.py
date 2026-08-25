@@ -41,6 +41,20 @@ def test_settings_bridge_rejects_unknown_config_keys():
         "key": "native_fast_paste",
         "value": False,
     }
+    assert bridge.parse(
+        {"action": "setConfig", "key": "restore_clipboard", "value": False}
+    ) == {
+        "action": "set_config",
+        "key": "restore_clipboard",
+        "value": False,
+    }
+    assert bridge.parse(
+        {"action": "setConfig", "key": "streaming_paste", "value": True}
+    ) == {
+        "action": "set_config",
+        "key": "streaming_paste",
+        "value": True,
+    }
     endpoint = "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
     assert bridge.parse(
         {"action": "setConfig", "key": "asr.realtime_url", "value": endpoint}
@@ -76,6 +90,9 @@ def test_settings_bridge_rejects_unknown_config_keys():
     assert bridge.parse(
         {"action": "setConfig", "key": "llm.polish_mode", "value": "prompt"}
     ) == {"action": "set_config", "key": "llm.polish_mode", "value": "prompt"}
+    assert bridge.parse(
+        {"action": "setConfig", "key": "llm.output_language", "value": "en"}
+    ) == {"action": "set_config", "key": "llm.output_language", "value": "en"}
     overrides = {"tone": {"enabled": True, "prompt": "Keep it warm"}}
     assert bridge.parse(
         {"action": "setConfig", "key": "llm.prompt_overrides", "value": overrides}
@@ -130,6 +147,7 @@ def test_settings_bridge_sanitizes_sync_form_state_payload():
                 "llm": {
                     "level": "strong",
                     "polish_mode": "prompt",
+                    "output_language": "en",
                     "prompt_overrides": {"tone": {"enabled": True, "prompt": "warm"}},
                     "unknown": True,
                 },
@@ -151,6 +169,7 @@ def test_settings_bridge_sanitizes_sync_form_state_payload():
             "llm": {
                 "level": "strong",
                 "polish_mode": "prompt",
+                "output_language": "en",
                 "prompt_overrides": {"tone": {"enabled": True, "prompt": "warm"}},
             },
             "dictionary_learning": {

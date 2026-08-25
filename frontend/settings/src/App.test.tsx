@@ -18,6 +18,19 @@ function renderApp(data = makeInitData()) {
   return { postMessage, store }
 }
 
+function rmsAtDbfs(dbfs: number): number {
+  return 10 ** (dbfs / 20)
+}
+
+function startMicTestCount(postMessage: ReturnType<typeof vi.fn>): number {
+  return postMessage.mock.calls.filter(
+    ([message]) =>
+      typeof message === "object" &&
+      message !== null &&
+      (message as { action?: string }).action === "startMicTest",
+  ).length
+}
+
 describe("settings application", () => {
   it("guides a fresh install through readiness and a first low-voice recording", async () => {
     const user = userEvent.setup()
@@ -140,6 +153,20 @@ describe("settings application", () => {
       action: "setConfig",
       key: "native_fast_paste",
       value: false,
+    })
+
+    await user.click(screen.getByRole("switch", { name: "恢复剪贴板" }))
+    expect(postMessage).toHaveBeenCalledWith({
+      action: "setConfig",
+      key: "restore_clipboard",
+      value: false,
+    })
+
+    await user.click(screen.getByRole("switch", { name: "分段粘贴（长听写）" }))
+    expect(postMessage).toHaveBeenCalledWith({
+      action: "setConfig",
+      key: "streaming_paste",
+      value: true,
     })
 
     await user.click(screen.getByRole("tab", { name: "识别" }))
@@ -699,6 +726,156 @@ describe("settings application", () => {
     expect(
       screen.queryByRole("button", { name: "添加" }),
     ).not.toBeInTheDocument()
+  })
+
+  it("runs the two-phase whisper calibration and applies the recommendation", () => {
+    vi.useFakeTimers()
+    try {
+      const { postMessage, store } = renderApp()
+
+      fireEvent.click(screen.getByRole("tab", { name: "音频" }))
+      fireEvent.click(screen.getByRole("button", { name: "开始校准" }))
+      expect(screen.getByRole("dialog")).toBeVisible()
+
+      fireEvent.click(screen.getByRole("button", { name: "开始测量" }))
+      expect(postMessage).toHaveBeenCalledWith({ action: "startMicTest" })
+
+      // Phase 1: silence for the noise floor.
+      act(() => store.micTestStarted())
+      expect(screen.getByText("第 1 步 · 保持安静")).toBeVisible()
+      for (let i = 0; i < 12; i += 1) {
+        act(() => store.micTestLevel(rmsAtDbfs(-55 + i * 0.0001)))
+      }
+      act(() => vi.advanceTimersByTime(3000))
+      expect(postMessage).toHaveBeenCalledWith({ action: "stopMicTest" })
+      act(() => store.micTestComplete())
+
+      // Phase 2 starts on its own and never plays the quiet take back.
+      expect(startMicTestCount(postMessage)).toBe(2)
+      expect(postMessage).not.toHaveBeenCalledWith({ action: "playMicTest" })
+      act(() => store.micTestStarted())
+      expect(screen.getByText("第 2 步 · 轻声朗读")).toBeVisible()
+      expect(
+        screen.getByText("「In the quiet office, 我轻声说：今天按时下班。」"),
+      ).toBeVisible()
+      act(() => store.micTestLevel(rmsAtDbfs(-35)))
+      act(() => store.micTestLevel(rmsAtDbfs(-34.5)))
+      for (let i = 0; i < 10; i += 1) {
+        act(() => store.micTestLevel(rmsAtDbfs(-34 + i * 0.0001)))
+      }
+      act(() => vi.advanceTimersByTime(4500))
+      act(() => store.micTestComplete())
+
+      // Result: measurements plus the full list of writes, applied on ask.
+      expect(screen.getByText("校准完成")).toBeVisible()
+      expect(screen.getByText("-34.0 dBFS")).toBeVisible()
+      expect(screen.getByText("-55.0 dBFS")).toBeVisible()
+      fireEvent.click(screen.getByRole("button", { name: "应用推荐" }))
+
+      expect(postMessage).toHaveBeenCalledWith({
+        action: "setConfig",
+        key: "audio.gain_mode",
+        value: "manual",
+      })
+      expect(postMessage).toHaveBeenCalledWith({
+        action: "setConfig",
+        key: "audio.gain",
+        value: 20,
+      })
+      expect(postMessage).toHaveBeenCalledWith({
+        action: "setConfig",
+        key: "audio.highpass_filter",
+        value: true,
+      })
+      expect(postMessage).toHaveBeenCalledWith({
+        action: "setConfig",
+        key: "audio.highpass_freq",
+        value: 220,
+      })
+      expect(postMessage).toHaveBeenCalledWith({
+        action: "setConfig",
+        key: "audio.waveform_ceiling_dbfs",
+        value: -12,
+      })
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      expect(store.getSnapshot().micTest.state).toBe("idle")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("shows a low-snr calibration result with a retry instead of applying", () => {
+    vi.useFakeTimers()
+    try {
+      const { store } = renderApp()
+      fireEvent.click(screen.getByRole("tab", { name: "音频" }))
+      fireEvent.click(screen.getByRole("button", { name: "开始校准" }))
+      fireEvent.click(screen.getByRole("button", { name: "开始测量" }))
+
+      act(() => store.micTestStarted())
+      for (let i = 0; i < 12; i += 1) {
+        act(() => store.micTestLevel(rmsAtDbfs(-45 + i * 0.0001)))
+      }
+      act(() => vi.advanceTimersByTime(3000))
+      act(() => store.micTestComplete())
+      act(() => store.micTestStarted())
+      for (let i = 0; i < 12; i += 1) {
+        act(() => store.micTestLevel(rmsAtDbfs(-42 + i * 0.0001)))
+      }
+      act(() => vi.advanceTimersByTime(4500))
+      act(() => store.micTestComplete())
+
+      expect(
+        screen.getByText("低语电平与环境噪声太接近。请靠近麦克风，用平时的轻声再试一次。"),
+      ).toBeVisible()
+      expect(screen.getByRole("button", { name: "重试" })).toBeVisible()
+      expect(
+        screen.queryByRole("button", { name: "应用推荐" }),
+      ).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("cancels whisper calibration mid-measurement without leftovers", () => {
+    vi.useFakeTimers()
+    try {
+      const { postMessage, store } = renderApp()
+      fireEvent.click(screen.getByRole("tab", { name: "音频" }))
+      fireEvent.click(screen.getByRole("button", { name: "开始校准" }))
+      fireEvent.click(screen.getByRole("button", { name: "开始测量" }))
+      act(() => store.micTestStarted())
+
+      fireEvent.click(screen.getByRole("button", { name: "取消" }))
+
+      expect(postMessage).toHaveBeenCalledWith({ action: "stopMicTest" })
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      expect(store.getSnapshot().micTest.state).toBe("idle")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("recovers from a microphone failure during calibration with a retry", () => {
+    vi.useFakeTimers()
+    try {
+      const { postMessage, store } = renderApp()
+      fireEvent.click(screen.getByRole("tab", { name: "音频" }))
+      fireEvent.click(screen.getByRole("button", { name: "开始校准" }))
+      fireEvent.click(screen.getByRole("button", { name: "开始测量" }))
+      act(() => store.micTestStarted())
+      act(() => store.micTestError("麦克风被其他应用占用"))
+
+      expect(screen.getByText("校准被中断。")).toBeVisible()
+      expect(screen.getAllByText("麦克风被其他应用占用").length).toBeGreaterThan(0)
+
+      fireEvent.click(screen.getByRole("button", { name: "重试" }))
+      expect(startMicTestCount(postMessage)).toBe(2)
+      act(() => store.micTestStarted())
+      expect(screen.getByText("第 1 步 · 保持安静")).toBeVisible()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("switches interface copy immediately while notifying Python", async () => {

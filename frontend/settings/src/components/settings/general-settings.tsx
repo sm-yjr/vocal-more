@@ -200,6 +200,31 @@ export function GeneralSettings({
             }
           />
         </SettingsRow>
+        <SettingsRow
+          label={copy.restoreClipboard}
+          description={copy.restoreClipboardHint}
+        >
+          <Switch
+            aria-label={copy.restoreClipboard}
+            checked={config.restore_clipboard !== false}
+            disabled={config.auto_paste === false}
+            onCheckedChange={(checked) =>
+              setConfig(store, "restore_clipboard", checked)
+            }
+          />
+        </SettingsRow>
+        <SettingsRow
+          label={copy.streamingPaste}
+          description={copy.streamingPasteHint}
+        >
+          <Switch
+            aria-label={copy.streamingPaste}
+            checked={config.streaming_paste === true}
+            onCheckedChange={(checked) =>
+              setConfig(store, "streaming_paste", checked)
+            }
+          />
+        </SettingsRow>
       </SettingsCard>
 
       <SettingsCard>

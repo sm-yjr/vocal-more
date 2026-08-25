@@ -34,6 +34,7 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "menu_polish_strength_title": "Polish Strength: {value}",
         "menu_settings": "Settings...",
         "menu_more_settings": "More Settings...",
+        "menu_copy_last_result": "Copy Last Result",
         "menu_quit": "Quit Vocal-More",
         "notification_configuration_error_title": "Configuration Error",
         "notification_transcription_complete_title": "Transcription Complete",
@@ -88,6 +89,11 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "mode_asr_error": "ASR error: {details}",
         "mode_polish_error": "Polish error: {details}",
         "mode_processing_error": "Processing error: {details}",
+        "mode_streaming_paste_mismatch": (
+            "Streaming paste could not be aligned with the final "
+            "transcription; the remaining text was not pasted to avoid "
+            "duplicates."
+        ),
         "meeting_generation_canceled": "Meeting generation canceled",
         "mode_walkie_talkie": "Walkie-Talkie (Hold)",
         "mode_realtime_long": "Real-time Long (Toggle)",
@@ -149,6 +155,7 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "menu_polish_strength_title": "润色强度：{value}",
         "menu_settings": "设置...",
         "menu_more_settings": "更多设置...",
+        "menu_copy_last_result": "复制最近结果",
         "menu_quit": "退出 Vocal-More",
         "notification_configuration_error_title": "配置错误",
         "notification_transcription_complete_title": "识别完成",
@@ -198,6 +205,9 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "mode_asr_error": "识别错误：{details}",
         "mode_polish_error": "润色错误：{details}",
         "mode_processing_error": "处理错误：{details}",
+        "mode_streaming_paste_mismatch": (
+            "分段粘贴内容与最终识别结果无法对齐，为避免重复，剩余文本未粘贴。"
+        ),
         "meeting_generation_canceled": "会议记录生成已取消",
         "mode_walkie_talkie": "对讲模式（按住）",
         "mode_realtime_long": "实时长录（切换）",

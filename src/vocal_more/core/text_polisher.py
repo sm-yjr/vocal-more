@@ -97,6 +97,11 @@ Role: <给下游模型的角色定位>
 
 只输出最终 Prompt，不要解释转换过程，不要添加前缀。"""
 
+OUTPUT_LANGUAGE_INSTRUCTIONS = {
+    "zh": "中文",
+    "en": "英文",
+}
+
 TONE_INSTRUCTIONS = {
     "neutral": "保持自然、中性、克制的表达，不主动增加额外情绪色彩。",
     "gentle": "将生硬、直接、强硬的措辞软化为更温和、委婉的表达，但不要过度客套。",
@@ -181,6 +186,18 @@ def _build_polish_rule_block(llm_config: LLMConfig) -> str:
             "output_type",
             OUTPUT_TYPE_INSTRUCTIONS[llm_config.polish_mode],
         ),
+    ]
+    if llm_config.output_language in OUTPUT_LANGUAGE_INSTRUCTIONS:
+        target_language = OUTPUT_LANGUAGE_INSTRUCTIONS[llm_config.output_language]
+        blocks.append(
+            "输出语言要求：\n"
+            f"1. 将整理后的全部输出翻译为{target_language}；"
+            "这条要求优先于“保持用户原本的语言”\n"
+            "2. 专有名词、代码、命令、路径、API 名、模型名和产品名保持原样，"
+            "不翻译；用户词典中的术语尤其不得意译\n"
+            "3. 只做翻译和整理，不要添加原文没有的内容"
+        )
+    blocks += [
         f"润色强度要求：\n{level_override or LEVEL_INSTRUCTIONS[llm_config.level]}",
         "语气要求：\n"
         + _prompt_instruction(llm_config, "tone", TONE_INSTRUCTIONS[llm_config.tone]),

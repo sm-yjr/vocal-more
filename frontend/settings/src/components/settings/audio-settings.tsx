@@ -1,5 +1,5 @@
 import { Mic, RefreshCw, Square } from "lucide-react"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 
 import {
   InlineValue,
@@ -7,6 +7,7 @@ import {
   SettingsPage,
   SettingsRow,
 } from "@/components/settings/settings-card"
+import { WhisperCalibrationWizard } from "@/components/settings/whisper-calibration-wizard"
 import { Button } from "@/components/ui/button"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Progress } from "@/components/ui/progress"
@@ -195,11 +196,16 @@ export function AudioSettings({
     return () => window.clearTimeout(timer)
   }, [mic.state])
 
+  const [calibrationOpen, setCalibrationOpen] = useState(false)
+  const [calibrationMeasuring, setCalibrationMeasuring] = useState(false)
+
   useEffect(() => {
-    if (mic.state === "done" && !mic.playbackBase64) {
+    // The calibration wizard drives its own mic-test sessions; auto-playing
+    // their takes would talk over the user mid-measurement.
+    if (mic.state === "done" && !mic.playbackBase64 && !calibrationMeasuring) {
       sendAction("playMicTest")
     }
-  }, [mic.state, mic.playbackBase64])
+  }, [mic.state, mic.playbackBase64, calibrationMeasuring])
 
   function applyPreset(name: keyof typeof AUDIO_PRESETS) {
     for (const [key, value] of Object.entries(AUDIO_PRESETS[name])) {
@@ -321,6 +327,22 @@ export function AudioSettings({
               {label}
             </Button>
           ))}
+        </div>
+        <div className="flex items-center justify-between gap-3 border-t px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{copy.whisperCalibration}</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              {copy.whisperCalibrationHint}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            className="shrink-0"
+            disabled={audioControlsBusy}
+            onClick={() => setCalibrationOpen(true)}
+          >
+            {copy.startWhisperCalibration}
+          </Button>
         </div>
       </SettingsCard>
 
@@ -535,6 +557,16 @@ export function AudioSettings({
           )}
         </div>
       </SettingsCard>
+
+      {calibrationOpen && (
+        <WhisperCalibrationWizard
+          store={store}
+          snapshot={snapshot}
+          copy={copy}
+          onClose={() => setCalibrationOpen(false)}
+          onMeasuringChange={setCalibrationMeasuring}
+        />
+      )}
     </SettingsPage>
   )
 }

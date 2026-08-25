@@ -13,6 +13,8 @@ _ALLOWED_TOP_LEVEL_CONFIG_KEYS = {
     "default_mode",
     "auto_paste",
     "native_fast_paste",
+    "restore_clipboard",
+    "streaming_paste",
     "enable_polish",
 }
 
@@ -50,6 +52,7 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
         "structured",
         "tone",
         "persona",
+        "output_language",
         "prompt_overrides",
     },
     "hotkey": {

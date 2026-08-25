@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
 
 import pyperclip
 from pynput.keyboard import Controller, Key
+
+_RESTORE_DELAY_SECONDS = 0.6
 
 
 class KeyboardSimulator:
@@ -20,6 +23,8 @@ class KeyboardSimulator:
         clipboard=None,
         native_fast_paste: bool | None = None,
         native_paster=None,
+        restore_clipboard: bool | None = None,
+        restore_delay: float = _RESTORE_DELAY_SECONDS,
     ) -> None:
         self._keyboard = keyboard if keyboard is not None else Controller()
         self._clipboard = clipboard if clipboard is not None else pyperclip
@@ -27,6 +32,8 @@ class KeyboardSimulator:
         self._platform_name = current_platform
         self._native_fast_paste = native_fast_paste
         self._native_paster = native_paster
+        self._restore_clipboard = restore_clipboard
+        self._restore_delay = restore_delay
         if current_platform == "darwin":
             self._shortcut_modifier = Key.cmd
         else:
@@ -76,10 +83,12 @@ class KeyboardSimulator:
         return bool(self._native_paster.paste_text(text))
 
     def _paste_text_compatible(self, text: str) -> None:
+        snapshot = None
+        restore_enabled = self._should_restore_clipboard()
         try:
-            self._clipboard.paste()
+            snapshot = self._clipboard.paste()
         except Exception:  # noqa: BLE001,S110 - optional clipboard probe
-            pass
+            snapshot = None
 
         self._clipboard.copy(text)
         time.sleep(0.05)
@@ -89,6 +98,41 @@ class KeyboardSimulator:
             self._keyboard.release("v")
 
         time.sleep(0.05)
+
+        if restore_enabled and isinstance(snapshot, str) and snapshot != text:
+            self._schedule_clipboard_restore(snapshot, text)
+
+    def _should_restore_clipboard(self) -> bool:
+        if self._restore_clipboard is not None:
+            return bool(self._restore_clipboard)
+        try:
+            from ..config import get_config
+
+            return bool(get_config().restore_clipboard)
+        except (AttributeError, ImportError):
+            return False
+
+    def _schedule_clipboard_restore(self, snapshot: str, pasted_text: str) -> None:
+        try:
+            timer = threading.Timer(
+                self._restore_delay,
+                self._restore_clipboard_snapshot,
+                args=(snapshot, pasted_text),
+            )
+            timer.daemon = True
+            timer.start()
+        except Exception:  # noqa: BLE001,S110 - restore must never break paste
+            pass
+
+    def _restore_clipboard_snapshot(self, snapshot: str, pasted_text: str) -> None:
+        try:
+            if self._clipboard.paste() != pasted_text:
+                # Someone else wrote to the clipboard in the meantime;
+                # restoring would destroy their content.
+                return
+            self._clipboard.copy(snapshot)
+        except Exception:  # noqa: BLE001,S110 - restore must never break paste
+            pass
 
     def delete_chars(self, count: int, delay: float = 0.01) -> None:
         """Delete characters using Backspace."""

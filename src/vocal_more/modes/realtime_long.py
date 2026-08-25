@@ -14,6 +14,7 @@ from ..core.audio_recorder import AudioRecorder
 from ..core.asr_engine import ASREngine
 from ..core.keyboard_sim import KeyboardSimulator
 from ..dictionary import normalize_terms
+from ..domain.bilingual_formatting import format_bilingual_text
 from ..domain.input_intent import InputIntent
 from ..domain.model_catalog import supports_command_mode
 from ..localization import format_microphone_start_error, t
@@ -61,6 +62,7 @@ class RealtimeLongMode(BaseMode):
         self._asr = LazyResource(
             lambda: ASREngine(
                 on_partial_result=self._on_asr_partial,
+                on_final_result=self._on_asr_final,
                 on_error=lambda msg: self._on_asr_error(msg),
             )
         )
@@ -96,6 +98,12 @@ class RealtimeLongMode(BaseMode):
         self._recorder_stop_lock = threading.Lock()
         self._recorder_stopped_session: Optional[int] = None
         self._active_input_intent = InputIntent.DICTATION
+        # Streaming segment paste state for the current session. The flag is
+        # decided once at session start; the raw parts accumulate the exact
+        # ASR segment transcripts already pasted, in arrival order, so the
+        # finish workflow can prefix-align the aggregated text against them.
+        self._streaming_paste_active = False
+        self._streamed_raw_parts: list[str] = []
 
     def _prepare_app_context(self) -> str:
         self._active_app_context = None
@@ -162,6 +170,17 @@ class RealtimeLongMode(BaseMode):
         self._active_session_token = session_token
         self._recording_asr_model = self.config.asr.model
         self._active_input_intent = intent
+        # Streaming segment paste is opt-in and only valid for plain
+        # dictation with raw transcripts: inline-polish models emit polished
+        # segment text with different semantics, so those sessions (and
+        # command sessions) keep the original one-shot finish path.
+        self._streaming_paste_active = bool(
+            intent == InputIntent.DICTATION
+            and getattr(self.config, "streaming_paste", False)
+            and self.config.auto_paste
+            and not asr_model_handles_inline_polish(self._recording_asr_model)
+        )
+        self._streamed_raw_parts = []
         context_instruction = self._prepare_app_context()
         if intent == InputIntent.COMMAND:
             context_instruction = getattr(
@@ -302,6 +321,10 @@ class RealtimeLongMode(BaseMode):
     ) -> None:
 
         if len(pcm_data) < 3200:
+            # No finish workflow will run for this session; queued segment
+            # pastes must drop instead of inserting text for a discarded
+            # recording.
+            self._streaming_paste_active = False
             try:
                 self._asr.stop()
             finally:
@@ -346,8 +369,67 @@ class RealtimeLongMode(BaseMode):
                 self._set_processing_stage("polishing")
             self.on_partial_result(result.text)
 
+    def _on_asr_final(self, result) -> None:
+        """Receive one finalized ASR segment during a streaming-paste session.
+
+        Runs on the ASR inbound callback worker (already generation-checked
+        by ASREngine). Never pastes inline: the paste is queued onto the
+        mode's single finish worker, which serializes it with the finish
+        workflow so a cancelled or finished session can drop late segments
+        instead of duplicating text (Rule 4: late results must be
+        droppable).
+        """
+        if not self._streaming_paste_active:
+            return
+        text = getattr(result, "text", "") or ""
+        if not text.strip():
+            return
+        session_token = self._active_session_token
+        if not self._is_active_session(session_token):
+            return
+        try:
+            self._processing_executor.submit(
+                self._paste_streamed_segment,
+                text,
+                session_token,
+            )
+        except RuntimeError:
+            # Mode is closing; the executor is already shut down.
+            pass
+
+    def _paste_streamed_segment(self, raw_text: str, session_token: int) -> None:
+        """Paste one finalized segment. Runs on the mode's single worker."""
+        if not self._streaming_paste_active or not self._is_active_session(
+            session_token
+        ):
+            return
+        segment_text = format_bilingual_text(normalize_terms(raw_text)).strip()
+        if not segment_text:
+            return
+        separator = " " if self._streamed_raw_parts else ""
+        try:
+            self._keyboard.paste_text(f"{separator}{segment_text}")
+        except Exception as exc:
+            print(f"[RealtimeLong] Streaming segment paste failed: {exc}")
+            # Stop streaming further segments; the finish workflow still
+            # pastes everything that was not streamed as part of the tail.
+            self._streaming_paste_active = False
+            return
+        # Record the raw ASR segment, not the formatted text: the finish
+        # workflow prefix-aligns against the engine's raw accumulation.
+        self._streamed_raw_parts.append(raw_text)
+
     def _finish_transcription(self, pcm_data: bytes, session_token: int) -> None:
         """Commit ASR, get result, polish, paste."""
+        streamed_raw_text: Optional[str] = None
+        if self._streaming_paste_active:
+            streamed_raw_text = "".join(self._streamed_raw_parts) or None
+            # The finish workflow owns the remaining text from here on. It
+            # runs on this same single worker, so any segment paste still
+            # queued behind it would otherwise duplicate text that the tail
+            # paste already covers; dropping the flag makes those queued
+            # tasks discard themselves.
+            self._streaming_paste_active = False
         try:
             if self._active_input_intent == InputIntent.COMMAND:
                 result = self._command_workflow.finish_recording(
@@ -387,9 +469,14 @@ class RealtimeLongMode(BaseMode):
                             "mode_polish_error",
                             details=details,
                         ),
+                        streaming_paste_mismatch=t(
+                            self.config.ui.language,
+                            "mode_streaming_paste_mismatch",
+                        ),
                     ),
                     on_processing_stage=self._set_processing_stage,
                     should_abort=lambda: not self._is_active_session(session_token),
+                    streamed_raw_text=streamed_raw_text,
                 )
             if self._is_active_session(session_token):
                 if (
@@ -448,6 +535,7 @@ class RealtimeLongMode(BaseMode):
 
         self._recording_asr_model = self.config.asr.model
         self._active_input_intent = InputIntent.DICTATION
+        self._streaming_paste_active = False
         self._clear_app_context()
         if previous_state == ModeState.PROCESSING:
             processing = self._processing_thread

@@ -63,6 +63,7 @@ LEGACY_BUILT_IN_HOTKEYS = (
 VALID_DEFAULT_MODES = ("walkie_talkie", "realtime_long", "meeting")
 ASRLanguage = Literal["zh", "en", "auto"]
 PolishMode = Literal["dictation", "prompt"]
+PolishOutputLanguage = Literal["auto", "zh", "en"]
 GainMode = Literal["automatic", "manual"]
 CaptureBackend = Literal["low_latency", "voice_processing"]
 POLISH_PROMPT_OVERRIDE_CATEGORIES = (
@@ -174,6 +175,7 @@ class LLMConfig:
     structured: bool = False
     tone: Literal["neutral", "gentle", "direct"] = "neutral"
     persona: Literal["default", "technical", "bilingual", "professional", "chat"] = "default"
+    output_language: PolishOutputLanguage = "auto"
     prompt_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -328,6 +330,12 @@ def _parse_polish_mode(raw: object) -> PolishMode:
     return "dictation"
 
 
+def _parse_output_language(raw: str) -> PolishOutputLanguage:
+    if raw in ("auto", "zh", "en"):
+        return raw
+    return "auto"
+
+
 def _parse_prompt_overrides(raw: object) -> dict[str, dict[str, Any]]:
     """Normalize editable polish prompt overrides from config or the settings UI."""
     if not isinstance(raw, dict):
@@ -400,7 +408,9 @@ class AppConfig:
     )
     enable_polish: bool = True
     auto_paste: bool = True
+    streaming_paste: bool = False
     native_fast_paste: bool = False
+    restore_clipboard: bool = True
     default_mode: str = "realtime_long"
 
     @classmethod
@@ -417,7 +427,9 @@ class AppConfig:
             "api_key",
             "enable_polish",
             "auto_paste",
+            "streaming_paste",
             "native_fast_paste",
+            "restore_clipboard",
             "default_mode",
         ):
             if key in data:
@@ -499,7 +511,9 @@ class AppConfig:
             "api_key",
             "default_mode",
             "auto_paste",
+            "streaming_paste",
             "native_fast_paste",
+            "restore_clipboard",
             "enable_polish",
         ):
             if key in form_state:
@@ -548,8 +562,12 @@ class AppConfig:
             self.enable_polish = parse_bool(value, self.enable_polish)
         elif field_name == "auto_paste":
             self.auto_paste = parse_bool(value, self.auto_paste)
+        elif field_name == "streaming_paste":
+            self.streaming_paste = parse_bool(value, self.streaming_paste)
         elif field_name == "native_fast_paste":
             self.native_fast_paste = parse_bool(value, self.native_fast_paste)
+        elif field_name == "restore_clipboard":
+            self.restore_clipboard = parse_bool(value, self.restore_clipboard)
         elif field_name == "default_mode":
             self.default_mode = _parse_default_mode(value)
         else:
@@ -702,6 +720,8 @@ class AppConfig:
             self.llm.tone = _parse_tone(str(value))
         elif field_name == "persona":
             self.llm.persona = _parse_persona(str(value))
+        elif field_name == "output_language":
+            self.llm.output_language = _parse_output_language(str(value))
         elif field_name == "prompt_overrides":
             self.llm.prompt_overrides = _parse_prompt_overrides(value)
         else:
@@ -860,6 +880,7 @@ class AppConfig:
                 "structured": self.llm.structured,
                 "tone": self.llm.tone,
                 "persona": self.llm.persona,
+                "output_language": self.llm.output_language,
                 "prompt_overrides": {
                     category: dict(override)
                     for category, override in self.llm.prompt_overrides.items()
@@ -901,7 +922,9 @@ class AppConfig:
             },
             "enable_polish": self.enable_polish,
             "auto_paste": self.auto_paste,
+            "streaming_paste": self.streaming_paste,
             "native_fast_paste": self.native_fast_paste,
+            "restore_clipboard": self.restore_clipboard,
             "default_mode": self.default_mode,
         }
 
@@ -935,6 +958,7 @@ __all__ = [
     "LLMConfig",
     "MAX_CUSTOM_POLISH_PROMPT_LENGTH",
     "POLISH_PROMPT_OVERRIDE_CATEGORIES",
+    "PolishOutputLanguage",
     "UIConfig",
     "VALID_DEFAULT_MODES",
     "VALID_HOTKEYS",
@@ -943,6 +967,7 @@ __all__ = [
     "_parse_hotkeys",
     "_parse_level",
     "_parse_llm_model",
+    "_parse_output_language",
     "_parse_persona",
     "_parse_prompt_overrides",
     "_parse_tone",

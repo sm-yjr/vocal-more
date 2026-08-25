@@ -2027,3 +2027,109 @@ def test_dictionary_learning_multiple_terms_emit_one_summary_notification(
         "已添加“FanUI”、“Shadcn/ui”，可在词典设置中分别撤销。",
     )
     assert kwargs == {"icon": app._get_logo_path()}
+
+
+def test_build_menu_copy_last_result_disabled_until_result_exists(
+    tmp_path, monkeypatch
+):
+    """Copy-last-result entry should sit after quick settings and enable on demand."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app.config.apply_update("ui.language", "en")
+
+    idle_mode = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._walkie_talkie = idle_mode
+    app._realtime_long = idle_mode
+    app._current_mode = idle_mode
+
+    app._build_menu()
+
+    item = app._copy_last_result_item
+    assert item.title == "Copy Last Result"
+    assert item.callback is None
+
+    index = app.menu.index(item)
+    assert app.menu[index - 1] is None
+    assert app.menu.index(app._quick_polish_level_item) < index
+    assert app.menu[index + 1] is app._check_for_updates_item
+
+    app._benchmark_trace = None
+    app._run_on_main_thread = lambda callback: callback()
+    app._show_result_notification = MagicMock()
+
+    app._on_result("private transcript")
+
+    assert app._last_result_text == "private transcript"
+    assert item.callback is not None
+    assert item.title == "Copy Last Result"
+    for menu_item in app.menu:
+        if menu_item is not None:
+            assert "private transcript" not in menu_item.title
+
+
+def test_copy_last_result_writes_clipboard_and_skips_when_missing(
+    tmp_path, monkeypatch
+):
+    """The copy action should write the stored result and stay inert without one."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    writer = MagicMock()
+    monkeypatch.setattr(app_module, "copy_text_to_clipboard", writer)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._last_result_text = None
+
+    app._copy_last_result_to_clipboard(None)
+    writer.assert_not_called()
+
+    app._last_result_text = "hello from dictation"
+    app._copy_last_result_to_clipboard(MagicMock())
+    writer.assert_called_once_with("hello from dictation")
+
+
+def test_copy_last_result_item_localized_in_chinese(tmp_path, monkeypatch):
+    """The copy-last-result menu title should follow the UI language."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: tmp_path / "config.yaml"))
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app.config.apply_update("ui.language", "zh")
+
+    idle_mode = SimpleNamespace(state=app_module.ModeState.IDLE)
+    app._walkie_talkie = idle_mode
+    app._realtime_long = idle_mode
+    app._current_mode = idle_mode
+
+    app._build_menu()
+
+    assert app._copy_last_result_item.title == "复制最近结果"
+    app._refresh_menu_localization()
+    assert app._copy_last_result_item.title == "复制最近结果"
+    assert app._copy_last_result_item.callback is None

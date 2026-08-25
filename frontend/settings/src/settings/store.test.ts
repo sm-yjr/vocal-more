@@ -12,6 +12,8 @@ describe("settings store", () => {
       default_mode: "realtime_long",
       auto_paste: true,
       native_fast_paste: true,
+      restore_clipboard: true,
+      streaming_paste: false,
       enable_polish: true,
       ui: {
         language: "zh",
@@ -43,6 +45,7 @@ describe("settings store", () => {
         structured: false,
         tone: "neutral",
         persona: "default",
+        output_language: "auto",
         prompt_overrides: {},
       },
       hotkey: {

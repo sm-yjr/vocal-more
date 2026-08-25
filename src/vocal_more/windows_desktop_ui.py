@@ -175,6 +175,7 @@ def build_settings_payload(values: Mapping[str, Any]) -> dict[str, Any]:
     persona = str(values.get("llm.persona") or "default")
     tone = str(values.get("llm.tone") or "neutral")
     polish_mode = str(values.get("llm.polish_mode") or "dictation")
+    output_language = str(values.get("llm.output_language") or "auto")
 
     if language not in {"zh", "en"}:
         raise ValueError("Interface language is invalid")
@@ -192,6 +193,8 @@ def build_settings_payload(values: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("Polish tone is invalid")
     if polish_mode not in {"dictation", "prompt"}:
         raise ValueError("Polish mode is invalid")
+    if output_language not in {"auto", "zh", "en"}:
+        raise ValueError("Polish output language is invalid")
 
     asr_model = str(values.get("asr.model") or "").strip()
     llm_model = str(values.get("llm.model") or "").strip()
@@ -205,6 +208,8 @@ def build_settings_payload(values: Mapping[str, Any]) -> dict[str, Any]:
         "ui.language": language,
         "default_mode": default_mode,
         "auto_paste": bool(values.get("auto_paste")),
+        "restore_clipboard": bool(values.get("restore_clipboard")),
+        "streaming_paste": bool(values.get("streaming_paste")),
         "enable_polish": bool(values.get("enable_polish")),
         "asr.model": asr_model,
         "asr.language": asr_language,
@@ -215,6 +220,7 @@ def build_settings_payload(values: Mapping[str, Any]) -> dict[str, Any]:
         "llm.persona": persona,
         "llm.tone": tone,
         "llm.polish_mode": polish_mode,
+        "llm.output_language": output_language,
         "llm.temperature": _parse_float(
             values.get("llm.temperature", 0.0),
             name="Temperature",
@@ -797,6 +803,8 @@ class _SettingsWindow:
             "default_mode": tk.StringVar(),
             "trigger_browser_code": tk.StringVar(),
             "auto_paste": tk.BooleanVar(),
+            "restore_clipboard": tk.BooleanVar(),
+            "streaming_paste": tk.BooleanVar(),
             "enable_polish": tk.BooleanVar(),
             "asr.model": tk.StringVar(),
             "asr.language": tk.StringVar(),
@@ -808,6 +816,7 @@ class _SettingsWindow:
             "llm.persona": tk.StringVar(),
             "llm.tone": tk.StringVar(),
             "llm.polish_mode": tk.StringVar(),
+            "llm.output_language": tk.StringVar(),
             "llm.temperature": tk.StringVar(),
             "llm.max_tokens": tk.StringVar(),
             "audio.gain_mode": tk.StringVar(),
@@ -850,6 +859,20 @@ class _SettingsWindow:
             general,
             text="Auto-paste recognized text into the active application",
             variable=self._vars["auto_paste"],
+            style="Settings.TCheckbutton",
+        ).grid(row=row, column=0, columnspan=2, sticky="w", pady=5)
+        row += 1
+        ttk.Checkbutton(
+            general,
+            text="Restore the clipboard about 1 second after pasting",
+            variable=self._vars["restore_clipboard"],
+            style="Settings.TCheckbutton",
+        ).grid(row=row, column=0, columnspan=2, sticky="w", pady=5)
+        row += 1
+        ttk.Checkbutton(
+            general,
+            text="Paste finalized segments live during long dictation (skips polishing)",
+            variable=self._vars["streaming_paste"],
             style="Settings.TCheckbutton",
         ).grid(row=row, column=0, columnspan=2, sticky="w", pady=5)
         row += 1
@@ -901,6 +924,14 @@ class _SettingsWindow:
         self._llm_combo = self._last_combo
         row += 1
         self._combo_row(polish, row, "Mode", "llm.polish_mode", ("dictation", "prompt"))
+        row += 1
+        self._combo_row(
+            polish,
+            row,
+            "Output language",
+            "llm.output_language",
+            ("auto", "zh", "en"),
+        )
         row += 1
         self._combo_row(polish, row, "Strength", "llm.level", ("minimal", "balanced", "strong"))
         row += 1
@@ -1032,6 +1063,8 @@ class _SettingsWindow:
         self._vars["ui.language"].set(str(_section(config, "ui").get("language") or "zh"))
         self._vars["default_mode"].set(str(config.get("default_mode") or "realtime_long"))
         self._vars["auto_paste"].set(bool(config.get("auto_paste", True)))
+        self._vars["restore_clipboard"].set(bool(config.get("restore_clipboard", True)))
+        self._vars["streaming_paste"].set(bool(config.get("streaming_paste", False)))
         self._vars["enable_polish"].set(bool(config.get("enable_polish", True)))
         self._vars["asr.language"].set(str(asr.get("language") or "auto"))
         self._vars["asr.use_dictionary_corpus"].set(bool(asr.get("use_dictionary_corpus", True)))
@@ -1040,6 +1073,7 @@ class _SettingsWindow:
         self._vars["llm.persona"].set(str(llm.get("persona") or "default"))
         self._vars["llm.tone"].set(str(llm.get("tone") or "neutral"))
         self._vars["llm.polish_mode"].set(str(llm.get("polish_mode") or "dictation"))
+        self._vars["llm.output_language"].set(str(llm.get("output_language") or "auto"))
         self._vars["llm.temperature"].set(str(llm.get("temperature", 0.0)))
         self._vars["llm.max_tokens"].set(str(llm.get("max_tokens", 1024)))
         self._vars["audio.gain_mode"].set(str(audio.get("gain_mode") or "automatic"))

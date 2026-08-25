@@ -59,6 +59,12 @@ const en = {
   nativeFastPaste: "Native fast paste",
   nativeFastPasteHint:
     "Use macOS pasteboard and native events without the compatibility delay. Falls back automatically if unavailable.",
+  restoreClipboard: "Restore clipboard",
+  restoreClipboardHint:
+    "Restore your previously copied text about 1 second after pasting.",
+  streamingPaste: "Streaming paste (long dictation)",
+  streamingPasteHint:
+    "Paste finalized segments live while recording in long dictation; polishing is skipped for that session.",
   version: "Version",
   openConfig: "Open config file",
   inputDevice: "Input device",
@@ -140,6 +146,35 @@ const en = {
   test: "Test",
   stop: "Stop",
   retest: "Re-test",
+  cancel: "Cancel",
+  on: "On",
+  whisperCalibration: "Whisper calibration",
+  whisperCalibrationHint:
+    "Two short microphone measurements — one silent, one whispered — produce a recommended gain and waveform scale for low-voice dictation.",
+  startWhisperCalibration: "Calibrate",
+  whisperCalibrationStart: "Start measuring",
+  whisperCalibrationIntro:
+    "About eight seconds, in two steps. First stay silent while the room's noise floor is measured, then read one sentence in your quietest comfortable voice. Nothing changes until you apply the recommendation.",
+  whisperCalibrationSentence:
+    "In the quiet office, 我轻声说：今天按时下班。",
+  whisperCalibrationStepOne: "Step 1 · Stay quiet",
+  whisperCalibrationQuietHint:
+    "Measuring your room's noise floor. Don't speak or type until this step ends.",
+  whisperCalibrationStepTwo: "Step 2 · Read softly",
+  whisperCalibrationWhisperHint:
+    "Read the sentence below in your quietest comfortable voice, at your normal distance from the microphone.",
+  whisperCalibrationResultTitle: "Calibration complete",
+  whisperLevel: "Whisper level",
+  noiseFloor: "Noise floor",
+  applyRecommendation: "Apply recommendation",
+  whisperCalibrationRetry: "Try again",
+  whisperCalibrationInsufficient:
+    "Not enough microphone data was captured. Move a little closer to the microphone and try again.",
+  whisperCalibrationLowSnr:
+    "Your whisper was not clearly above the room noise. Move closer to the microphone and try again.",
+  whisperCalibrationFailed: "Calibration was interrupted.",
+  whisperCalibrationGainLimited:
+    "The recommendation reached the safe gain ceiling — sitting closer to the microphone helps.",
   loading: "Loading…",
   asrModel: "ASR model",
   backend: "Backend",
@@ -180,6 +215,12 @@ const en = {
   outputType: "Output type",
   dictation: "Dictation text",
   prompt: "Prompt",
+  outputLanguage: "Output language",
+  outputLanguageAuto: "Follow input",
+  outputLanguageZh: "Always Chinese",
+  outputLanguageEn: "Always English",
+  outputLanguageHint:
+    "Translates the polished output. Proper nouns and code stay unchanged.",
   level: "Level",
   minimal: "Minimal",
   balanced: "Balanced",
@@ -356,6 +397,11 @@ const zh: Copy = {
   nativeFastPaste: "原生快速粘贴",
   nativeFastPasteHint:
     "使用 macOS 剪贴板和原生事件，省去兼容路径延迟；不可用时自动回退。",
+  restoreClipboard: "恢复剪贴板",
+  restoreClipboardHint: "粘贴后约 1 秒恢复你之前复制的文本。",
+  streamingPaste: "分段粘贴（长听写）",
+  streamingPasteHint:
+    "长听写录音中实时粘贴已识别的分段；启用后该次听写不做润色。",
   version: "版本",
   openConfig: "打开配置文件",
   inputDevice: "输入设备",
@@ -435,6 +481,34 @@ const zh: Copy = {
   test: "测试",
   stop: "停止",
   retest: "重新测试",
+  cancel: "取消",
+  on: "开启",
+  whisperCalibration: "低语校准",
+  whisperCalibrationHint:
+    "两次简短的麦克风测量——一次保持安静、一次轻声朗读——为低声听写推荐合适的增益与波形满幅电平。",
+  startWhisperCalibration: "开始校准",
+  whisperCalibrationStart: "开始测量",
+  whisperCalibrationIntro:
+    "全程约 8 秒，分两步：先保持安静测量环境噪声底，再用你最轻、最舒服的声音朗读一句话。应用推荐前不会修改任何设置。",
+  whisperCalibrationSentence:
+    "In the quiet office, 我轻声说：今天按时下班。",
+  whisperCalibrationStepOne: "第 1 步 · 保持安静",
+  whisperCalibrationQuietHint: "正在测量环境噪声底。这一步结束前请不要说话或敲键盘。",
+  whisperCalibrationStepTwo: "第 2 步 · 轻声朗读",
+  whisperCalibrationWhisperHint:
+    "用你最轻、最舒服的声音，保持平时与麦克风的距离，读出下面的句子。",
+  whisperCalibrationResultTitle: "校准完成",
+  whisperLevel: "低语电平",
+  noiseFloor: "噪声底",
+  applyRecommendation: "应用推荐",
+  whisperCalibrationRetry: "重试",
+  whisperCalibrationInsufficient:
+    "采集到的麦克风数据不足。请稍微靠近麦克风，再试一次。",
+  whisperCalibrationLowSnr:
+    "低语电平与环境噪声太接近。请靠近麦克风，用平时的轻声再试一次。",
+  whisperCalibrationFailed: "校准被中断。",
+  whisperCalibrationGainLimited:
+    "推荐值已达到安全增益上限——更靠近麦克风效果会更好。",
   loading: "加载中…",
   asrModel: "识别模型",
   backend: "后端",
@@ -472,6 +546,11 @@ const zh: Copy = {
   outputType: "输出类型",
   dictation: "听写文本",
   prompt: "Prompt",
+  outputLanguage: "输出语言",
+  outputLanguageAuto: "跟随输入语言",
+  outputLanguageZh: "统一为中文",
+  outputLanguageEn: "统一为英文",
+  outputLanguageHint: "润色后统一输出语言；专有名词和代码保持原样。",
   level: "强度",
   minimal: "轻度",
   balanced: "均衡",

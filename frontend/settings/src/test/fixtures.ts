@@ -8,6 +8,8 @@ export function makeInitData(): SettingsInitData {
       default_mode: "realtime_long",
       auto_paste: true,
       native_fast_paste: true,
+      restore_clipboard: true,
+      streaming_paste: false,
       enable_polish: true,
       ui: {
         language: "zh",

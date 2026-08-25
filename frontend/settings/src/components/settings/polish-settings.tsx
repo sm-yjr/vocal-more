@@ -194,6 +194,31 @@ export function PolishSettings({
             </NativeSelectOption>
           </NativeSelect>
         </SettingsRow>
+        <SettingsRow
+          label={copy.outputLanguage}
+          description={copy.outputLanguageHint}
+          htmlFor="polish-output-language"
+        >
+          <NativeSelect
+            id="polish-output-language"
+            className="h-8 w-44"
+            disabled={!enabled}
+            value={llm.output_language ?? "auto"}
+            onChange={(event) =>
+              setLlm("output_language", event.target.value)
+            }
+          >
+            <NativeSelectOption value="auto">
+              {copy.outputLanguageAuto}
+            </NativeSelectOption>
+            <NativeSelectOption value="zh">
+              {copy.outputLanguageZh}
+            </NativeSelectOption>
+            <NativeSelectOption value="en">
+              {copy.outputLanguageEn}
+            </NativeSelectOption>
+          </NativeSelect>
+        </SettingsRow>
         <SettingsRow label={copy.level} htmlFor="polish-level">
           <NativeSelect
             id="polish-level"

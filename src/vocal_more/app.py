@@ -115,6 +115,15 @@ def export_support_bundle(*args, **kwargs):
     return implementation(*args, **kwargs)
 
 
+def copy_text_to_clipboard(text: str) -> None:
+    """Write text to the system clipboard via NSPasteboard."""
+    from AppKit import NSPasteboard, NSStringPboardType
+
+    pasteboard = NSPasteboard.generalPasteboard()
+    pasteboard.clearContents()
+    pasteboard.setString_forType_(text, NSStringPboardType)
+
+
 def ensure_runtime_debug_dir_env():
     from .diagnostics import ensure_runtime_debug_dir_env as implementation
 
@@ -225,6 +234,7 @@ class VocalMoreApp(rumps.App):
         self._main_thread_timers: set[NSTimer] = set()
         self._hotkey_permission_retry_timer = None
         self._status_menu_delegate = None
+        self._last_result_text = None
 
     def _ensure_dependencies(self) -> bool:
         """Build runtime services once, after the status item is visible."""
@@ -320,6 +330,7 @@ class VocalMoreApp(rumps.App):
         self._main_thread_timers: set[NSTimer] = set()
         self._hotkey_permission_retry_timer: Optional[NSTimer] = None
         self._status_menu_delegate = None
+        self._last_result_text = None
 
     # ── Resource paths ────────────────────────────────────────
 
@@ -372,6 +383,7 @@ class VocalMoreApp(rumps.App):
         self._quick_asr_model_item.title = self._t("menu_asr_model")
         self._quick_enable_polish_item.title = self._t("menu_enable_polishing")
         self._quick_polish_level_item.title = self._t("menu_polish_strength")
+        self._copy_last_result_item.title = self._t("menu_copy_last_result")
         self._settings_menu_item.title = self._t("menu_more_settings")
         self._quit_menu_item.title = self._t("menu_quit")
 
@@ -412,6 +424,11 @@ class VocalMoreApp(rumps.App):
             self._t("menu_check_for_updates"),
             callback=self._check_for_updates,
         )
+        # Privacy boundary: the title never contains the result text itself.
+        self._copy_last_result_item = rumps.MenuItem(
+            self._t("menu_copy_last_result"),
+            callback=self._copy_last_result_to_clipboard,
+        )
         self._settings_menu_item = rumps.MenuItem(
             self._t("menu_more_settings"),
             callback=self._open_settings,
@@ -428,6 +445,7 @@ class VocalMoreApp(rumps.App):
             None,
             *quick_items,
             None,
+            self._copy_last_result_item,
             self._check_for_updates_item,
             self._export_diagnostics_item,
             self._settings_menu_item,
@@ -437,6 +455,7 @@ class VocalMoreApp(rumps.App):
         self._install_status_menu_delegate()
         self._refresh_quick_settings_menu()
         self._refresh_environment_menu()
+        self._refresh_copy_last_result_item()
 
     def _install_status_menu_delegate(self) -> None:
         """Attach an AppKit menu delegate so hardware-dependent items stay fresh."""
@@ -1075,6 +1094,24 @@ class VocalMoreApp(rumps.App):
         )
         for level, item in self._polish_level_menu_items.items():
             item.state = MENU_STATE_ON if level == self.config.llm.level else MENU_STATE_OFF
+
+    def _refresh_copy_last_result_item(self) -> None:
+        """Enable the copy-last-result menu item only when a result exists."""
+        if not hasattr(self, "_copy_last_result_item"):
+            return
+        if getattr(self, "_last_result_text", None):
+            self._copy_last_result_item.set_callback(
+                self._copy_last_result_to_clipboard
+            )
+        else:
+            self._copy_last_result_item.set_callback(None)
+
+    def _copy_last_result_to_clipboard(self, _sender=None) -> None:
+        """Copy the most recent dictation result to the clipboard."""
+        text = getattr(self, "_last_result_text", None)
+        if not text:
+            return
+        copy_text_to_clipboard(text)
 
     def _environment_check_label(self, key: str) -> str:
         return self._t(f"environment_check_{key}")
@@ -1752,6 +1789,8 @@ class VocalMoreApp(rumps.App):
             status="success",
             insert_completed=bool(self.config.auto_paste),
         )
+        self._last_result_text = text
+        self._run_on_main_thread(self._refresh_copy_last_result_item)
         self._run_on_main_thread(lambda: self._show_result_notification(text))
 
     def _show_result_notification(self, text: str) -> None:

@@ -33,6 +33,7 @@ def test_config_load(tmp_path, monkeypatch):
     assert config.asr.batch_mode == "manual"
     assert config.asr.realtime_url == ""
     assert config.native_fast_paste is False
+    assert config.restore_clipboard is True
     assert config.asr.use_dictionary_corpus is True
     assert config.asr.extra_corpus_terms == []
     assert config.llm.model == "qwen3.5-plus"
@@ -40,6 +41,7 @@ def test_config_load(tmp_path, monkeypatch):
     assert config.llm.enable_thinking is False
     assert config.llm.max_tokens == 1024
     assert config.llm.polish_mode == "dictation"
+    assert config.llm.output_language == "auto"
     assert config.hotkey.primary_key == "fn"
     assert config.hotkey.active_hotkeys == ["fn"]
     assert config.ui.language == "zh"
@@ -312,6 +314,27 @@ def test_productization_ui_flags_round_trip():
     assert restored.ui.advanced_settings is True
 
 
+def test_streaming_paste_is_opt_in_and_round_trips():
+    from vocal_more.config import Config
+
+    config = Config()
+    # Off by default: streaming paste is an opt-in behavior.
+    assert config.streaming_paste is False
+    assert Config.from_dict({}).streaming_paste is False
+
+    config.apply_update("streaming_paste", True)
+    assert config.streaming_paste is True
+    assert Config.from_dict(config.to_dict()).streaming_paste is True
+
+    config.apply_update("streaming_paste", "false")
+    assert config.streaming_paste is False
+
+    form_config = Config()
+    form_config.apply_form_state({"streaming_paste": True})
+    assert form_config.streaming_paste is True
+    assert form_config.to_dict()["streaming_paste"] is True
+
+
 def test_waveform_ceiling_dbfs_is_configurable_and_bounded():
     from vocal_more.config import Config
 
@@ -348,6 +371,7 @@ def test_config_repository_round_trips_app_config(tmp_path):
     config.apply_update("asr.model", "qwen3.5-omni-plus")
     config.apply_update("llm.structured", True)
     config.apply_update("llm.polish_mode", "prompt")
+    config.apply_update("llm.output_language", "zh")
     config.apply_update(
         "llm.prompt_overrides",
         {
@@ -608,6 +632,7 @@ def test_config_boolean_strings_parse_as_booleans():
     config.apply_update("enable_polish", "false")
     config.apply_update("auto_paste", "0")
     config.apply_update("native_fast_paste", "false")
+    config.apply_update("restore_clipboard", "false")
     config.apply_update("audio.highpass_filter", "no")
     config.apply_update("audio.soft_limiter", "off")
     config.apply_update("asr.use_dictionary_corpus", "false")
@@ -617,6 +642,7 @@ def test_config_boolean_strings_parse_as_booleans():
     assert config.enable_polish is False
     assert config.auto_paste is False
     assert config.native_fast_paste is False
+    assert config.restore_clipboard is False
     assert config.audio.highpass_filter is False
     assert config.audio.soft_limiter is False
     assert config.asr.use_dictionary_corpus is False
@@ -788,6 +814,51 @@ def test_invalid_polish_mode_falls_back_and_rewrites_yaml(tmp_path, monkeypatch)
     assert loaded.llm.polish_mode == "dictation"
     assert loaded.to_dict()["llm"]["polish_mode"] == "dictation"
     assert persisted["llm"]["polish_mode"] == "dictation"
+
+
+def test_output_language_parsing_and_to_dict_round_trip():
+    from vocal_more.config import Config
+    from vocal_more.domain.config_models import AppConfig, _parse_output_language
+
+    assert _parse_output_language("auto") == "auto"
+    assert _parse_output_language("zh") == "zh"
+    assert _parse_output_language("en") == "en"
+    assert _parse_output_language("ja") == "auto"
+    assert _parse_output_language("") == "auto"
+
+    config = Config()
+    assert config.llm.output_language == "auto"
+    for raw, expected in (
+        ("zh", "zh"),
+        ("en", "en"),
+        ("auto", "auto"),
+        ("fr", "auto"),
+        (123, "auto"),
+    ):
+        config.apply_update("llm.output_language", raw)
+        assert config.llm.output_language == expected
+
+    config.apply_update("llm.output_language", "en")
+    data = config.to_dict()
+    assert data["llm"]["output_language"] == "en"
+    assert AppConfig.from_dict(data).llm.output_language == "en"
+
+
+def test_invalid_output_language_falls_back_to_auto_on_load(tmp_path, monkeypatch):
+    """Invalid llm.output_language should be normalized on load."""
+    from vocal_more.config import Config
+
+    config_path = tmp_path / "config.yaml"
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(Config, "get_config_path", classmethod(lambda cls: config_path))
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump({"llm": {"output_language": "ja"}}, f)
+
+    loaded = Config.load()
+
+    assert loaded.llm.output_language == "auto"
+    assert loaded.to_dict()["llm"]["output_language"] == "auto"
 
 
 def test_load_handles_legacy_python_string_tags_and_rewrites_clean_yaml(
