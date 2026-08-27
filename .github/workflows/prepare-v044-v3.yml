@@ -1,0 +1,239 @@
+name: Prepare v0.4.4 prompt-output fixes v3
+
+on:
+  push:
+    branches:
+      - fix/v0.4.4-prompt-output
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare-verify-merge:
+    runs-on: macos-latest
+    env:
+      DASHSCOPE_API_KEY: test-api-key
+      PYTHONUNBUFFERED: "1"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out release branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/v0.4.4-prompt-output
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/settings/package-lock.json
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Apply corrected source transformation and contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import textwrap
+
+          workflow = Path(".github/workflows/prepare-v044.yml").read_text(
+              encoding="utf-8"
+          )
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          embedded = workflow.split(start_marker, 1)[1].split(end_marker, 1)[0]
+          script = textwrap.dedent(embedded)
+
+          start = script.index("replacement_methods = textwrap.dedent(r'''")
+          end = script.index("\nmethod_pattern =", start)
+          assignment = script[start:end]
+          close = assignment.rfind("''')")
+          if close < 0:
+              raise RuntimeError("could not repair class-method indentation")
+          assignment = (
+              assignment[:close]
+              + "'''), \"    \")"
+              + assignment[close + 4 :]
+          )
+          assignment = assignment.replace(
+              "replacement_methods = textwrap.dedent(r'''",
+              "replacement_methods = textwrap.indent(textwrap.dedent(r'''",
+              1,
+          )
+          script = script[:start] + assignment + script[end:]
+          exec(compile(script, "prepare-v044-embedded.py", "exec"), {"__name__": "__main__"})
+
+          test_path = Path("tests/test_text_polisher.py")
+          tests = test_path.read_text(encoding="utf-8")
+
+          def replace_function(name: str, replacement: str) -> None:
+              nonlocal_tests = None
+              pattern = re.compile(
+                  rf"^def {re.escape(name)}\(.*?(?=^\s*(?:@|def )|\Z)",
+                  re.MULTILINE | re.DOTALL,
+              )
+              global tests
+              tests, count = pattern.subn(
+                  textwrap.dedent(replacement).strip() + "\n\n\n",
+                  tests,
+                  count=1,
+              )
+              if count != 1:
+                  raise RuntimeError(
+                      f"expected one {name} test function, found {count}"
+                  )
+
+          replace_function(
+              "test_prompt_polish_mode_builds_task_prompt_instructions",
+              r'''
+              def test_prompt_polish_mode_builds_task_prompt_instructions():
+                  from vocal_more.config import LLMConfig
+                  from vocal_more.core.text_polisher import build_polish_system_prompt
+
+                  prompt = build_polish_system_prompt(LLMConfig(polish_mode="prompt"))
+
+                  assert "Prompt 输出模式" in prompt
+                  assert "# Goal" in prompt
+                  assert "# Context" in prompt
+                  assert "# Inputs" in prompt
+                  assert "# Constraints" in prompt
+                  assert "# Output" in prompt
+                  assert "# Success criteria" in prompt
+                  assert "不输出 Open questions" in prompt
+                  assert "不补写用户没有提供的事实" in prompt
+              ''',
+          )
+
+          replace_function(
+              "test_custom_prompt_fragments_apply_to_omni_prompt_output_mode",
+              r'''
+              def test_custom_prompt_fragments_do_not_enter_omni_prompt_output_mode():
+                  from vocal_more.config import LLMConfig
+                  from vocal_more.core.text_polisher import build_omni_inline_polish_instructions
+
+                  prompt = build_omni_inline_polish_instructions(
+                      LLMConfig(
+                          polish_mode="prompt",
+                          prompt_overrides={
+                              "output_type": {
+                                  "enabled": True,
+                                  "prompt": "CUSTOM PROMPT SHAPE",
+                              },
+                              "persona": {
+                                  "enabled": True,
+                                  "prompt": "CUSTOM PROMPT PERSONA",
+                              },
+                          },
+                      )
+                  )
+
+                  assert "CUSTOM PROMPT SHAPE" not in prompt
+                  assert "CUSTOM PROMPT PERSONA" not in prompt
+                  assert "不输出 Open questions" in prompt
+              ''',
+          )
+
+          replace_function(
+              "test_prompt_polish_mode_routes_omni_inline_instructions",
+              r'''
+              def test_prompt_polish_mode_routes_omni_inline_instructions(
+                  tmp_path,
+                  monkeypatch,
+              ):
+                  from vocal_more.config import Config, reload_config
+                  from vocal_more.core.text_polisher import (
+                      build_omni_inline_polish_instructions,
+                  )
+
+                  config_path = tmp_path / "config.yaml"
+                  monkeypatch.setattr(
+                      Config,
+                      "get_config_dir",
+                      classmethod(lambda cls: tmp_path),
+                  )
+                  monkeypatch.setattr(
+                      Config,
+                      "get_config_path",
+                      classmethod(lambda cls: config_path),
+                  )
+
+                  config_path.write_text(
+                      "llm:\n  polish_mode: prompt\n",
+                      encoding="utf-8",
+                  )
+                  config = reload_config()
+                  prompt = build_omni_inline_polish_instructions(config.llm)
+
+                  assert "你会收到用户口述的音频内容" in prompt
+                  assert "把用户的口语化输入整理成" in prompt
+                  assert "不输出 Open questions" in prompt
+              ''',
+          )
+
+          tests = tests.replace(
+              'assert "# Open questions" in prompt',
+              'assert "不输出 Open questions" in prompt',
+          )
+          tests = tests.replace(
+              'assert "Boundaries" in prompt',
+              'assert "# Constraints" in prompt',
+          )
+          test_path.write_text(tests, encoding="utf-8")
+          PY
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix frontend/settings ci
+          uv sync --locked --group dev
+
+      - name: Run complete macOS release checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m pytest -q
+          npm --prefix frontend/settings test
+          npm --prefix frontend/settings run typecheck
+          npm --prefix frontend/settings run lint
+          npm --prefix frontend/settings run build
+
+      - name: Commit verified v0.4.4 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/prepare-v044.yml
+          rm -f .github/workflows/finalize-v044.yml
+          rm -f .github/workflows/prepare-v044-v2.yml
+          rm -f .github/workflows/prepare-v044-v3.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: isolate Prompt Mode output for v0.4.4"
+          git push origin HEAD:fix/v0.4.4-prompt-output
+
+      - name: Squash merge verified release PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${GITHUB_REPOSITORY}/pulls/6/merge" \
+            -f merge_method=squash \
+            -f sha="$head_sha" \
+            -f commit_title="Vocal More 0.4.4: isolate Prompt Mode output" \
+            -f commit_message="Fix wrapped completeness hints, isolate dictionary and polish controls, remove unresolved questions from final prompts, and prepare the macOS 0.4.4 release."
