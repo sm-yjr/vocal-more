@@ -7,6 +7,7 @@ class InputIntent(str, Enum):
     """How the model should interpret the user's speech."""
 
     DICTATION = "dictation"
+    PROMPT = "prompt"
     COMMAND = "command"
 
 

@@ -149,11 +149,22 @@ class RealtimeLongMode(BaseMode):
         """Not used in toggle mode."""
         pass
 
+    def _resolve_input_intent(self, intent: InputIntent) -> InputIntent:
+        """Promote configured prompt input without changing recording gestures."""
+        if (
+            intent == InputIntent.DICTATION
+            and self.config.enable_polish
+            and self.config.llm.polish_mode == "prompt"
+        ):
+            return InputIntent.PROMPT
+        return intent
+
     def _start_recording(
         self,
         intent: InputIntent = InputIntent.DICTATION,
     ) -> None:
         """Start recording + streaming ASR."""
+        intent = self._resolve_input_intent(intent)
         if intent == InputIntent.COMMAND and not supports_command_mode(
             self.config.asr.model
         ):
@@ -171,9 +182,9 @@ class RealtimeLongMode(BaseMode):
         self._recording_asr_model = self.config.asr.model
         self._active_input_intent = intent
         # Streaming segment paste is opt-in and only valid for plain
-        # dictation with raw transcripts: inline-polish models emit polished
-        # segment text with different semantics, so those sessions (and
-        # command sessions) keep the original one-shot finish path.
+        # dictation with raw transcripts. Prompt sessions must wait for the
+        # structured final result; inline-polish and command sessions also
+        # keep the original one-shot finish path.
         self._streaming_paste_active = bool(
             intent == InputIntent.DICTATION
             and getattr(self.config, "streaming_paste", False)

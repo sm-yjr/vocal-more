@@ -62,8 +62,14 @@ body {
   padding-bottom: 8px;
 }
 
-.capsule.has-streaming-text.state-processing .streaming-text {
+.capsule.has-streaming-text.state-processing .streaming-text,
+.capsule.has-prompt-hint.state-recording .streaming-text {
   display: block;
+}
+
+.capsule.has-prompt-hint.state-recording .streaming-text {
+  max-width: 176px;
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .capsule.visible {
@@ -126,7 +132,8 @@ body {
 
 /* Hands-free mode: show buttons */
 .capsule.handsFree .capsule-btn,
-.capsule.command .capsule-btn {
+.capsule.command .capsule-btn,
+.capsule.prompt .capsule-btn {
   display: flex;
 }
 
@@ -141,7 +148,9 @@ body {
 }
 
 .capsule.meeting.state-recording .recording-label,
-.capsule.command.state-recording .recording-label {
+.capsule.command.state-recording .recording-label,
+.capsule.prompt.state-recording .recording-label,
+.capsule.promptPushToTalk.state-recording .recording-label {
   display: block;
 }
 
@@ -240,6 +249,7 @@ const recordingLabel = document.getElementById('recordingLabel');
 const CAPSULE_TRANSLATIONS = {
   en: {
     meetingRecording: 'Meeting recording',
+    promptRecording: 'Prompt',
     transcribing: 'Transcribing',
     polishing: 'Polishing',
     understanding: 'Understanding',
@@ -250,6 +260,7 @@ const CAPSULE_TRANSLATIONS = {
   },
   zh: {
     meetingRecording: '会议录制中',
+    promptRecording: '提示词',
     transcribing: '识别中',
     polishing: '润色中',
     understanding: '理解中',
@@ -268,13 +279,22 @@ function processingStageLabel(stage) {
   return translations[stage] || translations.transcribing;
 }
 
+function recordingLabelForMode(mode) {
+  const translations = CAPSULE_TRANSLATIONS[interfaceLanguage] || CAPSULE_TRANSLATIONS.en;
+  if (mode === 'command') {
+    return interfaceLanguage === 'zh' ? '指令' : 'Command';
+  }
+  if (mode === 'prompt' || mode === 'promptPushToTalk') {
+    return translations.promptRecording;
+  }
+  return translations.meetingRecording;
+}
+
 function setInterfaceLanguage(language) {
   interfaceLanguage = language === 'zh' ? 'zh' : 'en';
   document.documentElement.lang = interfaceLanguage === 'zh' ? 'zh-CN' : 'en';
   thinkingText.textContent = processingStageLabel(currentProcessingStage);
-  recordingLabel.textContent = currentMode === 'command'
-    ? (interfaceLanguage === 'zh' ? '指令' : 'Command')
-    : (CAPSULE_TRANSLATIONS[interfaceLanguage] || CAPSULE_TRANSLATIONS.en).meetingRecording;
+  recordingLabel.textContent = recordingLabelForMode(currentMode);
 }
 
 // Generate waveform bars
@@ -403,15 +423,20 @@ function stopProgress() {
 }
 
 /**
- * Set capsule mode: "pushToTalk", "handsFree", "command", or "meeting"
+ * Set capsule mode: push-to-talk, hands-free, Prompt, command, or meeting.
  */
 function setMode(mode) {
   currentMode = mode;
-  capsule.classList.remove('pushToTalk', 'handsFree', 'command', 'meeting');
+  capsule.classList.remove(
+    'pushToTalk',
+    'handsFree',
+    'prompt',
+    'promptPushToTalk',
+    'command',
+    'meeting'
+  );
   capsule.classList.add(mode);
-  recordingLabel.textContent = mode === 'command'
-    ? (interfaceLanguage === 'zh' ? '指令' : 'Command')
-    : (CAPSULE_TRANSLATIONS[interfaceLanguage] || CAPSULE_TRANSLATIONS.en).meetingRecording;
+  recordingLabel.textContent = recordingLabelForMode(mode);
 }
 
 /**
@@ -424,7 +449,11 @@ function updateState(state) {
   capsule.classList.remove('state-recording', 'state-processing');
 
   if (state === 'hidden') {
-    capsule.classList.remove('visible', 'has-streaming-text');
+    capsule.classList.remove(
+      'visible',
+      'has-streaming-text',
+      'has-prompt-hint'
+    );
     streamingText.textContent = '';
     currentProcessingStage = 'transcribing';
     thinkingText.textContent = processingStageLabel(currentProcessingStage);
@@ -443,7 +472,7 @@ function updateState(state) {
     startRaf();
   } else if (state === 'processing') {
     setProcessingStage(currentProcessingStage);
-    capsule.classList.remove('has-streaming-text');
+    capsule.classList.remove('has-streaming-text', 'has-prompt-hint');
     streamingText.textContent = '';
     startProgress();
   }
@@ -476,6 +505,19 @@ function updateStreamingText(text) {
     capsule.classList.add('has-streaming-text');
   } else {
     capsule.classList.remove('has-streaming-text');
+  }
+}
+
+function updatePromptHint(text) {
+  if (
+    currentState !== 'recording'
+    || (currentMode !== 'prompt' && currentMode !== 'promptPushToTalk')
+  ) return;
+  streamingText.textContent = text;
+  if (text) {
+    capsule.classList.add('has-prompt-hint');
+  } else {
+    capsule.classList.remove('has-prompt-hint');
   }
 }
 

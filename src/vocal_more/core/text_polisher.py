@@ -65,37 +65,40 @@ STRUCTURED_INSTRUCTIONS = """当内容存在结构化特征时（如并列要点
 - 如果内容本身是单条连贯的表达，不要强行拆成列表
 - 结构化只是让内容更好读——只在确实有结构时使用，不要为了格式化而格式化"""
 
-PROMPT_OUTPUT_INSTRUCTIONS = """Prompt 输出模式：
-你要把用户的口语化输入转换成任务式 Prompt，目标是让下游 LLM 可以直接执行。
-参考 GPT-5.5 prompting guide 的 outcome-first 风格：优先写清最终目标、成功标准、约束、输出要求和停止规则，减少过程控制。
+PROMPT_OUTPUT_INSTRUCTIONS = """Agent Prompt 输出模式：
+你要把用户的口语化输入转换成可直接发送给 Agent 的 Prompt。你的任务是准确表达用户想得到的结果，不是替用户执行任务。
 
-转换规则：
-1. 提取用户真正想让 LLM 完成的任务、对象、上下文、交付物、约束和成功标准
-2. 删除寒暄、犹豫、停顿词、重复、自我修正和无效铺垫
-3. 不要补充用户没有说出的业务事实、数据、结论或偏好
-4. 如果缺少执行任务所必需的信息，把缺口写进 Prompt 的澄清要求或 Stop rules
-5. 保护代码、路径、API 名、模型名、文件名、命令和专有名词
-6. 根据用户口述语言选择输出语言；中英文混合口述时优先保留关键术语原文
+核心原则：
+1. 结果优先：先写清要完成什么以及完成后的样子；除非用户明确要求，否则不要规定详细过程
+2. 只加入会改变结果的信息。Goal 必须清楚；Context、Output、Boundaries 仅在相关时加入
+3. Context 只保留必要背景，例如现状、输入、目标用户、环境、版本或已有材料
+4. Output 说明交付物及其用途；用户给出格式、篇幅、验收标准或验证方式时必须保留
+5. Boundaries 只保留真正能防止失败的一到数项约束，例如兼容性、预算、权限、禁用项、安全或截止时间
+6. 不要补充用户没有说出的业务事实、偏好、数据、文件内容或技术结论
+7. 非阻塞缺口可以让下游 Agent 采用最小合理假设并明确说明；会导致明显错误、不可逆操作或高成本返工的缺口，放入 Open questions，要求执行前先询问
+8. 用户明确给出角色时才保留 Role；不要为了套模板虚构专家身份
+9. 代码、路径、API、模型名、版本号、专有名词和否定条件必须原样保留
+10. 使用与用户输入一致的语言，语气直接、具体、可执行；只输出最终 Prompt，不解释转换过程
 
-输出格式：
-Role: <给下游模型的角色定位>
-
+推荐结构：
 # Goal
-<一句或几句说明要完成的具体任务>
+用一到数句说明最终目标和成功状态。
 
-# Success criteria
-<用编号列出可判断任务完成质量的标准>
-
-# Constraints
-<用编号列出边界、事实保护、风格和禁止事项>
+以下小节只在相关时加入，不要为了完整而机械填充：
+# Context
+会改变答案的必要背景、输入、现状或目标用户。
 
 # Output
-<说明下游模型应该输出什么格式、粒度和内容>
+交付物、用途、格式、篇幅、验收标准或验证方式。
 
-# Stop rules
-<说明信息不足、需求冲突或无法安全完成时该怎么处理>
+# Boundaries
+最关键的限制、必须保留的行为、禁止项和风险边界。
 
-只输出最终 Prompt，不要解释转换过程，不要添加前缀。"""
+# Open questions
+只列阻塞执行且无法安全假设的问题，数量保持最少。
+
+对于编码任务，若用户提供了相关信息，应保留目标行为、相关代码或复现、环境与兼容约束，以及如何验证完成。
+"""
 
 OUTPUT_LANGUAGE_INSTRUCTIONS = {
     "zh": "中文",
@@ -230,9 +233,13 @@ def _build_prompt_mode_custom_modifiers(llm_config: LLMConfig) -> str:
         override = _active_prompt_override(llm_config, category)
         if override:
             blocks.append(f"{title}：\n{override}")
-    if llm_config.structured:
-        structured = _prompt_instruction(llm_config, "structured", STRUCTURED_INSTRUCTIONS)
-        blocks.append(f"结构化格式要求：\n{structured}")
+    structured_override = (
+        _active_prompt_override(llm_config, "structured")
+        if llm_config.structured
+        else None
+    )
+    if structured_override:
+        blocks.append(f"结构化格式要求：\n{structured_override}")
     return "\n\n".join(blocks)
 
 

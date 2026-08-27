@@ -18,6 +18,8 @@ from AppKit import (
 from Foundation import NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer, NSURL
 from WebKit import WKUserContentController, WKWebView, WKWebViewConfiguration
 
+from ..config import get_config
+from ..domain.prompt_coach import prompt_coach_hint
 from ..localization import normalize_ui_language
 from ..paths import bundled_resource_path
 from .webview_bridge import objc_to_python
@@ -85,6 +87,7 @@ class FloatingCapsule:
         self._last_audio_level_push_at: float = 0.0
         self._html_loaded: bool = False
         self._interface_language: str = "en"
+        self._latest_prompt_text: str = ""
         self._main_thread_timers: set[NSTimer] = set()
 
     def warm_up(self) -> None:
@@ -161,15 +164,53 @@ class FloatingCapsule:
             return str(html_path)
         return None
 
+    def _prompt_mode_enabled(self) -> bool:
+        config = get_config()
+        return bool(
+            config.enable_polish
+            and config.llm.polish_mode == "prompt"
+        )
+
+    def _display_mode(self, mode: str) -> str:
+        if not self._prompt_mode_enabled():
+            return mode
+        if mode == "pushToTalk":
+            return "promptPushToTalk"
+        if mode == "handsFree":
+            return "prompt"
+        return mode
+
+    @staticmethod
+    def _escape_js_string(value: str) -> str:
+        return (
+            str(value)
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\r", " ")
+            .replace("\n", " ")
+        )
+
+    def _update_prompt_hint_on_main_thread(self) -> None:
+        hint = prompt_coach_hint(
+            self._latest_prompt_text,
+            self._interface_language,
+        )
+        escaped = self._escape_js_string(hint)
+        self._eval_js(f"updatePromptHint('{escaped}')")
+
     def show(self, mode: str = "pushToTalk") -> None:
         """Show the capsule."""
         self._run_on_main_thread(lambda: self._show_on_main_thread(mode))
 
     def _show_on_main_thread(self, mode: str) -> None:
         self._ensure_setup()
-        self._current_mode = mode
+        display_mode = self._display_mode(mode)
+        self._current_mode = display_mode
         self._current_state = "recording"
-        self._panel.setIgnoresMouseEvents_(mode in {"pushToTalk", "meeting"})
+        self._latest_prompt_text = ""
+        self._panel.setIgnoresMouseEvents_(
+            display_mode in {"pushToTalk", "promptPushToTalk", "meeting"}
+        )
 
         # Cancel any pending hide timer from a previous hide() call
         if self._hide_timer:
@@ -192,16 +233,25 @@ class FloatingCapsule:
             panel_y = sf.origin.y + 20
             self._panel.setFrameOrigin_((panel_x, panel_y))
 
-        # Single JS call instead of two separate IPC roundtrips
-        self._eval_js(
+        # Single JS call instead of separate IPC roundtrips.
+        javascript = (
             f"setInterfaceLanguage('{self._interface_language}'); "
-            f"setMode('{mode}'); updateState('recording')"
+            f"setMode('{display_mode}'); updateState('recording')"
         )
+        if display_mode in {"prompt", "promptPushToTalk"}:
+            hint = self._escape_js_string(
+                prompt_coach_hint("", self._interface_language)
+            )
+            javascript += f"; updatePromptHint('{hint}')"
+        self._eval_js(javascript)
         self._panel.orderFront_(None)
         self._last_pushed_audio_level = None
         self._last_audio_level_push_at = 0.0
         self._start_push_timer()
-        print(f"[Capsule] show(mode={mode}), html_loaded={self._html_loaded}")
+        print(
+            f"[Capsule] show(mode={display_mode}), "
+            f"html_loaded={self._html_loaded}"
+        )
 
     def set_interface_language(self, language: str) -> None:
         """Update the capsule language for the next visible state."""
@@ -214,6 +264,11 @@ class FloatingCapsule:
         self._interface_language = language
         if self._panel and self._panel.isVisible():
             self._eval_js(f"setInterfaceLanguage('{self._interface_language}')")
+            if (
+                self._current_state == "recording"
+                and self._current_mode in {"prompt", "promptPushToTalk"}
+            ):
+                self._update_prompt_hint_on_main_thread()
 
     def hide(self) -> None:
         """Hide the capsule."""
@@ -222,6 +277,7 @@ class FloatingCapsule:
     def _hide_on_main_thread(self) -> None:
         self._stop_push_timer()
         self._current_state = "hidden"
+        self._latest_prompt_text = ""
         self._eval_js("updateState('hidden')")
 
         # Cancel any previously scheduled hide timer
@@ -276,9 +332,21 @@ class FloatingCapsule:
         self._run_on_main_thread(lambda: self._eval_js(f"setProcessingStage('{escaped}')"))
 
     def update_streaming_text(self, text: str) -> None:
-        """Show streaming text below waveform/thinking. Safe to call from any thread."""
-        escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
-        self._run_on_main_thread(lambda: self._eval_js(f"updateStreamingText('{escaped}')"))
+        """Show model output or update the local Prompt coach."""
+        self._run_on_main_thread(
+            lambda: self._update_streaming_text_on_main_thread(text)
+        )
+
+    def _update_streaming_text_on_main_thread(self, text: str) -> None:
+        if (
+            self._current_state == "recording"
+            and self._current_mode in {"prompt", "promptPushToTalk"}
+        ):
+            self._latest_prompt_text = str(text or "")
+            self._update_prompt_hint_on_main_thread()
+            return
+        escaped = self._escape_js_string(text)
+        self._eval_js(f"updateStreamingText('{escaped}')")
 
     def _start_push_timer(self) -> None:
         """Push the latest coalesced audio envelope to JavaScript at 12Hz."""

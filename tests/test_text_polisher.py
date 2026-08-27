@@ -273,15 +273,15 @@ def test_prompt_polish_mode_builds_task_prompt_instructions():
 
     prompt = build_polish_system_prompt(LLMConfig(polish_mode="prompt"))
 
-    assert "GPT-5.5" in prompt
-    assert "Role" in prompt
-    assert "Goal" in prompt
-    assert "Success criteria" in prompt
-    assert "Constraints" in prompt
-    assert "Output" in prompt
-    assert "Stop rules" in prompt
+    assert "GPT-5.5" not in prompt
+    assert "# Goal" in prompt
+    assert "# Context" in prompt
+    assert "# Output" in prompt
+    assert "# Boundaries" in prompt
+    assert "# Open questions" in prompt
+    assert "仅在相关时加入" in prompt
     assert "不要补充用户没有说出的业务事实" in prompt
-
+    assert "不要为了套模板虚构专家身份" in prompt
 
 def test_custom_prompt_fragments_override_each_dictation_category():
     from vocal_more.config import LLMConfig
@@ -404,7 +404,7 @@ def test_prompt_polish_mode_routes_omni_inline_instructions(tmp_path, monkeypatc
 
     assert "你会收到用户口述的音频内容" in prompt
     assert "把口语化输入转换成任务式 Prompt" in prompt
-    assert "Stop rules" in prompt
+    assert "# Open questions" in prompt
 
 
 def test_structured_is_independent_of_level(tmp_path, monkeypatch):
@@ -635,3 +635,39 @@ def test_output_language_block_applies_only_to_dictation_mode_rules():
     assert "输出语言要求" in prompt
     assert prompt.index("输出类型要求") < prompt.index("输出语言要求")
     assert prompt.index("输出语言要求") < prompt.index("润色强度要求")
+
+
+def test_prompt_mode_ignores_legacy_structured_default():
+    from vocal_more.config import LLMConfig
+    from vocal_more.core.text_polisher import (
+        STRUCTURED_INSTRUCTIONS,
+        build_polish_system_prompt,
+    )
+
+    prompt = build_polish_system_prompt(
+        LLMConfig(polish_mode="prompt", structured=True)
+    )
+
+    assert "# Goal" in prompt
+    assert STRUCTURED_INSTRUCTIONS not in prompt
+    assert "不要使用 Markdown 语法" not in prompt
+
+
+def test_prompt_mode_applies_explicit_structured_override():
+    from vocal_more.config import LLMConfig
+    from vocal_more.core.text_polisher import (
+        build_omni_inline_polish_instructions,
+        build_polish_system_prompt,
+    )
+
+    marker = "CUSTOM PROMPT STRUCTURE"
+    config = LLMConfig(
+        polish_mode="prompt",
+        structured=True,
+        prompt_overrides={
+            "structured": {"enabled": True, "prompt": marker},
+        },
+    )
+
+    assert marker in build_polish_system_prompt(config)
+    assert marker in build_omni_inline_polish_instructions(config)
