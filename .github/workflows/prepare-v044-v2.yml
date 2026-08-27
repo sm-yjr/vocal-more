@@ -1,0 +1,151 @@
+name: Prepare v0.4.4 prompt-output fixes v2
+
+on:
+  push:
+    branches:
+      - fix/v0.4.4-prompt-output
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare-verify-merge:
+    runs-on: macos-latest
+    env:
+      DASHSCOPE_API_KEY: test-api-key
+      PYTHONUNBUFFERED: "1"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out release branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/v0.4.4-prompt-output
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/settings/package-lock.json
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Apply corrected v0.4.4 source transformation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow_path = Path(".github/workflows/prepare-v044.yml")
+          workflow = workflow_path.read_text(encoding="utf-8")
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          if start_marker not in workflow or end_marker not in workflow:
+              raise RuntimeError("could not locate embedded source transformation")
+
+          embedded = workflow.split(start_marker, 1)[1].split(end_marker, 1)[0]
+          script = textwrap.dedent(embedded)
+
+          start = script.index("replacement_methods = textwrap.dedent(r'''")
+          end = script.index("\nmethod_pattern =", start)
+          method_assignment = script[start:end]
+          close = method_assignment.rfind("''')")
+          if close < 0:
+              raise RuntimeError("could not repair replacement_methods indentation")
+          method_assignment = (
+              method_assignment[:close]
+              + "'''), \"    \")"
+              + method_assignment[close + 4 :]
+          )
+          method_assignment = method_assignment.replace(
+              "replacement_methods = textwrap.dedent(r'''",
+              "replacement_methods = textwrap.indent(textwrap.dedent(r'''",
+              1,
+          )
+          script = script[:start] + method_assignment + script[end:]
+
+          exec(compile(script, "prepare-v044-embedded.py", "exec"), {"__name__": "__main__"})
+          PY
+
+      - name: Assert release contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+          polisher = Path("src/vocal_more/core/text_polisher.py").read_text(encoding="utf-8")
+          sanitizer = Path("src/vocal_more/domain/prompt_output.py").read_text(encoding="utf-8")
+          capsule = Path("resources/floating_capsule/capsule.html").read_text(encoding="utf-8")
+          capsule_py = Path("src/vocal_more/ui/floating_capsule.py").read_text(encoding="utf-8")
+          tests = Path("tests/test_prompt_mode_output_safety.py").read_text(encoding="utf-8")
+          release = Path("docs/releases/0.4.4.md").read_text(encoding="utf-8")
+
+          assert 'version = "0.4.4"' in pyproject
+          assert "sanitize_prompt_output" in polisher
+          assert "{PROMPT_OUTPUT_INSTRUCTIONS}" in polisher
+          assert "{output_instructions}{modifier_block}{dictionary_block}" not in polisher
+          assert "_FORBIDDEN_SECTION_NAMES" in sanitizer
+          assert "white-space: pre-wrap" in capsule
+          assert "overflow-wrap: anywhere" in capsule
+          assert "text-overflow: ellipsis" not in capsule
+          assert "HINT_CAPSULE_HEIGHT = 200" in capsule_py
+          assert "test_prompt_output_removes_questions" in tests
+          assert "# Vocal More 0.4.4" in release
+          PY
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix frontend/settings ci
+          uv sync --locked --group dev
+
+      - name: Run complete macOS release checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m pytest -q
+          npm --prefix frontend/settings test
+          npm --prefix frontend/settings run typecheck
+          npm --prefix frontend/settings run lint
+          npm --prefix frontend/settings run build
+
+      - name: Commit verified v0.4.4 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/prepare-v044.yml
+          rm -f .github/workflows/finalize-v044.yml
+          rm -f .github/workflows/prepare-v044-v2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: isolate Prompt Mode output for v0.4.4"
+          git push origin HEAD:fix/v0.4.4-prompt-output
+
+      - name: Squash merge verified release PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/${GITHUB_REPOSITORY}/pulls/6/merge" \
+            -f merge_method=squash \
+            -f sha="$head_sha" \
+            -f commit_title="Vocal More 0.4.4: isolate Prompt Mode output" \
+            -f commit_message="Fix wrapped completeness hints, isolate dictionary and polish controls, remove unresolved questions from final prompts, and prepare the macOS 0.4.4 release."
