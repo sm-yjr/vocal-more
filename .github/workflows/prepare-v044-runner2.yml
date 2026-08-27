@@ -1,0 +1,80 @@
+name: Run repaired v0.4.4 Prompt preparation
+
+on:
+  push:
+    branches:
+      - fix/v0.4.4-prompt-mode
+
+permissions:
+  contents: write
+
+jobs:
+  implement-test-and-commit:
+    runs-on: macos-latest
+    env:
+      DASHSCOPE_API_KEY: test-api-key
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/v0.4.4-prompt-mode
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Extract, repair, and execute implementation script
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          source = Path(".github/workflows/prepare-v044.yml").read_text(
+              encoding="utf-8"
+          )
+          start_marker = "          python - <<'PY'\n"
+          end_marker = (
+              "\n          PY\n\n"
+              "      - name: Install locked development dependencies"
+          )
+          start = source.index(start_marker) + len(start_marker)
+          end = source.index(end_marker, start)
+          implementation = textwrap.dedent(source[start:end])
+          implementation = implementation.replace(
+              "updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)",
+              "updated, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=re.S)",
+          )
+          exec(compile(implementation, "prepare-v044-implementation.py", "exec"))
+          PY
+
+      - name: Install locked development dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run full macOS test suite
+        run: uv run python -m pytest -q
+
+      - name: Check patch integrity
+        run: |
+          git diff --check
+          git status --short
+
+      - name: Commit tested v0.4.4 branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/prepare-v044.yml
+          rm .github/workflows/prepare-v044-runner.yml
+          rm .github/workflows/prepare-v044-runner2.yml
+          git config user.name "sm-yjr"
+          git config user.email "76152255+sm-yjr@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: isolate Prompt Mode and improve clarification UI"
+          git push origin HEAD:fix/v0.4.4-prompt-mode
