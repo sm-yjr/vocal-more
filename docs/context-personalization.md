@@ -1,15 +1,17 @@
 # Privacy-bound app context
 
-Vocal More adapts dictation style to the kind of app receiving the text while
-keeping document content outside the context pipeline.
+Vocal More adapts the input purpose and writing style to the kind of app
+receiving the text while keeping document content outside the context pipeline.
 
 ## Data flow
 
 At hotkey press, the app reads only the frontmost application's bundle
 identifier through `NSWorkspace`. It immediately maps that transient value to
-one of four categories:
+one of five categories:
 
 - `development`: preserve code, commands, API names, paths, and English
+  identifiers.
+- `terminal`: preserve commands, arguments, paths, environment variables, and
   identifiers.
 - `messaging`: keep short, conversational phrasing and avoid formalization.
 - `writing`: prefer coherent paragraphs and readable punctuation without
@@ -20,10 +22,18 @@ The prompt sent to the selected transcription or polish model contains only
 the abstract category rule. It does not contain the bundle identifier or app
 name.
 
+## Mode routing
+
+When app-context adaptation is enabled, terminal apps such as Ghostty use
+Agent Prompt mode. Messaging apps such as DingTalk, plus development, writing,
+general, excluded, and unidentified apps, use Dictation mode. Turning off
+app-context adaptation restores the fixed input-purpose selection from
+Settings.
+
 ## Persistence boundary
 
 `~/.vocal-more/context-profile.json` contains only successful-paste counters
-for the four categories. The repository deliberately has no fields for:
+for the five categories. The repository deliberately has no fields for:
 
 - app names or bundle identifiers;
 - window titles or focused-control values;

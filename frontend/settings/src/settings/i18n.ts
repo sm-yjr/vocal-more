@@ -197,9 +197,9 @@ const en = {
   contextPersonalization: "App context",
   contextPersonalizationHint:
     "Adapt output to a coarse local app category without reading the window.",
-  contextAdaptation: "Adapt writing style",
+  contextAdaptation: "Adapt mode and writing style",
   contextPrivacyBoundary:
-    "Only Terminal, Messaging, Development, Writing, or General is sent. Window titles, focused text, clipboard data, transcripts, and app identities are never stored in this profile.",
+    "Terminals use Agent Prompt; messaging and other apps use Dictation. Only a coarse app category is sent. Window titles, focused text, clipboard data, transcripts, and app identities are never stored in this profile.",
   contextExcludedApps: "Excluded app bundle IDs",
   contextExcludedAppsHint:
     "Comma-separated. Password managers are always excluded.",
@@ -530,9 +530,9 @@ const zh: Copy = {
   contextPersonalization: "App 上下文",
   contextPersonalizationHint:
     "只根据本地粗粒度 App 类别适配输出，不读取窗口内容。",
-  contextAdaptation: "按场景适配表达",
+  contextAdaptation: "按 App 选择模式与表达",
   contextPrivacyBoundary:
-    "模型只会收到“终端 / 沟通 / 开发 / 写作 / 通用”之一。画像不会保存窗口标题、焦点文本、剪贴板、转写原文或具体 App 身份。",
+    "终端默认使用 Agent 提示词；沟通及其他 App 默认使用听写文本。模型只会收到粗粒度 App 类别，画像不会保存窗口标题、焦点文本、剪贴板、转写原文或具体 App 身份。",
   contextExcludedApps: "排除的 App Bundle ID",
   contextExcludedAppsHint: "使用逗号分隔；密码管理器始终排除。",
   contextActivity: "本地类别活动",

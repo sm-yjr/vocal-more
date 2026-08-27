@@ -357,6 +357,56 @@ def test_floating_capsule_show_marshals_to_main_thread(tmp_path, monkeypatch):
     capsule._show_on_main_thread.assert_called_once_with("handsFree")
 
 
+def test_app_capsule_uses_prepared_foreground_app_mode(tmp_path, monkeypatch):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._capsule = MagicMock()
+    app._walkie_talkie = SimpleNamespace()
+    app._meeting = SimpleNamespace()
+    app._current_mode = SimpleNamespace(prepare_app_context=lambda: "prompt")
+
+    app._show_capsule_for_current_mode()
+
+    app._capsule.show.assert_called_once_with("handsFree", prompt_mode=True)
+
+
+def test_app_capsule_routes_non_terminal_session_to_dictation(tmp_path, monkeypatch):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._capsule = MagicMock()
+    app._walkie_talkie = SimpleNamespace()
+    app._meeting = SimpleNamespace()
+    app._current_mode = SimpleNamespace(prepare_app_context=lambda: "dictation")
+
+    app._show_capsule_for_current_mode()
+
+    app._capsule.show.assert_called_once_with("handsFree", prompt_mode=False)
+
+
 def test_floating_capsule_defers_webview_setup_until_warm_up(
     tmp_path, monkeypatch
 ):

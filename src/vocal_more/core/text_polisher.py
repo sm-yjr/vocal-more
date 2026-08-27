@@ -1,7 +1,8 @@
 """Text polishing helpers and second-stage LLM text polishing."""
 
-from dataclasses import dataclass
 import re
+from copy import deepcopy
+from dataclasses import dataclass
 from typing import Callable, Generator, Optional
 
 import dashscope
@@ -417,18 +418,30 @@ class TextPolisher:
             dashscope.api_key = self.config.api_key
         self._last_metering: dict | None = None
         self._context_instruction = ""
+        self._session_polish_mode: str | None = None
 
     def set_context_instruction(self, instruction: str) -> None:
         """Set the abstract per-session context rule."""
         self._context_instruction = str(instruction or "").strip()
 
+    def set_session_polish_mode(self, mode: str | None) -> None:
+        """Override output type for one foreground-app recording session."""
+        self._session_polish_mode = mode if mode in {"dictation", "prompt"} else None
+
+    def _effective_llm_config(self) -> LLMConfig:
+        llm_config = deepcopy(self.config.llm)
+        if self._session_polish_mode is not None:
+            llm_config.polish_mode = self._session_polish_mode
+        return llm_config
+
     def _build_messages(self, text: str) -> list[dict]:
         """Build system + user messages for the LLM call."""
+        llm_config = self._effective_llm_config()
         return [
             {
                 "role": "system",
                 "content": build_polish_system_prompt(
-                    self.config.llm,
+                    llm_config,
                     context_instruction=self._context_instruction,
                 ),
             },
@@ -437,7 +450,11 @@ class TextPolisher:
 
     def should_polish(self, original_text: str, normalized_text: str) -> bool:
         """Decide whether the text needs LLM polishing."""
-        return should_polish_text(self.config.llm, original_text, normalized_text)
+        return should_polish_text(
+            self._effective_llm_config(),
+            original_text,
+            normalized_text,
+        )
 
     def _call_generation(self, messages: list[dict], stream: bool = False):
         dashscope.api_key = self.config.api_key or None
@@ -520,7 +537,7 @@ class TextPolisher:
                 original_text=text,
                 polished_text=normalize_structured_list_spacing(
                     self._extract_response_text(response),
-                    self.config.llm,
+                    self._effective_llm_config(),
                 ),
                 normalized_text=normalized, used_llm=True,
                 billing=billing,
@@ -565,7 +582,10 @@ class TextPolisher:
         self._last_metering = billing
         return PolishResult(
             original_text=text,
-            polished_text=normalize_structured_list_spacing(full_text, self.config.llm),
+            polished_text=normalize_structured_list_spacing(
+                full_text,
+                self._effective_llm_config(),
+            ),
             normalized_text=normalized,
             used_llm=True,
             billing=billing,

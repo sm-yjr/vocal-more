@@ -174,8 +174,17 @@ class FloatingCapsule:
             and config.llm.polish_mode == "prompt"
         )
 
-    def _display_mode(self, mode: str) -> str:
-        if not self._prompt_mode_enabled():
+    def _display_mode(
+        self,
+        mode: str,
+        prompt_mode: Optional[bool] = None,
+    ) -> str:
+        prompt_enabled = (
+            self._prompt_mode_enabled()
+            if prompt_mode is None
+            else bool(prompt_mode)
+        )
+        if not prompt_enabled:
             return mode
         if mode == "pushToTalk":
             return "promptPushToTalk"
@@ -202,14 +211,29 @@ class FloatingCapsule:
         payload = json.dumps(hint, ensure_ascii=False)
         self._eval_js(f"updatePromptHint({payload})")
 
-    def show(self, mode: str = "pushToTalk") -> None:
+    def show(
+        self,
+        mode: str = "pushToTalk",
+        *,
+        prompt_mode: Optional[bool] = None,
+    ) -> None:
         """Show the capsule."""
-        self._run_on_main_thread(lambda: self._show_on_main_thread(mode))
+        if prompt_mode is None:
+            self._run_on_main_thread(lambda: self._show_on_main_thread(mode))
+            return
+        self._run_on_main_thread(
+            lambda: self._show_on_main_thread(mode, prompt_mode=prompt_mode)
+        )
 
-    def _show_on_main_thread(self, mode: str) -> None:
+    def _show_on_main_thread(
+        self,
+        mode: str,
+        *,
+        prompt_mode: Optional[bool] = None,
+    ) -> None:
         self._ensure_setup()
         self._set_capsule_size_on_main_thread(False)
-        display_mode = self._display_mode(mode)
+        display_mode = self._display_mode(mode, prompt_mode)
         self._current_mode = display_mode
         self._current_state = "recording"
         self._latest_prompt_text = ""

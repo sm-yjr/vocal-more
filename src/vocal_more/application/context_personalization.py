@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import platform
+from collections.abc import Callable
 
 from ..domain.app_context import (
     AppContext,
@@ -71,6 +71,21 @@ class ContextPersonalizationService:
     def instruction(context: AppContext | None) -> str:
         return instruction_for_context(context)
 
+    def polish_mode(
+        self,
+        context: AppContext | None,
+        configured_mode: str,
+    ) -> str:
+        """Route terminal sessions to Prompt and other apps to dictation."""
+        fallback = "prompt" if configured_mode == "prompt" else "dictation"
+        if not self.config.enabled:
+            return fallback
+        return (
+            "prompt"
+            if context and context.category == "terminal"
+            else "dictation"
+        )
+
     def record_success(self, context: AppContext | None) -> None:
         if context is None or self._repository is None:
             return
@@ -86,6 +101,7 @@ class ContextPersonalizationService:
                     "development": 0,
                     "general": 0,
                     "messaging": 0,
+                    "terminal": 0,
                     "writing": 0,
                 },
                 "total": 0,

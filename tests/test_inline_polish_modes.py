@@ -34,6 +34,7 @@ def _build_realtime_long_context_harness(
         "errors": [],
         "pasted": [],
         "polisher_contexts": [],
+        "polisher_modes": [],
         "results": [],
     }
 
@@ -62,6 +63,9 @@ def _build_realtime_long_context_harness(
     class FakePolisher:
         def set_context_instruction(self, instruction):
             observed["polisher_contexts"].append(instruction)
+
+        def set_session_polish_mode(self, mode):
+            observed["polisher_modes"].append(mode)
 
         def polish(self, text):
             return SimpleNamespace(polished_text=text)
@@ -810,10 +814,70 @@ def test_realtime_long_transcribes_when_app_provider_raises(tmp_path, monkeypatc
     mode.on_hotkey_pressed()
     mode._processing_thread.join(timeout=2)
 
-    assert observed["asr_start_kwargs"] == [{}]
+    assert observed["asr_start_kwargs"] == [{"polish_mode": "dictation"}]
     assert observed["pasted"] == ["使用 get_config 读取配置"]
     assert observed["results"] == ["使用 get_config 读取配置"]
     assert observed["errors"] == []
+    mode.close()
+
+
+def test_realtime_long_routes_ghostty_session_to_prompt(tmp_path, monkeypatch):
+    from vocal_more.application.context_personalization import (
+        ContextPersonalizationService,
+    )
+    from vocal_more.domain.config_models import ContextPersonalizationConfig
+
+    service = ContextPersonalizationService(
+        config=ContextPersonalizationConfig(enabled=True),
+        app_provider=lambda: "com.mitchellh.ghostty",
+        repository=None,
+    )
+    mode, observed = _build_realtime_long_context_harness(
+        tmp_path,
+        monkeypatch,
+        context_personalization=service,
+        config_payload={"enable_polish": True, "llm": {"polish_mode": "dictation"}},
+    )
+
+    mode.on_hotkey_pressed()
+
+    assert observed["asr_start_kwargs"] == [
+        {
+            "context_instruction": service.instruction(mode._active_app_context),
+            "polish_mode": "prompt",
+        }
+    ]
+    assert observed["polisher_modes"][0] == "prompt"
+    assert mode._active_input_intent.value == "prompt"
+    mode.cancel()
+    assert observed["polisher_modes"][-1] is None
+    mode.close()
+
+
+def test_realtime_long_routes_dingtalk_session_to_dictation(tmp_path, monkeypatch):
+    from vocal_more.application.context_personalization import (
+        ContextPersonalizationService,
+    )
+    from vocal_more.domain.config_models import ContextPersonalizationConfig
+
+    service = ContextPersonalizationService(
+        config=ContextPersonalizationConfig(enabled=True),
+        app_provider=lambda: "com.laiwang.DingTalk",
+        repository=None,
+    )
+    mode, observed = _build_realtime_long_context_harness(
+        tmp_path,
+        monkeypatch,
+        context_personalization=service,
+        config_payload={"enable_polish": True, "llm": {"polish_mode": "prompt"}},
+    )
+
+    mode.on_hotkey_pressed()
+
+    assert observed["asr_start_kwargs"][0]["polish_mode"] == "dictation"
+    assert observed["polisher_modes"][0] == "dictation"
+    assert mode._active_input_intent.value == "dictation"
+    mode.cancel()
     mode.close()
 
 

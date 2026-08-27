@@ -1536,7 +1536,7 @@ class VocalMoreApp(rumps.App):
             )
             if action == HotkeyGestureAction.START:
                 self._begin_live_benchmark_trace(command_time)
-                self._capsule.show(self._capsule_mode_for_current_mode())
+                self._show_capsule_for_current_mode()
                 self._current_mode.on_hotkey_pressed()
             elif action == HotkeyGestureAction.STOP:
                 self._mark_live_benchmark_trace("speech_end", at=command_time)
@@ -1545,7 +1545,7 @@ class VocalMoreApp(rumps.App):
 
         if self._current_mode.state == ModeState.IDLE:
             self._begin_live_benchmark_trace(command_time)
-            self._capsule.show(self._capsule_mode_for_current_mode())
+            self._show_capsule_for_current_mode()
         elif self._current_mode.state == ModeState.RECORDING:
             self._mark_live_benchmark_trace("speech_end", at=command_time)
         self._current_mode.on_hotkey_pressed()
@@ -1640,7 +1640,7 @@ class VocalMoreApp(rumps.App):
     def _handle_double_cmd_command(self) -> None:
         if self._current_mode.state == ModeState.IDLE:
             self._begin_live_benchmark_trace(time.monotonic())
-            self._capsule.show(self._capsule_mode_for_current_mode())
+            self._show_capsule_for_current_mode()
         elif self._current_mode.state == ModeState.RECORDING:
             self._mark_live_benchmark_trace("speech_end")
         self._current_mode.on_hotkey_pressed()
@@ -1780,6 +1780,17 @@ class VocalMoreApp(rumps.App):
         if self._current_mode is getattr(self, "_meeting", None):
             return "meeting"
         return "handsFree"
+
+    def _show_capsule_for_current_mode(self) -> None:
+        """Use the same prepared foreground-app snapshot as the next session."""
+        effective_mode = self.config.llm.polish_mode
+        prepare = getattr(self._current_mode, "prepare_app_context", None)
+        if callable(prepare):
+            effective_mode = prepare()
+        self._capsule.show(
+            self._capsule_mode_for_current_mode(),
+            prompt_mode=effective_mode == "prompt",
+        )
 
     # ── Result callbacks ──────────────────────────────────────
 

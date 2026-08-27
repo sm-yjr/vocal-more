@@ -1194,6 +1194,7 @@ class BatchASREngine:
             try:
                 polisher = TextPolisher()
                 polisher.set_context_instruction(context_instruction)
+                polisher.set_session_polish_mode(self.config.llm.polish_mode)
                 polished = polisher.polish(transcript_text)
                 source = "polisher_fallback" if polished.used_llm else "transcript"
                 return polished.polished_text.strip(), source
@@ -2826,6 +2827,7 @@ class ASREngine:
         context_instruction: str = "",
         audio_config=None,
         command_mode: bool = False,
+        polish_mode: str | None = None,
     ) -> None:
         """Start the ASR session. Non-blocking — session setup runs in background."""
         if self._is_running:
@@ -2837,6 +2839,8 @@ class ASREngine:
         self._session_config = deepcopy(self.config)
         if audio_config is not None:
             self._session_config.audio = deepcopy(audio_config)
+        if polish_mode in {"dictation", "prompt"}:
+            self._session_config.llm.polish_mode = polish_mode
         # AudioConfig normalizes persisted/RPC updates, but it remains a
         # mutable dataclass for legacy callers. Reassert the product transport
         # contract at the last boundary before provider metadata is built so a
@@ -2926,12 +2930,14 @@ class ASREngine:
         *,
         context_instruction: str = "",
         command_mode: bool = False,
+        polish_mode: str | None = None,
     ) -> None:
         """Start using the recorder plan captured by the owning mode."""
         self.start(
             context_instruction=context_instruction,
             audio_config=audio_config,
             command_mode=command_mode,
+            polish_mode=polish_mode,
         )
 
     def prepare_idle_session(self, audio_config=None) -> bool:

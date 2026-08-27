@@ -1,9 +1,10 @@
 """Base class for recording modes."""
 
+import inspect
+import threading
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from enum import Enum
-import threading
 from typing import Callable, Optional
 
 from ..application.lazy_resource import initialized_resource
@@ -195,22 +196,53 @@ class BaseMode(ABC):
         audio_config: object,
         context_instruction: str = "",
         command_mode: bool = False,
+        polish_mode: str | None = None,
     ) -> None:
         """Start ASR from the exact recorder-plan snapshot for this session."""
         starter = getattr(self._asr, "start_with_audio_contract", None)
         if callable(starter):
-            kwargs = {"context_instruction": context_instruction}
-            if command_mode:
+            kwargs = {}
+            if context_instruction and self._accepts_keyword(
+                starter, "context_instruction"
+            ):
+                kwargs["context_instruction"] = context_instruction
+            if command_mode and self._accepts_keyword(starter, "command_mode"):
                 kwargs["command_mode"] = True
+            if polish_mode is not None and self._accepts_keyword(
+                starter, "polish_mode"
+            ):
+                kwargs["polish_mode"] = polish_mode
             starter(audio_config, **kwargs)
             return
-        if context_instruction or command_mode:
-            kwargs = {"context_instruction": context_instruction}
-            if command_mode:
+        if context_instruction or command_mode or polish_mode is not None:
+            kwargs = {}
+            start = self._asr.start
+            if context_instruction and self._accepts_keyword(
+                start, "context_instruction"
+            ):
+                kwargs["context_instruction"] = context_instruction
+            if command_mode and self._accepts_keyword(start, "command_mode"):
                 kwargs["command_mode"] = True
-            self._asr.start(**kwargs)
+            if polish_mode is not None and self._accepts_keyword(
+                start, "polish_mode"
+            ):
+                kwargs["polish_mode"] = polish_mode
+            start(**kwargs)
         else:
             self._asr.start()
+
+    @staticmethod
+    def _accepts_keyword(callback: Callable, keyword: str) -> bool:
+        """Return whether a runtime or test double accepts an optional keyword."""
+        try:
+            parameters = inspect.signature(callback).parameters.values()
+        except (TypeError, ValueError):
+            return True
+        return any(
+            parameter.name == keyword
+            or parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters
+        )
 
     def _emit_workflow_result(self, result) -> None:
         """Forward shared workflow output to mode callbacks."""

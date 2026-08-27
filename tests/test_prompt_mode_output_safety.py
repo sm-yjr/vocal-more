@@ -188,6 +188,35 @@ def test_capsule_expands_before_initial_prompt_hint_is_injected(monkeypatch):
     assert events[2][0] == "javascript"
 
 
+def test_capsule_explicit_session_mode_overrides_global_mode(monkeypatch):
+    import AppKit
+
+    monkeypatch.setattr(AppKit, "NSEvent", type("NSEvent", (), {}), raising=False)
+    monkeypatch.setattr(AppKit, "NSPanel", type("NSPanel", (), {}), raising=False)
+    monkeypatch.setattr(AppKit, "NSPointInRect", lambda *_args: False, raising=False)
+    monkeypatch.setattr(AppKit, "NSScreen", type("NSScreen", (), {}), raising=False)
+    monkeypatch.setattr(AppKit, "NSWindowStyleMaskBorderless", 0, raising=False)
+    monkeypatch.setattr(
+        AppKit,
+        "NSWindowStyleMaskNonactivatingPanel",
+        0,
+        raising=False,
+    )
+    capsule_module = importlib.import_module("vocal_more.ui.floating_capsule")
+    capsule_module = importlib.reload(capsule_module)
+    capsule = capsule_module.FloatingCapsule.__new__(
+        capsule_module.FloatingCapsule
+    )
+    capsule._prompt_mode_enabled = MagicMock(return_value=False)
+
+    assert capsule._display_mode("handsFree", prompt_mode=True) == "prompt"
+    assert (
+        capsule._display_mode("pushToTalk", prompt_mode=True)
+        == "promptPushToTalk"
+    )
+    assert capsule._display_mode("handsFree", prompt_mode=False) == "handsFree"
+
+
 def test_capsule_expands_before_streaming_text_is_injected(monkeypatch):
     import AppKit
 

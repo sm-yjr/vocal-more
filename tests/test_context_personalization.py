@@ -5,7 +5,10 @@ def test_classifies_only_coarse_app_categories():
     from vocal_more.domain.app_context import classify_app_context
 
     assert classify_app_context("com.microsoft.VSCode").category == "development"
+    assert classify_app_context("com.mitchellh.ghostty").category == "terminal"
     assert classify_app_context("com.tinyspeck.slackmacgap").category == "messaging"
+    assert classify_app_context("com.laiwang.DingTalk").category == "messaging"
+    assert classify_app_context("com.alibaba.DingTalkMac").category == "messaging"
     assert classify_app_context("com.apple.Notes").category == "writing"
     assert classify_app_context("com.apple.Safari").category == "general"
 
@@ -99,9 +102,9 @@ def test_profile_repository_persists_only_aggregate_category_counts(tmp_path):
         "category_counts": {
             "development": 0,
             "general": 0,
-                "messaging": 1,
-                "terminal": 0,
-                "writing": 0,
+            "messaging": 1,
+            "terminal": 0,
+            "writing": 0,
         },
     }
     assert "slack" not in serialized.lower()
@@ -128,9 +131,9 @@ def test_profile_repository_recovers_from_malformed_data_and_resets(tmp_path):
         "counts": {
             "development": 0,
             "general": 0,
-                "messaging": 0,
-                "terminal": 0,
-                "writing": 0,
+            "messaging": 0,
+            "terminal": 0,
+            "writing": 0,
         },
         "total": 0,
     }
@@ -178,6 +181,45 @@ def test_disabled_service_does_not_capture_or_persist(tmp_path):
 
     assert service.capture() is None
     assert service.summary()["total"] == 0
+
+
+def test_service_routes_terminal_to_prompt_and_other_apps_to_dictation():
+    from vocal_more.application.context_personalization import (
+        ContextPersonalizationService,
+    )
+    from vocal_more.domain.app_context import AppContext
+    from vocal_more.domain.config_models import ContextPersonalizationConfig
+
+    service = ContextPersonalizationService(
+        config=ContextPersonalizationConfig(enabled=True),
+        app_provider=lambda: "",
+        repository=None,
+    )
+
+    terminal = AppContext(category="terminal", bundle_id="com.mitchellh.ghostty")
+    messaging = AppContext(category="messaging", bundle_id="com.laiwang.DingTalk")
+
+    assert service.polish_mode(terminal, "dictation") == "prompt"
+    assert service.polish_mode(messaging, "prompt") == "dictation"
+    assert service.polish_mode(None, "prompt") == "dictation"
+
+
+def test_disabled_service_preserves_configured_polish_mode():
+    from vocal_more.application.context_personalization import (
+        ContextPersonalizationService,
+    )
+    from vocal_more.domain.app_context import AppContext
+    from vocal_more.domain.config_models import ContextPersonalizationConfig
+
+    service = ContextPersonalizationService(
+        config=ContextPersonalizationConfig(enabled=False),
+        app_provider=lambda: "",
+        repository=None,
+    )
+    terminal = AppContext(category="terminal", bundle_id="com.mitchellh.ghostty")
+
+    assert service.polish_mode(terminal, "dictation") == "dictation"
+    assert service.polish_mode(None, "prompt") == "prompt"
 
 
 def test_service_capture_fails_open_when_app_provider_raises():

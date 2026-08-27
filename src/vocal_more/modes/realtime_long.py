@@ -58,6 +58,9 @@ class RealtimeLongMode(BaseMode):
         self._recording_store = recording_store
         self._context_personalization = context_personalization
         self._active_app_context = None
+        self._active_context_instruction = ""
+        self._app_context_prepared = False
+        self._effective_polish_mode = self.config.llm.polish_mode
 
         self._asr = LazyResource(
             lambda: ASREngine(
@@ -106,6 +109,8 @@ class RealtimeLongMode(BaseMode):
         self._streamed_raw_parts: list[str] = []
 
     def _prepare_app_context(self) -> str:
+        if self._app_context_prepared:
+            return self._active_context_instruction
         self._active_app_context = None
         instruction = ""
         if self._context_personalization is not None:
@@ -116,16 +121,40 @@ class RealtimeLongMode(BaseMode):
                 )
             except Exception as exc:
                 print(f"[RealtimeLong] Context capture failed: {exc}")
+        resolver = getattr(self._context_personalization, "polish_mode", None)
+        if callable(resolver):
+            self._effective_polish_mode = resolver(
+                self._active_app_context,
+                self.config.llm.polish_mode,
+            )
+        else:
+            self._effective_polish_mode = self.config.llm.polish_mode
         setter = getattr(self.text_polisher, "set_context_instruction", None)
         if callable(setter):
             setter(instruction)
+        mode_setter = getattr(self.text_polisher, "set_session_polish_mode", None)
+        if callable(mode_setter):
+            mode_setter(self._effective_polish_mode)
+        self._active_context_instruction = instruction
+        self._app_context_prepared = True
         return instruction
+
+    def prepare_app_context(self) -> str:
+        """Prepare the next session so UI and runtime use one app snapshot."""
+        self._prepare_app_context()
+        return self._effective_polish_mode
 
     def _clear_app_context(self) -> None:
         setter = getattr(self.text_polisher, "set_context_instruction", None)
         if callable(setter):
             setter("")
+        mode_setter = getattr(self.text_polisher, "set_session_polish_mode", None)
+        if callable(mode_setter):
+            mode_setter(None)
         self._active_app_context = None
+        self._active_context_instruction = ""
+        self._app_context_prepared = False
+        self._effective_polish_mode = self.config.llm.polish_mode
 
     @property
     def name(self) -> str:
@@ -154,7 +183,7 @@ class RealtimeLongMode(BaseMode):
         if (
             intent == InputIntent.DICTATION
             and self.config.enable_polish
-            and self.config.llm.polish_mode == "prompt"
+            and self._effective_polish_mode == "prompt"
         ):
             return InputIntent.PROMPT
         return intent
@@ -164,7 +193,6 @@ class RealtimeLongMode(BaseMode):
         intent: InputIntent = InputIntent.DICTATION,
     ) -> None:
         """Start recording + streaming ASR."""
-        intent = self._resolve_input_intent(intent)
         if intent == InputIntent.COMMAND and not supports_command_mode(
             self.config.asr.model
         ):
@@ -177,6 +205,8 @@ class RealtimeLongMode(BaseMode):
             self._set_state(ModeState.FAILED)
             self._set_state(ModeState.IDLE)
             return
+        context_instruction = self._prepare_app_context()
+        intent = self._resolve_input_intent(intent)
         session_token = self._begin_session()
         self._active_session_token = session_token
         self._recording_asr_model = self.config.asr.model
@@ -192,7 +222,6 @@ class RealtimeLongMode(BaseMode):
             and not asr_model_handles_inline_polish(self._recording_asr_model)
         )
         self._streamed_raw_parts = []
-        context_instruction = self._prepare_app_context()
         if intent == InputIntent.COMMAND:
             context_instruction = getattr(
                 self._active_app_context,
@@ -224,6 +253,7 @@ class RealtimeLongMode(BaseMode):
                     audio_config=session_audio_config,
                     context_instruction=context_instruction,
                     command_mode=intent == InputIntent.COMMAND,
+                    polish_mode=self._effective_polish_mode,
                 )
         except Exception as exc:
             print(f"[RealtimeLong] Failed to start realtime ASR: {exc}")

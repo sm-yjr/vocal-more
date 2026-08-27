@@ -54,6 +54,9 @@ class WalkieTalkieMode(BaseMode):
         self._recording_store = recording_store
         self._context_personalization = context_personalization
         self._active_app_context = None
+        self._active_context_instruction = ""
+        self._app_context_prepared = False
+        self._effective_polish_mode = self.config.llm.polish_mode
 
         self._asr = LazyResource(
             lambda: ASREngine(
@@ -88,6 +91,8 @@ class WalkieTalkieMode(BaseMode):
         self._recorder_stopped_session: Optional[int] = None
 
     def _prepare_app_context(self) -> str:
+        if self._app_context_prepared:
+            return self._active_context_instruction
         self._active_app_context = None
         instruction = ""
         if self._context_personalization is not None:
@@ -98,16 +103,40 @@ class WalkieTalkieMode(BaseMode):
                 )
             except Exception as exc:
                 print(f"[WalkieTalkie] Context capture failed: {exc}")
+        resolver = getattr(self._context_personalization, "polish_mode", None)
+        if callable(resolver):
+            self._effective_polish_mode = resolver(
+                self._active_app_context,
+                self.config.llm.polish_mode,
+            )
+        else:
+            self._effective_polish_mode = self.config.llm.polish_mode
         setter = getattr(self.text_polisher, "set_context_instruction", None)
         if callable(setter):
             setter(instruction)
+        mode_setter = getattr(self.text_polisher, "set_session_polish_mode", None)
+        if callable(mode_setter):
+            mode_setter(self._effective_polish_mode)
+        self._active_context_instruction = instruction
+        self._app_context_prepared = True
         return instruction
+
+    def prepare_app_context(self) -> str:
+        """Prepare the next session so UI and runtime use one app snapshot."""
+        self._prepare_app_context()
+        return self._effective_polish_mode
 
     def _clear_app_context(self) -> None:
         setter = getattr(self.text_polisher, "set_context_instruction", None)
         if callable(setter):
             setter("")
+        mode_setter = getattr(self.text_polisher, "set_session_polish_mode", None)
+        if callable(mode_setter):
+            mode_setter(None)
         self._active_app_context = None
+        self._active_context_instruction = ""
+        self._app_context_prepared = False
+        self._effective_polish_mode = self.config.llm.polish_mode
 
     @property
     def name(self) -> str:
@@ -150,6 +179,7 @@ class WalkieTalkieMode(BaseMode):
                 self._start_realtime_asr(
                     audio_config=session_audio_config,
                     context_instruction=context_instruction,
+                    polish_mode=self._effective_polish_mode,
                 )
         except Exception as exc:
             print(f"[WalkieTalkie] Failed to start realtime ASR: {exc}")

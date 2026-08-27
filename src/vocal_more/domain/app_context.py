@@ -58,6 +58,7 @@ _MESSAGING_APP_IDS = {
     "com.tinyspeck.slackmacgap",
     "com.tencent.qq",
     "com.electron.lark",
+    "com.laiwang.DingTalk",
     "discord.exe",
     "feishu.exe",
     "lark.exe",
@@ -67,6 +68,10 @@ _MESSAGING_APP_IDS = {
     "teams.exe",
     "wechat.exe",
 }
+_MESSAGING_PREFIXES = (
+    "com.alibaba.dingtalk",
+    "com.laiwang.dingtalk",
+)
 _WRITING_APP_IDS = {
     "com.apple.iwork.pages",
     "com.apple.notes",
@@ -121,7 +126,9 @@ def classify_app_context(bundle_id: str) -> AppContext:
         lookup.startswith(prefix.lower()) for prefix in _DEVELOPMENT_PREFIXES
     ):
         category = "development"
-    elif lookup in {item.lower() for item in _MESSAGING_APP_IDS}:
+    elif lookup in {item.lower() for item in _MESSAGING_APP_IDS} or any(
+        lookup.startswith(prefix.lower()) for prefix in _MESSAGING_PREFIXES
+    ):
         category = "messaging"
     elif lookup in {item.lower() for item in _WRITING_APP_IDS}:
         category = "writing"
