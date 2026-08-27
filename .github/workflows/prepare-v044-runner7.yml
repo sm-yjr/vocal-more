@@ -1,0 +1,266 @@
+name: Complete v0.4.4 with isolated capsule test
+
+on:
+  push:
+    branches:
+      - fix/v0.4.4-prompt-mode
+
+permissions:
+  contents: write
+
+jobs:
+  implement-test-and-commit:
+    runs-on: macos-latest
+    env:
+      DASHSCOPE_API_KEY: test-api-key
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/v0.4.4-prompt-mode
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Apply v0.4.4 implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import textwrap
+
+          source = Path(".github/workflows/prepare-v044.yml").read_text(
+              encoding="utf-8"
+          )
+          start_marker = "          python - <<'PY'\n"
+          end_marker = (
+              "\n          PY\n\n"
+              "      - name: Install locked development dependencies"
+          )
+          start = source.index(start_marker) + len(start_marker)
+          end = source.index(end_marker, start)
+          implementation = textwrap.dedent(source[start:end])
+          implementation = implementation.replace(
+              "updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)",
+              "updated, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=re.S)",
+          )
+
+          old_helper = '''def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected one exact match, found {count}")
+              file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          '''
+          new_helper = '''def _normalize_literal_block(value: str) -> str:
+              lines = value.splitlines(keepends=True)
+              nonempty = [index for index, line in enumerate(lines) if line.strip()]
+              if len(nonempty) < 2:
+                  return value
+              first_index = nonempty[0]
+              first_indent = len(lines[first_index]) - len(lines[first_index].lstrip())
+              rest_indents = [
+                  len(lines[index]) - len(lines[index].lstrip())
+                  for index in nonempty[1:]
+              ]
+              rest_base = min(rest_indents)
+              normalized = list(lines)
+              for index in range(first_index + 1, len(lines)):
+                  if not lines[index].strip():
+                      continue
+                  relative = lines[index][rest_base:]
+                  normalized[index] = " " * first_indent + relative
+              return "".join(normalized)
+
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              old = _normalize_literal_block(old)
+              new = _normalize_literal_block(new)
+              count = text.count(old)
+              if count != 1:
+                  preview = old.splitlines()[0] if old.splitlines() else "<empty>"
+                  raise RuntimeError(
+                      f"{path}: expected one exact match, found {count}: {preview!r}"
+                  )
+              file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          '''
+          if old_helper not in implementation:
+              raise RuntimeError("replace_once helper not found")
+          implementation = implementation.replace(old_helper, new_helper, 1)
+
+          implementation, lock_block_count = re.subn(
+              r'\nlock_path = Path\("uv\.lock"\)\n.*?'
+              r'lock_path\.write_text\(lock, encoding="utf-8"\)\n',
+              '\n# uv.lock is refreshed by uv after the project version changes.\n',
+              implementation,
+              count=1,
+              flags=re.S,
+          )
+          if lock_block_count != 1:
+              raise RuntimeError(
+                  f"expected one uv.lock update block, found {lock_block_count}"
+              )
+
+          implementation, windows_block_count = re.subn(
+              r'\nreplace_once\(\n    "\.github/workflows/windows\.yml",.*?\n\)\s*\Z',
+              '\n',
+              implementation,
+              count=1,
+              flags=re.S,
+          )
+          if windows_block_count != 1:
+              raise RuntimeError(
+                  f"expected one Windows workflow block, found {windows_block_count}"
+              )
+
+          exec(compile(implementation, "prepare-v044-implementation.py", "exec"))
+
+          windows_path = Path(".github/workflows/windows.yml")
+          windows_text = windows_path.read_text(encoding="utf-8")
+          old = "  test-and-package:\n    runs-on: windows-latest\n"
+          expression = (
+              "$" + "{{ "
+              "!contains("
+              "github.event.pull_request.title || "
+              "github.event.head_commit.message || '', "
+              "'[macOS-only]'"
+              ") }}"
+          )
+          new = (
+              "  test-and-package:\n"
+              "    if: >-\n"
+              f"      {expression}\n"
+              "    runs-on: windows-latest\n"
+          )
+          if windows_text.count(old) != 1:
+              raise RuntimeError("Windows workflow job header not found exactly once")
+          windows_path.write_text(
+              windows_text.replace(old, new, 1),
+              encoding="utf-8",
+          )
+
+          Path("tests/test_floating_capsule_prompt.py").write_text('''import ast
+          import copy
+          from pathlib import Path
+
+
+          CAPSULE_SOURCE_PATH = Path("src/vocal_more/ui/floating_capsule.py")
+
+
+          def _floating_capsule_class() -> ast.ClassDef:
+              tree = ast.parse(CAPSULE_SOURCE_PATH.read_text(encoding="utf-8"))
+              return next(
+                  node
+                  for node in tree.body
+                  if isinstance(node, ast.ClassDef) and node.name == "FloatingCapsule"
+              )
+
+
+          def _class_constants() -> dict[str, object]:
+              values = {}
+              for node in _floating_capsule_class().body:
+                  if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+                      continue
+                  target = node.targets[0]
+                  if not isinstance(target, ast.Name):
+                      continue
+                  try:
+                      values[target.id] = ast.literal_eval(node.value)
+                  except (ValueError, TypeError):
+                      pass
+              return values
+
+
+          def _isolated_method(name: str):
+              class_node = _floating_capsule_class()
+              method = next(
+                  node
+                  for node in class_node.body
+                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                  and node.name == name
+              )
+              method = copy.deepcopy(method)
+              method.decorator_list = []
+              module = ast.Module(body=[method], type_ignores=[])
+              ast.fix_missing_locations(module)
+              namespace = {}
+              exec(compile(module, str(CAPSULE_SOURCE_PATH), "exec"), namespace)
+              return namespace[name]
+
+
+          def test_prompt_surface_is_wider_and_taller_than_base_surface():
+              constants = _class_constants()
+
+              class Surface:
+                  BASE_CAPSULE_WIDTH = constants["BASE_CAPSULE_WIDTH"]
+                  BASE_CAPSULE_HEIGHT = constants["BASE_CAPSULE_HEIGHT"]
+                  PROMPT_CAPSULE_WIDTH = constants["PROMPT_CAPSULE_WIDTH"]
+                  PROMPT_CAPSULE_HEIGHT = constants["PROMPT_CAPSULE_HEIGHT"]
+
+              surface_size = _isolated_method("_surface_size_for_mode")
+              base = surface_size(Surface, "handsFree")
+              prompt = surface_size(Surface, "prompt")
+              assert prompt[0] > base[0]
+              assert prompt[1] > base[1]
+              assert prompt == (360, 152)
+
+
+          def test_prompt_hint_javascript_escape_preserves_line_breaks():
+              escape = _isolated_method("_escape_js_string")
+              assert escape("第一问？\\n第二问？") == "第一问？\\\\n第二问？"
+
+
+          def test_prompt_hint_css_wraps_two_lines_without_ellipsis():
+              html = Path("resources/floating_capsule/capsule.html").read_text(
+                  encoding="utf-8"
+              )
+              assert "white-space: pre-wrap" in html
+              assert "width: 320px" in html
+              assert "min-height: 104px" in html
+              assert "text-overflow: clip" in html
+          ''', encoding="utf-8")
+          PY
+
+      - name: Refresh editable project metadata in lockfile
+        run: uv lock
+
+      - name: Install locked development dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run full macOS test suite
+        run: uv run python -m pytest -q
+
+      - name: Check patch integrity
+        run: |
+          git diff --check
+          git status --short
+
+      - name: Commit tested v0.4.4 branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/prepare-v044.yml
+          rm .github/workflows/prepare-v044-runner.yml
+          rm .github/workflows/prepare-v044-runner2.yml
+          rm .github/workflows/prepare-v044-runner3.yml
+          rm .github/workflows/prepare-v044-runner4.yml
+          rm .github/workflows/prepare-v044-runner5.yml
+          rm .github/workflows/prepare-v044-runner6.yml
+          rm .github/workflows/prepare-v044-runner7.yml
+          git config user.name "sm-yjr"
+          git config user.email "76152255+sm-yjr@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: isolate Prompt Mode and improve clarification UI"
+          git push origin HEAD:fix/v0.4.4-prompt-mode
