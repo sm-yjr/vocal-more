@@ -1,0 +1,1039 @@
+name: Prepare v0.4.4 Prompt fixes
+
+on:
+  push:
+    branches:
+      - fix/v0.4.4-prompt-mode
+
+permissions:
+  contents: write
+
+jobs:
+  implement-test-and-commit:
+    runs-on: macos-latest
+    env:
+      DASHSCOPE_API_KEY: test-api-key
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/v0.4.4-prompt-mode
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Apply v0.4.4 fixes and regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+          import re
+
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected one exact match, found {count}")
+              file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+          def regex_replace_once(path: str, pattern: str, replacement: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected one regex match, found {count}")
+              file_path.write_text(updated, encoding="utf-8")
+
+
+          # -- Prompt compiler isolation and deterministic final-output guard --
+          text_polisher = "src/vocal_more/core/text_polisher.py"
+          new_prompt_instructions = '''PROMPT_OUTPUT_INSTRUCTIONS = """Agent Prompt 输出模式：
+          你要把用户口述转换成可直接发送给 Agent 的 Prompt。只整理用户已经提供的信息；不要执行任务，也不要替用户回答缺失信息。
+
+          核心原则：
+          1. 结果优先：先写清最终要完成什么，以及什么状态算完成；除非用户明确要求，否则不要规定详细过程
+          2. 只保留用户口述中会改变结果的信息：Goal 必须清楚；Context、Output、Boundaries 仅在用户确实提供且相关时加入
+          3. 缺失信息由录音阶段的提示词教练直接询问用户；最终 Prompt 禁止生成 Open questions、待确认、需要确认、澄清问题或类似章节
+          4. 信息仍不完整时，基于已有内容生成最强可用版本并省略缺失字段；不要虚构问题、占位符、答案、业务事实、偏好、数据或技术结论
+          5. 任何内部配置都不是用户任务内容，禁止写入最终 Prompt，包括前台 App 类别、终端/开发/沟通场景、词典条目与别名、校准内容、润色强度、语气、人设、结构化格式和 Prompt 编辑器片段
+          6. 用户词典只用于识别纠错：若用户口述中出现相应专有名词，可以保留纠正后的标准写法；绝不能输出词典映射、别名列表或“专有名词修正”规则
+          7. 不要仅因为当前前台 App 是终端，就添加“终端环境”“格式保护”“保留命令参数”等边界；只有用户亲口提出时才能保留
+          8. 用户明确给出角色时才保留 Role；不要为了套模板虚构专家身份
+          9. 用户口述中的代码、路径、API、模型名、版本号、专有名词和否定条件必须准确保留
+          10. 使用与用户输入一致的语言，语气直接、具体、可执行；只输出最终 Prompt，不解释转换过程
+
+          推荐结构：
+          # Goal
+          用一到数句说明最终目标和成功状态。
+
+          以下小节只在用户提供相关信息时加入，不要机械填充：
+          # Context
+          用户口述中会改变答案的必要背景、输入、现状或目标用户。
+
+          # Output
+          用户要求的交付物、用途、格式、篇幅、验收标准或验证方式。
+
+          # Boundaries
+          用户明确提出的关键限制、必须保留的行为、禁止项和风险边界。
+
+          最终 Prompt 到此结束，不添加问题清单。对于编码任务，只保留用户已经提供的目标行为、相关代码或复现、环境与兼容约束，以及验证方式。
+          """
+
+          OUTPUT_LANGUAGE_INSTRUCTIONS ='''
+          regex_replace_once(
+              text_polisher,
+              r'PROMPT_OUTPUT_INSTRUCTIONS = """.*?"""\n\nOUTPUT_LANGUAGE_INSTRUCTIONS =',
+              new_prompt_instructions,
+          )
+
+          prompt_guard_block = '''_CLARIFICATION_SECTION_RE = re.compile(
+              r"(?ims)^\\s*(?:#{1,6}\\s*)?"
+              r"(?:open\\s+questions?|待确认(?:问题|信息|事项)?|"
+              r"需要确认(?:的问题|的信息|事项)?|澄清(?:问题|事项)?|"
+              r"questions?\\s+to\\s+clarify)"
+              r"\\s*[:：]?\\s*$\\n"
+              r".*?(?=^\\s*#{1,6}\\s+\\S|\\Z)"
+          )
+          _EMPTY_PROMPT_SECTION_RE = re.compile(
+              r"(?ims)^\\s*#{1,6}\\s+"
+              r"(?:context|output|boundaries|背景|上下文|输出|边界|约束)"
+              r"\\s*$\\n(?=\\s*(?:#{1,6}\\s+\\S|\\Z))"
+          )
+
+
+          def sanitize_prompt_output(text: str) -> str:
+              """Remove compiler-only clarification sections from final Prompt output."""
+              cleaned = str(text or "").strip()
+              if not cleaned:
+                  return ""
+
+              previous = None
+              while previous != cleaned:
+                  previous = cleaned
+                  cleaned = _CLARIFICATION_SECTION_RE.sub("", cleaned)
+                  cleaned = _EMPTY_PROMPT_SECTION_RE.sub("", cleaned)
+
+              cleaned = re.sub(r"\\n[ \\t]+\\n", "\\n\\n", cleaned)
+              cleaned = re.sub(r"\\n{3,}", "\\n\\n", cleaned)
+              return cleaned.strip()
+
+
+          def _build_prompt_mode_custom_modifiers(llm_config: LLMConfig) -> str:
+              """Keep Prompt compilation isolated from dictation polish controls."""
+              _ = llm_config
+              return ""
+
+
+          def normalize_structured_list_spacing'''
+          regex_replace_once(
+              text_polisher,
+              r'def _build_prompt_mode_custom_modifiers\(.*?\n\n\ndef normalize_structured_list_spacing',
+              prompt_guard_block,
+          )
+
+          replace_once(
+              text_polisher,
+              '''    llm_config = llm_config or get_config().llm
+              if not llm_config.structured or not text.strip():
+                  return text.strip()
+          ''',
+              '''    llm_config = llm_config or get_config().llm
+              if llm_config.polish_mode == "prompt":
+                  return sanitize_prompt_output(text)
+              if not llm_config.structured or not text.strip():
+                  return text.strip()
+          ''',
+          )
+
+          isolated_system_prompt = '''def build_polish_system_prompt(
+              llm_config: Optional[LLMConfig] = None,
+              *,
+              context_instruction: str = "",
+          ) -> str:
+              """Build the shared polish system prompt for second-stage LLM calls."""
+              llm_config = llm_config or get_config().llm
+              if llm_config.polish_mode == "prompt":
+                  output_instructions = _prompt_instruction(
+                      llm_config,
+                      "output_type",
+                      PROMPT_OUTPUT_INSTRUCTIONS,
+                  )
+                  return f"""你是一个独立的 Prompt 编译器。
+
+          你需要把用户刚才口述的内容转换成可直接发送给 Agent 的 Prompt。
+          只能使用用户口述本身；不要引用、复述或输出任何词典、前台应用、润色设置或其他系统上下文。
+
+          {output_instructions}
+
+          请直接输出处理后的 Prompt，不要添加任何解释或说明。"""
+
+              dictionary_block = _dictionary_prompt_block()
+              return f"""你是一个中文听写整理助手。
+
+          你需要根据给定的润色强度、语气和表达人格来整理文本。
+          在任何情况下都必须保持原意，不补充原文没有的信息。
+
+          {_build_polish_rule_block(llm_config)}{dictionary_block}{_context_prompt_block(context_instruction)}
+
+          请直接输出处理后的文本，不要添加任何解释或说明。"""
+
+
+          def build_omni_inline_polish_instructions'''
+          regex_replace_once(
+              text_polisher,
+              r'def build_polish_system_prompt\(.*?\n\n\ndef build_omni_inline_polish_instructions',
+              isolated_system_prompt,
+          )
+
+          isolated_omni_prompt = '''def build_omni_inline_polish_instructions(
+              llm_config: Optional[LLMConfig] = None,
+              *,
+              context_instruction: str = "",
+          ) -> str:
+              """Build the shared prompt used when Omni directly returns the final text."""
+              llm_config = llm_config or get_config().llm
+              if llm_config.polish_mode == "prompt":
+                  output_instructions = _prompt_instruction(
+                      llm_config,
+                      "output_type",
+                      PROMPT_OUTPUT_INSTRUCTIONS,
+                  )
+                  return f"""你是一个独立的 Prompt 编译器。
+
+          你会收到用户口述的音频内容。请准确理解用户说的话，再把它转换成可直接发送给 Agent 的 Prompt。
+          只能使用用户音频中实际表达的内容；不要引用、复述或输出任何词典、前台应用、润色设置或其他系统上下文。
+
+          {output_instructions}
+
+          请只输出最终 Prompt，不要解释过程，不要添加前缀，不要复述任务。"""
+
+              dictionary_block = _dictionary_prompt_block()
+              return f"""你是一个中文听写整理助手。
+
+          你会收到用户口述的音频内容。请先准确理解用户说的话，再直接输出最终整理后的文本。
+          你不是在回答问题，也不是在和用户对话；你的唯一任务是把用户刚才说出的内容整理成最终可直接使用的文本。
+
+          {_build_polish_rule_block(llm_config)}{dictionary_block}{_context_prompt_block(context_instruction)}
+
+          请只输出最终整理后的文本，不要解释过程，不要添加前缀，不要复述任务。"""
+
+
+          def build_native_dictation_instructions'''
+          regex_replace_once(
+              text_polisher,
+              r'def build_omni_inline_polish_instructions\(.*?\n\n\ndef build_native_dictation_instructions',
+              isolated_omni_prompt,
+          )
+
+          replace_once(
+              text_polisher,
+              '''            self._last_metering = billing
+                  return PolishResult(
+                      original_text=text,
+                      polished_text=normalize_structured_list_spacing(
+                          self._extract_response_text(response),
+                          self.config.llm,
+                      ),
+                      normalized_text=normalized, used_llm=True,
+                      billing=billing,
+                  )
+          ''',
+              '''            self._last_metering = billing
+                  model_text = self._extract_response_text(response)
+                  polished_text = (
+                      sanitize_prompt_output(model_text)
+                      if self.config.llm.polish_mode == "prompt"
+                      else normalize_structured_list_spacing(
+                          model_text,
+                          self.config.llm,
+                      )
+                  )
+                  return PolishResult(
+                      original_text=text,
+                      polished_text=polished_text,
+                      normalized_text=normalized, used_llm=True,
+                      billing=billing,
+                  )
+          ''',
+          )
+
+          new_polish_stream = '''    def polish_stream(
+                  self,
+                  text: str,
+                  on_chunk: Optional[Callable[[str], None]] = None,
+              ) -> Generator[str, None, PolishResult]:
+                  """Polish text with streaming output.
+
+                  Prompt output is buffered until completion so removed clarification
+                  sections can never flash in the capsule or reach the target app.
+                  """
+                  normalized, skip = self._prepare(text)
+                  if skip:
+                      if normalized.strip() and on_chunk:
+                          on_chunk(normalized)
+                      if normalized.strip():
+                          yield normalized
+                      return skip
+
+                  messages = self._build_messages(normalized)
+                  responses = self._call_generation(messages, stream=True)
+                  prompt_mode = self.config.llm.polish_mode == "prompt"
+
+                  full_text = ""
+                  last_usage = None
+                  for response in responses:
+                      if response.status_code == 200:
+                          last_usage = extract_usage_from_response(response) or last_usage
+                          chunk = self._extract_response_text(response)
+                          full_text += chunk
+                          if not prompt_mode:
+                              if on_chunk:
+                                  on_chunk(chunk)
+                              yield chunk
+                      else:
+                          raise Exception(f"API error: {response.code} - {response.message}")
+
+                  billing = build_polish_billing(
+                      model=self.config.llm.model,
+                      enable_thinking=self.config.llm.enable_thinking,
+                      usage=last_usage,
+                  )
+                  self._last_metering = billing
+                  polished_text = (
+                      sanitize_prompt_output(full_text)
+                      if prompt_mode
+                      else normalize_structured_list_spacing(full_text, self.config.llm)
+                  )
+                  if prompt_mode and polished_text:
+                      if on_chunk:
+                          on_chunk(polished_text)
+                      yield polished_text
+                  return PolishResult(
+                      original_text=text,
+                      polished_text=polished_text,
+                      normalized_text=normalized,
+                      used_llm=True,
+                      billing=billing,
+                  )
+
+              def get_last_metering'''
+          regex_replace_once(
+              text_polisher,
+              r'    def polish_stream\(.*?\n\n    def get_last_metering',
+              new_polish_stream,
+          )
+
+          # The workflow-level guard also covers Omni inline Prompt output.
+          dictation_workflow = "src/vocal_more/application/dictation_workflow.py"
+          replace_once(
+              dictation_workflow,
+              '''from ..config import asr_model_handles_inline_polish
+          from ..domain.bilingual_formatting import format_bilingual_text
+          ''',
+              '''from ..config import asr_model_handles_inline_polish
+          from ..core.text_polisher import sanitize_prompt_output
+          from ..domain.bilingual_formatting import format_bilingual_text
+          ''',
+          )
+          replace_once(
+              dictation_workflow,
+              '''            # Deterministic bilingual formatting: pure-local post-processing
+                  # applied to both the normalize-only and polished paths, after
+          ''',
+              '''            if (
+                      self.config.enable_polish
+                      and getattr(
+                          getattr(self.config, "llm", None),
+                          "polish_mode",
+                          "dictation",
+                      ) == "prompt"
+                  ):
+                      final_text = sanitize_prompt_output(final_text)
+
+                  # Deterministic bilingual formatting: pure-local post-processing
+                  # applied to both the normalize-only and polished paths, after
+          ''',
+          )
+
+          # -- Direct, specific clarification questions (maximum two) --
+          Path("src/vocal_more/domain/prompt_coach.py").write_text('''"""Local completeness coaching for spoken Agent prompts.
+
+          The coach is deterministic: partial transcripts stay local and are never
+          persisted. It chooses at most two direct questions for the floating capsule.
+          """
+
+          from __future__ import annotations
+
+          from dataclasses import dataclass
+          from enum import Enum
+          import re
+
+
+          class PromptFacet(str, Enum):
+              """Prompt information that can materially change an Agent result."""
+
+              GOAL = "goal"
+              CONTEXT = "context"
+              OUTPUT = "output"
+              BOUNDARIES = "boundaries"
+
+
+          class PromptQuestion(str, Enum):
+              """Concrete ambiguities worth resolving before final compilation."""
+
+              PROJECT_REFERENCE = "project_reference"
+              COMPONENT_DEFINITION = "component_definition"
+
+
+          @dataclass(frozen=True)
+          class PromptAssessment:
+              """Detected facets plus the next clarification questions."""
+
+              present: frozenset[PromptFacet]
+              suggested: PromptFacet | None
+              ready: bool
+              questions: tuple[PromptQuestion, ...] = ()
+
+
+          _ACTION_RE = re.compile(
+              r"(?:帮我|请(?:你)?|需要|我想(?:要)?|目标是|任务是|希望|"
+              r"生成|创建|写|撰写|开发|实现|修改|修复|分析|比较|总结|解释|"
+              r"调研|查找|搜索|设计|规划|评估|优化|转换|翻译|提取|验证|"
+              r"部署|测试|审查|推荐|整理|制作|输出|给出|做|"
+              r"\\b(?:create|build|write|develop|implement|modify|fix|analy[sz]e|"
+              r"compare|summari[sz]e|explain|research|find|search|design|plan|"
+              r"evaluate|optimi[sz]e|convert|translate|extract|verify|deploy|"
+              r"test|review|recommend|organize|generate|produce|help|need|want)\\b)",
+              re.IGNORECASE,
+          )
+          _CONTEXT_RE = re.compile(
+              r"(?:背景|上下文|当前|现在|现有|已经|因为|基于|用于|面向|项目|"
+              r"代码库|仓库|系统|环境|数据|用户|版本|输入|文件|接口|业务|"
+              r"\\b(?:context|background|current|currently|existing|because|"
+              r"based on|used for|project|repo(?:sitory)?|system|environment|"
+              r"data|users?|version|input|files?|api|codebase)\\b|"
+              r"\\bv?\\d+\\.\\d+(?:\\.\\d+)?\\b)",
+              re.IGNORECASE,
+          )
+          _OUTPUT_RE = re.compile(
+              r"(?:输出|返回|交付|格式|表格|列表|代码|补丁|文档|报告|方案|步骤|"
+              r"摘要|清单|字数|篇幅|安装包|链接|提交|验收|通过|"
+              r"\\b(?:output|return|deliver(?:able)?|format|table|list|code|patch|"
+              r"document|report|plan|steps?|summary|checklist|json|yaml|markdown|"
+              r"words?|pull request|pr|installer|link|acceptance|pytest)\\b)",
+              re.IGNORECASE,
+          )
+          _BOUNDARY_RE = re.compile(
+              r"(?:不要|不能|避免|必须|只能|至少|最多|不超过|以内|限制|约束|边界|"
+              r"预算|截止|兼容|权限|范围|保留|禁止|安全|隐私|成本|不新增|"
+              r"\\b(?:must|must not|only|at least|at most|no more than|limit|"
+              r"constraint|boundary|avoid|preserve|cannot|can't|budget|deadline|"
+              r"compatible|permission|scope|safety|privacy|cost|without adding)\\b)",
+              re.IGNORECASE,
+          )
+          _TECHNICAL_RE = re.compile(
+              r"(?:代码|开发|实现|修复|调试|部署|测试|仓库|项目|接口|模型|Agent|"
+              r"Windows|macOS|Linux|Python|pytest|API|PR|版本|"
+              r"\\b(?:code|develop|implement|fix|debug|deploy|test|repo|project|"
+              r"api|model|agent|windows|macos|linux|python|pytest|pull request|"
+              r"version)\\b)",
+              re.IGNORECASE,
+          )
+          _CONTEXT_NEEDED_RE = re.compile(
+              r"(?:这个|这些|上述|前面|当前问题|现有代码|继续|基于它|"
+              r"\\b(?:this|these|above|previous|existing code|continue|based on it)\\b)",
+              re.IGNORECASE,
+          )
+          _VAGUE_PROJECT_RE = re.compile(
+              r"(?:(?:现有|当前|这个|该|已有)(?:的)?(?:项目|代码库|仓库|意图库)|"
+              r"(?:优化|修改|修复|完善)(?:一下)?(?:现有|当前|这个)?项目|"
+              r"\\b(?:existing|current|this)\\s+(?:project|repo(?:sitory)?|codebase)\\b)",
+              re.IGNORECASE,
+          )
+          _CONCRETE_PROJECT_RE = re.compile(
+              r"(?:https?://\\S+|git@\\S+|(?:^|\\s)(?:[.~]/|/)[\\w./-]+|"
+              r"[A-Za-z]:[\\\\/][^\\s]+|\\b[\\w.-]+/[\\w.-]+\\b|"
+              r"\\bv?\\d+\\.\\d+(?:\\.\\d+)?\\b|"
+              r"版本(?:号)?\\s*[:：]?\\s*[\\w.-]+)",
+              re.IGNORECASE | re.MULTILINE,
+          )
+          _COMPONENT_COUNT_RE = re.compile(
+              r"(?:3\\s*(?:到|至|[-~～])\\s*4|三\\s*(?:到|至|[-~～])\\s*四)"
+              r"(?:\\s*个)?(?:构成部分|部分|模块|组件)",
+              re.IGNORECASE,
+          )
+          _COMPONENT_DETAILS_RE = re.compile(
+              r"(?:分别(?:是|为|包括)|包括|由)"
+              r".{0,100}(?:、|，|,).{1,100}(?:、|，|,)",
+              re.IGNORECASE | re.DOTALL,
+          )
+
+          _FACET_QUESTIONS = {
+              "zh": {
+                  PromptFacet.GOAL: "你希望 Agent 最终完成什么？",
+                  PromptFacet.OUTPUT: "最终要交付什么，怎样算完成？",
+                  PromptFacet.BOUNDARIES: "有哪些版本、兼容性、预算或禁用项？",
+                  PromptFacet.CONTEXT: "还缺哪些会改变结果的现状、输入或目标用户信息？",
+                  None: "信息已较完整，可以结束录音。",
+              },
+              "en": {
+                  PromptFacet.GOAL: "What result should the Agent ultimately produce?",
+                  PromptFacet.OUTPUT: "What should be delivered, and what counts as done?",
+                  PromptFacet.BOUNDARIES: "What version, compatibility, budget, or exclusions apply?",
+                  PromptFacet.CONTEXT: "What missing context would materially change the result?",
+                  None: "The prompt is sufficiently complete; you can finish recording.",
+              },
+          }
+          _SPECIFIC_QUESTIONS = {
+              "zh": {
+                  PromptQuestion.PROJECT_REFERENCE: "现有项目的代码库、路径或版本是什么？",
+                  PromptQuestion.COMPONENT_DEFINITION: "新版本中其余 2–3 个构成部分分别是什么？",
+              },
+              "en": {
+                  PromptQuestion.PROJECT_REFERENCE: "What repository, path, or version identifies the existing project?",
+                  PromptQuestion.COMPONENT_DEFINITION: "What are the other two or three components of the new version?",
+              },
+          }
+
+
+          def _meaningful_length(text: str) -> int:
+              return len(re.sub(r"[\\W_]+", "", text, flags=re.UNICODE))
+
+
+          def _specific_questions(text: str) -> tuple[PromptQuestion, ...]:
+              questions: list[PromptQuestion] = []
+              if _VAGUE_PROJECT_RE.search(text) and not _CONCRETE_PROJECT_RE.search(text):
+                  questions.append(PromptQuestion.PROJECT_REFERENCE)
+              if _COMPONENT_COUNT_RE.search(text) and not _COMPONENT_DETAILS_RE.search(text):
+                  questions.append(PromptQuestion.COMPONENT_DEFINITION)
+              return tuple(questions[:2])
+
+
+          def assess_prompt(text: str) -> PromptAssessment:
+              """Assess a partial spoken prompt without inferring unstated facts."""
+              normalized = str(text or "").strip()
+              meaningful_length = _meaningful_length(normalized)
+              present: set[PromptFacet] = set()
+
+              if _ACTION_RE.search(normalized):
+                  present.add(PromptFacet.GOAL)
+              if _CONTEXT_RE.search(normalized):
+                  present.add(PromptFacet.CONTEXT)
+              if _OUTPUT_RE.search(normalized):
+                  present.add(PromptFacet.OUTPUT)
+              if _BOUNDARY_RE.search(normalized):
+                  present.add(PromptFacet.BOUNDARIES)
+
+              if meaningful_length < 6 or PromptFacet.GOAL not in present:
+                  suggested: PromptFacet | None = PromptFacet.GOAL
+              elif PromptFacet.OUTPUT not in present:
+                  suggested = PromptFacet.OUTPUT
+              elif PromptFacet.BOUNDARIES not in present and _TECHNICAL_RE.search(normalized):
+                  suggested = PromptFacet.BOUNDARIES
+              elif PromptFacet.CONTEXT not in present and _CONTEXT_NEEDED_RE.search(normalized):
+                  suggested = PromptFacet.CONTEXT
+              else:
+                  suggested = None
+
+              questions = _specific_questions(normalized)
+              return PromptAssessment(
+                  present=frozenset(present),
+                  suggested=suggested,
+                  ready=suggested is None and not questions,
+                  questions=questions,
+              )
+
+
+          def prompt_coach_hint(text: str, language: str = "en") -> str:
+              """Return at most two localized direct clarification questions."""
+              locale = "zh" if str(language or "").lower().startswith("zh") else "en"
+              assessment = assess_prompt(text)
+              lines = [
+                  _SPECIFIC_QUESTIONS[locale][question]
+                  for question in assessment.questions
+              ]
+              if len(lines) < 2 and assessment.suggested is not None:
+                  lines.append(_FACET_QUESTIONS[locale][assessment.suggested])
+              if not lines:
+                  lines.append(_FACET_QUESTIONS[locale][None])
+              return "\\n".join(lines[:2])
+
+
+          __all__ = [
+              "PromptAssessment",
+              "PromptFacet",
+              "PromptQuestion",
+              "assess_prompt",
+              "prompt_coach_hint",
+          ]
+          ''', encoding="utf-8")
+
+          # -- Expand the macOS Prompt capsule and preserve line breaks --
+          floating_capsule = "src/vocal_more/ui/floating_capsule.py"
+          replace_once(
+              floating_capsule,
+              '''    # Capsule dimensions
+                  CAPSULE_WIDTH = 200
+                  CAPSULE_HEIGHT = 80
+          ''',
+              '''    # Base surface stays compact; Prompt coaching receives a wider,
+                  # taller surface so two direct questions can wrap without truncation.
+                  BASE_CAPSULE_WIDTH = 200
+                  BASE_CAPSULE_HEIGHT = 80
+                  PROMPT_CAPSULE_WIDTH = 360
+                  PROMPT_CAPSULE_HEIGHT = 152
+                  CAPSULE_WIDTH = BASE_CAPSULE_WIDTH
+                  CAPSULE_HEIGHT = BASE_CAPSULE_HEIGHT
+          ''',
+          )
+          replace_once(
+              floating_capsule,
+              '''    @staticmethod
+                  def _escape_js_string(value: str) -> str:
+                      return (
+                          str(value)
+                          .replace("\\\\", "\\\\\\\\")
+                          .replace("'", "\\\\'")
+                          .replace("\\r", " ")
+                          .replace("\\n", " ")
+                      )
+          ''',
+              '''    @classmethod
+                  def _surface_size_for_mode(cls, mode: str) -> tuple[int, int]:
+                      if mode in {"prompt", "promptPushToTalk"}:
+                          return cls.PROMPT_CAPSULE_WIDTH, cls.PROMPT_CAPSULE_HEIGHT
+                      return cls.BASE_CAPSULE_WIDTH, cls.BASE_CAPSULE_HEIGHT
+
+                  def _resize_surface_on_main_thread(self, width: int, height: int) -> None:
+                      if self._panel is not None:
+                          self._panel.setContentSize_((width, height))
+                      if self._webview is not None:
+                          self._webview.setFrame_(((0, 0), (width, height)))
+
+                  @staticmethod
+                  def _escape_js_string(value: str) -> str:
+                      return (
+                          str(value)
+                          .replace("\\\\", "\\\\\\\\")
+                          .replace("'", "\\\\'")
+                          .replace("\\r\\n", "\\n")
+                          .replace("\\r", "\\n")
+                          .replace("\\n", "\\\\n")
+                          .replace("\\u2028", "\\\\u2028")
+                          .replace("\\u2029", "\\\\u2029")
+                      )
+          ''',
+          )
+          replace_once(
+              floating_capsule,
+              '''        display_mode = self._display_mode(mode)
+                  self._current_mode = display_mode
+          ''',
+              '''        display_mode = self._display_mode(mode)
+                  surface_width, surface_height = self._surface_size_for_mode(display_mode)
+                  self._resize_surface_on_main_thread(surface_width, surface_height)
+                  self._current_mode = display_mode
+          ''',
+          )
+          replace_once(
+              floating_capsule,
+              '''            panel_x = sf.origin.x + (sf.size.width - self.CAPSULE_WIDTH) / 2
+          ''',
+              '''            panel_x = sf.origin.x + (sf.size.width - surface_width) / 2
+          ''',
+          )
+
+          capsule_html = "resources/floating_capsule/capsule.html"
+          regex_replace_once(
+              capsule_html,
+              r'\.streaming-text \{.*?\n\}\n\n\.capsule\.has-streaming-text.*?\n\}\n\n\.capsule\.visible',
+              '''.streaming-text {
+            display: none;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.6);
+            max-width: 160px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            padding-bottom: 8px;
+          }
+
+          .capsule.has-streaming-text.state-processing .streaming-text,
+          .capsule.has-prompt-hint.state-recording .streaming-text {
+            display: block;
+          }
+
+          .capsule.has-prompt-hint.state-recording {
+            width: 344px;
+            min-height: 104px;
+            justify-content: flex-start;
+            border-radius: 22px;
+            padding: 6px 12px 12px;
+          }
+
+          .capsule.has-prompt-hint.state-recording .capsule-row {
+            flex: 0 0 34px;
+          }
+
+          .capsule.has-prompt-hint.state-recording .streaming-text {
+            width: 320px;
+            max-width: 320px;
+            max-height: 64px;
+            overflow: visible;
+            text-overflow: clip;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            line-height: 1.45;
+            text-align: left;
+            color: rgba(255, 255, 255, 0.78);
+            padding: 2px 4px 0;
+          }
+
+          .capsule.visible''',
+          )
+
+          # -- Regression tests --
+          Path("tests/test_prompt_coach.py").write_text('''from vocal_more.domain.prompt_coach import (
+              PromptFacet,
+              PromptQuestion,
+              assess_prompt,
+              prompt_coach_hint,
+          )
+
+
+          def test_empty_prompt_prioritizes_goal():
+              assessment = assess_prompt("")
+              assert assessment.suggested is PromptFacet.GOAL
+              assert assessment.ready is False
+              assert prompt_coach_hint("", "zh") == "你希望 Agent 最终完成什么？"
+
+
+          def test_technical_goal_then_requests_output_and_boundaries():
+              goal_only = assess_prompt("帮我开发 Vocal More 0.4.4")
+              assert PromptFacet.GOAL in goal_only.present
+              assert PromptFacet.CONTEXT in goal_only.present
+              assert goal_only.suggested is PromptFacet.OUTPUT
+
+              with_output = assess_prompt(
+                  "帮我开发 Vocal More 0.4.4，提交 PR 并通过 pytest"
+              )
+              assert PromptFacet.OUTPUT in with_output.present
+              assert with_output.suggested is PromptFacet.BOUNDARIES
+
+              complete = assess_prompt(
+                  "帮我开发 Vocal More 0.4.4，提交 PR 并通过 pytest。"
+                  "必须兼容 macOS，不新增在线模型调用。"
+              )
+              assert PromptFacet.BOUNDARIES in complete.present
+              assert complete.suggested is None
+              assert complete.ready is True
+
+
+          def test_nontechnical_prompt_does_not_force_irrelevant_sections():
+              assessment = assess_prompt("帮我写一封请假邮件，输出 100 字以内，语气自然")
+              assert PromptFacet.GOAL in assessment.present
+              assert PromptFacet.OUTPUT in assessment.present
+              assert PromptFacet.BOUNDARIES in assessment.present
+              assert assessment.ready is True
+
+
+          def test_deictic_request_asks_for_context_after_goal_and_output():
+              assessment = assess_prompt("分析这个问题，输出一份报告")
+              assert assessment.suggested is PromptFacet.CONTEXT
+
+
+          def test_reported_prompt_asks_specific_questions_in_capsule():
+              text = (
+                  "优化现有项目，交付一个包含 3 到 4 个构成部分的新版本意图库。"
+                  "必须基于轻量应用服务器的意图库进行构建。"
+              )
+              assessment = assess_prompt(text)
+              assert assessment.questions == (
+                  PromptQuestion.PROJECT_REFERENCE,
+                  PromptQuestion.COMPONENT_DEFINITION,
+              )
+              assert assessment.ready is False
+              assert prompt_coach_hint(text, "zh").splitlines() == [
+                  "现有项目的代码库、路径或版本是什么？",
+                  "新版本中其余 2–3 个构成部分分别是什么？",
+              ]
+
+
+          def test_concrete_repo_and_component_list_remove_specific_questions():
+              text = (
+                  "优化 sm-yjr/vocal-more 0.4.4，交付 3 到 4 个模块，"
+                  "分别是识别、提示词编译、胶囊界面和测试，并提交 PR。"
+                  "必须仅支持 macOS。"
+              )
+              assessment = assess_prompt(text)
+              assert assessment.questions == ()
+
+
+          def test_english_hints_are_localized():
+              hint = prompt_coach_hint(
+                  "Build version 0.4.4 and return a pull request",
+                  "en",
+              )
+              assert "version" in hint.lower() or "compatibility" in hint.lower()
+          ''', encoding="utf-8")
+
+          text_tests = "tests/test_text_polisher.py"
+          text = Path(text_tests).read_text(encoding="utf-8")
+          text = text.replace(
+              '    assert "# Open questions" in prompt\n',
+              '    assert "# Open questions" not in prompt\n',
+          )
+          text = text.replace(
+              '    assert "CUSTOM PROMPT PERSONA" in prompt\n',
+              '    assert "CUSTOM PROMPT PERSONA" not in prompt\n',
+          )
+          insertion_point = '''def test_prompt_polish_mode_routes_text_polisher_messages(tmp_path, monkeypatch):
+          '''
+          if insertion_point not in text:
+              raise RuntimeError("tests/test_text_polisher.py: insertion point not found")
+          new_tests = '''def test_prompt_mode_isolates_dictionary_app_context_and_polish_controls(monkeypatch):
+              from vocal_more.config import LLMConfig
+              from vocal_more.core import text_polisher as module
+
+              monkeypatch.setattr(
+                  module,
+                  "_dictionary_prompt_block",
+                  lambda: "\\n\\nDICTIONARY CALIBRATION SENTINEL",
+              )
+              config = LLMConfig(
+                  polish_mode="prompt",
+                  structured=True,
+                  prompt_overrides={
+                      "level": {"enabled": True, "prompt": "LEVEL SENTINEL"},
+                      "tone": {"enabled": True, "prompt": "TONE SENTINEL"},
+                      "persona": {"enabled": True, "prompt": "PERSONA SENTINEL"},
+                      "structured": {"enabled": True, "prompt": "STRUCTURE SENTINEL"},
+                  },
+              )
+
+              prompts = (
+                  module.build_polish_system_prompt(
+                      config,
+                      context_instruction="TERMINAL CONTEXT SENTINEL",
+                  ),
+                  module.build_omni_inline_polish_instructions(
+                      config,
+                      context_instruction="TERMINAL CONTEXT SENTINEL",
+                  ),
+              )
+              for prompt in prompts:
+                  assert "DICTIONARY CALIBRATION SENTINEL" not in prompt
+                  assert "TERMINAL CONTEXT SENTINEL" not in prompt
+                  assert "LEVEL SENTINEL" not in prompt
+                  assert "TONE SENTINEL" not in prompt
+                  assert "PERSONA SENTINEL" not in prompt
+                  assert "STRUCTURE SENTINEL" not in prompt
+                  assert "# Open questions" not in prompt
+
+
+          def test_sanitize_prompt_output_removes_clarification_sections():
+              from vocal_more.core.text_polisher import sanitize_prompt_output
+
+              raw = """# Goal
+          修复提示词模式。
+
+          # Output
+          提交可发布版本。
+
+          # Open questions
+          - 仓库在哪里？
+          - 具体模块是什么？
+          """
+              assert sanitize_prompt_output(raw) == (
+                  "# Goal\\n修复提示词模式。\\n\\n"
+                  "# Output\\n提交可发布版本。"
+              )
+
+
+          def test_prompt_structured_setting_does_not_reformat_compiler_output():
+              from vocal_more.config import LLMConfig
+              from vocal_more.core.text_polisher import normalize_structured_list_spacing
+
+              text = "# Goal\\n完成任务。\\n\\n# Open questions\\n- 缺少什么？"
+              result = normalize_structured_list_spacing(
+                  text,
+                  LLMConfig(polish_mode="prompt", structured=True),
+              )
+              assert result == "# Goal\\n完成任务。"
+
+
+          '''
+          text = text.replace(insertion_point, new_tests + insertion_point, 1)
+          Path(text_tests).write_text(text, encoding="utf-8")
+
+          dictation_tests = Path("tests/test_dictation_workflow.py")
+          dictation_text = dictation_tests.read_text(encoding="utf-8")
+          dictation_text += '''
+
+          def test_inline_prompt_output_removes_open_questions_before_paste():
+              from vocal_more.application.dictation_workflow import DictationWorkflow
+
+              asr = MagicMock()
+              asr.stop.return_value = (
+                  "# Goal\\n修复项目。\\n\\n"
+                  "# Open questions\\n- 仓库在哪里？\\n- 版本是什么？"
+              )
+              asr.get_last_metering.return_value = None
+              keyboard = MagicMock()
+              config = SimpleNamespace(
+                  enable_polish=True,
+                  auto_paste=True,
+                  asr=SimpleNamespace(language="zh"),
+                  llm=SimpleNamespace(polish_mode="prompt"),
+              )
+              workflow = DictationWorkflow(
+                  config=config,
+                  asr_engine=asr,
+                  keyboard=keyboard,
+                  normalize_text=lambda text: text,
+              )
+
+              result = workflow.finish_recording(
+                  b"pcm",
+                  mode_name="realtime_long",
+                  asr_model="qwen3.5-omni-plus-realtime",
+                  text_polisher=MagicMock(),
+                  messages=_messages(),
+              )
+
+              assert result.final_text == "# Goal\\n修复项目。"
+              keyboard.paste_text.assert_called_once_with("# Goal\\n修复项目。")
+          '''
+          dictation_tests.write_text(dictation_text, encoding="utf-8")
+
+          Path("tests/test_floating_capsule_prompt.py").write_text('''import sys
+          from pathlib import Path
+
+          import pytest
+
+          if sys.platform != "darwin":
+              pytest.skip("macOS capsule test", allow_module_level=True)
+
+          from vocal_more.ui.floating_capsule import FloatingCapsule
+
+
+          def test_prompt_surface_is_wider_and_taller_than_base_surface():
+              base = FloatingCapsule._surface_size_for_mode("handsFree")
+              prompt = FloatingCapsule._surface_size_for_mode("prompt")
+              assert prompt[0] > base[0]
+              assert prompt[1] > base[1]
+
+
+          def test_prompt_hint_javascript_escape_preserves_line_breaks():
+              assert FloatingCapsule._escape_js_string("第一问？\\n第二问？") == (
+                  "第一问？\\\\n第二问？"
+              )
+
+
+          def test_prompt_hint_css_wraps_two_lines_without_ellipsis():
+              html = Path("resources/floating_capsule/capsule.html").read_text(
+                  encoding="utf-8"
+              )
+              assert "white-space: pre-wrap" in html
+              assert "width: 320px" in html
+              assert "min-height: 104px" in html
+          ''', encoding="utf-8")
+
+          # -- Version, release notes, and generic macOS-only CI marker --
+          replace_once(
+              "pyproject.toml",
+              'version = "0.4.3"',
+              'version = "0.4.4"',
+          )
+          lock_path = Path("uv.lock")
+          lock = lock_path.read_text(encoding="utf-8")
+          lock, count = re.subn(
+              r'(\\[\\[package\\]\\]\\nname = "vocal-more"\\nversion = ")0\\.4\\.3(")',
+              r'\\g<1>0.4.4\\g<2>',
+              lock,
+              count=1,
+          )
+          if count != 1:
+              raise RuntimeError(f"uv.lock: expected one editable version match, found {count}")
+          lock_path.write_text(lock, encoding="utf-8")
+
+          Path("docs/releases/0.4.4.md").write_text('''# Vocal More 0.4.4
+
+          本版本修复 0.4.3 提示词模式首次实用测试暴露出的四类边界问题。
+
+          ## Prompt 编译器与润色模块彻底隔离
+
+          Prompt 模式不再接收或输出前台 App 类别、终端/开发场景、润色强度、语气、人设、结构化格式等普通听写配置。用户没有口述的“终端环境”“格式保护”等内容不会再进入最终 Prompt。
+
+          ## 词典仅用于识别纠错
+
+          用户词典不再作为 Prompt 编译上下文发送给模型。标准词仍可通过 ASR corpus 和本地 alias normalization 完成纠错，但词典条目、别名、校准说明和“专有名词修正”规则不会出现在最终 Prompt 中。
+
+          ## 澄清问题回到录音阶段
+
+          最终 Prompt 不再生成 `Open questions`、待确认或澄清问题章节。信息缺口改由录音中的本地提示词教练直接询问用户，最多同时显示两条问题。针对“优化现有项目、生成 3–4 个部分”这类输入，会分别询问项目代码库/路径/版本和其余构成部分。
+
+          所有 Prompt 输出在粘贴前还会经过确定性清洗；该清洗同时覆盖独立 LLM 润色和 Omni inline 两条链路。
+
+          ## macOS 胶囊可完整显示问题
+
+          Prompt 模式使用独立的 360×152 悬浮面板。提示区域支持换行、两行问题和自然断词，不再使用单行省略号截断。普通听写胶囊仍保持原来的紧凑尺寸。
+
+          ## 发布范围
+
+          0.4.4 仅在 macOS 上测试和发布。Pull Request 和 merge commit 标题使用 `[macOS-only]` 标记时，Windows workflow 会跳过；正式发布继续使用现有 macOS 签名、公证、stapling、DMG、GitHub Release 和 Sparkle appcast 流程。
+          ''', encoding="utf-8")
+
+          replace_once(
+              ".github/workflows/windows.yml",
+              '''  test-and-package:
+                  runs-on: windows-latest
+          ''',
+              '''  test-and-package:
+                  if: >-
+                    ${{
+                      !contains(
+                        github.event.pull_request.title || github.event.head_commit.message || '',
+                        '[macOS-only]'
+                      )
+                    }}
+                  runs-on: windows-latest
+          ''',
+          )
+          PY
+
+      - name: Install locked development dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run full macOS test suite
+        run: uv run python -m pytest -q
+
+      - name: Check patch integrity
+        run: |
+          git diff --check
+          git status --short
+
+      - name: Commit tested v0.4.4 branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/prepare-v044.yml
+          git config user.name "sm-yjr"
+          git config user.email "76152255+sm-yjr@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: isolate Prompt Mode and improve clarification UI"
+          git push origin HEAD:fix/v0.4.4-prompt-mode
