@@ -1,0 +1,119 @@
+name: Finalize v0.4.4 Prompt regression indentation
+
+on:
+  push:
+    branches:
+      - fix/v0.4.4-prompt-mode
+
+permissions:
+  contents: write
+
+jobs:
+  implement-test-and-commit:
+    runs-on: macos-latest
+    env:
+      DASHSCOPE_API_KEY: test-api-key
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/v0.4.4-prompt-mode
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Apply corrected v0.4.4 implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import textwrap
+
+          runner = Path(".github/workflows/prepare-v044-runner8.yml").read_text(
+              encoding="utf-8"
+          )
+          start_marker = "          python - <<'PY'\n"
+          end_marker = (
+              "\n          PY\n\n"
+              "      - name: Refresh editable project metadata in lockfile"
+          )
+          start = runner.index(start_marker) + len(start_marker)
+          end = runner.index(end_marker, start)
+          implementation = textwrap.dedent(runner[start:end])
+
+          pattern = re.compile(
+              r"structured_old = '''    assert marker in "
+              r"build_polish_system_prompt\(config\)\n"
+              r"    assert marker in "
+              r"build_omni_inline_polish_instructions\(config\)\n"
+              r"'''\n"
+              r"structured_new = '''    assert marker not in "
+              r"build_polish_system_prompt\(config\)\n"
+              r"    assert marker not in "
+              r"build_omni_inline_polish_instructions\(config\)\n"
+              r"'''\n"
+              r"structured_old = textwrap\.dedent\(structured_old\)\n"
+              r"structured_new = textwrap\.dedent\(structured_new\)\n"
+          )
+          replacement = '''structured_old = (
+              "    assert marker in build_polish_system_prompt(config)\\n"
+              "    assert marker in build_omni_inline_polish_instructions(config)\\n"
+          )
+          structured_new = (
+              "    assert marker not in build_polish_system_prompt(config)\\n"
+              "    assert marker not in build_omni_inline_polish_instructions(config)\\n"
+          )
+          '''
+          implementation, count = pattern.subn(
+              lambda _match: textwrap.dedent(replacement),
+              implementation,
+              count=1,
+          )
+          if count != 1:
+              raise RuntimeError(
+                  f"expected one structured assertion patch block, found {count}"
+              )
+          exec(compile(implementation, "prepare-v044-runner8-apply.py", "exec"))
+          PY
+
+      - name: Refresh editable project metadata in lockfile
+        run: uv lock
+
+      - name: Install locked development dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run focused Prompt Mode regressions
+        run: |
+          uv run python -m pytest -q \
+            tests/test_prompt_coach.py \
+            tests/test_text_polisher.py \
+            tests/test_dictation_workflow.py \
+            tests/test_floating_capsule_prompt.py
+
+      - name: Run full macOS test suite
+        run: uv run python -m pytest -q
+
+      - name: Check patch integrity
+        run: |
+          git diff --check
+          git status --short
+
+      - name: Commit tested v0.4.4 branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/prepare-v044*.yml
+          git config user.name "sm-yjr"
+          git config user.email "76152255+sm-yjr@users.noreply.github.com"
+          git add -A
+          git commit -m "[macOS-only] fix: isolate Prompt Mode and improve clarification UI"
+          git push origin HEAD:fix/v0.4.4-prompt-mode
