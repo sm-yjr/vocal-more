@@ -384,3 +384,30 @@ def test_streaming_paste_failure_falls_back_to_full_finish(
     assert observed["polish_calls"] == ["第一段。第二段。"]
     assert observed["errors"] == []
     mode.close()
+
+def test_prompt_input_promotion_disables_streaming_paste(tmp_path, monkeypatch):
+    """Prompt input waits for one structured final paste."""
+    from vocal_more.domain.input_intent import InputIntent
+
+    config = dict(_STREAMING_CONFIG)
+    config["llm"] = {"polish_mode": "prompt"}
+    mode, observed, asr_instances = _build_streaming_mode(
+        tmp_path,
+        monkeypatch,
+        config,
+        stop_text="帮我开发 0.4.3，提交 PR。",
+    )
+
+    mode.on_hotkey_pressed()
+    assert mode._active_input_intent is InputIntent.PROMPT
+
+    asr_instances[0].emit_final("帮我开发 0.4.3，")
+    time.sleep(0.05)
+    assert observed["pasted"] == []
+
+    mode.on_hotkey_pressed()
+    mode._processing_thread.join(timeout=2)
+
+    assert observed["pasted"] == ["帮我开发 0.4.3，提交 PR。"]
+    assert observed["polish_calls"] == ["帮我开发 0.4.3，提交 PR。"]
+    mode.close()

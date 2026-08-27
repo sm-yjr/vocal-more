@@ -50,11 +50,13 @@ _MODE_LABELS = {
         "walkie_talkie": "按住说话",
         "realtime_long": "长语音听写",
         "meeting": "会议记录",
+        "prompt": "提示词",
     },
     "en": {
         "walkie_talkie": "Push to Talk",
         "realtime_long": "Long Dictation",
         "meeting": "Meeting",
+        "prompt": "Prompt",
     },
 }
 
@@ -139,6 +141,14 @@ def capsule_secondary_text(snapshot: CapsuleSnapshot) -> str:
     """Resolve the mode/trigger hint displayed below the primary line."""
     language = snapshot.language if snapshot.language in _MODE_LABELS else "en"
     mode = _MODE_LABELS[language].get(snapshot.mode, snapshot.mode)
+    if (
+        snapshot.mode == "prompt"
+        and snapshot.state in {"starting", "recording"}
+        and snapshot.stage
+    ):
+        if language == "zh":
+            return f"{snapshot.stage} · Esc 取消"
+        return f"{snapshot.stage} · Esc to cancel"
     if language == "zh":
         return f"{mode} · {snapshot.trigger_label} · Esc 取消"
     return f"{mode} · {snapshot.trigger_label} · Esc to cancel"
@@ -923,7 +933,13 @@ class _SettingsWindow:
         self._combo_row(polish, row, "LLM model", "llm.model", ())
         self._llm_combo = self._last_combo
         row += 1
-        self._combo_row(polish, row, "Mode", "llm.polish_mode", ("dictation", "prompt"))
+        self._combo_row(
+            polish,
+            row,
+            "Input purpose",
+            "llm.polish_mode",
+            ("dictation", "prompt"),
+        )
         row += 1
         self._combo_row(
             polish,

@@ -273,15 +273,15 @@ def test_prompt_polish_mode_builds_task_prompt_instructions():
 
     prompt = build_polish_system_prompt(LLMConfig(polish_mode="prompt"))
 
-    assert "GPT-5.5" in prompt
-    assert "Role" in prompt
-    assert "Goal" in prompt
-    assert "Success criteria" in prompt
-    assert "Constraints" in prompt
-    assert "Output" in prompt
-    assert "Stop rules" in prompt
+    assert "GPT-5.5" not in prompt
+    assert "# Goal" in prompt
+    assert "# Context" in prompt
+    assert "# Output" in prompt
+    assert "# Boundaries" in prompt
+    assert "# Open questions" in prompt
+    assert "仅在相关时加入" in prompt
     assert "不要补充用户没有说出的业务事实" in prompt
-
+    assert "不要为了套模板虚构专家身份" in prompt
 
 def test_custom_prompt_fragments_override_each_dictation_category():
     from vocal_more.config import LLMConfig
@@ -404,7 +404,7 @@ def test_prompt_polish_mode_routes_omni_inline_instructions(tmp_path, monkeypatc
 
     assert "你会收到用户口述的音频内容" in prompt
     assert "把口语化输入转换成任务式 Prompt" in prompt
-    assert "Stop rules" in prompt
+    assert "# Open questions" in prompt
 
 
 def test_structured_is_independent_of_level(tmp_path, monkeypatch):

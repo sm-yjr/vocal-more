@@ -20,6 +20,7 @@ from .windows_trigger import (
     custom_key_config_for_browser_code,
 )
 from .domain.hotkey_gestures import HotkeyGestureAction, HotkeyGestureController
+from .domain.prompt_coach import prompt_coach_hint
 from .infrastructure.timestamped_output import install_timestamped_stream
 from .windows_desktop_ui import CapsuleSnapshot, SettingsSnapshot, WindowsDesktopUI
 from .windows_rpc_handler import WindowsRPCHandler
@@ -87,6 +88,7 @@ class WindowsVocalMoreApp:
         self._state = "idle"
         self._mode = self.config.default_mode
         self._processing_stage = ""
+        self._prompt_hint = ""
         self._audio_level = 0.0
         self._closing = False
         self._shutdown_lock = threading.Lock()
@@ -467,6 +469,8 @@ class WindowsVocalMoreApp:
             state = str(params.get("state") or "idle")
             with self._state_lock:
                 self._state = state
+                if state in {"idle", "starting"}:
+                    self._prompt_hint = ""
                 if state == "idle":
                     self._mode = self.config.default_mode
                     self._processing_stage = ""
@@ -492,6 +496,22 @@ class WindowsVocalMoreApp:
             with self._state_lock:
                 self._audio_level = max(0.0, min(1.0, level))
             self._publish_capsule()
+            return
+        if method == "partial_result":
+            text = str(params.get("text") or "")
+            with self._state_lock:
+                state = self._state
+                mode = self._mode
+            if (
+                state == "recording"
+                and self._uses_prompt_input(mode)
+                and text
+            ):
+                hint = prompt_coach_hint(text, self.config.ui.language)
+                with self._state_lock:
+                    if self._state == "recording" and self._mode == mode:
+                        self._prompt_hint = hint
+                self._publish_capsule()
             return
         if method == "final_result":
             # Notifications and capsule intentionally omit dictated content.
@@ -566,17 +586,33 @@ class WindowsVocalMoreApp:
             processing_stage=processing_stage,
         )
 
+    def _uses_prompt_input(self, mode: str) -> bool:
+        return bool(
+            mode in {"walkie_talkie", "realtime_long"}
+            and self.config.enable_polish
+            and self.config.llm.polish_mode == "prompt"
+        )
+
     def _capsule_snapshot(self) -> CapsuleSnapshot:
         with self._state_lock:
             state = self._state
             mode = self._mode
             processing_stage = self._processing_stage
+            prompt_hint = self._prompt_hint
             audio_level = self._audio_level
+        prompt_input = self._uses_prompt_input(mode)
+        display_mode = "prompt" if prompt_input else mode
+        stage = processing_stage
+        if prompt_input and state in {"starting", "recording"}:
+            stage = prompt_hint or prompt_coach_hint(
+                "",
+                self.config.ui.language,
+            )
         return CapsuleSnapshot(
             state=state,
-            mode=mode,
+            mode=display_mode,
             language=self.config.ui.language,
-            stage=processing_stage,
+            stage=stage,
             audio_level=audio_level,
             trigger_label=self._hotkeys.trigger_label,
             can_cancel=state not in {"idle", "failed"},

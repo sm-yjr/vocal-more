@@ -261,3 +261,17 @@ def test_populate_defaults_paste_flags_when_config_keys_missing():
     assert window._vars["auto_paste"].value is True
     assert window._vars["restore_clipboard"].value is True
     assert window._vars["streaming_paste"].value is False
+
+def test_prompt_capsule_uses_local_coach_hint():
+    snapshot = CapsuleSnapshot(
+        state="recording",
+        mode="prompt",
+        language="zh",
+        stage="可补充交付形式或验收标准",
+        trigger_label="F8",
+    )
+
+    assert capsule_primary_text(snapshot) == "正在聆听"
+    assert capsule_secondary_text(snapshot) == (
+        "可补充交付形式或验收标准 · Esc 取消"
+    )
