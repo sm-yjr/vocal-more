@@ -233,9 +233,13 @@ def _build_prompt_mode_custom_modifiers(llm_config: LLMConfig) -> str:
         override = _active_prompt_override(llm_config, category)
         if override:
             blocks.append(f"{title}：\n{override}")
-    if llm_config.structured:
-        structured = _prompt_instruction(llm_config, "structured", STRUCTURED_INSTRUCTIONS)
-        blocks.append(f"结构化格式要求：\n{structured}")
+    structured_override = (
+        _active_prompt_override(llm_config, "structured")
+        if llm_config.structured
+        else None
+    )
+    if structured_override:
+        blocks.append(f"结构化格式要求：\n{structured_override}")
     return "\n\n".join(blocks)
 
 

@@ -635,3 +635,39 @@ def test_output_language_block_applies_only_to_dictation_mode_rules():
     assert "输出语言要求" in prompt
     assert prompt.index("输出类型要求") < prompt.index("输出语言要求")
     assert prompt.index("输出语言要求") < prompt.index("润色强度要求")
+
+
+def test_prompt_mode_ignores_legacy_structured_default():
+    from vocal_more.config import LLMConfig
+    from vocal_more.core.text_polisher import (
+        STRUCTURED_INSTRUCTIONS,
+        build_polish_system_prompt,
+    )
+
+    prompt = build_polish_system_prompt(
+        LLMConfig(polish_mode="prompt", structured=True)
+    )
+
+    assert "# Goal" in prompt
+    assert STRUCTURED_INSTRUCTIONS not in prompt
+    assert "不要使用 Markdown 语法" not in prompt
+
+
+def test_prompt_mode_applies_explicit_structured_override():
+    from vocal_more.config import LLMConfig
+    from vocal_more.core.text_polisher import (
+        build_omni_inline_polish_instructions,
+        build_polish_system_prompt,
+    )
+
+    marker = "CUSTOM PROMPT STRUCTURE"
+    config = LLMConfig(
+        polish_mode="prompt",
+        structured=True,
+        prompt_overrides={
+            "structured": {"enabled": True, "prompt": marker},
+        },
+    )
+
+    assert marker in build_polish_system_prompt(config)
+    assert marker in build_omni_inline_polish_instructions(config)
