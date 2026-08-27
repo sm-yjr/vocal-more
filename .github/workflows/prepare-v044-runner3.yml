@@ -1,0 +1,126 @@
+name: Run normalized v0.4.4 Prompt preparation
+
+on:
+  push:
+    branches:
+      - fix/v0.4.4-prompt-mode
+
+permissions:
+  contents: write
+
+jobs:
+  implement-test-and-commit:
+    runs-on: macos-latest
+    env:
+      DASHSCOPE_API_KEY: test-api-key
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/v0.4.4-prompt-mode
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Extract, normalize, and execute implementation script
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          source = Path(".github/workflows/prepare-v044.yml").read_text(
+              encoding="utf-8"
+          )
+          start_marker = "          python - <<'PY'\n"
+          end_marker = (
+              "\n          PY\n\n"
+              "      - name: Install locked development dependencies"
+          )
+          start = source.index(start_marker) + len(start_marker)
+          end = source.index(end_marker, start)
+          implementation = textwrap.dedent(source[start:end])
+          implementation = implementation.replace(
+              "updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)",
+              "updated, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=re.S)",
+          )
+          old_helper = '''def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected one exact match, found {count}")
+              file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          '''
+          new_helper = '''def _normalize_literal_block(value: str) -> str:
+              lines = value.splitlines(keepends=True)
+              nonempty = [index for index, line in enumerate(lines) if line.strip()]
+              if len(nonempty) < 2:
+                  return value
+              first_index = nonempty[0]
+              first_indent = len(lines[first_index]) - len(lines[first_index].lstrip())
+              rest_indents = [
+                  len(lines[index]) - len(lines[index].lstrip())
+                  for index in nonempty[1:]
+              ]
+              rest_base = min(rest_indents)
+              normalized = list(lines)
+              for index in range(first_index + 1, len(lines)):
+                  if not lines[index].strip():
+                      continue
+                  relative = lines[index][rest_base:]
+                  normalized[index] = " " * first_indent + relative
+              return "".join(normalized)
+
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              old = _normalize_literal_block(old)
+              new = _normalize_literal_block(new)
+              count = text.count(old)
+              if count != 1:
+                  preview = old.splitlines()[0] if old.splitlines() else "<empty>"
+                  raise RuntimeError(
+                      f"{path}: expected one exact match, found {count}: {preview!r}"
+                  )
+              file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          '''
+          if old_helper not in implementation:
+              raise RuntimeError("replace_once helper not found")
+          implementation = implementation.replace(old_helper, new_helper, 1)
+          exec(compile(implementation, "prepare-v044-implementation.py", "exec"))
+          PY
+
+      - name: Install locked development dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run full macOS test suite
+        run: uv run python -m pytest -q
+
+      - name: Check patch integrity
+        run: |
+          git diff --check
+          git status --short
+
+      - name: Commit tested v0.4.4 branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/prepare-v044.yml
+          rm .github/workflows/prepare-v044-runner.yml
+          rm .github/workflows/prepare-v044-runner2.yml
+          rm .github/workflows/prepare-v044-runner3.yml
+          git config user.name "sm-yjr"
+          git config user.email "76152255+sm-yjr@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: isolate Prompt Mode and improve clarification UI"
+          git push origin HEAD:fix/v0.4.4-prompt-mode
