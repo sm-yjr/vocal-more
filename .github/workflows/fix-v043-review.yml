@@ -1,0 +1,116 @@
+name: Fix v0.4.3 prompt-mode review issue
+
+on:
+  push:
+    branches:
+      - feature/v0.4.3-prompt-mode
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/v0.4.3-prompt-mode
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Apply review fix and regression tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          source_path = Path("src/vocal_more/core/text_polisher.py")
+          source = source_path.read_text(encoding="utf-8")
+          old = '''    if llm_config.structured:
+              structured = _prompt_instruction(llm_config, "structured", STRUCTURED_INSTRUCTIONS)
+              blocks.append(f"结构化格式要求：\\n{structured}")
+          return "\\n\\n".join(blocks)
+          '''
+          new = '''    structured_override = (
+              _active_prompt_override(llm_config, "structured")
+              if llm_config.structured
+              else None
+          )
+          if structured_override:
+              blocks.append(f"结构化格式要求：\\n{structured_override}")
+          return "\\n\\n".join(blocks)
+          '''
+          if source.count(old) != 1:
+              raise SystemExit("expected one prompt-mode structured block")
+          source_path.write_text(source.replace(old, new), encoding="utf-8")
+
+          tests_path = Path("tests/test_text_polisher.py")
+          tests = tests_path.read_text(encoding="utf-8")
+          marker = "def test_prompt_mode_ignores_legacy_structured_default():"
+          if marker not in tests:
+              tests += '''
+
+
+def test_prompt_mode_ignores_legacy_structured_default():
+    from vocal_more.config import LLMConfig
+    from vocal_more.core.text_polisher import (
+        STRUCTURED_INSTRUCTIONS,
+        build_polish_system_prompt,
+    )
+
+    prompt = build_polish_system_prompt(
+        LLMConfig(polish_mode="prompt", structured=True)
+    )
+
+    assert "# Goal" in prompt
+    assert STRUCTURED_INSTRUCTIONS not in prompt
+    assert "不要使用 Markdown 语法" not in prompt
+
+
+def test_prompt_mode_applies_explicit_structured_override():
+    from vocal_more.config import LLMConfig
+    from vocal_more.core.text_polisher import (
+        build_omni_inline_polish_instructions,
+        build_polish_system_prompt,
+    )
+
+    marker = "CUSTOM PROMPT STRUCTURE"
+    config = LLMConfig(
+        polish_mode="prompt",
+        structured=True,
+        prompt_overrides={
+            "structured": {"enabled": True, "prompt": marker},
+        },
+    )
+
+    assert marker in build_polish_system_prompt(config)
+    assert marker in build_omni_inline_polish_instructions(config)
+'''
+              tests_path.write_text(tests, encoding="utf-8")
+          PY
+          python -m compileall -q src tests
+
+      - name: Run prompt-mode tests
+        env:
+          DASHSCOPE_API_KEY: test-api-key
+          PYTHONUNBUFFERED: "1"
+        run: |
+          uv sync --group dev
+          uv run python -m pytest -q tests/test_text_polisher.py tests/test_prompt_coach.py
+
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/vocal_more/core/text_polisher.py tests/test_text_polisher.py
+          git diff --cached --check
+          git commit -m "fix: isolate prompt mode from dictation structure rules"
+          git push origin HEAD:feature/v0.4.3-prompt-mode
