@@ -1,0 +1,590 @@
+name: Prepare v0.4.4 prompt-output fixes
+
+on:
+  push:
+    branches:
+      - fix/v0.4.4-prompt-output
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: macos-latest
+    env:
+      DASHSCOPE_API_KEY: test-api-key
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: fix/v0.4.4-prompt-output
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/settings/package-lock.json
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Apply v0.4.4 fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+          import re
+          import textwrap
+
+
+          def read(path: str) -> str:
+              return Path(path).read_text(encoding="utf-8")
+
+
+          def write(path: str, content: str) -> None:
+              Path(path).write_text(content, encoding="utf-8")
+
+
+          def replace_once(text: str, old: str, new: str, *, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{label}: expected one match, found {count}")
+              return text.replace(old, new, 1)
+
+
+          prompt_output_module = textwrap.dedent(r'''
+          """Deterministic cleanup for Prompt Mode model output.
+
+          Prompt Mode must never expose internal ASR, dictionary, foreground-app,
+          or polish-control instructions.  The model prompt prevents those leaks;
+          this module is the final output boundary when a model nevertheless echoes
+          an internal section.
+          """
+
+          from __future__ import annotations
+
+          import re
+
+
+          _HEADING_RE = re.compile(r"^\s*#{1,6}\s*(.*?)\s*$")
+          _FORBIDDEN_SECTION_NAMES = {
+              "open question",
+              "open questions",
+              "question",
+              "questions",
+              "clarifying question",
+              "clarifying questions",
+              "missing information",
+              "information needed",
+              "stop rule",
+              "stop rules",
+              "待确认",
+              "待确认事项",
+              "待确认信息",
+              "待补充",
+              "待补充信息",
+              "澄清问题",
+              "需要确认的信息",
+              "需要用户确认",
+          }
+          _INTERNAL_CONTROL_LINE_RE = re.compile(
+              r"^\s*(?:[-*]\s*)?(?:"
+              r"当前场景|格式保护|专有名词修正|"
+              r"润色强度要求|语气要求|表达人格要求|结构化格式要求"
+              r")\s*[：:]",
+              re.IGNORECASE,
+          )
+          _INTERNAL_CONTROL_TEXT_RE = re.compile(
+              r"(?:用户定义的专有名词词典|"
+              r"当前使用场景（仅为本地映射出的抽象类别）|"
+              r"严格执行以下映射修正)",
+              re.IGNORECASE,
+          )
+
+
+          def _normalized_heading(value: str) -> str:
+              value = value.strip().rstrip(":：?？")
+              value = re.sub(r"[\s_-]+", " ", value)
+              return value.casefold()
+
+
+          def _is_forbidden_heading(value: str) -> bool:
+              normalized = _normalized_heading(value)
+              if normalized in _FORBIDDEN_SECTION_NAMES:
+                  return True
+              return normalized.startswith("open question")
+
+
+          def _drop_empty_sections(lines: list[str]) -> list[str]:
+              result: list[str] = []
+              index = 0
+              while index < len(lines):
+                  heading = _HEADING_RE.match(lines[index])
+                  if heading is None:
+                      result.append(lines[index])
+                      index += 1
+                      continue
+
+                  end = index + 1
+                  while end < len(lines) and _HEADING_RE.match(lines[end]) is None:
+                      end += 1
+                  body = lines[index + 1 : end]
+                  if any(line.strip() for line in body):
+                      result.extend(lines[index:end])
+                  index = end
+              return result
+
+
+          def sanitize_prompt_output(text: str) -> str:
+              """Remove internal control text and unresolved-question sections."""
+              if not str(text or "").strip():
+                  return ""
+
+              output: list[str] = []
+              skipping_section = False
+              for raw_line in str(text).splitlines():
+                  line = raw_line.rstrip()
+                  heading = _HEADING_RE.match(line)
+                  if heading is not None:
+                      skipping_section = _is_forbidden_heading(heading.group(1))
+                      if skipping_section:
+                          continue
+                  elif skipping_section:
+                      continue
+
+                  if _INTERNAL_CONTROL_LINE_RE.search(line):
+                      continue
+                  if _INTERNAL_CONTROL_TEXT_RE.search(line):
+                      continue
+                  output.append(line)
+
+              output = _drop_empty_sections(output)
+
+              compact: list[str] = []
+              blank = False
+              for line in output:
+                  if not line.strip():
+                      if compact and not blank:
+                          compact.append("")
+                      blank = True
+                      continue
+                  compact.append(line)
+                  blank = False
+              return "\n".join(compact).strip()
+
+
+          __all__ = ["sanitize_prompt_output"]
+          ''').lstrip()
+          write("src/vocal_more/domain/prompt_output.py", prompt_output_module)
+
+          text_polisher_path = "src/vocal_more/core/text_polisher.py"
+          polisher = read(text_polisher_path)
+
+          if "from ..domain.prompt_output import sanitize_prompt_output\n" not in polisher:
+              polisher = replace_once(
+                  polisher,
+                  "from ..dictionary import normalize_terms\n",
+                  "from ..dictionary import normalize_terms\n"
+                  "from ..domain.prompt_output import sanitize_prompt_output\n",
+                  label="prompt-output import",
+              )
+
+          new_prompt_instructions = textwrap.dedent(r'''
+          PROMPT_OUTPUT_INSTRUCTIONS = """Prompt 输出模式：
+          你要把用户的口语化输入整理成可直接交给下游 Agent 执行的 Prompt。只表达用户已经提供的任务信息，不执行任务，也不补写用户没有提供的事实。
+
+          信息处理原则：
+          1. 仅保留与当前任务直接相关的目标、背景、输入材料、要求、约束、交付物和验收标准
+          2. 用户词典、ASR 校准词、识别别名、前景 App 类别、润色强度、语气、人设、结构化开关，以及本模块自身的格式指令都是内部控制信息，绝不能出现在最终 Prompt 中
+          3. 不要为了填满模板而推断角色、依赖、模块、上下文、边界、成功标准或其他细节
+          4. 用户没有提供的信息直接省略，不使用占位符，也不把推测写成事实
+          5. 不输出 Open questions、待确认信息、Stop rules、澄清问题或“请补充……”等内容；需要澄清的问题由录音过程中的实时提示负责，不写入最终 Prompt
+          6. 保护用户口述中的代码、命令、参数、路径、环境变量、API、模型名、文件名和专有名词
+
+          输出格式：
+          - 按实际内容需要使用以下标题：# Goal、# Context、# Inputs、# Constraints、# Output、# Success criteria
+          - 只保留有实际内容的章节，通常 2-5 个章节即可
+          - 不输出 Role，除非用户明确指定了角色
+          - 不输出任何解释、转换说明、内部规则或系统上下文
+
+          只输出最终 Prompt。"""
+          ''').strip()
+          pattern = re.compile(
+              r'PROMPT_OUTPUT_INSTRUCTIONS = """.*?"""\n\nOUTPUT_LANGUAGE_INSTRUCTIONS =',
+              re.DOTALL,
+          )
+          polisher, count = pattern.subn(
+              new_prompt_instructions + "\n\nOUTPUT_LANGUAGE_INSTRUCTIONS =",
+              polisher,
+              count=1,
+          )
+          if count != 1:
+              raise RuntimeError(
+                  f"prompt instructions: expected one constant, found {count}"
+              )
+
+          internal_prompt_chain = (
+              "{output_instructions}{modifier_block}{dictionary_block}"
+              "{_context_prompt_block(context_instruction)}"
+          )
+          chain_count = polisher.count(internal_prompt_chain)
+          if chain_count != 2:
+              raise RuntimeError(
+                  "prompt-mode internal context chain: expected two matches, "
+                  f"found {chain_count}"
+              )
+          polisher = polisher.replace(
+              internal_prompt_chain,
+              "{PROMPT_OUTPUT_INSTRUCTIONS}",
+          )
+
+          spacing_boundary = (
+              "    llm_config = llm_config or get_config().llm\n"
+              "    if not llm_config.structured or not text.strip():"
+          )
+          sanitizer_boundary = (
+              "    llm_config = llm_config or get_config().llm\n"
+              "    if llm_config.polish_mode == \"prompt\":\n"
+              "        return sanitize_prompt_output(text)\n"
+              "    if not llm_config.structured or not text.strip():"
+          )
+          polisher = replace_once(
+              polisher,
+              spacing_boundary,
+              sanitizer_boundary,
+              label="prompt output sanitizer boundary",
+          )
+          write(text_polisher_path, polisher)
+
+          capsule_html_path = "resources/floating_capsule/capsule.html"
+          capsule_html = read(capsule_html_path)
+          streaming_css = textwrap.dedent(r'''
+          .streaming-text {
+            display: none;
+            width: 100%;
+            max-width: 336px;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 12px;
+            line-height: 1.45;
+            color: rgba(255, 255, 255, 0.72);
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            text-align: left;
+            padding: 0 12px 12px;
+          }
+
+          .capsule.has-streaming-text {
+            width: min(360px, calc(100vw - 20px));
+            min-height: 88px;
+            padding-left: 8px;
+            padding-right: 8px;
+          }
+
+          .capsule.has-streaming-text .streaming-text {
+            display: block;
+          }
+          ''').strip()
+          capsule_html, count = re.subn(
+              r"\.streaming-text \{.*?\n\}",
+              streaming_css,
+              capsule_html,
+              count=1,
+              flags=re.DOTALL,
+          )
+          if count != 1:
+              raise RuntimeError(
+                  f"capsule streaming CSS: expected one block, found {count}"
+              )
+
+          old_guard = "  if (currentState !== 'processing') return;"
+          new_guard = "  if (currentState === 'hidden') return;"
+          if old_guard in capsule_html:
+              capsule_html = capsule_html.replace(old_guard, new_guard, 1)
+          elif new_guard not in capsule_html:
+              function_start = "function updateStreamingText(text) {\n"
+              capsule_html = replace_once(
+                  capsule_html,
+                  function_start,
+                  function_start + new_guard + "\n",
+                  label="capsule streaming guard",
+              )
+          write(capsule_html_path, capsule_html)
+
+          capsule_py_path = "src/vocal_more/ui/floating_capsule.py"
+          capsule_py = read(capsule_py_path)
+          if "import json\n" not in capsule_py:
+              capsule_py = replace_once(
+                  capsule_py,
+                  "import os\n",
+                  "import json\nimport os\n",
+                  label="capsule json import",
+              )
+
+          capsule_py = replace_once(
+              capsule_py,
+              "    CAPSULE_WIDTH = 200\n    CAPSULE_HEIGHT = 80\n",
+              "    CAPSULE_WIDTH = 200\n"
+              "    CAPSULE_HEIGHT = 80\n"
+              "    HINT_CAPSULE_WIDTH = 380\n"
+              "    HINT_CAPSULE_HEIGHT = 200\n",
+              label="capsule expanded dimensions",
+          )
+
+          show_boundary = (
+              "    def _show_on_main_thread(self, mode: str) -> None:\n"
+              "        self._ensure_setup()\n"
+              "        self._current_mode = mode\n"
+          )
+          capsule_py = replace_once(
+              capsule_py,
+              show_boundary,
+              "    def _show_on_main_thread(self, mode: str) -> None:\n"
+              "        self._ensure_setup()\n"
+              "        self._set_capsule_size_on_main_thread(False)\n"
+              "        self._current_mode = mode\n",
+              label="capsule compact reset",
+          )
+
+          replacement_methods = textwrap.dedent(r'''
+              def _set_capsule_size_on_main_thread(self, expanded: bool) -> None:
+                  """Resize around the current horizontal center without moving screens."""
+                  if self._panel is None or self._webview is None:
+                      return
+                  width = self.HINT_CAPSULE_WIDTH if expanded else self.CAPSULE_WIDTH
+                  height = self.HINT_CAPSULE_HEIGHT if expanded else self.CAPSULE_HEIGHT
+                  frame = self._panel.frame()
+                  center_x = frame.origin.x + frame.size.width / 2
+                  origin_y = frame.origin.y
+                  self._panel.setFrame_display_(
+                      ((center_x - width / 2, origin_y), (width, height)),
+                      True,
+                  )
+                  self._webview.setFrame_(((0, 0), (width, height)))
+
+              def update_streaming_text(self, text: str) -> None:
+                  """Show a complete, wrapping hint without exposing escaping to JS."""
+                  value = str(text or "")
+                  payload = json.dumps(value, ensure_ascii=False)
+                  self._run_on_main_thread(
+                      lambda: self._update_streaming_text_on_main_thread(value, payload)
+                  )
+
+              def _update_streaming_text_on_main_thread(
+                  self,
+                  text: str,
+                  payload: str,
+              ) -> None:
+                  self._set_capsule_size_on_main_thread(bool(text.strip()))
+                  self._eval_js(f"updateStreamingText({payload})")
+
+          ''')
+          method_pattern = re.compile(
+              r"    def update_streaming_text\(self, text: str\) -> None:\n.*?"
+              r"(?=    def _start_push_timer\()",
+              re.DOTALL,
+          )
+          capsule_py, count = method_pattern.subn(
+              replacement_methods,
+              capsule_py,
+              count=1,
+          )
+          if count != 1:
+              raise RuntimeError(
+                  f"capsule streaming method: expected one block, found {count}"
+              )
+          write(capsule_py_path, capsule_py)
+
+          tests = textwrap.dedent(r'''
+          """Regression tests for the v0.4.4 Prompt Mode output boundary."""
+
+          from pathlib import Path
+
+          from vocal_more.config import LLMConfig
+          from vocal_more.core import text_polisher
+          from vocal_more.domain.prompt_output import sanitize_prompt_output
+
+
+          def test_prompt_mode_does_not_receive_dictionary_context_or_polish_overrides(
+              monkeypatch,
+          ):
+              monkeypatch.setattr(
+                  text_polisher,
+                  "_dictionary_prompt_block",
+                  lambda: "\n\nDICTIONARY CALIBRATION SECRET",
+              )
+              config = LLMConfig(
+                  polish_mode="prompt",
+                  structured=True,
+                  prompt_overrides={
+                      "output_type": {
+                          "enabled": True,
+                          "prompt": "CUSTOM OUTPUT FORMAT SECRET",
+                      },
+                      "level": {
+                          "enabled": True,
+                          "prompt": "CUSTOM POLISH LEVEL SECRET",
+                      },
+                      "tone": {
+                          "enabled": True,
+                          "prompt": "CUSTOM TONE SECRET",
+                      },
+                      "persona": {
+                          "enabled": True,
+                          "prompt": "CUSTOM PERSONA SECRET",
+                      },
+                  },
+              )
+
+              prompts = (
+                  text_polisher.build_polish_system_prompt(
+                      config,
+                      context_instruction="INTERNAL TERMINAL CONTEXT",
+                  ),
+                  text_polisher.build_omni_inline_polish_instructions(
+                      config,
+                      context_instruction="INTERNAL TERMINAL CONTEXT",
+                  ),
+              )
+
+              for prompt in prompts:
+                  assert "DICTIONARY CALIBRATION SECRET" not in prompt
+                  assert "INTERNAL TERMINAL CONTEXT" not in prompt
+                  assert "CUSTOM OUTPUT FORMAT SECRET" not in prompt
+                  assert "CUSTOM POLISH LEVEL SECRET" not in prompt
+                  assert "CUSTOM TONE SECRET" not in prompt
+                  assert "CUSTOM PERSONA SECRET" not in prompt
+                  assert "不输出 Open questions" in prompt
+
+
+          def test_prompt_output_removes_questions_and_internal_control_lines():
+              leaked = """# Goal
+          优化现有项目，交付一个新版本意图库。
+
+          # Context
+          - 当前场景：终端环境。
+          - 核心依赖：必须基于“轻量应用服务器”的意图库。
+
+          # Boundaries
+          - 关键约束：核心组件必须是“轻量应用服务器”的意图库。
+          - 格式保护：严格保留终端命令和参数。
+          - 专有名词修正：严格执行以下映射修正。
+
+          # Open questions
+          - 现有项目的代码库位置是什么？
+          - 其余构成部分是什么？
+          """
+
+              cleaned = sanitize_prompt_output(leaked)
+
+              assert "# Open questions" not in cleaned
+              assert "代码库位置是什么" not in cleaned
+              assert "当前场景：终端环境" not in cleaned
+              assert "格式保护" not in cleaned
+              assert "专有名词修正" not in cleaned
+              assert "轻量应用服务器" in cleaned
+              assert "# Goal" in cleaned
+
+
+          def test_prompt_output_drops_empty_sections_after_cleanup():
+              cleaned = sanitize_prompt_output(
+                  "# Context\n- 当前场景：终端环境。\n\n# Goal\n完成任务。"
+              )
+              assert "# Context" not in cleaned
+              assert cleaned == "# Goal\n完成任务。"
+
+
+          def test_capsule_hint_layout_wraps_without_ellipsis():
+              root = Path(__file__).resolve().parents[1]
+              html = (root / "resources/floating_capsule/capsule.html").read_text(
+                  encoding="utf-8"
+              )
+              python_source = (
+                  root / "src/vocal_more/ui/floating_capsule.py"
+              ).read_text(encoding="utf-8")
+
+              assert "white-space: pre-wrap" in html
+              assert "overflow-wrap: anywhere" in html
+              assert "text-overflow: ellipsis" not in html
+              assert "if (currentState === 'hidden') return;" in html
+              assert "HINT_CAPSULE_HEIGHT = 200" in python_source
+              assert "json.dumps(value, ensure_ascii=False)" in python_source
+          ''').lstrip()
+          write("tests/test_prompt_mode_output_safety.py", tests)
+
+          pyproject_path = "pyproject.toml"
+          pyproject = read(pyproject_path)
+          pyproject = replace_once(
+              pyproject,
+              'version = "0.4.3"',
+              'version = "0.4.4"',
+              label="pyproject version",
+          )
+          write(pyproject_path, pyproject)
+
+          uv_lock_path = "uv.lock"
+          uv_lock = read(uv_lock_path)
+          uv_pattern = re.compile(
+              r'(\[\[package\]\]\nname = "vocal-more"\nversion = ")0\.4\.3(")'
+          )
+          uv_lock, count = uv_pattern.subn(r'\g<1>0.4.4\2', uv_lock, count=1)
+          if count != 1:
+              raise RuntimeError(
+                  f"uv.lock project version: expected one match, found {count}"
+              )
+          write(uv_lock_path, uv_lock)
+
+          release_notes = textwrap.dedent(r'''
+          # Vocal More 0.4.4
+
+          本版本修复提示词模式在真实使用中暴露的输出边界与悬浮胶囊可读性问题，仅以 macOS 作为测试和发布目标。
+
+          提示词编译器不再复用普通听写润色的内部上下文。用户词典与 ASR 校准内容、前景 App 粗粒度类别、润色强度、语气、人设和结构化格式设置不会再发送给提示词编译链路，也不会出现在最终 Prompt 中。词典仍用于识别与术语归一化，但不再作为可见任务上下文。
+
+          最终 Prompt 不再包含 `Open questions`、待确认信息或 Stop rules。录音期间识别到的高价值信息缺口继续通过悬浮胶囊直接向用户提问；用户停止录音后，编译器只整理已经提供的信息，缺失字段直接省略，不使用占位符或推测补全。
+
+          新增确定性的 Prompt 输出清洗边界。即使模型偶发复述内部规则，也会在粘贴前移除未解决问题章节、终端场景提示、格式保护说明、词典修正表和其他内部控制文本，同时保留用户真正说出的业务约束。
+
+          悬浮胶囊在显示补充问题时会动态扩展，支持多行与换行文本，不再使用单行省略号截断。提示清空或开始下一次录音时恢复紧凑尺寸，避免长期遮挡当前应用。
+          ''').lstrip()
+          write("docs/releases/0.4.4.md", release_notes)
+          PY
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix frontend/settings ci
+          uv sync --locked --group dev
+
+      - name: Run macOS verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m pytest -q
+          npm --prefix frontend/settings test
+          npm --prefix frontend/settings run typecheck
+          npm --prefix frontend/settings run lint
+          npm --prefix frontend/settings run build
+
+      - name: Commit prepared release
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/prepare-v044.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: isolate Prompt Mode output for v0.4.4"
+          git push origin HEAD:fix/v0.4.4-prompt-output
