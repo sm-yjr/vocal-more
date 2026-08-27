@@ -277,11 +277,11 @@ def test_prompt_polish_mode_builds_task_prompt_instructions():
     assert "# Goal" in prompt
     assert "# Context" in prompt
     assert "# Output" in prompt
-    assert "# Boundaries" in prompt
-    assert "# Open questions" in prompt
-    assert "仅在相关时加入" in prompt
-    assert "不要补充用户没有说出的业务事实" in prompt
-    assert "不要为了套模板虚构专家身份" in prompt
+    assert "# Constraints" in prompt
+    assert "不输出 Open questions" in prompt
+    assert "不补写用户没有提供的事实" in prompt
+    assert "不要为了填满模板而推断" in prompt
+
 
 def test_custom_prompt_fragments_override_each_dictation_category():
     from vocal_more.config import LLMConfig
@@ -325,7 +325,7 @@ def test_disabled_custom_prompt_keeps_draft_without_affecting_runtime_prompt():
     assert "更温和、委婉" in prompt
 
 
-def test_custom_prompt_fragments_apply_to_omni_prompt_output_mode():
+def test_custom_prompt_fragments_do_not_enter_omni_prompt_output_mode():
     from vocal_more.config import LLMConfig
     from vocal_more.core.text_polisher import build_omni_inline_polish_instructions
 
@@ -339,8 +339,9 @@ def test_custom_prompt_fragments_apply_to_omni_prompt_output_mode():
         )
     )
 
-    assert "CUSTOM PROMPT SHAPE" in prompt
-    assert "CUSTOM PROMPT PERSONA" in prompt
+    assert "CUSTOM PROMPT SHAPE" not in prompt
+    assert "CUSTOM PROMPT PERSONA" not in prompt
+    assert "不输出 Open questions" in prompt
     assert "GPT-5.5" not in prompt
 
 
@@ -404,7 +405,7 @@ def test_prompt_polish_mode_routes_omni_inline_instructions(tmp_path, monkeypatc
 
     assert "你会收到用户口述的音频内容" in prompt
     assert "把口语化输入转换成任务式 Prompt" in prompt
-    assert "# Open questions" in prompt
+    assert "不输出 Open questions" in prompt
 
 
 def test_structured_is_independent_of_level(tmp_path, monkeypatch):
@@ -653,7 +654,7 @@ def test_prompt_mode_ignores_legacy_structured_default():
     assert "不要使用 Markdown 语法" not in prompt
 
 
-def test_prompt_mode_applies_explicit_structured_override():
+def test_prompt_mode_ignores_explicit_structured_override():
     from vocal_more.config import LLMConfig
     from vocal_more.core.text_polisher import (
         build_omni_inline_polish_instructions,
@@ -669,5 +670,5 @@ def test_prompt_mode_applies_explicit_structured_override():
         },
     )
 
-    assert marker in build_polish_system_prompt(config)
-    assert marker in build_omni_inline_polish_instructions(config)
+    assert marker not in build_polish_system_prompt(config)
+    assert marker not in build_omni_inline_polish_instructions(config)

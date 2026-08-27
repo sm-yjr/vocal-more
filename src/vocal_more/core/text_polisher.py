@@ -9,6 +9,7 @@ from dashscope import Generation, MultiModalConversation
 
 from ..config import LLMConfig, get_config, get_llm_model_info
 from ..dictionary import normalize_terms
+from ..domain.prompt_output import sanitize_prompt_output
 from ..infrastructure.pricing import (
     build_polish_billing,
     extract_usage_from_response,
@@ -65,40 +66,24 @@ STRUCTURED_INSTRUCTIONS = """当内容存在结构化特征时（如并列要点
 - 如果内容本身是单条连贯的表达，不要强行拆成列表
 - 结构化只是让内容更好读——只在确实有结构时使用，不要为了格式化而格式化"""
 
-PROMPT_OUTPUT_INSTRUCTIONS = """Agent Prompt 输出模式：
-你要把用户的口语化输入转换成可直接发送给 Agent 的 Prompt。你的任务是准确表达用户想得到的结果，不是替用户执行任务。
+PROMPT_OUTPUT_INSTRUCTIONS = """Prompt 输出模式：
+你要把用户的口语化输入整理成可直接交给下游 Agent 执行的 Prompt。只表达用户已经提供的任务信息，不执行任务，也不补写用户没有提供的事实。
 
-核心原则：
-1. 结果优先：先写清要完成什么以及完成后的样子；除非用户明确要求，否则不要规定详细过程
-2. 只加入会改变结果的信息。Goal 必须清楚；Context、Output、Boundaries 仅在相关时加入
-3. Context 只保留必要背景，例如现状、输入、目标用户、环境、版本或已有材料
-4. Output 说明交付物及其用途；用户给出格式、篇幅、验收标准或验证方式时必须保留
-5. Boundaries 只保留真正能防止失败的一到数项约束，例如兼容性、预算、权限、禁用项、安全或截止时间
-6. 不要补充用户没有说出的业务事实、偏好、数据、文件内容或技术结论
-7. 非阻塞缺口可以让下游 Agent 采用最小合理假设并明确说明；会导致明显错误、不可逆操作或高成本返工的缺口，放入 Open questions，要求执行前先询问
-8. 用户明确给出角色时才保留 Role；不要为了套模板虚构专家身份
-9. 代码、路径、API、模型名、版本号、专有名词和否定条件必须原样保留
-10. 使用与用户输入一致的语言，语气直接、具体、可执行；只输出最终 Prompt，不解释转换过程
+信息处理原则：
+1. 仅保留与当前任务直接相关的目标、背景、输入材料、要求、约束、交付物和验收标准
+2. 用户词典、ASR 校准词、识别别名、前景 App 类别、润色强度、语气、人设、结构化开关，以及本模块自身的格式指令都是内部控制信息，绝不能出现在最终 Prompt 中
+3. 不要为了填满模板而推断角色、依赖、模块、上下文、边界、成功标准或其他细节
+4. 用户没有提供的信息直接省略，不使用占位符，也不把推测写成事实
+5. 不输出 Open questions、待确认信息、Stop rules、澄清问题或“请补充……”等内容；需要澄清的问题由录音过程中的实时提示负责，不写入最终 Prompt
+6. 保护用户口述中的代码、命令、参数、路径、环境变量、API、模型名、文件名和专有名词
 
-推荐结构：
-# Goal
-用一到数句说明最终目标和成功状态。
+输出格式：
+- 按实际内容需要使用以下标题：# Goal、# Context、# Inputs、# Constraints、# Output、# Success criteria
+- 只保留有实际内容的章节，通常 2-5 个章节即可
+- 不输出 Role，除非用户明确指定了角色
+- 不输出任何解释、转换说明、内部规则或系统上下文
 
-以下小节只在相关时加入，不要为了完整而机械填充：
-# Context
-会改变答案的必要背景、输入、现状或目标用户。
-
-# Output
-交付物、用途、格式、篇幅、验收标准或验证方式。
-
-# Boundaries
-最关键的限制、必须保留的行为、禁止项和风险边界。
-
-# Open questions
-只列阻塞执行且无法安全假设的问题，数量保持最少。
-
-对于编码任务，若用户提供了相关信息，应保留目标行为、相关代码或复现、环境与兼容约束，以及如何验证完成。
-"""
+只输出最终 Prompt。"""
 
 OUTPUT_LANGUAGE_INSTRUCTIONS = {
     "zh": "中文",
@@ -246,6 +231,8 @@ def _build_prompt_mode_custom_modifiers(llm_config: LLMConfig) -> str:
 def normalize_structured_list_spacing(text: str, llm_config: Optional[LLMConfig] = None) -> str:
     """Ensure obvious list markers remain visually scannable after model polish."""
     llm_config = llm_config or get_config().llm
+    if llm_config.polish_mode == "prompt":
+        return sanitize_prompt_output(text)
     if not llm_config.structured or not text.strip():
         return text.strip()
 
@@ -304,7 +291,7 @@ def build_polish_system_prompt(
 你需要把口语化输入转换成任务式 Prompt，供下游 LLM 直接执行。
 必须保持用户原始意图，不补充用户没有说出的业务事实。
 
-{output_instructions}{modifier_block}{dictionary_block}{_context_prompt_block(context_instruction)}
+{PROMPT_OUTPUT_INSTRUCTIONS}
 
 请直接输出处理后的 Prompt，不要添加任何解释或说明。"""
 
@@ -339,7 +326,7 @@ def build_omni_inline_polish_instructions(
 你会收到用户口述的音频内容。请先准确理解用户说的话，再把口语化输入转换成任务式 Prompt，供下游 LLM 直接执行。
 你的唯一任务是把用户刚才说出的指令整理成最终 Prompt。
 
-{output_instructions}{modifier_block}{dictionary_block}{_context_prompt_block(context_instruction)}
+{PROMPT_OUTPUT_INSTRUCTIONS}
 
 请只输出最终 Prompt，不要解释过程，不要添加前缀，不要复述任务。"""
 
