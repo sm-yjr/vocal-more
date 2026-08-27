@@ -1,5 +1,6 @@
 """Floating capsule UI using NSPanel + WKWebView."""
 
+import json
 import os
 import threading
 import time
@@ -64,6 +65,8 @@ class FloatingCapsule:
     # Capsule dimensions
     CAPSULE_WIDTH = 200
     CAPSULE_HEIGHT = 80
+    HINT_CAPSULE_WIDTH = 380
+    HINT_CAPSULE_HEIGHT = 200
 
     def __init__(
         self,
@@ -195,8 +198,9 @@ class FloatingCapsule:
             self._latest_prompt_text,
             self._interface_language,
         )
-        escaped = self._escape_js_string(hint)
-        self._eval_js(f"updatePromptHint('{escaped}')")
+        self._set_capsule_size_on_main_thread(bool(hint.strip()))
+        payload = json.dumps(hint, ensure_ascii=False)
+        self._eval_js(f"updatePromptHint({payload})")
 
     def show(self, mode: str = "pushToTalk") -> None:
         """Show the capsule."""
@@ -204,6 +208,7 @@ class FloatingCapsule:
 
     def _show_on_main_thread(self, mode: str) -> None:
         self._ensure_setup()
+        self._set_capsule_size_on_main_thread(False)
         display_mode = self._display_mode(mode)
         self._current_mode = display_mode
         self._current_state = "recording"
@@ -276,6 +281,7 @@ class FloatingCapsule:
 
     def _hide_on_main_thread(self) -> None:
         self._stop_push_timer()
+        self._set_capsule_size_on_main_thread(False)
         self._current_state = "hidden"
         self._latest_prompt_text = ""
         self._eval_js("updateState('hidden')")
@@ -318,6 +324,7 @@ class FloatingCapsule:
 
         if state == "processing":
             self._stop_push_timer()
+            self._set_capsule_size_on_main_thread(False)
             if self._panel is not None:
                 self._panel.setIgnoresMouseEvents_(True)
 
@@ -333,11 +340,13 @@ class FloatingCapsule:
 
     def update_streaming_text(self, text: str) -> None:
         """Show model output or update the local Prompt coach."""
+        value = str(text or "")
+        payload = json.dumps(value, ensure_ascii=False)
         self._run_on_main_thread(
-            lambda: self._update_streaming_text_on_main_thread(text)
+            lambda: self._update_streaming_text_on_main_thread(value, payload)
         )
 
-    def _update_streaming_text_on_main_thread(self, text: str) -> None:
+    def _update_streaming_text_on_main_thread(self, text: str, payload: str) -> None:
         if (
             self._current_state == "recording"
             and self._current_mode in {"prompt", "promptPushToTalk"}
@@ -345,8 +354,24 @@ class FloatingCapsule:
             self._latest_prompt_text = str(text or "")
             self._update_prompt_hint_on_main_thread()
             return
-        escaped = self._escape_js_string(text)
-        self._eval_js(f"updateStreamingText('{escaped}')")
+        self._eval_js(f"updateStreamingText({payload})")
+
+    def _set_capsule_size_on_main_thread(self, expanded: bool) -> None:
+        """Resize around the current horizontal center without moving screens."""
+        panel = getattr(self, "_panel", None)
+        webview = getattr(self, "_webview", None)
+        if panel is None or webview is None:
+            return
+        width = self.HINT_CAPSULE_WIDTH if expanded else self.CAPSULE_WIDTH
+        height = self.HINT_CAPSULE_HEIGHT if expanded else self.CAPSULE_HEIGHT
+        frame = panel.frame()
+        center_x = frame.origin.x + frame.size.width / 2
+        origin_y = frame.origin.y
+        panel.setFrame_display_(
+            ((center_x - width / 2, origin_y), (width, height)),
+            True,
+        )
+        webview.setFrame_(((0, 0), (width, height)))
 
     def _start_push_timer(self) -> None:
         """Push the latest coalesced audio envelope to JavaScript at 12Hz."""

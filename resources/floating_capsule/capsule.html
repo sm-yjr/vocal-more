@@ -52,14 +52,28 @@ body {
 
 .streaming-text {
   display: none;
+  width: 100%;
+  max-width: 336px;
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding-bottom: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.72);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-align: left;
+  padding: 0 12px 12px;
+}
+
+.capsule.has-streaming-text {
+  width: min(380px, calc(100vw - 20px));
+  min-height: 88px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.capsule.has-streaming-text .streaming-text {
+  display: block;
 }
 
 .capsule.has-streaming-text.state-processing .streaming-text,
@@ -68,7 +82,7 @@ body {
 }
 
 .capsule.has-prompt-hint.state-recording .streaming-text {
-  max-width: 176px;
+  max-width: 336px;
   color: rgba(255, 255, 255, 0.72);
 }
 
@@ -499,7 +513,7 @@ const streamingText = document.getElementById('streamingText');
  * Show streaming text below the thinking bar during processing state.
  */
 function updateStreamingText(text) {
-  if (currentState !== 'processing') return;
+  if (currentState === 'hidden') return;
   streamingText.textContent = text;
   if (text) {
     capsule.classList.add('has-streaming-text');
