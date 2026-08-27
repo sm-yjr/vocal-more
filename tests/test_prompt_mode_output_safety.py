@@ -117,6 +117,9 @@ def test_capsule_hint_layout_wraps_without_ellipsis():
     assert ".capsule.has-prompt-hint.state-recording" in html
     assert "max-height: calc(100% - 12px)" in html
     assert "overflow-y: auto" in html
+    assert "scrollbar-width: none" in html
+    assert ".streaming-text::-webkit-scrollbar" in html
+    assert "streamingText.scrollTop = streamingText.scrollHeight" in html
 
 
 def test_capsule_expands_before_initial_prompt_hint_is_injected(monkeypatch):
@@ -183,3 +186,52 @@ def test_capsule_expands_before_initial_prompt_hint_is_injected(monkeypatch):
     assert 'updatePromptHint("第一行提示\\n第二行提示")' in javascript
     assert events[0:2] == [("resize", False), ("resize", True)]
     assert events[2][0] == "javascript"
+
+
+def test_capsule_expands_before_streaming_text_is_injected(monkeypatch):
+    import AppKit
+
+    monkeypatch.setattr(AppKit, "NSEvent", type("NSEvent", (), {}), raising=False)
+    monkeypatch.setattr(AppKit, "NSPanel", type("NSPanel", (), {}), raising=False)
+    monkeypatch.setattr(AppKit, "NSPointInRect", lambda *_args: False, raising=False)
+    monkeypatch.setattr(AppKit, "NSScreen", type("NSScreen", (), {}), raising=False)
+    monkeypatch.setattr(AppKit, "NSWindowStyleMaskBorderless", 0, raising=False)
+    monkeypatch.setattr(
+        AppKit,
+        "NSWindowStyleMaskNonactivatingPanel",
+        0,
+        raising=False,
+    )
+    capsule_module = importlib.import_module("vocal_more.ui.floating_capsule")
+    capsule_module = importlib.reload(capsule_module)
+
+    capsule = capsule_module.FloatingCapsule.__new__(
+        capsule_module.FloatingCapsule
+    )
+    capsule._current_state = "recording"
+    capsule._current_mode = "handsFree"
+    events = []
+    capsule._set_capsule_size_on_main_thread = MagicMock(
+        side_effect=lambda expanded: events.append(("resize", expanded))
+    )
+    capsule._eval_js = MagicMock(
+        side_effect=lambda javascript: events.append(("javascript", javascript))
+    )
+
+    capsule._update_streaming_text_on_main_thread(
+        "第一行\n第二行",
+        '"第一行\\n第二行"',
+    )
+
+    assert events == [
+        ("resize", True),
+        ("javascript", 'updateStreamingText("第一行\\n第二行")'),
+    ]
+
+    events.clear()
+    capsule._update_streaming_text_on_main_thread("", '""')
+
+    assert events == [
+        ("resize", False),
+        ("javascript", 'updateStreamingText("")'),
+    ]

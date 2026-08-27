@@ -357,6 +357,9 @@ class FloatingCapsule:
             self._latest_prompt_text = str(text or "")
             self._update_prompt_hint_on_main_thread()
             return
+        # A compact 80pt WKWebView cannot contain the multiline capsule. Resize
+        # before injecting the partial so the native window does not clip it.
+        self._set_capsule_size_on_main_thread(bool(text.strip()))
         self._eval_js(f"updateStreamingText({payload})")
 
     def _set_capsule_size_on_main_thread(self, expanded: bool) -> None:
