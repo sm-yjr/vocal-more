@@ -28,26 +28,32 @@ jobs:
         uses: astral-sh/setup-uv@v6
 
       - name: Apply review fix and regression tests
+        env:
+          TEST_ADDITION_B64: CgpkZWYgdGVzdF9wcm9tcHRfbW9kZV9pZ25vcmVzX2xlZ2FjeV9zdHJ1Y3R1cmVkX2RlZmF1bHQoKToKICAgIGZyb20gdm9jYWxfbW9yZS5jb25maWcgaW1wb3J0IExMTUNvbmZpZwogICAgZnJvbSB2b2NhbF9tb3JlLmNvcmUudGV4dF9wb2xpc2hlciBpbXBvcnQgKAogICAgICAgIFNUUlVDVFVSRURfSU5TVFJVQ1RJT05TLAogICAgICAgIGJ1aWxkX3BvbGlzaF9zeXN0ZW1fcHJvbXB0LAogICAgKQoKICAgIHByb21wdCA9IGJ1aWxkX3BvbGlzaF9zeXN0ZW1fcHJvbXB0KAogICAgICAgIExMTUNvbmZpZyhwb2xpc2hfbW9kZT0icHJvbXB0Iiwgc3RydWN0dXJlZD1UcnVlKQogICAgKQoKICAgIGFzc2VydCAiIyBHb2FsIiBpbiBwcm9tcHQKICAgIGFzc2VydCBTVFJVQ1RVUkVEX0lOU1RSVUNUSU9OUyBub3QgaW4gcHJvbXB0CiAgICBhc3NlcnQgIuS4jeimgeS9v+eUqCBNYXJrZG93biDor63ms5UiIG5vdCBpbiBwcm9tcHQKCgpkZWYgdGVzdF9wcm9tcHRfbW9kZV9hcHBsaWVzX2V4cGxpY2l0X3N0cnVjdHVyZWRfb3ZlcnJpZGUoKToKICAgIGZyb20gdm9jYWxfbW9yZS5jb25maWcgaW1wb3J0IExMTUNvbmZpZwogICAgZnJvbSB2b2NhbF9tb3JlLmNvcmUudGV4dF9wb2xpc2hlciBpbXBvcnQgKAogICAgICAgIGJ1aWxkX29tbmlfaW5saW5lX3BvbGlzaF9pbnN0cnVjdGlvbnMsCiAgICAgICAgYnVpbGRfcG9saXNoX3N5c3RlbV9wcm9tcHQsCiAgICApCgogICAgbWFya2VyID0gIkNVU1RPTSBQUk9NUFQgU1RSVUNUVVJFIgogICAgY29uZmlnID0gTExNQ29uZmlnKAogICAgICAgIHBvbGlzaF9tb2RlPSJwcm9tcHQiLAogICAgICAgIHN0cnVjdHVyZWQ9VHJ1ZSwKICAgICAgICBwcm9tcHRfb3ZlcnJpZGVzPXsKICAgICAgICAgICAgInN0cnVjdHVyZWQiOiB7ImVuYWJsZWQiOiBUcnVlLCAicHJvbXB0IjogbWFya2VyfSwKICAgICAgICB9LAogICAgKQoKICAgIGFzc2VydCBtYXJrZXIgaW4gYnVpbGRfcG9saXNoX3N5c3RlbV9wcm9tcHQoY29uZmlnKQogICAgYXNzZXJ0IG1hcmtlciBpbiBidWlsZF9vbW5pX2lubGluZV9wb2xpc2hfaW5zdHJ1Y3Rpb25zKGNvbmZpZykK
         run: |
           python - <<'PY'
           from pathlib import Path
+          import base64
+          import os
 
           source_path = Path("src/vocal_more/core/text_polisher.py")
           source = source_path.read_text(encoding="utf-8")
-          old = '''    if llm_config.structured:
-              structured = _prompt_instruction(llm_config, "structured", STRUCTURED_INSTRUCTIONS)
-              blocks.append(f"结构化格式要求：\\n{structured}")
-          return "\\n\\n".join(blocks)
-          '''
-          new = '''    structured_override = (
-              _active_prompt_override(llm_config, "structured")
-              if llm_config.structured
-              else None
+          old = (
+              "    if llm_config.structured:\n"
+              "        structured = _prompt_instruction(llm_config, \"structured\", STRUCTURED_INSTRUCTIONS)\n"
+              "        blocks.append(f\"结构化格式要求：\\n{structured}\")\n"
+              "    return \"\\n\\n\".join(blocks)\n"
           )
-          if structured_override:
-              blocks.append(f"结构化格式要求：\\n{structured_override}")
-          return "\\n\\n".join(blocks)
-          '''
+          new = (
+              "    structured_override = (\n"
+              "        _active_prompt_override(llm_config, \"structured\")\n"
+              "        if llm_config.structured\n"
+              "        else None\n"
+              "    )\n"
+              "    if structured_override:\n"
+              "        blocks.append(f\"结构化格式要求：\\n{structured_override}\")\n"
+              "    return \"\\n\\n\".join(blocks)\n"
+          )
           if source.count(old) != 1:
               raise SystemExit("expected one prompt-mode structured block")
           source_path.write_text(source.replace(old, new), encoding="utf-8")
@@ -56,45 +62,8 @@ jobs:
           tests = tests_path.read_text(encoding="utf-8")
           marker = "def test_prompt_mode_ignores_legacy_structured_default():"
           if marker not in tests:
-              tests += '''
-
-
-def test_prompt_mode_ignores_legacy_structured_default():
-    from vocal_more.config import LLMConfig
-    from vocal_more.core.text_polisher import (
-        STRUCTURED_INSTRUCTIONS,
-        build_polish_system_prompt,
-    )
-
-    prompt = build_polish_system_prompt(
-        LLMConfig(polish_mode="prompt", structured=True)
-    )
-
-    assert "# Goal" in prompt
-    assert STRUCTURED_INSTRUCTIONS not in prompt
-    assert "不要使用 Markdown 语法" not in prompt
-
-
-def test_prompt_mode_applies_explicit_structured_override():
-    from vocal_more.config import LLMConfig
-    from vocal_more.core.text_polisher import (
-        build_omni_inline_polish_instructions,
-        build_polish_system_prompt,
-    )
-
-    marker = "CUSTOM PROMPT STRUCTURE"
-    config = LLMConfig(
-        polish_mode="prompt",
-        structured=True,
-        prompt_overrides={
-            "structured": {"enabled": True, "prompt": marker},
-        },
-    )
-
-    assert marker in build_polish_system_prompt(config)
-    assert marker in build_omni_inline_polish_instructions(config)
-'''
-              tests_path.write_text(tests, encoding="utf-8")
+              addition = base64.b64decode(os.environ["TEST_ADDITION_B64"]).decode("utf-8")
+              tests_path.write_text(tests + addition, encoding="utf-8")
           PY
           python -m compileall -q src tests
 
