@@ -1,6 +1,9 @@
-"""Regression tests for the v0.4.4 Prompt Mode output boundary."""
+"""Regression tests for Prompt Mode output and capsule layout boundaries."""
 
+import importlib
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, call
 
 from vocal_more.config import LLMConfig
 from vocal_more.core import text_polisher
@@ -111,3 +114,72 @@ def test_capsule_hint_layout_wraps_without_ellipsis():
     assert "if (currentState === 'hidden') return;" in html
     assert "HINT_CAPSULE_HEIGHT = 200" in python_source
     assert "json.dumps(hint, ensure_ascii=False)" in python_source
+    assert ".capsule.has-prompt-hint.state-recording" in html
+    assert "max-height: calc(100% - 12px)" in html
+    assert "overflow-y: auto" in html
+
+
+def test_capsule_expands_before_initial_prompt_hint_is_injected(monkeypatch):
+    import AppKit
+
+    monkeypatch.setattr(AppKit, "NSEvent", type("NSEvent", (), {}), raising=False)
+    monkeypatch.setattr(AppKit, "NSPanel", type("NSPanel", (), {}), raising=False)
+    monkeypatch.setattr(AppKit, "NSPointInRect", lambda *_args: False, raising=False)
+    monkeypatch.setattr(AppKit, "NSScreen", type("NSScreen", (), {}), raising=False)
+    monkeypatch.setattr(AppKit, "NSWindowStyleMaskBorderless", 0, raising=False)
+    monkeypatch.setattr(
+        AppKit,
+        "NSWindowStyleMaskNonactivatingPanel",
+        0,
+        raising=False,
+    )
+    capsule_module = importlib.import_module("vocal_more.ui.floating_capsule")
+    capsule_module = importlib.reload(capsule_module)
+
+    panel = MagicMock()
+    capsule = capsule_module.FloatingCapsule.__new__(
+        capsule_module.FloatingCapsule
+    )
+    capsule._panel = panel
+    capsule._current_mode = None
+    capsule._current_state = "hidden"
+    capsule._interface_language = "zh"
+    capsule._latest_prompt_text = ""
+    capsule._html_loaded = False
+    capsule._hide_timer = None
+    capsule._ensure_setup = MagicMock()
+    events = []
+    capsule._set_capsule_size_on_main_thread = MagicMock(
+        side_effect=lambda expanded: events.append(("resize", expanded))
+    )
+    capsule._display_mode = MagicMock(return_value="prompt")
+    capsule._eval_js = MagicMock(
+        side_effect=lambda javascript: events.append(("javascript", javascript))
+    )
+    capsule._start_push_timer = MagicMock()
+
+    monkeypatch.setattr(
+        capsule_module,
+        "NSEvent",
+        SimpleNamespace(mouseLocation=lambda: (0, 0)),
+    )
+    monkeypatch.setattr(
+        capsule_module,
+        "NSScreen",
+        SimpleNamespace(screens=lambda: [], mainScreen=lambda: None),
+    )
+    monkeypatch.setattr(
+        capsule_module,
+        "prompt_coach_hint",
+        lambda _text, _language: "第一行提示\n第二行提示",
+    )
+
+    capsule._show_on_main_thread("pushToTalk")
+
+    capsule._set_capsule_size_on_main_thread.assert_has_calls(
+        [call(False), call(True)]
+    )
+    javascript = capsule._eval_js.call_args.args[0]
+    assert 'updatePromptHint("第一行提示\\n第二行提示")' in javascript
+    assert events[0:2] == [("resize", False), ("resize", True)]
+    assert events[2][0] == "javascript"

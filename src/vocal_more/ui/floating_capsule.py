@@ -244,10 +244,13 @@ class FloatingCapsule:
             f"setMode('{display_mode}'); updateState('recording')"
         )
         if display_mode in {"prompt", "promptPushToTalk"}:
-            hint = self._escape_js_string(
-                prompt_coach_hint("", self._interface_language)
-            )
-            javascript += f"; updatePromptHint('{hint}')"
+            hint = prompt_coach_hint("", self._interface_language)
+            # The initial coach hint is already visible on the first frame.
+            # Expand the native container before WebKit lays out the multiline
+            # text, otherwise the 80pt compact frame can clip its top edge.
+            self._set_capsule_size_on_main_thread(bool(hint.strip()))
+            payload = json.dumps(hint, ensure_ascii=False)
+            javascript += f"; updatePromptHint({payload})"
         self._eval_js(javascript)
         self._panel.orderFront_(None)
         self._last_pushed_audio_level = None

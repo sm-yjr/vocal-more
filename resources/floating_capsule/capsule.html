@@ -63,11 +63,16 @@ body {
   word-break: break-word;
   text-align: left;
   padding: 0 12px 12px;
+  max-height: 140px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-.capsule.has-streaming-text {
+.capsule.has-streaming-text,
+.capsule.has-prompt-hint.state-recording {
   width: min(380px, calc(100vw - 20px));
   min-height: 88px;
+  max-height: calc(100% - 12px);
   padding-left: 8px;
   padding-right: 8px;
 }
