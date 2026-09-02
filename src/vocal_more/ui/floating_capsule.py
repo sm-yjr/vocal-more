@@ -29,6 +29,8 @@ NSWindowCollectionBehaviorStationary = 1 << 4
 
 CAPSULE_AUDIO_PUSH_HZ = 60
 CAPSULE_AUDIO_PUSH_INTERVAL_SECONDS = 1.0 / CAPSULE_AUDIO_PUSH_HZ
+CAPSULE_PROGRESS_HZ = 60
+CAPSULE_PROGRESS_INTERVAL_SECONDS = 1.0 / CAPSULE_PROGRESS_HZ
 CAPSULE_SILENCE_THRESHOLD = 0.005
 
 
@@ -366,7 +368,7 @@ class FloatingCapsule:
     def _start_progress_timer(self) -> None:
         self._stop_progress_timer()
         self._progress_timer = NSTimer.timerWithTimeInterval_repeats_block_(
-            0.2,
+            CAPSULE_PROGRESS_INTERVAL_SECONDS,
             True,
             lambda _: self._advance_progress(),
         )

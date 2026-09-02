@@ -462,6 +462,7 @@ def test_floating_capsule_refreshes_audio_at_display_cadence_and_pushes_silence(
         call(0.0),
     ]
     assert capsule_module.CAPSULE_AUDIO_PUSH_HZ == 60
+    assert capsule_module.CAPSULE_PROGRESS_HZ == 60
 
 
 def test_floating_capsule_is_native_and_respects_reduced_motion():
@@ -474,6 +475,8 @@ def test_floating_capsule_is_native_and_respects_reduced_motion():
     assert "accessibilityDisplayShouldReduceMotion" in renderer_source
     assert "self._smoothed_levels" in renderer_source
     assert "EXPANDED_BAR_COUNT = 24" in renderer_source
+    assert "PROCESSING_SURFACE_WIDTH = 184.0" in renderer_source
+    assert "setMasksToBounds_(True)" in renderer_source
 
 
 def test_floating_capsule_does_not_restart_equivalent_processing_state(

@@ -101,6 +101,11 @@ class NativeCapsuleRenderer:
     WAVEFORM_PHASE_RADIANS_PER_SECOND = 8.64
     WAVEFORM_ATTACK_SECONDS = 0.045
     WAVEFORM_DECAY_SECONDS = 0.18
+    PROCESSING_SURFACE_WIDTH = 184.0
+    PROCESSING_LABEL_WIDTH = 112.0
+    PROGRESS_TRACK_WIDTH = 48.0
+    PROGRESS_TARGET = 0.9
+    PROGRESS_TIME_CONSTANT_SECONDS = 0.464
 
     def __init__(
         self,
@@ -159,6 +164,7 @@ class NativeCapsuleRenderer:
             (1.0, 0.15),
             1.5,
         )
+        self._progress_track.layer().setMasksToBounds_(True)
         self._progress_fill = NSView.alloc().initWithFrame_(((0, 0), (0, 3)))
         _configure_layer(
             self._progress_fill,
@@ -189,6 +195,7 @@ class NativeCapsuleRenderer:
         self._phase = 0.0
         self._smoothed_levels = [0.0] * self.NUM_BARS
         self._last_waveform_tick = time.monotonic()
+        self._last_progress_tick = time.monotonic()
         self._reduce_motion = self._read_reduce_motion()
         self._layout()
         self.set_state("hidden")
@@ -242,6 +249,7 @@ class NativeCapsuleRenderer:
             self._streaming_text = ""
             self._expanded = False
             self._progress = 0.0
+            self._last_progress_tick = time.monotonic()
         self._update_labels()
         self._layout()
 
@@ -296,11 +304,18 @@ class NativeCapsuleRenderer:
             )
 
     def advance_progress(self) -> None:
-        remaining = 0.9 - self._progress
-        self._progress += remaining * 0.35
+        now = time.monotonic()
+        elapsed = max(1.0 / 120.0, min(0.05, now - self._last_progress_tick))
+        self._last_progress_tick = now
+        remaining = self.PROGRESS_TARGET - self._progress
+        smoothing = 1.0 - math.exp(
+            -elapsed / self.PROGRESS_TIME_CONSTANT_SECONDS
+        )
+        self._progress += remaining * smoothing
         frame = self._progress_fill.frame()
+        fill_width = self.PROGRESS_TRACK_WIDTH * self._progress
         self._progress_fill.setFrame_(
-            ((frame.origin.x, frame.origin.y), (40 * self._progress, 3))
+            ((frame.origin.x, frame.origin.y), (fill_width, 3))
         )
 
     def _translation(self, key: str) -> str:
@@ -341,13 +356,16 @@ class NativeCapsuleRenderer:
 
     def _layout(self) -> None:
         expanded = self._is_expanded()
-        surface_width = 360.0 if expanded else self._compact_surface_width()
+        is_recording = self._state == "recording"
+        is_processing = self._state == "processing"
+        compact_width = self._compact_surface_width()
+        if is_processing:
+            compact_width = max(compact_width, self.PROCESSING_SURFACE_WIDTH)
+        surface_width = 360.0 if expanded else compact_width
         surface_height = 176.0 if expanded else 36.0
         surface_x = (self._width - surface_width) / 2
         self._surface.setFrame_(((surface_x, 12.0), (surface_width, surface_height)))
 
-        is_recording = self._state == "recording"
-        is_processing = self._state == "processing"
         buttons_visible = is_recording and self._mode in {
             "handsFree",
             "prompt",
@@ -394,8 +412,8 @@ class NativeCapsuleRenderer:
                 )
             )
 
-        thinking_width = 92.0
-        processing_group_width = thinking_width + 8.0 + 40.0
+        thinking_width = self.PROCESSING_LABEL_WIDTH
+        processing_group_width = thinking_width + 8.0 + self.PROGRESS_TRACK_WIDTH
         processing_x = content_center - processing_group_width / 2
         self._thinking_label.setFrame_(
             ((processing_x, self._row_center_y() - 9.0), (thinking_width, 18.0))
@@ -403,8 +421,9 @@ class NativeCapsuleRenderer:
         self._progress_track.setFrame_(
             (
                 (processing_x + thinking_width + 8.0, self._row_center_y() - 1.5),
-                (40.0, 3.0),
+                (self.PROGRESS_TRACK_WIDTH, 3.0),
             )
         )
-        self._progress_fill.setFrame_(((0, 0), (40 * self._progress, 3.0)))
+        fill_width = self.PROGRESS_TRACK_WIDTH * self._progress
+        self._progress_fill.setFrame_(((0, 0), (fill_width, 3.0)))
         self._streaming_label.setFrame_(((12.0, 12.0), (surface_width - 24.0, 122.0)))
