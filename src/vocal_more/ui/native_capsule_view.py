@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Callable
 
 import objc
@@ -94,7 +95,12 @@ def _label(text: str, *, size: float = 12.0, weight=NSFontWeightMedium):
 class NativeCapsuleRenderer:
     """Own the native view tree while ``FloatingCapsule`` owns state."""
 
-    NUM_BARS = 10
+    COMPACT_BAR_COUNT = 10
+    EXPANDED_BAR_COUNT = 24
+    NUM_BARS = EXPANDED_BAR_COUNT
+    WAVEFORM_PHASE_RADIANS_PER_SECOND = 8.64
+    WAVEFORM_ATTACK_SECONDS = 0.045
+    WAVEFORM_DECAY_SECONDS = 0.18
 
     def __init__(
         self,
@@ -182,6 +188,7 @@ class NativeCapsuleRenderer:
         self._progress = 0.0
         self._phase = 0.0
         self._smoothed_levels = [0.0] * self.NUM_BARS
+        self._last_waveform_tick = time.monotonic()
         self._reduce_motion = self._read_reduce_motion()
         self._layout()
         self.set_state("hidden")
@@ -230,6 +237,7 @@ class NativeCapsuleRenderer:
         elif state == "recording":
             self._progress = 0.0
             self._smoothed_levels = [0.0] * self.NUM_BARS
+            self._last_waveform_tick = time.monotonic()
         elif state == "processing":
             self._streaming_text = ""
             self._expanded = False
@@ -255,10 +263,17 @@ class NativeCapsuleRenderer:
 
     def set_audio_level(self, level: float) -> None:
         display_level = max(0.0, min(1.0, float(level)))
+        now = time.monotonic()
+        elapsed = max(1.0 / 120.0, min(0.05, now - self._last_waveform_tick))
+        self._last_waveform_tick = now
         if not self._reduce_motion:
-            self._phase += 0.72
-        center = (self.NUM_BARS - 1) / 2
+            self._phase += self.WAVEFORM_PHASE_RADIANS_PER_SECOND * elapsed
+        active_count = self._active_bar_count()
+        center = (active_count - 1) / 2
         for index, bar in enumerate(self._waveform):
+            if index >= active_count:
+                self._smoothed_levels[index] = 0.0
+                continue
             distance = abs(index - center) / center
             bell = math.exp(-3.5 * distance * distance)
             movement = 0.86
@@ -266,7 +281,12 @@ class NativeCapsuleRenderer:
                 movement += 0.14 * math.sin(self._phase + index * 0.83)
             target = min(1.0, display_level * bell * movement)
             current = self._smoothed_levels[index]
-            smoothing = 0.42 if target > current else 0.14
+            time_constant = (
+                self.WAVEFORM_ATTACK_SECONDS
+                if target > current
+                else self.WAVEFORM_DECAY_SECONDS
+            )
+            smoothing = 1.0 - math.exp(-elapsed / time_constant)
             current += (target - current) * smoothing
             self._smoothed_levels[index] = current
             height = 2.0 + current * 18.0
@@ -309,10 +329,18 @@ class NativeCapsuleRenderer:
 
     def _row_center_y(self) -> float:
         surface_height = self._surface.frame().size.height
-        return surface_height - 18.0 if self._expanded else 18.0
+        return surface_height - 18.0 if self._is_expanded() else 18.0
+
+    def _is_expanded(self) -> bool:
+        return self._expanded and bool(self._streaming_text.strip())
+
+    def _active_bar_count(self) -> int:
+        if self._is_expanded():
+            return self.EXPANDED_BAR_COUNT
+        return self.COMPACT_BAR_COUNT
 
     def _layout(self) -> None:
-        expanded = self._expanded and bool(self._streaming_text.strip())
+        expanded = self._is_expanded()
         surface_width = 360.0 if expanded else self._compact_surface_width()
         surface_height = 176.0 if expanded else 36.0
         surface_x = (self._width - surface_width) / 2
@@ -338,14 +366,15 @@ class NativeCapsuleRenderer:
         self._thinking_label.setHidden_(not is_processing)
         self._progress_track.setHidden_(not is_processing)
         self._streaming_label.setHidden_(not expanded)
-        for bar in self._waveform:
-            bar.setHidden_(not is_recording)
+        active_bar_count = self._active_bar_count()
+        for index, bar in enumerate(self._waveform):
+            bar.setHidden_(not is_recording or index >= active_bar_count)
 
         row_y = self._row_center_y() - 11.0
         self._cancel_button.setFrame_(((10.0, row_y), (22.0, 22.0)))
         self._finish_button.setFrame_(((surface_width - 32.0, row_y), (22.0, 22.0)))
 
-        bars_width = self.NUM_BARS * 2.0 + (self.NUM_BARS - 1) * 2.0
+        bars_width = active_bar_count * 2.0 + (active_bar_count - 1) * 2.0
         content_center = surface_width / 2
         label_width = 0.0
         if label_visible:
@@ -356,7 +385,7 @@ class NativeCapsuleRenderer:
             ((group_x, self._row_center_y() - 9.0), (label_width, 18.0))
         )
         bars_x = group_x + label_width + (8.0 if label_width else 0.0)
-        for index, bar in enumerate(self._waveform):
+        for index, bar in enumerate(self._waveform[:active_bar_count]):
             frame = bar.frame()
             bar.setFrame_(
                 (

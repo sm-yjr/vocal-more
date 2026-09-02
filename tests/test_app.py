@@ -5,7 +5,7 @@ import sys
 import types
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -432,7 +432,7 @@ def test_floating_capsule_defers_native_setup_until_warm_up(
     setup.assert_called_once_with()
 
 
-def test_floating_capsule_coalesces_audio_updates_and_pushes_silence_tail(
+def test_floating_capsule_refreshes_audio_at_display_cadence_and_pushes_silence(
     tmp_path, monkeypatch
 ):
     from vocal_more.config import Config
@@ -444,26 +444,24 @@ def test_floating_capsule_coalesces_audio_updates_and_pushes_silence_tail(
 
     capsule_module = importlib.import_module("vocal_more.ui.floating_capsule")
     capsule_module = importlib.reload(capsule_module)
-    monkeypatch.setattr(capsule_module.time, "monotonic", lambda: 100.1)
-
     capsule = capsule_module.FloatingCapsule.__new__(capsule_module.FloatingCapsule)
     capsule._audio_level_lock = capsule_module.threading.Lock()
     capsule._latest_audio_level = 0.5
-    capsule._last_pushed_audio_level = 0.49
-    capsule._last_audio_level_push_at = 100.0
     capsule._push_count = 0
     capsule._renderer = MagicMock()
 
     capsule._push_audio_level()
 
-    capsule._renderer.set_audio_level.assert_not_called()
+    capsule._renderer.set_audio_level.assert_called_once_with(0.5)
 
     capsule._latest_audio_level = 0.0
     capsule._push_audio_level()
 
-    capsule._renderer.set_audio_level.assert_called_once_with(0.0)
-    assert capsule._last_pushed_audio_level == 0.0
-    assert 10 <= capsule_module.CAPSULE_AUDIO_PUSH_HZ <= 15
+    assert capsule._renderer.set_audio_level.call_args_list == [
+        call(0.5),
+        call(0.0),
+    ]
+    assert capsule_module.CAPSULE_AUDIO_PUSH_HZ == 60
 
 
 def test_floating_capsule_is_native_and_respects_reduced_motion():
@@ -475,6 +473,7 @@ def test_floating_capsule_is_native_and_respects_reduced_motion():
     assert "WKWebView" not in capsule_source
     assert "accessibilityDisplayShouldReduceMotion" in renderer_source
     assert "self._smoothed_levels" in renderer_source
+    assert "EXPANDED_BAR_COUNT = 24" in renderer_source
 
 
 def test_floating_capsule_does_not_restart_equivalent_processing_state(

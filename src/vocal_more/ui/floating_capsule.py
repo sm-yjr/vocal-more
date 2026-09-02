@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from collections.abc import Callable
 
 from AppKit import (
@@ -28,10 +27,8 @@ NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
 NSWindowCollectionBehaviorFullScreenAuxiliary = 1 << 8
 NSWindowCollectionBehaviorStationary = 1 << 4
 
-CAPSULE_AUDIO_PUSH_HZ = 12
+CAPSULE_AUDIO_PUSH_HZ = 60
 CAPSULE_AUDIO_PUSH_INTERVAL_SECONDS = 1.0 / CAPSULE_AUDIO_PUSH_HZ
-CAPSULE_LEVEL_CHANGE_THRESHOLD = 0.015
-CAPSULE_LEVEL_HEARTBEAT_SECONDS = 0.25
 CAPSULE_SILENCE_THRESHOLD = 0.005
 
 
@@ -63,8 +60,6 @@ class FloatingCapsule:
         self._progress_timer: NSTimer | None = None
         self._hide_timer: NSTimer | None = None
         self._push_count: int = 0  # for throttled debug logging
-        self._last_pushed_audio_level: float | None = None
-        self._last_audio_level_push_at: float = 0.0
         self._interface_language: str = "en"
         self._latest_prompt_text: str = ""
         self._main_thread_timers: set[NSTimer] = set()
@@ -213,8 +208,6 @@ class FloatingCapsule:
             if self._renderer is not None:
                 self._renderer.set_streaming_text(hint)
         self._panel.orderFront_(None)
-        self._last_pushed_audio_level = None
-        self._last_audio_level_push_at = 0.0
         self._stop_progress_timer()
         self._start_push_timer()
         print(
@@ -351,7 +344,7 @@ class FloatingCapsule:
         renderer.set_expanded(expanded)
 
     def _start_push_timer(self) -> None:
-        """Push the latest coalesced audio envelope to AppKit at 12Hz."""
+        """Refresh the native waveform at display cadence while recording."""
         self._stop_push_timer()
         # Create timer and add to MAIN run loop (not current thread's run loop)
         # so it fires correctly regardless of which thread calls show().
@@ -392,28 +385,13 @@ class FloatingCapsule:
             self._renderer.advance_progress()
 
     def _push_audio_level(self) -> None:
-        """Read the calibrated level and update the native renderer."""
+        """Read the latest envelope and advance the renderer by one frame."""
         with self._audio_level_lock:
             level = self._latest_audio_level
         level = 0.0 if level <= CAPSULE_SILENCE_THRESHOLD else level
-        now = time.monotonic()
-        previous = self._last_pushed_audio_level
-        is_silence_tail = level == 0.0 and previous not in (None, 0.0)
-        heartbeat_due = (
-            previous is None
-            or now - self._last_audio_level_push_at >= CAPSULE_LEVEL_HEARTBEAT_SECONDS
-        )
-        changed_enough = (
-            previous is None
-            or abs(level - previous) >= CAPSULE_LEVEL_CHANGE_THRESHOLD
-        )
-        if not (is_silence_tail or heartbeat_due or changed_enough):
-            return
 
         if self._renderer is not None:
             self._renderer.set_audio_level(level)
-        self._last_pushed_audio_level = level
-        self._last_audio_level_push_at = now
         self._push_count += 1
         if self._push_count % CAPSULE_AUDIO_PUSH_HZ == 1:
             print(f"[Capsule] waveform_level={level:.4f}")
