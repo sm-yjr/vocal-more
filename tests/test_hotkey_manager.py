@@ -1,6 +1,7 @@
 """Tests for runtime hotkey lookup configuration."""
 
 import threading
+from contextlib import contextmanager
 
 from vocal_more.config import Config
 from vocal_more.core import hotkey_manager as hotkey_module
@@ -18,6 +19,41 @@ class FakeFnSystemActionGuard:
     def restore(self):
         self.restore_count += 1
         return True
+
+
+def test_event_loop_drains_an_autorelease_pool_for_each_callback(monkeypatch):
+    """Python-owned Quartz threads must not retain wrappers until shutdown."""
+    config = Config()
+    monkeypatch.setattr(hotkey_module, "get_config", lambda: config)
+    manager = hotkey_module.HotkeyManager()
+    observed = []
+
+    @contextmanager
+    def autorelease_pool():
+        observed.append("enter")
+        try:
+            yield
+        finally:
+            observed.append("exit")
+
+    monkeypatch.setattr(hotkey_module, "_AUTORELEASE_POOL", autorelease_pool)
+    monkeypatch.setattr(
+        manager,
+        "_event_callback",
+        lambda proxy, event_type, event, refcon: observed.append("callback") or event,
+    )
+
+    captured = {}
+
+    def fake_tap_create(_tap, _place, _options, _mask, callback, _refcon):
+        captured["result"] = callback("proxy", 1, "event", None)
+
+    monkeypatch.setattr(hotkey_module, "CGEventTapCreate", fake_tap_create)
+
+    manager._run_event_loop()
+
+    assert captured["result"] == "event"
+    assert observed == ["enter", "callback", "exit"]
 
 
 def test_custom_regular_key_is_active(monkeypatch):

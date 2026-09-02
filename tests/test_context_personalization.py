@@ -183,14 +183,16 @@ def test_disabled_service_does_not_capture_or_persist(tmp_path):
     assert service.summary()["total"] == 0
 
 
-def test_service_routes_terminal_to_prompt_and_other_apps_to_dictation():
-    from vocal_more.application.context_personalization import (
-        ContextPersonalizationService,
-    )
+def test_experimental_service_routes_terminal_to_prompt_and_other_apps_to_dictation(
+    monkeypatch,
+):
+    import vocal_more.application.context_personalization as personalization
     from vocal_more.domain.app_context import AppContext
     from vocal_more.domain.config_models import ContextPersonalizationConfig
 
-    service = ContextPersonalizationService(
+    monkeypatch.setattr(personalization, "ADAPTIVE_INPUT_MODE_ENABLED", True)
+
+    service = personalization.ContextPersonalizationService(
         config=ContextPersonalizationConfig(enabled=True),
         app_provider=lambda: "",
         repository=None,
@@ -202,6 +204,24 @@ def test_service_routes_terminal_to_prompt_and_other_apps_to_dictation():
     assert service.polish_mode(terminal, "dictation") == "prompt"
     assert service.polish_mode(messaging, "prompt") == "dictation"
     assert service.polish_mode(None, "prompt") == "dictation"
+
+
+def test_release_gate_preserves_configured_polish_mode():
+    from vocal_more.application.context_personalization import (
+        ContextPersonalizationService,
+    )
+    from vocal_more.domain.app_context import AppContext
+    from vocal_more.domain.config_models import ContextPersonalizationConfig
+
+    service = ContextPersonalizationService(
+        config=ContextPersonalizationConfig(enabled=True),
+        app_provider=lambda: "",
+        repository=None,
+    )
+    terminal = AppContext(category="terminal", bundle_id="com.mitchellh.ghostty")
+
+    assert service.polish_mode(terminal, "dictation") == "dictation"
+    assert service.polish_mode(None, "prompt") == "prompt"
 
 
 def test_disabled_service_preserves_configured_polish_mode():

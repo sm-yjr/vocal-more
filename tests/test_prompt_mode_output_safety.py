@@ -101,25 +101,14 @@ def test_prompt_output_drops_empty_sections_after_cleanup():
 
 def test_capsule_hint_layout_wraps_without_ellipsis():
     root = Path(__file__).resolve().parents[1]
-    html = (root / "resources/floating_capsule/capsule.html").read_text(
-        encoding="utf-8"
-    )
-    python_source = (
-        root / "src/vocal_more/ui/floating_capsule.py"
-    ).read_text(encoding="utf-8")
+    capsule_source = (root / "src/vocal_more/ui/floating_capsule.py").read_text()
+    renderer_source = (root / "src/vocal_more/ui/native_capsule_view.py").read_text()
 
-    assert "white-space: pre-wrap" in html
-    assert "overflow-wrap: anywhere" in html
-    assert "text-overflow: ellipsis" not in html
-    assert "if (currentState === 'hidden') return;" in html
-    assert "HINT_CAPSULE_HEIGHT = 200" in python_source
-    assert "json.dumps(hint, ensure_ascii=False)" in python_source
-    assert ".capsule.has-prompt-hint.state-recording" in html
-    assert "max-height: calc(100% - 12px)" in html
-    assert "overflow-y: auto" in html
-    assert "scrollbar-width: none" in html
-    assert ".streaming-text::-webkit-scrollbar" in html
-    assert "streamingText.scrollTop = streamingText.scrollHeight" in html
+    assert "HINT_CAPSULE_HEIGHT = 200" in capsule_source
+    assert "cell.setWraps_(True)" in renderer_source
+    assert "NSLineBreakByWordWrapping" in renderer_source
+    assert 'visible = "…" + visible[-700:]' in renderer_source
+    assert "WKWebView" not in capsule_source
 
 
 def test_capsule_expands_before_initial_prompt_hint_is_injected(monkeypatch):
@@ -148,18 +137,16 @@ def test_capsule_expands_before_initial_prompt_hint_is_injected(monkeypatch):
     capsule._current_state = "hidden"
     capsule._interface_language = "zh"
     capsule._latest_prompt_text = ""
-    capsule._html_loaded = False
     capsule._hide_timer = None
+    capsule._renderer = MagicMock()
     capsule._ensure_setup = MagicMock()
     events = []
     capsule._set_capsule_size_on_main_thread = MagicMock(
         side_effect=lambda expanded: events.append(("resize", expanded))
     )
     capsule._display_mode = MagicMock(return_value="prompt")
-    capsule._eval_js = MagicMock(
-        side_effect=lambda javascript: events.append(("javascript", javascript))
-    )
     capsule._start_push_timer = MagicMock()
+    capsule._stop_progress_timer = MagicMock()
 
     monkeypatch.setattr(
         capsule_module,
@@ -182,10 +169,12 @@ def test_capsule_expands_before_initial_prompt_hint_is_injected(monkeypatch):
     capsule._set_capsule_size_on_main_thread.assert_has_calls(
         [call(False), call(True)]
     )
-    javascript = capsule._eval_js.call_args.args[0]
-    assert 'updatePromptHint("第一行提示\\n第二行提示")' in javascript
     assert events[0:2] == [("resize", False), ("resize", True)]
-    assert events[2][0] == "javascript"
+    capsule._renderer.set_mode.assert_called_once_with("prompt")
+    capsule._renderer.set_state.assert_called_once_with("recording")
+    capsule._renderer.set_streaming_text.assert_called_once_with(
+        "第一行提示\n第二行提示"
+    )
 
 
 def test_capsule_explicit_session_mode_overrides_global_mode(monkeypatch):
@@ -239,28 +228,19 @@ def test_capsule_expands_before_streaming_text_is_injected(monkeypatch):
     )
     capsule._current_state = "recording"
     capsule._current_mode = "handsFree"
+    capsule._renderer = MagicMock()
     events = []
     capsule._set_capsule_size_on_main_thread = MagicMock(
         side_effect=lambda expanded: events.append(("resize", expanded))
     )
-    capsule._eval_js = MagicMock(
-        side_effect=lambda javascript: events.append(("javascript", javascript))
-    )
+    capsule._update_streaming_text_on_main_thread("第一行\n第二行")
 
-    capsule._update_streaming_text_on_main_thread(
-        "第一行\n第二行",
-        '"第一行\\n第二行"',
-    )
-
-    assert events == [
-        ("resize", True),
-        ("javascript", 'updateStreamingText("第一行\\n第二行")'),
-    ]
+    assert events == [("resize", True)]
+    capsule._renderer.set_streaming_text.assert_called_once_with("第一行\n第二行")
 
     events.clear()
-    capsule._update_streaming_text_on_main_thread("", '""')
+    capsule._renderer.reset_mock()
+    capsule._update_streaming_text_on_main_thread("")
 
-    assert events == [
-        ("resize", False),
-        ("javascript", 'updateStreamingText("")'),
-    ]
+    assert events == [("resize", False)]
+    capsule._renderer.set_streaming_text.assert_called_once_with("")

@@ -12,8 +12,7 @@ Only the main thread may touch AppKit/WebKit UI state:
 
 - menu bar state
 - notifications
-- floating capsule `NSPanel`
-- floating capsule `WKWebView`
+- floating capsule `NSPanel` and its native `NSView`/Core Animation tree
 - settings window `NSWindow` / `WKWebView`
 
 Use the existing marshaling helpers when background code needs a UI update:
@@ -21,6 +20,12 @@ Use the existing marshaling helpers when background code needs a UI update:
 - `VocalMoreApp._run_on_main_thread()`
 - `FloatingCapsule._run_on_main_thread()`
 - `SettingsWindow._eval_js()` plus the main-thread JS drain timer
+
+`FloatingCapsule` is the sole owner of capsule state. Its
+`NativeCapsuleRenderer` owns only the AppKit view tree, target/action callbacks,
+waveform layers and progress layer. Audio workers publish one calibrated value;
+the main-run-loop timer coalesces it before updating the renderer. The native
+capsule does not create WebKit helper processes.
 
 Background code should emit UI intents, not call AppKit/WebKit directly.
 
@@ -33,6 +38,11 @@ Background code should emit UI intents, not call AppKit/WebKit directly.
 - enqueues those events onto the callback worker
 
 It does not run dictation business logic directly.
+
+Because this listener is created by Python rather than AppKit, each Quartz
+callback is wrapped in an explicit Objective-C autorelease pool. Temporary
+PyObjC/CoreFoundation bridge objects are therefore reclaimed at the event
+boundary instead of accumulating for the lifetime of the listener thread.
 
 ### 3. Hotkey callback worker serializes raw hotkey events
 
@@ -278,6 +288,13 @@ Realtime conversation close is bounded on the caller and may finish on a daemon
 closer when the SDK or network stack stalls. Application quit also bounds its
 wait for the command coordinator, so a wedged device or connection cannot hold
 the menu-bar process open indefinitely.
+
+The engine tracks both connect and close workers. Shutdown invalidates the
+session generation, joins those workers within a fixed budget, closes the
+underlying socket if an SDK receive thread does not exit promptly, and clears
+the provider callback/WebSocket ownership chain after that receive thread has
+stopped. This keeps late startup publication impossible while allowing socket
+and callback objects to be reclaimed deterministically.
 
 ### 9. Inbound realtime event worker owns callback-local ASR consequences
 

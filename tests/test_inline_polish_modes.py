@@ -822,12 +822,12 @@ def test_realtime_long_transcribes_when_app_provider_raises(tmp_path, monkeypatc
 
 
 def test_realtime_long_routes_ghostty_session_to_prompt(tmp_path, monkeypatch):
-    from vocal_more.application.context_personalization import (
-        ContextPersonalizationService,
-    )
+    import vocal_more.application.context_personalization as personalization
     from vocal_more.domain.config_models import ContextPersonalizationConfig
 
-    service = ContextPersonalizationService(
+    monkeypatch.setattr(personalization, "ADAPTIVE_INPUT_MODE_ENABLED", True)
+
+    service = personalization.ContextPersonalizationService(
         config=ContextPersonalizationConfig(enabled=True),
         app_provider=lambda: "com.mitchellh.ghostty",
         repository=None,
@@ -855,12 +855,12 @@ def test_realtime_long_routes_ghostty_session_to_prompt(tmp_path, monkeypatch):
 
 
 def test_realtime_long_routes_dingtalk_session_to_dictation(tmp_path, monkeypatch):
-    from vocal_more.application.context_personalization import (
-        ContextPersonalizationService,
-    )
+    import vocal_more.application.context_personalization as personalization
     from vocal_more.domain.config_models import ContextPersonalizationConfig
 
-    service = ContextPersonalizationService(
+    monkeypatch.setattr(personalization, "ADAPTIVE_INPUT_MODE_ENABLED", True)
+
+    service = personalization.ContextPersonalizationService(
         config=ContextPersonalizationConfig(enabled=True),
         app_provider=lambda: "com.laiwang.DingTalk",
         repository=None,

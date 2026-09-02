@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import platform
 from collections.abc import Callable
+import platform
 
 from ..domain.app_context import (
     AppContext,
     classify_app_context,
     instruction_for_context,
 )
+from ..release_features import ADAPTIVE_INPUT_MODE_ENABLED
 
 
 SENSITIVE_BUNDLE_IDS = {
@@ -78,7 +79,7 @@ class ContextPersonalizationService:
     ) -> str:
         """Route terminal sessions to Prompt and other apps to dictation."""
         fallback = "prompt" if configured_mode == "prompt" else "dictation"
-        if not self.config.enabled:
+        if not ADAPTIVE_INPUT_MODE_ENABLED or not self.config.enabled:
             return fallback
         return (
             "prompt"

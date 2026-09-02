@@ -42,6 +42,12 @@ class BufferedRealtimeConversation:
                 self._append_frame(frame)
             self._conversation.commit()
 
+    def close(self) -> None:
+        """Discard unsent audio before releasing the provider connection."""
+        with self._send_lock:
+            self._pending_audio.clear()
+        self._conversation.close()
+
     def _append_frame(self, frame: bytes) -> None:
         audio_b64 = base64.b64encode(frame).decode("ascii")
         self._conversation.append_audio(audio_b64)

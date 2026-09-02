@@ -6,6 +6,8 @@ BUILD_PYTHON="${VOCAL_MORE_BUILD_PYTHON:-}"
 BUILD_VENV="${VOCAL_MORE_BUILD_VENV:-$ROOT/packaging/macos/.venv-py2app}"
 TARGET_ARCH="${VOCAL_MORE_TARGET_ARCH:-$(uname -m)}"
 
+python3 "$ROOT/packaging/macos/validate_release_features.py"
+
 if [[ "${VOCAL_MORE_SKIP_FRONTEND_BUILD:-0}" != "1" ]]; then
   if ! command -v npm >/dev/null 2>&1; then
     echo "npm is required to build the React settings frontend." >&2

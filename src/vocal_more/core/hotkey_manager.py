@@ -3,9 +3,11 @@
 import queue
 import threading
 import time
+from contextlib import nullcontext
 from enum import Enum
 from typing import Callable, Optional
 
+import objc
 from Quartz import (
     CFMachPortCreateRunLoopSource,
     CFRunLoopAddSource,
@@ -30,6 +32,9 @@ from Quartz import (
 from ..config import get_config
 from ..domain.hotkey_catalog import BUILT_IN_HOTKEYS, NX_SECONDARYFNMASK
 from .fn_system_action import FnSystemActionGuard
+
+
+_AUTORELEASE_POOL = getattr(objc, "autorelease_pool", nullcontext)
 
 
 # Fn key constants
@@ -361,7 +366,12 @@ class HotkeyManager:
         """Run the event tap run loop."""
         # Create callback wrapper that can be called from C
         def callback_wrapper(proxy, event_type, event, refcon):
-            return self._event_callback(proxy, event_type, event, refcon)
+            # This callback runs on a Python-owned thread rather than AppKit's
+            # main loop. Drain temporary Objective-C wrappers for every event;
+            # otherwise ordinary keyboard traffic accumulates until the event
+            # tap thread exits.
+            with _AUTORELEASE_POOL():
+                return self._event_callback(proxy, event_type, event, refcon)
 
         # Use the earliest active event-filtering point. Fn/Globe system
         # actions (including input-source switching) are handled before a

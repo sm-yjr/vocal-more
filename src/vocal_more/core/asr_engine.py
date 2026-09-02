@@ -104,6 +104,7 @@ INLINE_RESPONSE_LATE_START_GRACE_SECONDS = 1.0
 WARM_KEEPER_CHECK_INTERVAL_SECONDS = 15.0
 WARM_KEEPER_SHUTDOWN_TIMEOUT_SECONDS = 0.25
 REALTIME_CLOSE_TIMEOUT_SECONDS = 0.25
+REALTIME_THREAD_JOIN_TIMEOUT_SECONDS = 0.25
 MAX_ADAPTIVE_RESPONSE_START_TIMEOUT_SECONDS = 20.0
 MAX_ADAPTIVE_RESPONSE_COMPLETE_TIMEOUT_SECONDS = 90.0
 STREAMING_AUDIO_QUEUE_TARGET_SECONDS = 6.4
@@ -2249,6 +2250,10 @@ class ASREngine:
         self._warm_keeper_thread: Optional[threading.Thread] = None
         self._warm_generation = 0
         self._warm_session_idle_since: Optional[float] = None
+        self._connection_close_lock = threading.Lock()
+        self._connection_close_threads: set[threading.Thread] = set()
+        self._connect_threads_lock = threading.Lock()
+        self._connect_threads: set[threading.Thread] = set()
         self._active_trace: Optional[ASRDebugTrace] = None
         self._trace_warm_reused = False
         self._last_metering: dict[str, Any] | None = None
@@ -2365,26 +2370,120 @@ class ASREngine:
             return
 
         closed = threading.Event()
+        thread_holder: dict[str, threading.Thread] = {}
 
         def _close() -> None:
             try:
                 conversation.close()
+                self._join_provider_connection_thread(conversation)
             except Exception:
                 pass
             finally:
                 closed.set()
+                closer_thread = thread_holder.get("thread")
+                if closer_thread is not None:
+                    with self._connection_close_lock:
+                        self._connection_close_threads.discard(closer_thread)
 
         closer = _THREAD_CLASS(
             target=_close,
             name="vocal-more-asr-connection-close",
             daemon=True,
         )
+        thread_holder["thread"] = closer
+        with self._connection_close_lock:
+            self._connection_close_threads.add(closer)
         closer.start()
         if not closed.wait(timeout=REALTIME_CLOSE_TIMEOUT_SECONDS):
+            self._force_close_provider_socket(conversation)
             print(
                 "[StreamingASR] Realtime connection close timed out; "
                 "continuing cleanup in background"
             )
+
+    @staticmethod
+    def _provider_conversation(conversation: object) -> object:
+        """Unwrap the app's buffering adapter without depending on its type."""
+        return getattr(conversation, "_conversation", conversation)
+
+    @classmethod
+    def _join_provider_connection_thread(cls, conversation: object) -> None:
+        provider = cls._provider_conversation(conversation)
+        worker = getattr(provider, "thread", None)
+        if (
+            worker is None
+            or worker is threading.current_thread()
+            or not callable(getattr(worker, "join", None))
+        ):
+            return
+        worker.join(timeout=REALTIME_THREAD_JOIN_TIMEOUT_SECONDS)
+        if callable(getattr(worker, "is_alive", None)) and worker.is_alive():
+            cls._force_close_provider_socket(conversation)
+            worker.join(timeout=REALTIME_THREAD_JOIN_TIMEOUT_SECONDS)
+        if not callable(getattr(worker, "is_alive", None)) or not worker.is_alive():
+            # DashScope retains both callback and WebSocketApp after its receive
+            # thread exits. Break that ownership chain once no callback can run.
+            if hasattr(provider, "callback"):
+                provider.callback = None
+            if hasattr(provider, "ws"):
+                provider.ws = None
+
+    @classmethod
+    def _force_close_provider_socket(cls, conversation: object) -> None:
+        """Unblock an SDK close worker whose WebSocket did not exit promptly."""
+        provider = cls._provider_conversation(conversation)
+        websocket = getattr(provider, "ws", None)
+        socket = getattr(websocket, "sock", None)
+        close = getattr(socket, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+
+    def _join_connection_close_threads(self) -> None:
+        """Bound shutdown while giving every tracked connection owner a join."""
+        with self._connection_close_lock:
+            threads = tuple(self._connection_close_threads)
+        for thread in threads:
+            if thread is threading.current_thread():
+                continue
+            join = getattr(thread, "join", None)
+            if callable(join):
+                join(timeout=REALTIME_THREAD_JOIN_TIMEOUT_SECONDS)
+
+    def _start_connect_thread(self, target: Callable[[], None]) -> None:
+        """Track a session-start worker until it exits or shutdown joins it."""
+        thread_holder: dict[str, threading.Thread] = {}
+
+        def _run() -> None:
+            try:
+                target()
+            finally:
+                worker = thread_holder.get("thread")
+                if worker is not None:
+                    with self._connect_threads_lock:
+                        self._connect_threads.discard(worker)
+
+        worker = threading.Thread(
+            target=_run,
+            daemon=True,
+        )
+        thread_holder["thread"] = worker
+        with self._connect_threads_lock:
+            self._connect_threads.add(worker)
+        worker.start()
+
+    def _join_connect_threads(self) -> None:
+        """Give invalidated startup workers a bounded shutdown join."""
+        with self._connect_threads_lock:
+            threads = tuple(self._connect_threads)
+        for thread in threads:
+            if thread is threading.current_thread():
+                continue
+            join = getattr(thread, "join", None)
+            if callable(join):
+                join(timeout=REALTIME_THREAD_JOIN_TIMEOUT_SECONDS)
 
     def _drop_conversation_with_callback(
         self,
@@ -2912,17 +3011,16 @@ class ASREngine:
         session_model_id = self._session_model_id
         session_context = self._context_instruction
         session_trace = self._active_trace
-        threading.Thread(
-            target=lambda: self._connect(
+        self._start_connect_thread(
+            lambda: self._connect(
                 session_generation=session_generation,
                 connect_done=connect_done,
                 session_config=session_config,
                 model_id=session_model_id,
                 context_instruction=session_context,
                 trace=session_trace,
-            ),
-            daemon=True,
-        ).start()
+            )
+        )
 
     def start_with_audio_contract(
         self,
@@ -3635,6 +3733,8 @@ class ASREngine:
             self._clear_audio_queue()
             self._audio_queue.put_nowait(_AUDIO_QUEUE_STOP)
         self._sender_thread.join(timeout=1.0)
+        self._join_connect_threads()
+        self._join_connection_close_threads()
 
 
 if __name__ == "__main__":

@@ -407,7 +407,7 @@ def test_app_capsule_routes_non_terminal_session_to_dictation(tmp_path, monkeypa
     app._capsule.show.assert_called_once_with("handsFree", prompt_mode=False)
 
 
-def test_floating_capsule_defers_webview_setup_until_warm_up(
+def test_floating_capsule_defers_native_setup_until_warm_up(
     tmp_path, monkeypatch
 ):
     from vocal_more.config import Config
@@ -452,31 +452,29 @@ def test_floating_capsule_coalesces_audio_updates_and_pushes_silence_tail(
     capsule._last_pushed_audio_level = 0.49
     capsule._last_audio_level_push_at = 100.0
     capsule._push_count = 0
-    capsule._eval_js = MagicMock()
+    capsule._renderer = MagicMock()
 
     capsule._push_audio_level()
 
-    capsule._eval_js.assert_not_called()
+    capsule._renderer.set_audio_level.assert_not_called()
 
     capsule._latest_audio_level = 0.0
     capsule._push_audio_level()
 
-    capsule._eval_js.assert_called_once_with("updateAudioLevel(0.0)")
+    capsule._renderer.set_audio_level.assert_called_once_with(0.0)
     assert capsule._last_pushed_audio_level == 0.0
     assert 10 <= capsule_module.CAPSULE_AUDIO_PUSH_HZ <= 15
 
 
-def test_floating_capsule_waveform_interpolates_and_respects_reduced_motion():
-    html = (
-        Path(__file__).resolve().parents[1]
-        / "resources"
-        / "floating_capsule"
-        / "capsule.html"
-    ).read_text(encoding="utf-8")
+def test_floating_capsule_is_native_and_respects_reduced_motion():
+    root = Path(__file__).resolve().parents[1]
+    capsule_source = (root / "src/vocal_more/ui/floating_capsule.py").read_text()
+    renderer_source = (root / "src/vocal_more/ui/native_capsule_view.py").read_text()
 
-    assert "requestAnimationFrame(renderWaveform)" in html
-    assert "prefers-reduced-motion: reduce" in html
-    assert "style.transform = `scaleY(" in html
+    assert "WebKit" not in capsule_source
+    assert "WKWebView" not in capsule_source
+    assert "accessibilityDisplayShouldReduceMotion" in renderer_source
+    assert "self._smoothed_levels" in renderer_source
 
 
 def test_floating_capsule_does_not_restart_equivalent_processing_state(
@@ -500,14 +498,16 @@ def test_floating_capsule_does_not_restart_equivalent_processing_state(
     )
     capsule._current_state = "recording"
     capsule._panel = MagicMock()
+    capsule._renderer = MagicMock()
     capsule._ensure_setup = MagicMock()
-    capsule._eval_js = MagicMock()
     capsule._stop_push_timer = MagicMock()
+    capsule._set_capsule_size_on_main_thread = MagicMock()
+    capsule._start_progress_timer = MagicMock()
 
     capsule._update_state_on_main_thread("processing")
     capsule._update_state_on_main_thread("processing")
 
-    capsule._eval_js.assert_called_once_with("updateState('processing')")
+    capsule._renderer.set_state.assert_called_once_with("processing")
     capsule._stop_push_timer.assert_called_once_with()
 
 

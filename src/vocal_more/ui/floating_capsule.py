@@ -1,12 +1,11 @@
-"""Floating capsule UI using NSPanel + WKWebView."""
+"""Floating capsule UI using NSPanel with a native AppKit content view."""
 
-import json
-import os
+from __future__ import annotations
+
 import threading
 import time
-from typing import Callable, Optional
+from collections.abc import Callable
 
-import objc
 from AppKit import (
     NSColor,
     NSEvent,
@@ -16,14 +15,11 @@ from AppKit import (
     NSWindowStyleMaskBorderless,
     NSWindowStyleMaskNonactivatingPanel,
 )
-from Foundation import NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer, NSURL
-from WebKit import WKUserContentController, WKWebView, WKWebViewConfiguration
+from Foundation import NSRunLoop, NSRunLoopCommonModes, NSTimer
 
 from ..config import get_config
 from ..domain.prompt_coach import prompt_coach_hint
 from ..localization import normalize_ui_language
-from ..paths import bundled_resource_path
-from .webview_bridge import objc_to_python
 
 # NSWindow level constants
 NSScreenSaverWindowLevel = 1000
@@ -39,28 +35,8 @@ CAPSULE_LEVEL_HEARTBEAT_SECONDS = 0.25
 CAPSULE_SILENCE_THRESHOLD = 0.005
 
 
-class _MessageHandler(NSObject):
-    """WKScriptMessageHandler to receive messages from JS."""
-
-    def initWithCallbacks_(self, callbacks):
-        self = objc.super(_MessageHandler, self).init()
-        if self is None:
-            return None
-        self._callbacks = callbacks
-        return self
-
-    def userContentController_didReceiveScriptMessage_(self, controller, message):
-        body = objc_to_python(message.body())
-        if isinstance(body, dict):
-            action = body.get("action")
-            if action == "cancel" and "cancel" in self._callbacks:
-                self._callbacks["cancel"]()
-            elif action == "finish" and "finish" in self._callbacks:
-                self._callbacks["finish"]()
-
-
 class FloatingCapsule:
-    """Floating capsule overlay using NSPanel + WKWebView."""
+    """Floating capsule overlay using one NSPanel and a native renderer."""
 
     # Capsule dimensions
     CAPSULE_WIDTH = 200
@@ -70,31 +46,31 @@ class FloatingCapsule:
 
     def __init__(
         self,
-        on_cancel: Optional[Callable[[], None]] = None,
-        on_finish: Optional[Callable[[], None]] = None,
+        on_cancel: Callable[[], None] | None = None,
+        on_finish: Callable[[], None] | None = None,
     ):
         self._on_cancel = on_cancel
         self._on_finish = on_finish
-        self._panel: Optional[NSPanel] = None
-        self._webview: Optional[WKWebView] = None
-        self._current_mode: Optional[str] = None
+        self._panel: NSPanel | None = None
+        self._renderer: object | None = None
+        self._current_mode: str | None = None
         self._current_state: str = "hidden"
 
         # Thread-safe calibrated level: audio thread writes, main thread reads
         self._latest_audio_level: float = 0.0
         self._audio_level_lock = threading.Lock()
-        self._push_timer: Optional[NSTimer] = None
-        self._hide_timer: Optional[NSTimer] = None
+        self._push_timer: NSTimer | None = None
+        self._progress_timer: NSTimer | None = None
+        self._hide_timer: NSTimer | None = None
         self._push_count: int = 0  # for throttled debug logging
-        self._last_pushed_audio_level: Optional[float] = None
+        self._last_pushed_audio_level: float | None = None
         self._last_audio_level_push_at: float = 0.0
-        self._html_loaded: bool = False
         self._interface_language: str = "en"
         self._latest_prompt_text: str = ""
         self._main_thread_timers: set[NSTimer] = set()
 
     def warm_up(self) -> None:
-        """Create the WebView after the menu bar item is already visible."""
+        """Create the native view after the menu bar item is already visible."""
         self._run_on_main_thread(self._ensure_setup)
 
     def _ensure_setup(self) -> None:
@@ -104,7 +80,9 @@ class FloatingCapsule:
         self._setup()
 
     def _setup(self) -> None:
-        """Create NSPanel and WKWebView."""
+        """Create NSPanel and its native content view."""
+        from .native_capsule_view import NativeCapsuleRenderer
+
         screen = NSScreen.mainScreen()
         screen_frame = screen.frame()
 
@@ -128,44 +106,14 @@ class FloatingCapsule:
         )
         self._panel.setHidesOnDeactivate_(False)
 
-        config = WKWebViewConfiguration.alloc().init()
-        content_controller = WKUserContentController.alloc().init()
-
-        callbacks = {}
-        if self._on_cancel:
-            callbacks["cancel"] = self._on_cancel
-        if self._on_finish:
-            callbacks["finish"] = self._on_finish
-
-        self._message_handler = _MessageHandler.alloc().initWithCallbacks_(callbacks)
-        content_controller.addScriptMessageHandler_name_(self._message_handler, "capsule")
-        config.setUserContentController_(content_controller)
-
-        webview_frame = ((0, 0), (self.CAPSULE_WIDTH, self.CAPSULE_HEIGHT))
-        self._webview = WKWebView.alloc().initWithFrame_configuration_(
-            webview_frame, config
+        self._renderer = NativeCapsuleRenderer(
+            width=self.CAPSULE_WIDTH,
+            height=self.CAPSULE_HEIGHT,
+            on_cancel=self._on_cancel,
+            on_finish=self._on_finish,
         )
-        self._webview.setValue_forKey_(False, "drawsBackground")
-
-        html_path = self._get_html_path()
-        if html_path and os.path.exists(html_path):
-            print(f"[Capsule] Loading HTML from: {html_path}")
-            url = NSURL.fileURLWithPath_(html_path)
-            self._webview.loadFileURL_allowingReadAccessToURL_(
-                url, url.URLByDeletingLastPathComponent()
-            )
-            self._html_loaded = True
-        else:
-            print(f"[Capsule] WARNING: HTML not found at: {html_path}")
-
-        self._panel.setContentView_(self._webview)
-
-    def _get_html_path(self) -> Optional[str]:
-        """Get path to capsule.html."""
-        html_path = bundled_resource_path("resources", "floating_capsule", "capsule.html")
-        if html_path.exists():
-            return str(html_path)
-        return None
+        self._renderer.set_interface_language(self._interface_language)
+        self._panel.setContentView_(self._renderer.content_view)
 
     def _prompt_mode_enabled(self) -> bool:
         config = get_config()
@@ -177,7 +125,7 @@ class FloatingCapsule:
     def _display_mode(
         self,
         mode: str,
-        prompt_mode: Optional[bool] = None,
+        prompt_mode: bool | None = None,
     ) -> str:
         prompt_enabled = (
             self._prompt_mode_enabled()
@@ -192,30 +140,20 @@ class FloatingCapsule:
             return "prompt"
         return mode
 
-    @staticmethod
-    def _escape_js_string(value: str) -> str:
-        return (
-            str(value)
-            .replace("\\", "\\\\")
-            .replace("'", "\\'")
-            .replace("\r", " ")
-            .replace("\n", " ")
-        )
-
     def _update_prompt_hint_on_main_thread(self) -> None:
         hint = prompt_coach_hint(
             self._latest_prompt_text,
             self._interface_language,
         )
         self._set_capsule_size_on_main_thread(bool(hint.strip()))
-        payload = json.dumps(hint, ensure_ascii=False)
-        self._eval_js(f"updatePromptHint({payload})")
+        if self._renderer is not None:
+            self._renderer.set_streaming_text(hint)
 
     def show(
         self,
         mode: str = "pushToTalk",
         *,
-        prompt_mode: Optional[bool] = None,
+        prompt_mode: bool | None = None,
     ) -> None:
         """Show the capsule."""
         if prompt_mode is None:
@@ -229,7 +167,7 @@ class FloatingCapsule:
         self,
         mode: str,
         *,
-        prompt_mode: Optional[bool] = None,
+        prompt_mode: bool | None = None,
     ) -> None:
         self._ensure_setup()
         self._set_capsule_size_on_main_thread(False)
@@ -262,27 +200,25 @@ class FloatingCapsule:
             panel_y = sf.origin.y + 20
             self._panel.setFrameOrigin_((panel_x, panel_y))
 
-        # Single JS call instead of separate IPC roundtrips.
-        javascript = (
-            f"setInterfaceLanguage('{self._interface_language}'); "
-            f"setMode('{display_mode}'); updateState('recording')"
-        )
+        if self._renderer is not None:
+            self._renderer.set_interface_language(self._interface_language)
+            self._renderer.set_mode(display_mode)
+            self._renderer.set_state("recording")
         if display_mode in {"prompt", "promptPushToTalk"}:
             hint = prompt_coach_hint("", self._interface_language)
             # The initial coach hint is already visible on the first frame.
-            # Expand the native container before WebKit lays out the multiline
-            # text, otherwise the 80pt compact frame can clip its top edge.
+            # Expand the native container before laying out multiline text so
+            # the 80pt compact frame cannot clip its top edge.
             self._set_capsule_size_on_main_thread(bool(hint.strip()))
-            payload = json.dumps(hint, ensure_ascii=False)
-            javascript += f"; updatePromptHint({payload})"
-        self._eval_js(javascript)
+            if self._renderer is not None:
+                self._renderer.set_streaming_text(hint)
         self._panel.orderFront_(None)
         self._last_pushed_audio_level = None
         self._last_audio_level_push_at = 0.0
+        self._stop_progress_timer()
         self._start_push_timer()
         print(
-            f"[Capsule] show(mode={display_mode}), "
-            f"html_loaded={self._html_loaded}"
+            f"[Capsule] show(mode={display_mode}), renderer=AppKit"
         )
 
     def set_interface_language(self, language: str) -> None:
@@ -294,13 +230,15 @@ class FloatingCapsule:
 
     def _set_interface_language_on_main_thread(self, language: str) -> None:
         self._interface_language = language
-        if self._panel and self._panel.isVisible():
-            self._eval_js(f"setInterfaceLanguage('{self._interface_language}')")
-            if (
-                self._current_state == "recording"
-                and self._current_mode in {"prompt", "promptPushToTalk"}
-            ):
-                self._update_prompt_hint_on_main_thread()
+        if self._renderer is not None:
+            self._renderer.set_interface_language(language)
+        if (
+            self._panel
+            and self._panel.isVisible()
+            and self._current_state == "recording"
+            and self._current_mode in {"prompt", "promptPushToTalk"}
+        ):
+            self._update_prompt_hint_on_main_thread()
 
     def hide(self) -> None:
         """Hide the capsule."""
@@ -308,10 +246,12 @@ class FloatingCapsule:
 
     def _hide_on_main_thread(self) -> None:
         self._stop_push_timer()
+        self._stop_progress_timer()
         self._set_capsule_size_on_main_thread(False)
         self._current_state = "hidden"
         self._latest_prompt_text = ""
-        self._eval_js("updateState('hidden')")
+        if self._renderer is not None:
+            self._renderer.set_state("hidden")
 
         # Cancel any previously scheduled hide timer
         if self._hide_timer:
@@ -347,11 +287,13 @@ class FloatingCapsule:
 
         self._ensure_setup()
         self._current_state = state
-        self._eval_js(f"updateState('{state}')")
+        if self._renderer is not None:
+            self._renderer.set_state(state)
 
         if state == "processing":
             self._stop_push_timer()
             self._set_capsule_size_on_main_thread(False)
+            self._start_progress_timer()
             if self._panel is not None:
                 self._panel.setIgnoresMouseEvents_(True)
 
@@ -362,18 +304,21 @@ class FloatingCapsule:
 
     def set_processing_stage(self, stage: str) -> None:
         """Update the capsule's processing phase label."""
-        escaped = stage.replace("\\", "\\\\").replace("'", "\\'")
-        self._run_on_main_thread(lambda: self._eval_js(f"setProcessingStage('{escaped}')"))
+        value = str(stage or "transcribing")
+        self._run_on_main_thread(
+            lambda: self._renderer.set_processing_stage(value)
+            if self._renderer is not None
+            else None
+        )
 
     def update_streaming_text(self, text: str) -> None:
         """Show model output or update the local Prompt coach."""
         value = str(text or "")
-        payload = json.dumps(value, ensure_ascii=False)
         self._run_on_main_thread(
-            lambda: self._update_streaming_text_on_main_thread(value, payload)
+            lambda: self._update_streaming_text_on_main_thread(value)
         )
 
-    def _update_streaming_text_on_main_thread(self, text: str, payload: str) -> None:
+    def _update_streaming_text_on_main_thread(self, text: str) -> None:
         if (
             self._current_state == "recording"
             and self._current_mode in {"prompt", "promptPushToTalk"}
@@ -381,16 +326,17 @@ class FloatingCapsule:
             self._latest_prompt_text = str(text or "")
             self._update_prompt_hint_on_main_thread()
             return
-        # A compact 80pt WKWebView cannot contain the multiline capsule. Resize
-        # before injecting the partial so the native window does not clip it.
+        # Resize before showing a multiline partial so the native container
+        # does not clip it.
         self._set_capsule_size_on_main_thread(bool(text.strip()))
-        self._eval_js(f"updateStreamingText({payload})")
+        if self._renderer is not None:
+            self._renderer.set_streaming_text(text)
 
     def _set_capsule_size_on_main_thread(self, expanded: bool) -> None:
         """Resize around the current horizontal center without moving screens."""
         panel = getattr(self, "_panel", None)
-        webview = getattr(self, "_webview", None)
-        if panel is None or webview is None:
+        renderer = getattr(self, "_renderer", None)
+        if panel is None or renderer is None:
             return
         width = self.HINT_CAPSULE_WIDTH if expanded else self.CAPSULE_WIDTH
         height = self.HINT_CAPSULE_HEIGHT if expanded else self.CAPSULE_HEIGHT
@@ -401,10 +347,11 @@ class FloatingCapsule:
             ((center_x - width / 2, origin_y), (width, height)),
             True,
         )
-        webview.setFrame_(((0, 0), (width, height)))
+        renderer.set_container_size(width, height)
+        renderer.set_expanded(expanded)
 
     def _start_push_timer(self) -> None:
-        """Push the latest coalesced audio envelope to JavaScript at 12Hz."""
+        """Push the latest coalesced audio envelope to AppKit at 12Hz."""
         self._stop_push_timer()
         # Create timer and add to MAIN run loop (not current thread's run loop)
         # so it fires correctly regardless of which thread calls show().
@@ -423,8 +370,29 @@ class FloatingCapsule:
             self._push_timer.invalidate()
             self._push_timer = None
 
+    def _start_progress_timer(self) -> None:
+        self._stop_progress_timer()
+        self._progress_timer = NSTimer.timerWithTimeInterval_repeats_block_(
+            0.2,
+            True,
+            lambda _: self._advance_progress(),
+        )
+        NSRunLoop.mainRunLoop().addTimer_forMode_(
+            self._progress_timer,
+            NSRunLoopCommonModes,
+        )
+
+    def _stop_progress_timer(self) -> None:
+        if self._progress_timer:
+            self._progress_timer.invalidate()
+            self._progress_timer = None
+
+    def _advance_progress(self) -> None:
+        if self._renderer is not None and self._current_state == "processing":
+            self._renderer.advance_progress()
+
     def _push_audio_level(self) -> None:
-        """Read the calibrated level and push it to JS on the main thread."""
+        """Read the calibrated level and update the native renderer."""
         with self._audio_level_lock:
             level = self._latest_audio_level
         level = 0.0 if level <= CAPSULE_SILENCE_THRESHOLD else level
@@ -442,25 +410,21 @@ class FloatingCapsule:
         if not (is_silence_tail or heartbeat_due or changed_enough):
             return
 
-        self._eval_js(f"updateAudioLevel({level})")
+        if self._renderer is not None:
+            self._renderer.set_audio_level(level)
         self._last_pushed_audio_level = level
         self._last_audio_level_push_at = now
         self._push_count += 1
         if self._push_count % CAPSULE_AUDIO_PUSH_HZ == 1:
             print(f"[Capsule] waveform_level={level:.4f}")
 
-    def _eval_js(self, js: str) -> None:
-        """Evaluate JavaScript in the WKWebView. Must be called from main thread."""
-        if self._webview:
-            self._webview.evaluateJavaScript_completionHandler_(js, None)
-
     def _run_on_main_thread(self, callback: Callable[[], None]) -> None:
-        """Marshal UI work onto the main run loop to avoid AppKit/WebKit crashes."""
+        """Marshal UI work onto the main run loop to avoid AppKit crashes."""
         if threading.current_thread() is threading.main_thread():
             callback()
             return
 
-        timer_ref: dict[str, Optional[NSTimer]] = {"timer": None}
+        timer_ref: dict[str, NSTimer | None] = {"timer": None}
 
         def _fire(_timer) -> None:
             timer = timer_ref["timer"]

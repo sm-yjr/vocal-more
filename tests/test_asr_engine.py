@@ -3000,26 +3000,29 @@ def test_streaming_engine_replaces_consumed_session_with_clean_warm_session(
     monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
 
     engine = asr_engine.ASREngine()
-    engine.start()
-    engine.send_audio(b"\x01\x00" * 1600)
-    assert engine.stop(pcm_data=b"\x01\x00" * 4000) == "收到"
+    try:
+        engine.start()
+        engine.send_audio(b"\x01\x00" * 1600)
+        assert engine.stop(pcm_data=b"\x01\x00" * 4000) == "收到"
 
-    assert _wait_until(lambda: engine._conversation is not None)
-    assert len(captured["instances"]) == 2
-    assert captured["instances"][0].closed is True
-    assert captured["instances"][1].closed is False
-    assert captured["committed_instance_ids"] == [1]
-    assert engine._warm_keeper_thread is not None
+        assert _wait_until(lambda: engine._conversation is not None)
+        assert len(captured["instances"]) == 2
+        assert captured["instances"][0].closed is True
+        assert captured["instances"][1].closed is False
+        assert captured["committed_instance_ids"] == [1]
+        assert engine._warm_keeper_thread is not None
 
-    engine.start()
-    engine.send_audio(b"\x01\x00" * 1600)
-    assert engine.stop(pcm_data=b"\x01\x00" * 4000) == "收到"
+        engine.start()
+        engine.send_audio(b"\x01\x00" * 1600)
+        assert engine.stop(pcm_data=b"\x01\x00" * 4000) == "收到"
 
-    assert _wait_until(lambda: len(captured["instances"]) == 3)
-    assert captured["committed_instance_ids"] == [1, 2]
-    assert captured["instances"][1].closed is True
-    assert captured["instances"][2].closed is False
-    assert captured["update_calls"] == 4
+        assert _wait_until(lambda: len(captured["instances"]) == 3)
+        assert captured["committed_instance_ids"] == [1, 2]
+        assert captured["instances"][1].closed is True
+        assert captured["instances"][2].closed is False
+        assert captured["update_calls"] == 4
+    finally:
+        engine.close()
 
 
 def test_streaming_engine_rejects_connected_but_consumed_warm_session():
@@ -3066,6 +3069,45 @@ def test_realtime_conversation_close_is_bounded():
     assert elapsed < 0.5
 
     release_close.set()
+    engine.close()
+
+
+def test_realtime_close_joins_sdk_worker_and_breaks_callback_cycle():
+    """A completed SDK receive thread must not retain its callback or WebSocket."""
+    import vocal_more.core.asr_engine as asr_engine
+
+    class FinishedWorker:
+        def __init__(self):
+            self.join_calls = []
+
+        def join(self, timeout=None):
+            self.join_calls.append(timeout)
+
+        @staticmethod
+        def is_alive():
+            return False
+
+    worker = FinishedWorker()
+    provider = SimpleNamespace(
+        thread=worker,
+        callback=object(),
+        ws=SimpleNamespace(sock=SimpleNamespace(close=lambda: None)),
+    )
+
+    class Conversation:
+        _conversation = provider
+
+        @staticmethod
+        def close():
+            return None
+
+    engine = asr_engine.ASREngine()
+    engine._close_conversation(Conversation())
+
+    assert worker.join_calls == [asr_engine.REALTIME_THREAD_JOIN_TIMEOUT_SECONDS]
+    assert provider.callback is None
+    assert provider.ws is None
+    assert engine._connection_close_threads == set()
     engine.close()
 
 
