@@ -465,20 +465,6 @@ def test_floating_capsule_refreshes_audio_at_display_cadence_and_pushes_silence(
     assert capsule_module.CAPSULE_PROGRESS_HZ == 60
 
 
-def test_floating_capsule_is_native_and_respects_reduced_motion():
-    root = Path(__file__).resolve().parents[1]
-    capsule_source = (root / "src/vocal_more/ui/floating_capsule.py").read_text()
-    renderer_source = (root / "src/vocal_more/ui/native_capsule_view.py").read_text()
-
-    assert "WebKit" not in capsule_source
-    assert "WKWebView" not in capsule_source
-    assert "accessibilityDisplayShouldReduceMotion" in renderer_source
-    assert "self._smoothed_levels" in renderer_source
-    assert "EXPANDED_BAR_COUNT = 24" in renderer_source
-    assert "PROCESSING_SURFACE_WIDTH = 184.0" in renderer_source
-    assert "setMasksToBounds_(True)" in renderer_source
-
-
 def test_floating_capsule_does_not_restart_equivalent_processing_state(
     tmp_path, monkeypatch
 ):

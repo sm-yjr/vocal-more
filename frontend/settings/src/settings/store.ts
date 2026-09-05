@@ -355,7 +355,7 @@ export class SettingsStore {
     })
   }
 
-  playAudio(id: string, base64Data: string): void {
+  playAudio(id: string, base64Data: string | null): void {
     this.patch({
       playingRecordingId: id,
       playbackBase64: base64Data,

@@ -628,6 +628,11 @@ describe("settings application", () => {
         id: "rec-1",
       })
 
+      act(() => store.playAudio("rec-1", null))
+      await user.click(screen.getByRole("button", { name: "播放 Hello Vocal More." }))
+      expect(postMessage).toHaveBeenCalledWith({ action: "stopRecording", id: "rec-1" })
+      expect(store.getSnapshot().playingRecordingId).toBeNull()
+
       await user.click(
         screen.getByRole("button", {
           name: "复制 Hello Vocal More.",

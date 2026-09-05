@@ -41,6 +41,7 @@ export const PYTHON_API_NAMES = [
   "meetingNotesStage",
   "recordingDeleted",
   "playAudio",
+  "recordingPlaybackEnded",
   "copiedFeedback",
 ] as const
 
@@ -93,6 +94,9 @@ export function installPythonApi(store: SettingsStore): void {
   window.recordingDeleted = (id) => store.recordingDeleted(id)
   window.playAudio = (id, base64Data) =>
     store.playAudio(id, base64Data)
+  window.recordingPlaybackEnded = (id) => {
+    if (store.getSnapshot().playingRecordingId === id) store.stopAudio()
+  }
   window.copiedFeedback = (id) => store.copiedFeedback(id)
 
   if (window._initData) {
@@ -150,7 +154,8 @@ declare global {
     meetingNotesStarted: (id: string) => void
     meetingNotesStage: (id: string, stage: string) => void
     recordingDeleted: (id: string) => void
-    playAudio: (id: string, base64Data: string) => void
+    playAudio: (id: string, base64Data: string | null) => void
+    recordingPlaybackEnded: (id: string) => void
     copiedFeedback: (id: string) => void
   }
 }

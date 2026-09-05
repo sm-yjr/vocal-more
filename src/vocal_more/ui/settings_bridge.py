@@ -301,6 +301,9 @@ class SettingsBridge:
     def _normalize_deleteRecording(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
         return _recording_action("delete_recording", body)
 
+    def _normalize_stopRecording(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
+        return _recording_action("stop_recording", body)
+
     def _normalize_playRecording(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
         return _recording_action("play_recording", body)
 

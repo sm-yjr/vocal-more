@@ -467,7 +467,11 @@ export function HistorySettings({
   }, [pendingId, store])
 
   useEffect(() => {
-    if (!snapshot.playbackBase64 || !snapshot.playingRecordingId) return
+    const id = snapshot.playingRecordingId
+    if (!id) return
+    if (snapshot.playbackBase64 === null) {
+      return () => sendAction("stopRecording", { id })
+    }
     audioRef.current?.pause()
     const audio = new Audio(
       `data:audio/wav;base64,${snapshot.playbackBase64}`,
@@ -477,6 +481,8 @@ export function HistorySettings({
     void audio.play()
     return () => {
       audio.pause()
+      audio.removeAttribute("src")
+      audio.load()
       if (audioRef.current === audio) audioRef.current = null
     }
   }, [

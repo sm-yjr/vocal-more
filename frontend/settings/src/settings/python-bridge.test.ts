@@ -80,6 +80,11 @@ describe("WKWebView settings bridge", () => {
       micTest: { playbackBase64: "UklGRg==" },
     })
     expect(store.getSnapshot().config.audio?.input_device).toBe("USB")
+    window.playAudio("native-recording", null)
+    window.recordingPlaybackEnded("previous-recording")
+    expect(store.getSnapshot().playingRecordingId).toBe("native-recording")
+    window.recordingPlaybackEnded("native-recording")
+    expect(store.getSnapshot().playingRecordingId).toBeNull()
   })
 
   it("routes context and recording-compaction callbacks into state", () => {

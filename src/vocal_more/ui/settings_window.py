@@ -141,6 +141,7 @@ class SettingsWindow:
         context_personalization: Optional[object] = None,
     ):
         self._closed = False
+        self._recording_player = None
         self._on_set_config = on_set_config
         self._on_preview_config = on_preview_config
         self._on_set_asr_model = on_set_asr_model
@@ -311,7 +312,11 @@ class SettingsWindow:
 
     def _teardown_surface(self) -> None:
         """Drop the hidden window/WebView so WebKit can reclaim its processes."""
+        webview = self._webview
+        with self._js_drain_lock:
+            self._webview = None
         self._stop_js_drain()
+        self._handle_stop_recording()
         controller = getattr(self, "_content_controller", None)
         if controller is not None:
             try:
@@ -320,7 +325,6 @@ class SettingsWindow:
                 print(f"[Settings] Message handler was already detached: {exc}")
             controller.removeAllUserScripts()
 
-        webview = getattr(self, "_webview", None)
         if webview is not None:
             webview.stopLoading()
             webview.removeFromSuperview()
@@ -330,6 +334,7 @@ class SettingsWindow:
             # Detach the delegate first: windowShouldClose_ intentionally
             # returns False for user clicks, but teardown owns final closure.
             window.setDelegate_(None)
+            window.setContentView_(None)
             window.orderOut_(None)
             window.close()
 
@@ -357,7 +362,10 @@ class SettingsWindow:
         if threading.current_thread() is threading.main_thread():
             self._webview.evaluateJavaScript_completionHandler_(js, None)
         else:
-            self._js_queue.put(js)
+            with self._js_drain_lock:
+                if self._webview is None:
+                    return
+                self._js_queue.put(js)
             self._schedule_js_drain()
 
     def _schedule_js_drain(self) -> None:
@@ -388,6 +396,11 @@ class SettingsWindow:
         with self._js_drain_lock:
             timer = self._js_drain_timer
             self._js_drain_timer = None
+            while True:
+                try:
+                    self._js_queue.get_nowait()
+                except queue.Empty:
+                    break
         if timer is not None:
             timer.invalidate()
 
@@ -590,6 +603,7 @@ class SettingsWindow:
             on_generate_meeting_notes=self._handle_generate_meeting_notes,
             on_delete_recording=self._handle_delete_recording,
             on_play_recording=self._handle_play_recording,
+            on_stop_recording=self._handle_stop_recording,
             on_copy_transcript=self._handle_copy_transcript,
             on_reset_context_profile=self._handle_reset_context_profile,
             on_compact_recording_history=self._handle_compact_recording_history,
@@ -768,15 +782,32 @@ class SettingsWindow:
     def _handle_delete_recording(self, rec_id: str) -> None:
         if not self._recording_store:
             return
+        self._handle_stop_recording(rec_id)
         self._recording_store.delete(rec_id)
         self._eval_js(f"recordingDeleted({json.dumps(rec_id)})")
 
     def _handle_play_recording(self, rec_id: str) -> None:
         if not self._recording_store:
             return
-        wav_b64 = self._recording_store.get_wav_base64(rec_id)
-        if wav_b64:
-            self._eval_js(f"playAudio({json.dumps(rec_id)}, {json.dumps(wav_b64)})")
+        path = self._recording_store.get_recording_path(rec_id)
+        if path is None:
+            return
+        if self._recording_player is None:
+            from .recording_player import RecordingPlayer
+
+            self._recording_player = RecordingPlayer(
+                on_stopped=lambda recording_id: self._eval_js(
+                    f"recordingPlaybackEnded({json.dumps(recording_id)})"
+                )
+            )
+        if self._recording_player.play(rec_id, path):
+            # null selects native playback; the bridge carries only the ID.
+            self._eval_js(f"playAudio({json.dumps(rec_id)}, null)")
+
+    def _handle_stop_recording(self, rec_id: str | None = None) -> None:
+        player = getattr(self, "_recording_player", None)
+        if player is not None:
+            player.stop(rec_id)
 
     def _handle_copy_transcript(self, rec_id: str) -> None:
         if not self._recording_store:

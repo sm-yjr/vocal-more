@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 
 import objc
 from AppKit import (
@@ -12,15 +13,15 @@ from AppKit import (
     NSColor,
     NSFont,
     NSFontWeightMedium,
-    NSLineBreakByWordWrapping,
+    NSScrollView,
     NSTextAlignmentCenter,
-    NSTextAlignmentLeft,
     NSTextField,
+    NSTextView,
     NSView,
     NSWorkspace,
 )
 from Foundation import NSObject
-from Quartz import CGColorCreateGenericRGB
+from Quartz import CALayer, CATransaction, CGColorCreateGenericRGB
 
 _TRANSLATIONS = {
     "en": {
@@ -67,6 +68,17 @@ class _CapsuleActionTarget(NSObject):
         callback = self._callbacks.get("finish")
         if callback is not None:
             callback()
+
+
+@contextmanager
+def _without_layer_actions():
+    # Timer-driven geometry already supplies animation frames.
+    CATransaction.begin()
+    CATransaction.setDisableActions_(True)
+    try:
+        yield
+    finally:
+        CATransaction.commit()
 
 
 def _cgcolor(white: float, alpha: float):
@@ -140,22 +152,29 @@ class NativeCapsuleRenderer:
 
         self._recording_label = _label("")
         self._thinking_label = _label("Transcribing")
-        self._streaming_label = _label("", size=12.0)
-        self._streaming_label.setAlignment_(NSTextAlignmentLeft)
-        self._streaming_label.setTextColor_(
-            NSColor.colorWithWhite_alpha_(1.0, 0.72)
-        )
-        cell = self._streaming_label.cell()
-        if cell is not None:
-            cell.setWraps_(True)
-            cell.setUsesSingleLineMode_(False)
-            cell.setLineBreakMode_(NSLineBreakByWordWrapping)
+        self._streaming_scroll = NSScrollView.alloc().initWithFrame_(((0, 0), (336, 122)))
+        self._streaming_scroll.setDrawsBackground_(False)
+        self._streaming_scroll.setHasVerticalScroller_(False)
+        self._streaming_label = NSTextView.alloc().initWithFrame_(((0, 0), (336, 122)))
+        self._streaming_label.setEditable_(False)
+        self._streaming_label.setSelectable_(False)
+        self._streaming_label.setDrawsBackground_(False)
+        self._streaming_label.setFont_(NSFont.systemFontOfSize_(12.0))
+        self._streaming_label.setTextColor_(NSColor.colorWithWhite_alpha_(1.0, 0.72))
+        self._streaming_label.setTextContainerInset_((0, 0))
+        self._streaming_label.textContainer().setLineFragmentPadding_(0)
+        self._streaming_label.setVerticallyResizable_(True)
+        self._streaming_label.setHorizontallyResizable_(False)
+        self._streaming_label.textContainer().setWidthTracksTextView_(True)
+        self._streaming_scroll.setDocumentView_(self._streaming_label)
 
         self._waveform = []
         for _ in range(self.NUM_BARS):
-            bar = NSView.alloc().initWithFrame_(((0, 0), (2, 2)))
-            _configure_layer(bar, (1.0, 0.9), 1.0)
-            self._surface.addSubview_(bar)
+            bar = CALayer.layer()
+            bar.setFrame_(((0, 0), (2, 2)))
+            bar.setBackgroundColor_(_cgcolor(1.0, 0.9))
+            bar.setCornerRadius_(1.0)
+            self._surface.layer().addSublayer_(bar)
             self._waveform.append(bar)
 
         self._progress_track = NSView.alloc().initWithFrame_(((0, 0), (40, 3)))
@@ -178,7 +197,7 @@ class NativeCapsuleRenderer:
             self._finish_button,
             self._recording_label,
             self._thinking_label,
-            self._streaming_label,
+            self._streaming_scroll,
             self._progress_track,
         ):
             self._surface.addSubview_(view)
@@ -186,7 +205,7 @@ class NativeCapsuleRenderer:
         self._width = float(width)
         self._height = float(height)
         self._mode = "pushToTalk"
-        self._state = "hidden"
+        self._state = ""
         self._language = "en"
         self._stage = "transcribing"
         self._streaming_text = ""
@@ -222,6 +241,8 @@ class NativeCapsuleRenderer:
         return self.view
 
     def set_container_size(self, width: float, height: float) -> None:
+        if (self._width, self._height) == (float(width), float(height)):
+            return
         self._width = float(width)
         self._height = float(height)
         self.view.setFrame_(((0, 0), (width, height)))
@@ -235,15 +256,29 @@ class NativeCapsuleRenderer:
     def set_interface_language(self, language: str) -> None:
         self._language = "zh" if language == "zh" else "en"
         self._update_labels()
+        self._layout()
 
+    @_without_layer_actions()
     def set_state(self, state: str) -> None:
+        if state == self._state:
+            return
         self._state = state
+        # Keep backing geometry live across hidden compact/expanded transitions.
+        # Hiding the NSView can retain a stale clipped backing store on resize.
+        self._surface.setAlphaValue_(0.0 if state == "hidden" else 1.0)
         if state == "hidden":
             self._streaming_text = ""
+            self._expanded = False
             self._progress = 0.0
         elif state == "recording":
+            self._streaming_text = ""
+            self._expanded = False
+            self._stage = "transcribing"
             self._progress = 0.0
+            self._reduce_motion = self._read_reduce_motion()
             self._smoothed_levels = [0.0] * self.NUM_BARS
+            for bar in self._waveform:
+                bar.setFrame_(((0, 0), (2, 2)))
             self._last_waveform_tick = time.monotonic()
         elif state == "processing":
             self._streaming_text = ""
@@ -254,21 +289,32 @@ class NativeCapsuleRenderer:
         self._layout()
 
     def set_expanded(self, expanded: bool) -> None:
-        self._expanded = bool(expanded)
-        self._layout()
+        if self._expanded != bool(expanded):
+            self._expanded = bool(expanded)
+            self._layout()
 
     def set_processing_stage(self, stage: str) -> None:
-        self._stage = stage or "transcribing"
+        value = stage or "transcribing"
+        if value == self._stage:
+            return
+        self._stage = value
         self._update_labels()
-
-    def set_streaming_text(self, text: str) -> None:
-        self._streaming_text = str(text or "")
-        visible = self._streaming_text
-        if len(visible) > 700:
-            visible = "…" + visible[-700:]
-        self._streaming_label.setStringValue_(visible)
         self._layout()
 
+    def set_streaming_text(self, text: str) -> None:
+        value = str(text or "")
+        if value == self._streaming_text:
+            return
+        was_expanded = self._is_expanded()
+        self._streaming_text = value
+        # Bound text shaping cost while retaining a useful recent transcript.
+        visible = value if len(value) <= 4000 else "…" + value[-4000:]
+        self._streaming_label.setString_(visible)
+        if was_expanded != self._is_expanded():
+            self._layout()
+        self._streaming_label.scrollRangeToVisible_((len(visible.encode("utf-16-le")) // 2, 0))
+
+    @_without_layer_actions()
     def set_audio_level(self, level: float) -> None:
         display_level = max(0.0, min(1.0, float(level)))
         now = time.monotonic()
@@ -278,6 +324,9 @@ class NativeCapsuleRenderer:
             self._phase += self.WAVEFORM_PHASE_RADIANS_PER_SECOND * elapsed
         active_count = self._active_bar_count()
         center = (active_count - 1) / 2
+        window = self.view.window()
+        scale = window.backingScaleFactor() if window else 2.0
+        row_center = self._row_center_y()
         for index, bar in enumerate(self._waveform):
             if index >= active_count:
                 self._smoothed_levels[index] = 0.0
@@ -299,11 +348,15 @@ class NativeCapsuleRenderer:
             self._smoothed_levels[index] = current
             height = 2.0 + current * 18.0
             frame = bar.frame()
-            bar.setFrame_(
-                ((frame.origin.x, self._row_center_y() - height / 2), (2, height))
-            )
+            # Snap to backing pixels; silence converges without perpetual mutations.
+            height = round(height * scale) / scale
+            if frame.size.height != height:
+                bar.setFrame_(
+                    ((frame.origin.x, row_center - height / 2), (2, height))
+                )
 
-    def advance_progress(self) -> None:
+    @_without_layer_actions()
+    def advance_progress(self) -> bool:
         now = time.monotonic()
         elapsed = max(1.0 / 120.0, min(0.05, now - self._last_progress_tick))
         self._last_progress_tick = now
@@ -317,6 +370,7 @@ class NativeCapsuleRenderer:
         self._progress_fill.setFrame_(
             ((frame.origin.x, frame.origin.y), (fill_width, 3))
         )
+        return self.PROGRESS_TARGET - self._progress > 0.001
 
     def _translation(self, key: str) -> str:
         translations = _TRANSLATIONS.get(self._language, _TRANSLATIONS["en"])
@@ -354,13 +408,23 @@ class NativeCapsuleRenderer:
             return self.EXPANDED_BAR_COUNT
         return self.COMPACT_BAR_COUNT
 
+    @_without_layer_actions()
     def _layout(self) -> None:
         expanded = self._is_expanded()
         is_recording = self._state == "recording"
         is_processing = self._state == "processing"
         compact_width = self._compact_surface_width()
+        thinking_width = max(self.PROCESSING_LABEL_WIDTH, math.ceil(self._thinking_label.intrinsicContentSize().width))
         if is_processing:
-            compact_width = max(compact_width, self.PROCESSING_SURFACE_WIDTH)
+            compact_width = max(compact_width, self.PROCESSING_SURFACE_WIDTH, thinking_width + 8.0 + self.PROGRESS_TRACK_WIDTH + 24.0)
+        label_visible = is_recording and self._mode in {
+            "meeting", "command", "prompt", "promptPushToTalk",
+        }
+        label_width = math.ceil(self._recording_label.intrinsicContentSize().width) if label_visible else 0.0
+        if label_visible:
+            # Reserve both controls, gaps and measured localized text.
+            margin = 80.0 if self._mode in {"prompt", "command"} else 24.0
+            compact_width = max(compact_width, label_width + 8.0 + 38.0 + margin)
         surface_width = 360.0 if expanded else compact_width
         surface_height = 176.0 if expanded else 36.0
         surface_x = (self._width - surface_width) / 2
@@ -383,7 +447,7 @@ class NativeCapsuleRenderer:
         self._recording_label.setHidden_(not label_visible)
         self._thinking_label.setHidden_(not is_processing)
         self._progress_track.setHidden_(not is_processing)
-        self._streaming_label.setHidden_(not expanded)
+        self._streaming_scroll.setHidden_(not expanded)
         active_bar_count = self._active_bar_count()
         for index, bar in enumerate(self._waveform):
             bar.setHidden_(not is_recording or index >= active_bar_count)
@@ -394,9 +458,6 @@ class NativeCapsuleRenderer:
 
         bars_width = active_bar_count * 2.0 + (active_bar_count - 1) * 2.0
         content_center = surface_width / 2
-        label_width = 0.0
-        if label_visible:
-            label_width = 76.0 if self._mode == "meeting" else 54.0
         group_width = label_width + (8.0 if label_width else 0.0) + bars_width
         group_x = content_center - group_width / 2
         self._recording_label.setFrame_(
@@ -412,7 +473,6 @@ class NativeCapsuleRenderer:
                 )
             )
 
-        thinking_width = self.PROCESSING_LABEL_WIDTH
         processing_group_width = thinking_width + 8.0 + self.PROGRESS_TRACK_WIDTH
         processing_x = content_center - processing_group_width / 2
         self._thinking_label.setFrame_(
@@ -426,4 +486,4 @@ class NativeCapsuleRenderer:
         )
         fill_width = self.PROGRESS_TRACK_WIDTH * self._progress
         self._progress_fill.setFrame_(((0, 0), (fill_width, 3.0)))
-        self._streaming_label.setFrame_(((12.0, 12.0), (surface_width - 24.0, 122.0)))
+        self._streaming_scroll.setFrame_(((12.0, 12.0), (surface_width - 24.0, 122.0)))

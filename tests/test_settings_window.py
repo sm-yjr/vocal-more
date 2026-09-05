@@ -68,7 +68,12 @@ def test_closing_settings_releases_webview_surface():
     window = SettingsWindow.__new__(SettingsWindow)
     window._mic_test_controller = MagicMock()
     window._request_form_state_sync = MagicMock()
-    window._stop_js_drain = MagicMock()
+    window._js_drain_timer = MagicMock()
+    pending_timer = window._js_drain_timer
+    window._js_queue = importlib.import_module("queue").Queue()
+    window._js_queue.put("stale playback data")
+    window._js_drain_lock = importlib.import_module("threading").Lock()
+    window._webview = None
     window._content_controller = MagicMock()
     window._webview = MagicMock()
     window._window = MagicMock()
@@ -81,6 +86,8 @@ def test_closing_settings_releases_webview_surface():
     assert window._content_controller is None
     assert window._webview is None
     assert window._window is None
+    assert window._js_queue.empty()
+    pending_timer.invalidate.assert_called_once_with()
 
 
 def test_show_recreates_released_settings_surface():
@@ -202,6 +209,8 @@ def test_settings_close_closes_each_workload_executor():
     window = SettingsWindow.__new__(SettingsWindow)
     window.hide = MagicMock()
     window._stop_js_drain = MagicMock()
+    window._js_drain_lock = importlib.import_module("threading").Lock()
+    window._webview = None
     window._mic_test_controller = MagicMock()
     window._model_check_tasks = MagicMock()
     window._recording_maintenance_tasks = MagicMock()

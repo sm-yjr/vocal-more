@@ -38,9 +38,9 @@ class FloatingCapsule:
     """Floating capsule overlay using one NSPanel and a native renderer."""
 
     # Capsule dimensions
-    CAPSULE_WIDTH = 200
+    CAPSULE_WIDTH = 240
     CAPSULE_HEIGHT = 80
-    HINT_CAPSULE_WIDTH = 380
+    HINT_CAPSULE_WIDTH = 400
     HINT_CAPSULE_HEIGHT = 200
 
     def __init__(
@@ -61,7 +61,6 @@ class FloatingCapsule:
         self._push_timer: NSTimer | None = None
         self._progress_timer: NSTimer | None = None
         self._hide_timer: NSTimer | None = None
-        self._push_count: int = 0  # for throttled debug logging
         self._interface_language: str = "en"
         self._latest_prompt_text: str = ""
         self._main_thread_timers: set[NSTimer] = set()
@@ -242,11 +241,13 @@ class FloatingCapsule:
     def _hide_on_main_thread(self) -> None:
         self._stop_push_timer()
         self._stop_progress_timer()
-        self._set_capsule_size_on_main_thread(False)
         self._current_state = "hidden"
         self._latest_prompt_text = ""
         if self._renderer is not None:
             self._renderer.set_state("hidden")
+        if self._panel is not None:
+            self._panel.setIgnoresMouseEvents_(True)
+        self._set_capsule_size_on_main_thread(False)
 
         # Cancel any previously scheduled hide timer
         if self._hide_timer:
@@ -274,8 +275,11 @@ class FloatingCapsule:
             self._hide_on_main_thread()
             return
 
+        if self._current_state == "hidden":
+            return
+
         # ModeState.STOPPING and ModeState.PROCESSING intentionally map to the
-        # same visible state. Re-sending ``processing`` would restart the JS
+        # same visible state. Re-sending ``processing`` would restart the
         # asymptotic timer and make a growing progress bar jump backwards.
         if state == self._current_state:
             return
@@ -314,6 +318,8 @@ class FloatingCapsule:
         )
 
     def _update_streaming_text_on_main_thread(self, text: str) -> None:
+        if self._current_state == "hidden":
+            return
         if (
             self._current_state == "recording"
             and self._current_mode in {"prompt", "promptPushToTalk"}
@@ -338,16 +344,19 @@ class FloatingCapsule:
         frame = panel.frame()
         center_x = frame.origin.x + frame.size.width / 2
         origin_y = frame.origin.y
-        panel.setFrame_display_(
-            ((center_x - width / 2, origin_y), (width, height)),
-            True,
-        )
+        if (frame.size.width, frame.size.height) != (width, height):
+            panel.setFrame_display_(
+                ((center_x - width / 2, origin_y), (width, height)),
+                True,
+            )
         renderer.set_container_size(width, height)
         renderer.set_expanded(expanded)
 
     def _start_push_timer(self) -> None:
         """Refresh the native waveform at display cadence while recording."""
         self._stop_push_timer()
+        with self._audio_level_lock:
+            self._latest_audio_level = 0.0
         # Create timer and add to MAIN run loop (not current thread's run loop)
         # so it fires correctly regardless of which thread calls show().
         self._push_timer = NSTimer.timerWithTimeInterval_repeats_block_(
@@ -383,8 +392,12 @@ class FloatingCapsule:
             self._progress_timer = None
 
     def _advance_progress(self) -> None:
-        if self._renderer is not None and self._current_state == "processing":
-            self._renderer.advance_progress()
+        if (
+            self._renderer is not None
+            and self._current_state == "processing"
+            and self._renderer.advance_progress() is False
+        ):
+            self._stop_progress_timer()
 
     def _push_audio_level(self) -> None:
         """Read the latest envelope and advance the renderer by one frame."""
@@ -394,9 +407,6 @@ class FloatingCapsule:
 
         if self._renderer is not None:
             self._renderer.set_audio_level(level)
-        self._push_count += 1
-        if self._push_count % CAPSULE_AUDIO_PUSH_HZ == 1:
-            print(f"[Capsule] waveform_level={level:.4f}")
 
     def _run_on_main_thread(self, callback: Callable[[], None]) -> None:
         """Marshal UI work onto the main run loop to avoid AppKit crashes."""

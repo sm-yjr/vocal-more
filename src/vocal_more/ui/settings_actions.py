@@ -33,6 +33,7 @@ class SettingsActionDispatcher:
         on_retry_transcription: Optional[Callable[[str], None]] = None,
         on_generate_meeting_notes: Optional[Callable[[str], None]] = None,
         on_delete_recording: Optional[Callable[[str], None]] = None,
+        on_stop_recording: Optional[Callable[[str], None]] = None,
         on_play_recording: Optional[Callable[[str], None]] = None,
         on_copy_transcript: Optional[Callable[[str], None]] = None,
         on_reset_context_profile: Optional[Callable[[], None]] = None,
@@ -61,6 +62,7 @@ class SettingsActionDispatcher:
         self._on_retry_transcription = on_retry_transcription
         self._on_generate_meeting_notes = on_generate_meeting_notes
         self._on_delete_recording = on_delete_recording
+        self._on_stop_recording = on_stop_recording
         self._on_play_recording = on_play_recording
         self._on_copy_transcript = on_copy_transcript
         self._on_reset_context_profile = on_reset_context_profile
@@ -90,6 +92,7 @@ class SettingsActionDispatcher:
             "retry_transcription": self._dispatch_retry_transcription,
             "generate_meeting_notes": self._dispatch_generate_meeting_notes,
             "delete_recording": self._dispatch_delete_recording,
+            "stop_recording": self._dispatch_stop_recording,
             "play_recording": self._dispatch_play_recording,
             "copy_transcript": self._dispatch_copy_transcript,
             "reset_context_profile": self._dispatch_reset_context_profile,
@@ -222,6 +225,10 @@ class SettingsActionDispatcher:
         rec_id = message.get("id", "")
         if rec_id and self._on_delete_recording is not None:
             self._on_delete_recording(rec_id)
+
+    def _dispatch_stop_recording(self, message: dict[str, Any]) -> None:
+        if self._on_stop_recording is not None:
+            self._on_stop_recording(message["id"])
 
     def _dispatch_play_recording(self, message: dict[str, Any]) -> None:
         rec_id = message.get("id", "")

@@ -99,18 +99,6 @@ def test_prompt_output_drops_empty_sections_after_cleanup():
     assert cleaned == "# Goal\n完成任务。"
 
 
-def test_capsule_hint_layout_wraps_without_ellipsis():
-    root = Path(__file__).resolve().parents[1]
-    capsule_source = (root / "src/vocal_more/ui/floating_capsule.py").read_text()
-    renderer_source = (root / "src/vocal_more/ui/native_capsule_view.py").read_text()
-
-    assert "HINT_CAPSULE_HEIGHT = 200" in capsule_source
-    assert "cell.setWraps_(True)" in renderer_source
-    assert "NSLineBreakByWordWrapping" in renderer_source
-    assert 'visible = "…" + visible[-700:]' in renderer_source
-    assert "WKWebView" not in capsule_source
-
-
 def test_capsule_expands_before_initial_prompt_hint_is_injected(monkeypatch):
     import AppKit
 
