@@ -56,6 +56,8 @@ class BaseMode(ABC):
         self.on_processing_stage = on_processing_stage
         self.on_audio_level = on_audio_level
 
+        self._connection_status = None
+        self.on_connection_status = None
         self._state = ModeState.IDLE
         self._session_lock = threading.Lock()
         self._session_token = 0
@@ -96,6 +98,7 @@ class BaseMode(ABC):
         with self._session_lock:
             self._session_token += 1
             token = self._session_token
+            self._connection_status = None
         self._log_lifecycle("session_started", session_token=token)
         return token
 
@@ -211,7 +214,7 @@ class BaseMode(ABC):
 
     def prewarm_asr(self) -> bool:
         """Force lazy ASR creation and begin a clean idle connection."""
-        if not self.runtime_is_idle:
+        if not self.runtime_is_idle or self._connection_is_pending():
             return False
         self.prewarm_audio()
         resource = getattr(self, "_asr", None)
@@ -263,6 +266,23 @@ class BaseMode(ABC):
             raise
         record_startup_event("asr_start_admitted", attempt_id=attempt_id, mode=self.name)
 
+    @property
+    def connection_status(self):
+        return self._connection_status
+
+    def _on_connection_update(self, token, status) -> None:
+        with self._session_lock:
+            if token != self._session_token:
+                return
+            self._connection_status = status
+        observer = self.on_connection_status
+        if callable(observer):
+            observer(self, status)
+
+    def _connection_is_pending(self) -> bool:
+        status = getattr(self, "_connection_status", None)
+        return status is not None and status.phase != "ready"
+
     def _start_realtime_asr_impl(
         self,
         *,
@@ -270,6 +290,10 @@ class BaseMode(ABC):
         context_instruction: str = "",
         polish_mode: str | None = None,
     ) -> None:
+        setter = getattr(self._asr, "set_connection_observer", None)
+        token = self._active_session_token
+        if callable(setter):
+            setter(lambda status: self._on_connection_update(token, status))
         starter = getattr(self._asr, "start_with_audio_contract", None)
         if callable(starter):
             kwargs = {}

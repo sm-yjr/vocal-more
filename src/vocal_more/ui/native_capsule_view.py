@@ -207,6 +207,7 @@ class NativeCapsuleRenderer:
         self._language = "en"
         self._stage = "transcribing"
         self._streaming_text = ""
+        self._connection_title = ""
         self._expanded = False
         self._progress = 0.0
         self._phase = 0.0
@@ -290,6 +291,14 @@ class NativeCapsuleRenderer:
         if self._expanded != bool(expanded):
             self._expanded = bool(expanded)
             self._layout()
+
+    def set_connection_message(self, title: str, detail: str) -> None:
+        self._connection_title = title
+        self.set_state("connection_error")
+        self._update_labels()
+        self.set_expanded(True)
+        self.set_streaming_text(detail)
+        self._layout()
 
     def set_processing_stage(self, stage: str) -> None:
         value = stage or "transcribing"
@@ -400,7 +409,9 @@ class NativeCapsuleRenderer:
         else:
             recording = ""
         self._recording_label.setStringValue_(recording)
-        self._thinking_label.setStringValue_(self._translation(self._stage))
+        self._thinking_label.setStringValue_(
+            self._connection_title if self._state == "connection_error" else self._translation(self._stage)
+        )
 
     def _compact_surface_width(self) -> float:
         return {
@@ -427,6 +438,7 @@ class NativeCapsuleRenderer:
         expanded = self._is_expanded()
         is_recording = self._state == "recording"
         is_processing = self._state == "processing"
+        is_connection = self._state == "connection_error"
         compact_width = self._compact_surface_width()
         thinking_width = max(self.PROCESSING_LABEL_WIDTH, math.ceil(self._thinking_label.intrinsicContentSize().width))
         if is_processing:
@@ -453,10 +465,10 @@ class NativeCapsuleRenderer:
             "promptPushToTalk",
         }
 
-        self._cancel_button.setHidden_(not buttons_visible)
-        self._finish_button.setHidden_(not buttons_visible)
+        self._cancel_button.setHidden_(not (buttons_visible or is_connection))
+        self._finish_button.setHidden_(not buttons_visible or is_connection)
         self._recording_label.setHidden_(not label_visible)
-        self._thinking_label.setHidden_(not is_processing)
+        self._thinking_label.setHidden_(not (is_processing or is_connection))
         self._progress_track.setHidden_(not is_processing)
         self._streaming_scroll.setHidden_(not expanded)
         if expanded:
@@ -490,7 +502,7 @@ class NativeCapsuleRenderer:
                 )
             )
 
-        processing_group_width = thinking_width + 8.0 + self.PROGRESS_TRACK_WIDTH
+        processing_group_width = thinking_width if is_connection else thinking_width + 8.0 + self.PROGRESS_TRACK_WIDTH
         processing_x = content_center - processing_group_width / 2
         self._thinking_label.setFrame_(
             ((processing_x, self._row_center_y() - 9.0), (thinking_width, 18.0))

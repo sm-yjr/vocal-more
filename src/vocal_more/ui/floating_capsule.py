@@ -62,6 +62,8 @@ class FloatingCapsule:
         self._progress_timer: NSTimer | None = None
         self._hide_timer: NSTimer | None = None
         self._interface_language: str = "en"
+        self._connection_notice = None
+        self._latest_transcript_text = ""
         self._latest_prompt_text: str = ""
         self._main_thread_timers: set[NSTimer] = set()
 
@@ -166,6 +168,8 @@ class FloatingCapsule:
         prompt_mode: bool | None = None,
     ) -> None:
         self._ensure_setup()
+        self._connection_notice = None
+        self._latest_transcript_text = ""
         self._set_capsule_size_on_main_thread(False)
         display_mode = self._display_mode(mode, prompt_mode)
         self._current_mode = display_mode
@@ -239,6 +243,7 @@ class FloatingCapsule:
         self._run_on_main_thread(self._hide_on_main_thread)
 
     def _hide_on_main_thread(self) -> None:
+        self._connection_notice = None
         self._stop_push_timer()
         self._stop_progress_timer()
         self._current_state = "hidden"
@@ -271,6 +276,11 @@ class FloatingCapsule:
         self._run_on_main_thread(lambda: self._update_state_on_main_thread(state))
 
     def _update_state_on_main_thread(self, state: str) -> None:
+        if getattr(self, "_connection_notice", None) is not None:
+            # Terminal failure remains visible until explicitly dismissed.
+            if state != "hidden":
+                self._current_state = state
+            return
         if state == "hidden":
             self._hide_on_main_thread()
             return
@@ -318,6 +328,9 @@ class FloatingCapsule:
         )
 
     def _update_streaming_text_on_main_thread(self, text: str) -> None:
+        self._latest_transcript_text = text
+        if getattr(self, "_connection_notice", None) is not None:
+            return
         if self._current_state == "hidden":
             return
         if (
@@ -332,6 +345,34 @@ class FloatingCapsule:
         self._set_capsule_size_on_main_thread(bool(text.strip()), text)
         if self._renderer is not None:
             self._renderer.set_streaming_text(text)
+
+    def show_connection_status(self, status) -> None:
+        self._run_on_main_thread(lambda: self._show_connection_status_on_main_thread(status))
+
+    def _show_connection_status_on_main_thread(self, status) -> None:
+        if self._current_state == "hidden":
+            return
+        if status.phase == "ready":
+            self._connection_notice = None
+            state = self._current_state
+            self._renderer.set_state(state)
+            self._set_capsule_size_on_main_thread(False)
+            self._update_streaming_text_on_main_thread(self._latest_transcript_text)
+            self._panel.setIgnoresMouseEvents_(
+                state != "recording" or self._current_mode in {"pushToTalk", "promptPushToTalk"}
+            )
+            if state == "recording":
+                self._start_push_timer()
+            elif state == "processing":
+                self._start_progress_timer()
+            return
+        self._connection_notice = status
+        self._stop_push_timer()
+        self._stop_progress_timer()
+        title, detail = status.display_text(self._interface_language)
+        self._set_capsule_size_on_main_thread(True, detail)
+        self._renderer.set_connection_message(title, detail)
+        self._panel.setIgnoresMouseEvents_(False)
 
     def _set_capsule_size_on_main_thread(self, expanded: bool, text: str = "") -> None:
         """Resize around the current horizontal center without moving screens."""

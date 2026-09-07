@@ -87,6 +87,9 @@ from .text_polisher import (
     normalize_structured_list_spacing,
 )
 
+from ..domain.connection_status import ConnectionStatus, CONNECTION_RETRY_DELAYS
+from ..startup_diagnostics import sanitize_diagnostic_value
+
 REALTIME_CHUNK_SIZE = 3200
 DASHSCOPE_REALTIME_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
 # The current public docs list qwen3-asr-flash as supporting audio up to 3 minutes / 10 MB.
@@ -453,6 +456,7 @@ class BatchASRCallback(OmniRealtimeCallback):
         self._lock = threading.Lock()
         self._session_finished = threading.Event()
         self._session_updated = threading.Event()
+        self._connection_failure = ""
         self._transcription_completed = threading.Event()
         self._accept_input_transcription = accept_input_transcription
         if not accept_input_transcription:
@@ -712,6 +716,7 @@ class BatchASRCallback(OmniRealtimeCallback):
             self._full_text = ""
         self._session_finished.clear()
         self._session_updated.clear()
+        self._connection_failure = ""
         self._transcription_completed.clear()
         self._response_text = ""
         self._response_done_received = False
@@ -1555,6 +1560,7 @@ class StreamingASRCallback(OmniRealtimeCallback):
         self._full_text = ""
         self._lock = threading.Lock()
         self._session_updated = threading.Event()
+        self._connection_failure = ""
         self._transcription_completed = threading.Event()
         self._accept_input_transcription = True
         self._complete_event = threading.Event()
@@ -2021,6 +2027,7 @@ class StreamingASRCallback(OmniRealtimeCallback):
 
         if kind == "error":
             error_msg = str(event.get("error_message", "") or "")
+            self._connection_failure = error_msg
             self._transcription_completed.set()
             self._record_event(event_type, t_ms=event_t_ms, **metadata, error=error_msg)
             if self._on_error:
@@ -2131,6 +2138,7 @@ class StreamingASRCallback(OmniRealtimeCallback):
             self._response_output_item_done_received = False
             self._response_output_item_status = ""
         self._session_updated.clear()
+        self._connection_failure = ""
         self._transcription_completed.clear()
         if not self._accept_input_transcription:
             self._transcription_completed.set()
@@ -2164,6 +2172,8 @@ class ASREngine:
         self.on_partial_result = on_partial_result
         self.on_final_result = on_final_result
         self.on_error = on_error
+        self._connection_observer = None
+        self._connection_error = ""
 
         self._conversation: Optional[Any] = None
         self._callback: Optional[StreamingASRCallback] = None
@@ -2567,6 +2577,9 @@ class ASREngine:
                 raise _ASRSessionAborted(
                     "ASR session was invalidated while waiting for session.updated"
                 )
+            failure = getattr(callback, "_connection_failure", "")
+            if isinstance(failure, str) and failure:
+                raise ConnectionError(failure)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("session.updated timeout")
@@ -2821,6 +2834,16 @@ class ASREngine:
                     if self._pending_audio_chunks == 0:
                         self._audio_queue_drained.notify_all()
 
+    def set_connection_observer(self, observer) -> None:
+        self._connection_observer = observer
+
+    def _notify_connection(self, generation: int, observer, status: ConnectionStatus) -> None:
+        if observer is not None and self._session_is_current(generation):
+            try:
+                observer(status)
+            except Exception as exc:
+                print(f"[StreamingASR] Connection observer failed: {type(exc).__name__}")
+
     def _can_reuse_warm_session(self, model_info: Optional[dict]) -> bool:
         return should_reuse_warm_session(
             supports_warm_session=_supports_warm_realtime_session(model_info),
@@ -2922,6 +2945,7 @@ class ASREngine:
             self._accepting_audio = True
             self._session_ready = False
             self._connect_failed = False
+            self._connection_error = ""
             self._connect_done = connect_done
         self._warm_session_idle_since = None
         self._trace_warm_reused = False
@@ -2952,6 +2976,8 @@ class ASREngine:
         session_model_id = self._session_model_id
         session_context = self._context_instruction
         session_trace = self._active_trace
+        self._notify_connection(session_generation, self._connection_observer,
+                                ConnectionStatus("connecting"))
         self._start_connect_thread(
             lambda: self._connect(
                 session_generation=session_generation,
@@ -3067,13 +3093,19 @@ class ASREngine:
         def is_cancelled() -> bool:
             return not self._session_is_current(session_generation)
 
-        max_retries = 2
+        observer = self._connection_observer
+        max_retries = len(CONNECTION_RETRY_DELAYS)
+        last_error = ""
         model_info = get_asr_model_info(model_id)
         for attempt in range(max_retries + 1):
             if is_cancelled():
                 connect_done.set()
                 return
 
+            if attempt:
+                self._notify_connection(session_generation, observer, ConnectionStatus(
+                    "connecting", last_error, retry=attempt, max_retries=max_retries,
+                ))
             attempt_callback: Optional[StreamingASRCallback] = None
             try:
                 reusing_warm_session = self._can_reuse_warm_session(model_info)
@@ -3182,6 +3214,7 @@ class ASREngine:
                         )
                     self._session_ready = True
 
+                self._notify_connection(session_generation, observer, ConnectionStatus("ready"))
                 connect_done.set()
                 print(f"[StreamingASR] Connected (attempt {attempt + 1})")
                 return
@@ -3219,17 +3252,28 @@ class ASREngine:
                 except Exception:
                     pass
 
-                if attempt < max_retries and connect_done.wait(timeout=0.5):
-                    return
+                last_error = str(sanitize_diagnostic_value(f"{type(exc).__name__}: {exc}"))
+                if attempt < max_retries:
+                    delay = CONNECTION_RETRY_DELAYS[attempt]
+                    self._notify_connection(session_generation, observer, ConnectionStatus(
+                        "retrying", last_error, retry=attempt + 1, delay=delay,
+                        max_retries=max_retries,
+                    ))
+                    if connect_done.wait(timeout=delay):
+                        return
 
-        # All retries exhausted — mark only this live generation as failed.
-        print("[StreamingASR] All connection attempts failed, will fall back to batch")
+        # Exhaustion is terminal. Do not issue a hidden extra batch request.
+        print("[StreamingASR] All connection attempts failed")
         with self._lock:
             if (
                 self._is_running
                 and session_generation == self._session_generation
             ):
                 self._connect_failed = True
+                self._connection_error = last_error
+        self._notify_connection(session_generation, observer, ConnectionStatus(
+            "failed", last_error, retry=max_retries, max_retries=max_retries,
+        ))
         connect_done.set()
 
     def send_audio(self, audio_chunk: bytes) -> None:
@@ -3311,28 +3355,25 @@ class ASREngine:
             stop_generation = self._session_generation
             self._accepting_audio = False
 
-        # Wait for _connect() thread to finish (success or failure) before proceeding
-        if not self._connect_done.wait(timeout=12.0):
-            print("[StreamingASR] Timeout waiting for connection thread, falling back to batch")
-            self._log_fallback("connect_timeout")
-            self._is_running = False
-            self._clear_audio_queue()
-            if self._callback:
-                self._callback.mark_client_event(
-                    "client.fallback.started",
-                    reason="connect_timeout",
-                )
-            self._finish_active_trace(
-                pcm_data,
-                result_source="batch_fallback",
-                fallback_reason="connect_timeout",
-            )
-            self._close_session_pair(expected_generation=stop_generation)
-            if pcm_data:
-                result = self._transcribe_batch_fallback(pcm_data)
-                self._last_metering = self._batch_fallback.get_last_metering()
-                return result
-            return ""
+        # Keep finish pending through the full retry schedule. Cancellation
+        # wakes this event immediately and invalidates the generation.
+        if not self._connect_done.wait(timeout=120.0):
+            message = "Connection timed out while waiting for the retry sequence"
+            with self._lock:
+                if stop_generation != self._session_generation:
+                    return ""
+                self._connection_error = message
+            self._notify_connection(stop_generation, self._connection_observer,
+                                    ConnectionStatus("failed", message))
+            self.abort_startup()
+            raise ConnectionError(message)
+        with self._lock:
+            if stop_generation != self._session_generation or not self._is_running:
+                return ""
+            connection_error = self._connection_error
+        if connection_error:
+            self.abort_startup()
+            raise ConnectionError(connection_error)
 
         # If streaming connection failed, fall back to batch transcription
         with self._lock:

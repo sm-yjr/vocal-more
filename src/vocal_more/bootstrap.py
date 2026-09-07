@@ -140,6 +140,8 @@ def build_menu_app_dependencies(
         recording_store=recording_store,
         dictionary_learning=dictionary_learning,
     )
+    for mode in (walkie_talkie, realtime_long):
+        mode.on_connection_status = getattr(app, "_on_connection_status", None)
     current_mode = _select_mode(config.default_mode, walkie_talkie, realtime_long)
     command_coordinator = command_coordinator_factory(thread_name="vocal-more-menu-commands")
 

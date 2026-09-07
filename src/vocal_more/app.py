@@ -1725,14 +1725,33 @@ class VocalMoreApp(rumps.App):
         if self._capsule:
             self._capsule.set_processing_stage(stage)
 
+    def _on_connection_status(self, mode, status) -> None:
+        def apply():
+            if mode is not self._current_mode or mode.connection_status is not status:
+                return
+            self._capsule.show_connection_status(status)
+            if status.phase == "failed":
+                self._get_command_coordinator().submit(
+                    lambda: mode.cancel(reason="connection_failed")
+                    if mode.connection_status is status else None,
+                    command_name="connection_failed",
+                )
+        self._run_on_main_thread(apply)
+
     def _on_capsule_cancel(self) -> None:
         """Handle cancel button from floating capsule."""
+        capsule = getattr(self, "_capsule", None)
+        if capsule is not None:
+            capsule.hide()
         self._get_command_coordinator().submit(
             self._handle_cancel_command,
             command_name="capsule_cancel",
         )
 
     def _handle_cancel_command(self, reason: str = "user_cancel") -> None:
+        capsule = getattr(self, "_capsule", None)
+        if capsule is not None:
+            capsule.hide()
         self._current_mode.cancel(reason=reason)
 
     def _handle_quit_cancel_command(self) -> None:

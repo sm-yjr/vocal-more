@@ -309,6 +309,30 @@ the provider callback/WebSocket ownership chain after that receive thread has
 stopped. This keeps late startup publication impossible while allowing socket
 and callback objects to be reclaimed deterministically.
 
+### Connection failure and user-controlled retries
+
+An active connection gets one initial attempt and at most five retries, with
+interruptible waits of 1, 2, 4, 8 and 16 seconds. The existing connect worker owns
+this sequence; no timer thread or extra retry worker is created. Readiness
+handshake errors preserve the provider's reason instead of becoming a generic
+session timeout. The final failure does not start a hidden batch request.
+
+Immutable connection notices carry the error, retry number and delay. Each
+observer captures its mode session token, and the macOS adapter rechecks the
+notice identity on the main thread. The capsule keeps an interactive error
+surface through processing and idle transitions. Only explicit dismissal or a
+new recording clears a terminal failure. A successful connection restores the
+underlying recording or processing UI.
+
+Finishing an utterance waits for the retry sequence, with a 120-second upper
+bound on the finish wait. Cancellation invalidates the ASR generation and wakes
+that wait before cleanup; it cannot produce a fallback request or paste a late
+result. Exhaustion asks the serial command coordinator to cancel capture while
+leaving the final error visible. Idle-mode selection cannot restart background
+prewarming after cancellation or exhaustion; the next explicit dictation clears
+that suspension. Canceling a blocked SDK call still relies on
+late-candidate rejection; it does not forcibly terminate the foreign call.
+
 ### 9. Inbound realtime event worker owns callback-local ASR consequences
 
 DashScope realtime callbacks may arrive on SDK-managed threads. Those threads now only:

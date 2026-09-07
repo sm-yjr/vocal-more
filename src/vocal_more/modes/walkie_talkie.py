@@ -13,6 +13,7 @@ from ..core.audio_recorder import AudioRecorder
 from ..core.asr_engine import ASREngine
 from ..core.keyboard_sim import KeyboardSimulator
 from ..dictionary import normalize_terms
+from ..domain.connection_status import ConnectionStatus
 from ..localization import format_microphone_start_error, t
 from .base_mode import BaseMode, ModeState
 
@@ -186,6 +187,13 @@ class WalkieTalkieMode(BaseMode):
                 self._asr_session_token = None
 
     def _report_startup_failure(self, exc: Exception, *, stage: str) -> None:
+        if stage == "microphone" and self._connection_is_pending():
+            self._on_connection_update(self._active_session_token, ConnectionStatus("ready"))
+        elif stage == "asr":
+            from ..startup_diagnostics import sanitize_diagnostic_value
+            self._on_connection_update(self._active_session_token, ConnectionStatus(
+                "failed", str(sanitize_diagnostic_value(str(exc))),
+            ))
         if self.on_error:
             if stage == "microphone":
                 self.on_error(
@@ -261,6 +269,8 @@ class WalkieTalkieMode(BaseMode):
         self._asr.send_audio(chunk)
 
     def _on_asr_error(self, msg: str) -> None:
+        if self._connection_is_pending() and callable(self.on_connection_status):
+            return
         if self.state in (ModeState.IDLE, ModeState.CANCELLING, ModeState.FAILED):
             return
         if self.on_error:
@@ -327,6 +337,7 @@ class WalkieTalkieMode(BaseMode):
             return
 
         previous_state = self._state
+        connection_pending = self._connection_is_pending()
         cancelled_session_token = self._active_session_token
         self._log_lifecycle(
             "cancel_requested",
@@ -335,6 +346,8 @@ class WalkieTalkieMode(BaseMode):
         )
         self._active_session_token = self._invalidate_session(reason=reason)
         self._set_state(ModeState.CANCELLING)
+        if connection_pending:
+            self._abort_realtime_asr_startup()
         if previous_state in (
             ModeState.STARTING,
             ModeState.RECORDING,

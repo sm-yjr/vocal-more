@@ -127,6 +127,39 @@ def main() -> None:
     capsule._update_streaming_text_on_main_thread("")
     assert panel.frame().size.height == capsule.CAPSULE_HEIGHT
 
+    from vocal_more.domain.connection_status import ConnectionStatus
+    for mode in ("handsFree", "pushToTalk", "prompt", "promptPushToTalk"):
+        capsule._current_state = "recording"
+        capsule._current_mode = mode
+        capsule._interface_language = "zh"
+        renderer.set_mode(mode)
+        renderer.set_state("recording")
+        notice = ConnectionStatus("retrying", "连接超时：无法连接 dashscope.aliyuncs.com", retry=3, delay=4)
+        capsule._show_connection_status_on_main_thread(notice)
+        assert not panel.ignoresMouseEvents()
+        assert not renderer._cancel_button.isHidden()
+        assert renderer._finish_button.isHidden()
+        assert all(bar.isHidden() for bar in renderer._waveform)
+        assert "3/5" in str(renderer._streaming_label.string())
+        snapshot(f"connection-retry-{mode}")
+        capsule._update_state_on_main_thread("processing")
+        assert renderer._state == "connection_error"
+        capsule._show_connection_status_on_main_thread(ConnectionStatus("ready"))
+        assert renderer._state == "processing"
+        failed = ConnectionStatus("failed", "403：没有该模型的访问权限", retry=5)
+        capsule._show_connection_status_on_main_thread(failed)
+        capsule._update_state_on_main_thread("hidden")
+        assert renderer._state == "connection_error"
+        assert not renderer._cancel_button.isHidden()
+        snapshot(f"connection-failed-{mode}")
+        capsule._hide_on_main_thread()
+        capsule._show_connection_status_on_main_thread(notice)
+        assert capsule._current_state == "hidden"
+        assert renderer._state == "hidden"
+        if capsule._hide_timer:
+            capsule._hide_timer.invalidate()
+            capsule._hide_timer = None
+
     renderer._cancel_button.performClick_(None)
     renderer._finish_button.performClick_(None)
     assert actions == ["cancel", "finish"]
