@@ -82,10 +82,57 @@ def main() -> None:
             renderer.set_state("hidden")
             assert renderer._surface.alphaValue() == 0.0
 
+    # Exercise the real panel owner: grow only as wrapped transcript needs it.
+    from vocal_more.ui.floating_capsule import FloatingCapsule
+    capsule = FloatingCapsule()
+    capsule._panel = panel
+    capsule._renderer = renderer
+    capsule._current_state = "recording"
+    capsule._current_mode = "handsFree"
+    renderer.set_mode("handsFree")
+    renderer.set_state("recording")
+    samples = (
+        ("one-line", "再者呢，你看。"),
+        ("two-lines", "第一行短内容\n第二行短内容"),
+        ("wrapped", "你看一下现在这个波形，它的长度还是不够长，跟这个窗口的长度不成正比。再者呢，只有几个字的时候就展开了全部窗口。希望窗口可以随着文字增加，逐行展开，并始终保留清楚的波形。"),
+        ("overflow", "长文本😀 English\n" * 100 + "LATEST END"),
+    )
+    heights = []
+    for name, text in samples:
+        capsule._update_streaming_text_on_main_thread(text)
+        height = panel.frame().size.height
+        heights.append(height)
+        layout = renderer._streaming_label.layoutManager()
+        container = renderer._streaming_label.textContainer()
+        layout.ensureLayoutForTextContainer_(container)
+        if name != "overflow":
+            used = layout.usedRectForTextContainer_(container).size.height
+            assert used <= renderer._streaming_scroll.contentSize().height + 1
+        assert height == renderer.preferred_container_height(text, 400)
+        surface = renderer._surface.frame()
+        assert surface.origin.y + surface.size.height <= height
+        visible_bars = [bar.frame() for bar in renderer._waveform if not bar.isHidden()]
+        span = visible_bars[-1].origin.x + visible_bars[-1].size.width - visible_bars[0].origin.x
+        assert span >= surface.size.width * .70
+        for _ in range(20):
+            renderer.set_audio_level(.7)
+        snapshot(name)
+    assert heights[0] < heights[1] < heights[2] <= heights[3] == 200
+    assert heights[0] < 105 and heights[1] < 125
+    # Corrections can shorten a partial. Shrink again without moving its base.
+    base_y = panel.frame().origin.y
+    capsule._update_streaming_text_on_main_thread(samples[0][1])
+    assert panel.frame().size.height == heights[0]
+    assert panel.frame().origin.y == base_y
+    capsule._update_streaming_text_on_main_thread("")
+    assert panel.frame().size.height == capsule.CAPSULE_HEIGHT
+
     renderer._cancel_button.performClick_(None)
     renderer._finish_button.performClick_(None)
     assert actions == ["cancel", "finish"]
     renderer.set_state("processing")
+    panel.setFrame_display_(((50, 50), (400, 200)), True)
+    renderer.set_container_size(400, 200)
     renderer.set_expanded(True)
     for stage in ("transcribing", "polishing", "understanding", "searching", "generating", "meeting_transcribing", "meeting_summarizing"):
         renderer.set_processing_stage(stage)

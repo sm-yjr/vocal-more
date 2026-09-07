@@ -130,7 +130,7 @@ def test_capsule_expands_before_initial_prompt_hint_is_injected(monkeypatch):
     capsule._ensure_setup = MagicMock()
     events = []
     capsule._set_capsule_size_on_main_thread = MagicMock(
-        side_effect=lambda expanded: events.append(("resize", expanded))
+        side_effect=lambda expanded, text="": events.append(("resize", expanded))
     )
     capsule._display_mode = MagicMock(return_value="prompt")
     capsule._start_push_timer = MagicMock()
@@ -155,7 +155,7 @@ def test_capsule_expands_before_initial_prompt_hint_is_injected(monkeypatch):
     capsule._show_on_main_thread("pushToTalk")
 
     capsule._set_capsule_size_on_main_thread.assert_has_calls(
-        [call(False), call(True)]
+        [call(False), call(True, "第一行提示\n第二行提示")]
     )
     assert events[0:2] == [("resize", False), ("resize", True)]
     capsule._renderer.set_mode.assert_called_once_with("prompt")
@@ -219,7 +219,7 @@ def test_capsule_expands_before_streaming_text_is_injected(monkeypatch):
     capsule._renderer = MagicMock()
     events = []
     capsule._set_capsule_size_on_main_thread = MagicMock(
-        side_effect=lambda expanded: events.append(("resize", expanded))
+        side_effect=lambda expanded, text="": events.append(("resize", expanded))
     )
     capsule._update_streaming_text_on_main_thread("第一行\n第二行")
 

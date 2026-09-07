@@ -13,6 +13,9 @@ from AppKit import (
     NSColor,
     NSFont,
     NSFontWeightMedium,
+    NSFontAttributeName,
+    NSStringDrawingUsesLineFragmentOrigin,
+    NSStringDrawingUsesFontLeading,
     NSScrollView,
     NSTextAlignmentCenter,
     NSTextField,
@@ -20,7 +23,7 @@ from AppKit import (
     NSView,
     NSWorkspace,
 )
-from Foundation import NSObject
+from Foundation import NSAttributedString, NSObject
 from Quartz import CALayer, CATransaction, CGColorCreateGenericRGB
 
 _TRANSLATIONS = {
@@ -100,8 +103,10 @@ class NativeCapsuleRenderer:
     """Own the native view tree while ``FloatingCapsule`` owns state."""
 
     COMPACT_BAR_COUNT = 10
-    EXPANDED_BAR_COUNT = 24
-    NUM_BARS = EXPANDED_BAR_COUNT
+    NUM_BARS = 80
+    TEXT_MAX_HEIGHT = 122.0
+    TEXT_SURFACE_INSETS = 54.0
+    CONTAINER_VERTICAL_INSETS = 24.0
     WAVEFORM_PHASE_RADIANS_PER_SECOND = 8.64
     WAVEFORM_ATTACK_SECONDS = 0.045
     WAVEFORM_DECAY_SECONDS = 0.18
@@ -160,6 +165,7 @@ class NativeCapsuleRenderer:
         self._streaming_label.textContainer().setWidthTracksTextView_(True)
         self._streaming_scroll.setDocumentView_(self._streaming_label)
 
+        self._expanded_bar_count = self.COMPACT_BAR_COUNT
         self._waveform = []
         for _ in range(self.NUM_BARS):
             bar = CALayer.layer()
@@ -293,6 +299,26 @@ class NativeCapsuleRenderer:
         self._update_labels()
         self._layout()
 
+    @staticmethod
+    def _visible_text(text: str) -> str:
+        return text if len(text) <= 4000 else "…" + text[-4000:]
+
+    def preferred_container_height(self, text: str, width: float) -> float:
+        """Measure wrapped text with the same font and width as the text view."""
+        visible = self._visible_text(str(text or ""))
+        attributed = NSAttributedString.alloc().initWithString_attributes_(
+            visible, {NSFontAttributeName: self._streaming_label.font()},
+        )
+        bounds = attributed.boundingRectWithSize_options_(
+            (max(1.0, width - 64.0), 100000.0),
+            NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading,
+        )
+        line_height = self._streaming_label.layoutManager().defaultLineHeightForFont_(
+            self._streaming_label.font(),
+        )
+        text_height = min(self.TEXT_MAX_HEIGHT, max(line_height, math.ceil(bounds.size.height)))
+        return math.ceil(text_height + self.TEXT_SURFACE_INSETS + self.CONTAINER_VERTICAL_INSETS)
+
     def set_streaming_text(self, text: str) -> None:
         value = str(text or "")
         if value == self._streaming_text:
@@ -300,7 +326,7 @@ class NativeCapsuleRenderer:
         was_expanded = self._is_expanded()
         self._streaming_text = value
         # Bound text shaping cost while retaining a useful recent transcript.
-        visible = value if len(value) <= 4000 else "…" + value[-4000:]
+        visible = self._visible_text(value)
         self._streaming_label.setString_(visible)
         if was_expanded != self._is_expanded():
             self._layout()
@@ -393,7 +419,7 @@ class NativeCapsuleRenderer:
 
     def _active_bar_count(self) -> int:
         if self._is_expanded():
-            return self.EXPANDED_BAR_COUNT
+            return self._expanded_bar_count
         return self.COMPACT_BAR_COUNT
 
     @_without_layer_actions()
@@ -413,8 +439,8 @@ class NativeCapsuleRenderer:
             # Reserve both controls, gaps and measured localized text.
             margin = 80.0 if self._mode == "prompt" else 24.0
             compact_width = max(compact_width, label_width + 8.0 + 38.0 + margin)
-        surface_width = 360.0 if expanded else compact_width
-        surface_height = 176.0 if expanded else 36.0
+        surface_width = self._width - 40.0 if expanded else compact_width
+        surface_height = self._height - self.CONTAINER_VERTICAL_INSETS if expanded else 36.0
         surface_x = (self._width - surface_width) / 2
         self._surface.setFrame_(((surface_x, 12.0), (surface_width, surface_height)))
 
@@ -433,6 +459,12 @@ class NativeCapsuleRenderer:
         self._thinking_label.setHidden_(not is_processing)
         self._progress_track.setHidden_(not is_processing)
         self._streaming_scroll.setHidden_(not expanded)
+        if expanded:
+            side_inset = 42.0 if buttons_visible else 12.0
+            waveform_space = surface_width - 2 * side_inset - label_width - (8.0 if label_width else 0.0)
+            self._expanded_bar_count = max(
+                self.COMPACT_BAR_COUNT, min(self.NUM_BARS, int((waveform_space + 2.0) // 4.0)),
+            )
         active_bar_count = self._active_bar_count()
         for index, bar in enumerate(self._waveform):
             bar.setHidden_(not is_recording or index >= active_bar_count)
@@ -471,4 +503,6 @@ class NativeCapsuleRenderer:
         )
         fill_width = self.PROGRESS_TRACK_WIDTH * self._progress
         self._progress_fill.setFrame_(((0, 0), (fill_width, 3.0)))
-        self._streaming_scroll.setFrame_(((12.0, 12.0), (surface_width - 24.0, 122.0)))
+        self._streaming_scroll.setFrame_(
+            ((12.0, 12.0), (surface_width - 24.0, max(1.0, surface_height - self.TEXT_SURFACE_INSETS))),
+        )

@@ -141,7 +141,7 @@ class FloatingCapsule:
             self._latest_prompt_text,
             self._interface_language,
         )
-        self._set_capsule_size_on_main_thread(bool(hint.strip()))
+        self._set_capsule_size_on_main_thread(bool(hint.strip()), hint)
         if self._renderer is not None:
             self._renderer.set_streaming_text(hint)
 
@@ -205,7 +205,7 @@ class FloatingCapsule:
             # The initial coach hint is already visible on the first frame.
             # Expand the native container before laying out multiline text so
             # the 80pt compact frame cannot clip its top edge.
-            self._set_capsule_size_on_main_thread(bool(hint.strip()))
+            self._set_capsule_size_on_main_thread(bool(hint.strip()), hint)
             if self._renderer is not None:
                 self._renderer.set_streaming_text(hint)
         self._panel.orderFront_(None)
@@ -329,18 +329,21 @@ class FloatingCapsule:
             return
         # Resize before showing a multiline partial so the native container
         # does not clip it.
-        self._set_capsule_size_on_main_thread(bool(text.strip()))
+        self._set_capsule_size_on_main_thread(bool(text.strip()), text)
         if self._renderer is not None:
             self._renderer.set_streaming_text(text)
 
-    def _set_capsule_size_on_main_thread(self, expanded: bool) -> None:
+    def _set_capsule_size_on_main_thread(self, expanded: bool, text: str = "") -> None:
         """Resize around the current horizontal center without moving screens."""
         panel = getattr(self, "_panel", None)
         renderer = getattr(self, "_renderer", None)
         if panel is None or renderer is None:
             return
         width = self.HINT_CAPSULE_WIDTH if expanded else self.CAPSULE_WIDTH
-        height = self.HINT_CAPSULE_HEIGHT if expanded else self.CAPSULE_HEIGHT
+        height = (
+            min(self.HINT_CAPSULE_HEIGHT, renderer.preferred_container_height(text, width))
+            if expanded else self.CAPSULE_HEIGHT
+        )
         frame = panel.frame()
         center_x = frame.origin.x + frame.size.width / 2
         origin_y = frame.origin.y
