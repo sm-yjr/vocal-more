@@ -60,7 +60,7 @@ LEGACY_BUILT_IN_HOTKEYS = (
     "f19",
     "f20",
 )
-VALID_DEFAULT_MODES = ("walkie_talkie", "realtime_long", "meeting")
+VALID_DEFAULT_MODES = ("walkie_talkie", "realtime_long")
 ASRLanguage = Literal["zh", "en", "auto"]
 PolishMode = Literal["dictation", "prompt"]
 PolishOutputLanguage = Literal["auto", "zh", "en"]
@@ -189,7 +189,6 @@ class HotkeyConfig:
     active_hotkeys: list[str] = field(default_factory=lambda: ["fn"])
     custom_key: Optional[dict] = None
     custom_keys: list[dict] = field(default_factory=list)
-    command_key: Optional[dict] = None
 
 
 @dataclass
@@ -206,14 +205,6 @@ class DictionaryLearningConfig:
     """Privacy-sensitive automatic dictionary-learning settings."""
 
     enabled: bool = False
-    excluded_bundle_ids: list[str] = field(default_factory=list)
-
-
-@dataclass
-class ContextPersonalizationConfig:
-    """Coarse app-category personalization with no content collection."""
-
-    enabled: bool = True
     excluded_bundle_ids: list[str] = field(default_factory=list)
 
 
@@ -403,9 +394,6 @@ class AppConfig:
     dictionary_learning: DictionaryLearningConfig = field(
         default_factory=DictionaryLearningConfig
     )
-    context_personalization: ContextPersonalizationConfig = field(
-        default_factory=ContextPersonalizationConfig
-    )
     enable_polish: bool = True
     auto_paste: bool = True
     streaming_paste: bool = False
@@ -442,7 +430,6 @@ class AppConfig:
             "hotkey",
             "ui",
             "dictionary_learning",
-            "context_personalization",
         ):
             section_data = data.get(section)
             if not isinstance(section_data, dict):
@@ -526,7 +513,6 @@ class AppConfig:
             "hotkey",
             "ui",
             "dictionary_learning",
-            "context_personalization",
         ):
             section_data = form_state.get(section)
             if not isinstance(section_data, dict):
@@ -542,7 +528,7 @@ class AppConfig:
         elif section == "hotkey":
             # Read the compatibility field first so the plural field remains
             # authoritative even if a hand-edited YAML file changes key order.
-            prioritized_fields = ["custom_key", "custom_keys", "command_key"]
+            prioritized_fields = ["custom_key", "custom_keys"]
 
         seen = set()
         for field_name in prioritized_fields:
@@ -586,8 +572,6 @@ class AppConfig:
             self._apply_ui_update(field_name, value)
         elif section == "dictionary_learning":
             self._apply_dictionary_learning_update(field_name, value)
-        elif section == "context_personalization":
-            self._apply_context_personalization_update(field_name, value)
         else:
             raise ValueError(f"Unknown config section: {section}")
 
@@ -747,13 +731,6 @@ class AppConfig:
             self.hotkey.active_hotkeys = _parse_hotkeys(value if isinstance(value, list) else [])
         elif field_name == "custom_key":
             self.hotkey.custom_key = _validate_custom_key(value)
-            if (
-                self.hotkey.custom_key is not None
-                and self.hotkey.command_key is not None
-                and self.hotkey.custom_key["key_code"]
-                == self.hotkey.command_key["key_code"]
-            ):
-                self.hotkey.custom_key = None
             self.hotkey.custom_keys = (
                 [self.hotkey.custom_key]
                 if self.hotkey.custom_key is not None
@@ -761,32 +738,11 @@ class AppConfig:
             )
         elif field_name == "custom_keys":
             self.hotkey.custom_keys = _parse_custom_keys(value)
-            if self.hotkey.command_key is not None:
-                command_code = self.hotkey.command_key["key_code"]
-                self.hotkey.custom_keys = [
-                    key
-                    for key in self.hotkey.custom_keys
-                    if key["key_code"] != command_code
-                ]
             self.hotkey.custom_key = (
                 self.hotkey.custom_keys[0]
                 if self.hotkey.custom_keys
                 else None
             )
-        elif field_name == "command_key":
-            self.hotkey.command_key = _validate_custom_key(value)
-            if self.hotkey.command_key is not None:
-                command_code = self.hotkey.command_key["key_code"]
-                self.hotkey.custom_keys = [
-                    key
-                    for key in self.hotkey.custom_keys
-                    if key["key_code"] != command_code
-                ]
-                self.hotkey.custom_key = (
-                    self.hotkey.custom_keys[0]
-                    if self.hotkey.custom_keys
-                    else None
-                )
         else:
             raise ValueError(f"Unknown config key: hotkey.{field_name}")
 
@@ -825,24 +781,6 @@ class AppConfig:
                 f"Unknown config key: dictionary_learning.{field_name}"
             )
 
-    def _apply_context_personalization_update(
-        self,
-        field_name: str,
-        value: Any,
-    ) -> None:
-        if field_name == "enabled":
-            self.context_personalization.enabled = parse_bool(
-                value,
-                self.context_personalization.enabled,
-            )
-        elif field_name == "excluded_bundle_ids":
-            self.context_personalization.excluded_bundle_ids = (
-                _parse_excluded_bundle_ids(value)
-            )
-        else:
-            raise ValueError(
-                f"Unknown config key: context_personalization.{field_name}"
-            )
 
     def to_dict(self) -> dict:
         return {
@@ -901,7 +839,6 @@ class AppConfig:
                         else []
                     )
                 ),
-                "command_key": self.hotkey.command_key,
             },
             "ui": {
                 "language": self.ui.language,
@@ -914,12 +851,7 @@ class AppConfig:
                     self.dictionary_learning.excluded_bundle_ids
                 ),
             },
-            "context_personalization": {
-                "enabled": self.context_personalization.enabled,
-                "excluded_bundle_ids": list(
-                    self.context_personalization.excluded_bundle_ids
-                ),
-            },
+
             "enable_polish": self.enable_polish,
             "auto_paste": self.auto_paste,
             "streaming_paste": self.streaming_paste,
@@ -950,7 +882,6 @@ __all__ = [
     "ASRLanguage",
     "AppConfig",
     "AudioConfig",
-    "ContextPersonalizationConfig",
     "DictionaryLearningConfig",
     "HOTKEY_ALIASES",
     "HotkeyConfig",

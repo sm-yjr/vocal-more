@@ -10,7 +10,7 @@ The Windows host reuses Vocal More's existing Python dictation runtime rather th
 - Standard Windows-themed settings window built with `tkinter.ttk`
 - Global F8 trigger with the same hold-or-tap gesture used by the macOS Fn trigger
 - Selectable F8–F12, Caps Lock, Right Ctrl, or Right Alt trigger
-- Walkie-Talkie, Real-time Long, and Meeting modes
+- Walkie-Talkie and Real-time Long modes
 - PortAudio microphone capture through `sounddevice`
 - Low-voice software gain, high-pass filtering, and soft limiting
 - Realtime and file ASR backends, optional LLM polishing, recording history, dictionary corpus, and coarse foreground-application personalization
@@ -40,7 +40,6 @@ recordings\recordings.json
 recordings\*.wav
 dictionary.yaml
 dictionary-learning.sqlite3
-context-profile.json
 vocal-more.log
 ```
 
@@ -54,7 +53,7 @@ The capsule appears only while a task is active. It shows:
 
 - microphone startup and recording states
 - a smoothed live level meter while recording
-- ASR, polishing, and meeting-processing stages
+- ASR and polishing stages
 - short-lived success and failure feedback
 - current mode, trigger, and Escape cancellation hint
 
@@ -64,7 +63,7 @@ The close button cancels the current task. The capsule can be dragged away from 
 
 Open **Settings…** from the tray menu or double-click the tray icon. The window provides tabs for:
 
-- API key, interface language, default mode, trigger, auto-paste, and context adaptation
+- API key, interface language, default mode, trigger, auto-paste
 - ASR model, recognition language, dictionary corpus, and microphone selection
 - LLM model, reasoning, polish strength, persona, tone, temperature, and token limit
 - gain mode, software gain, high-pass filter, limiter, and waveform calibration
@@ -84,7 +83,7 @@ In Real-time Long mode:
 - Tap the trigger to latch hands-free recording, then press it again to stop.
 - Press Escape or the capsule close button while a task is active to cancel it.
 
-In Walkie-Talkie mode, recording follows key-down and key-up directly. Meeting mode uses key-down as a toggle.
+In Walkie-Talkie mode, recording follows key-down and key-up directly. Real-time Long supports toggle recording.
 
 Pynput does not suppress the trigger key. The active application can still receive it. This avoids silently stealing shortcuts; choose a trigger that does not conflict with the applications used for dictation.
 
@@ -130,7 +129,7 @@ $env:DASHSCOPE_API_KEY = "your-api-key"
 uv run vocal-more
 ```
 
-The first run creates `%APPDATA%\Vocal More\config.yaml` when needed. In `context_personalization.excluded_bundle_ids`, Windows entries are lowercase executable basenames such as `example.exe`.
+The first run creates `%APPDATA%\Vocal More\config.yaml` when needed.
 
 ## Packaging
 

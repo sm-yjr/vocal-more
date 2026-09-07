@@ -329,31 +329,6 @@ def test_streaming_paste_disabled_for_inline_polish_model(tmp_path, monkeypatch)
     mode.close()
 
 
-def test_streaming_paste_disabled_for_command_intent(tmp_path, monkeypatch):
-    """COMMAND intent keeps the command workflow; no segment paste happens."""
-    from vocal_more.domain.input_intent import InputIntent
-
-    config = dict(_STREAMING_CONFIG)
-    # Command mode needs an Omni model; those are inline-polish too, so both
-    # guards independently keep command sessions on the original path.
-    config["asr"] = {"model": "qwen3.5-omni-flash-realtime"}
-    mode, observed, asr_instances = _build_streaming_mode(
-        tmp_path,
-        monkeypatch,
-        config,
-        stop_text="命令结果",
-    )
-
-    mode.on_hotkey_pressed(intent=InputIntent.COMMAND)
-    asr_instances[0].emit_final("命令分段")
-    time.sleep(0.05)
-    assert observed["pasted"] == []
-
-    mode.cancel(reason="test_cleanup")
-    assert observed["pasted"] == []
-    mode.close()
-
-
 def test_streaming_paste_failure_falls_back_to_full_finish(
     tmp_path, monkeypatch
 ):

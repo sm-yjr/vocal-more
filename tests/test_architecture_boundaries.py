@@ -278,9 +278,9 @@ def test_adapter_background_workloads_use_dedicated_executors() -> None:
     assert "_background_tasks" not in settings_source
     assert "_model_check_tasks" in settings_source
     assert "_recording_maintenance_tasks" in settings_source
-    assert "_meeting_tasks" in settings_source
+    assert "_meeting_tasks" not in settings_source
     assert "_background_tasks" not in rpc_source
-    assert "_meeting_tasks" in rpc_source
+    assert "_meeting_tasks" not in rpc_source
 
 
 def test_plain_import_is_checked_for_upward_dependency(tmp_path: Path) -> None:

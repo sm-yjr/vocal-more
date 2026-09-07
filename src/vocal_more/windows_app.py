@@ -34,14 +34,10 @@ _STAGE_LABELS = {
     "zh": {
         "transcribing": "正在识别",
         "polishing": "正在润色",
-        "meeting_transcribing": "正在转写会议",
-        "meeting_notes": "正在生成会议纪要",
     },
     "en": {
         "transcribing": "Transcribing",
         "polishing": "Polishing",
-        "meeting_transcribing": "Transcribing meeting",
-        "meeting_notes": "Generating meeting notes",
     },
 }
 
@@ -537,7 +533,7 @@ class WindowsVocalMoreApp:
                 self._text("重新识别完成", "Retry complete"),
                 self._text("重新识别任务已完成。", "The retry task is complete."),
             )
-        elif method in {"retry_failed", "meeting_notes_failed"}:
+        elif method == "retry_failed":
             self._notify(
                 self._text("任务失败", "Task failed"),
                 str(params.get("error") or "Unknown error"),

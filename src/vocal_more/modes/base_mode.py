@@ -8,6 +8,11 @@ from enum import Enum
 from typing import Callable, Optional
 
 from ..application.lazy_resource import initialized_resource
+from ..startup_diagnostics import (
+    exception_fields,
+    new_startup_attempt_id,
+    record_startup_event,
+)
 
 
 class ModeState(Enum):
@@ -54,6 +59,18 @@ class BaseMode(ABC):
         self._state = ModeState.IDLE
         self._session_lock = threading.Lock()
         self._session_token = 0
+        self._startup_diagnostic_attempt_id: str | None = None
+        self._startup_diagnostic_trigger = "unknown"
+
+    def set_startup_diagnostic_context(self, attempt_id: str, trigger: str) -> None:
+        """Associate the next mode transition with its physical/UI trigger."""
+        self._startup_diagnostic_attempt_id = attempt_id
+        self._startup_diagnostic_trigger = trigger
+
+    def _ensure_startup_diagnostic_context(self) -> str:
+        if not self._startup_diagnostic_attempt_id:
+            self.set_startup_diagnostic_context(new_startup_attempt_id(), "direct")
+        return self._startup_diagnostic_attempt_id
 
     @property
     def state(self) -> ModeState:
@@ -142,16 +159,40 @@ class BaseMode(ABC):
 
     def _start_audio_capture(self, audio_config: object) -> None:
         """Start with the same atomic snapshot already admitted by ASR."""
+        attempt_id = self._ensure_startup_diagnostic_context()
         recorder = getattr(self, "_recorder", None)
         if recorder is None:
             raise RuntimeError("Audio recorder is unavailable")
-        start_session = getattr(recorder, "start_capture_session", None)
-        if callable(start_session):
-            start_session(audio_config)
-            return
-        # Compatibility for injected test/extension recorders. The snapshot
-        # was already synchronized by apply_audio_runtime_config().
-        recorder.start()
+        record_startup_event("microphone_start_requested", attempt_id=attempt_id, mode=self.name)
+        try:
+            start_session = getattr(recorder, "start_capture_session", None)
+            if callable(start_session):
+                start_session(audio_config)
+            else:
+                # Compatibility for injected test/extension recorders. The snapshot
+                # was already synchronized by apply_audio_runtime_config().
+                recorder.start()
+        except Exception as exc:
+            status = getattr(recorder, "diagnostic_snapshot", None)
+            snapshot = status() if callable(status) else getattr(recorder, "input_status", None)
+            record_startup_event(
+                "microphone_start_failed",
+                attempt_id=attempt_id,
+                mode=self.name,
+                audio_input=snapshot,
+                **exception_fields(exc),
+            )
+            raise
+        record_startup_event(
+            "microphone_start_succeeded",
+            attempt_id=attempt_id,
+            mode=self.name,
+            audio_input=(
+                recorder.diagnostic_snapshot()
+                if callable(getattr(recorder, "diagnostic_snapshot", None))
+                else getattr(recorder, "input_status", None)
+            ),
+        )
 
     def refresh_asr_runtime(self) -> None:
         """Refresh an initialized ASR engine without forcing lazy creation."""
@@ -160,10 +201,19 @@ class BaseMode(ABC):
         if callable(refresh):
             refresh(drop_idle_session=True)
 
+    def prewarm_audio(self) -> bool:
+        """Prepare only this idle mode's capture graph; never open the mic."""
+        if not self.runtime_is_idle:
+            return False
+        recorder = getattr(self, "_recorder", None)
+        prepare_audio = getattr(type(recorder), "prepare_idle_capture", None)
+        return bool(prepare_audio(recorder)) if callable(prepare_audio) else False
+
     def prewarm_asr(self) -> bool:
         """Force lazy ASR creation and begin a clean idle connection."""
         if not self.runtime_is_idle:
             return False
+        self.prewarm_audio()
         resource = getattr(self, "_asr", None)
         getter = getattr(resource, "get", None)
         asr = getter() if callable(getter) else resource
@@ -195,10 +245,31 @@ class BaseMode(ABC):
         *,
         audio_config: object,
         context_instruction: str = "",
-        command_mode: bool = False,
         polish_mode: str | None = None,
     ) -> None:
         """Start ASR from the exact recorder-plan snapshot for this session."""
+        attempt_id = self._ensure_startup_diagnostic_context()
+        record_startup_event("asr_start_requested", attempt_id=attempt_id, mode=self.name)
+        try:
+            self._start_realtime_asr_impl(
+                audio_config=audio_config,
+                context_instruction=context_instruction,
+                polish_mode=polish_mode,
+            )
+        except Exception as exc:
+            record_startup_event(
+                "asr_start_failed", attempt_id=attempt_id, mode=self.name, **exception_fields(exc)
+            )
+            raise
+        record_startup_event("asr_start_admitted", attempt_id=attempt_id, mode=self.name)
+
+    def _start_realtime_asr_impl(
+        self,
+        *,
+        audio_config: object,
+        context_instruction: str = "",
+        polish_mode: str | None = None,
+    ) -> None:
         starter = getattr(self._asr, "start_with_audio_contract", None)
         if callable(starter):
             kwargs = {}
@@ -206,23 +277,19 @@ class BaseMode(ABC):
                 starter, "context_instruction"
             ):
                 kwargs["context_instruction"] = context_instruction
-            if command_mode and self._accepts_keyword(starter, "command_mode"):
-                kwargs["command_mode"] = True
             if polish_mode is not None and self._accepts_keyword(
                 starter, "polish_mode"
             ):
                 kwargs["polish_mode"] = polish_mode
             starter(audio_config, **kwargs)
             return
-        if context_instruction or command_mode or polish_mode is not None:
+        if context_instruction or polish_mode is not None:
             kwargs = {}
             start = self._asr.start
             if context_instruction and self._accepts_keyword(
                 start, "context_instruction"
             ):
                 kwargs["context_instruction"] = context_instruction
-            if command_mode and self._accepts_keyword(start, "command_mode"):
-                kwargs["command_mode"] = True
             if polish_mode is not None and self._accepts_keyword(
                 start, "polish_mode"
             ):
@@ -270,6 +337,12 @@ class BaseMode(ABC):
         data.update(payload)
         details = " ".join(f"{key}={value}" for key, value in data.items())
         print(f"[ModeLifecycle] event={event} {details}")
+        record_startup_event(
+            f"mode_{event}",
+            attempt_id=self._startup_diagnostic_attempt_id,
+            trigger=self._startup_diagnostic_trigger,
+            **data,
+        )
 
     @abstractmethod
     def on_hotkey_pressed(self) -> None:

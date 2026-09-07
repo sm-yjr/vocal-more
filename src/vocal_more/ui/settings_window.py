@@ -138,7 +138,6 @@ class SettingsWindow:
         on_open_external: Optional[Callable[[str], None]] = None,
         recording_store: Optional[object] = None,
         recording_retry: Optional[object] = None,
-        context_personalization: Optional[object] = None,
     ):
         self._closed = False
         self._recording_player = None
@@ -161,7 +160,6 @@ class SettingsWindow:
         self._on_open_external = on_open_external
         self._recording_store = recording_store
         self._recording_retry = recording_retry
-        self._context_personalization = context_personalization
 
         self._window: Optional[NSWindow] = None
         self._webview: Optional[WKWebView] = None
@@ -183,10 +181,6 @@ class SettingsWindow:
         self._recording_maintenance_tasks = BackgroundExecutor(
             max_workers=1,
             thread_name_prefix="vocal-more-recording-maintenance",
-        )
-        self._meeting_tasks = BackgroundExecutor(
-            max_workers=1,
-            thread_name_prefix="vocal-more-meeting-notes",
         )
         self._bridge = SettingsBridge()
         self._mic_test_controller = self._build_mic_test_controller()
@@ -484,11 +478,6 @@ class SettingsWindow:
             ),
             "dictionary": dictionary,
             "dictionary_learning_records": dictionary_learning_records or [],
-            "context_profile": (
-                self._context_personalization.summary()
-                if self._context_personalization is not None
-                else {"counts": {}, "total": 0}
-            ),
             "environment_checks": environment_checks or [],
             "polish_prompt_presets": polish_prompt_presets or {},
             "recordings": self._recording_store.list_recordings() if self._recording_store else [],
@@ -520,7 +509,6 @@ class SettingsWindow:
         for executor in (
             self._model_check_tasks,
             self._recording_maintenance_tasks,
-            self._meeting_tasks,
         ):
             executor.close(wait=False, cancel_futures=True)
 
@@ -600,12 +588,10 @@ class SettingsWindow:
             on_open_external=self._on_open_external,
             on_get_recordings=self._handle_get_recordings,
             on_retry_transcription=self._handle_retry_transcription,
-            on_generate_meeting_notes=self._handle_generate_meeting_notes,
             on_delete_recording=self._handle_delete_recording,
             on_play_recording=self._handle_play_recording,
             on_stop_recording=self._handle_stop_recording,
             on_copy_transcript=self._handle_copy_transcript,
-            on_reset_context_profile=self._handle_reset_context_profile,
             on_compact_recording_history=self._handle_compact_recording_history,
             mic_test_controller=self._mic_test_controller,
         )
@@ -652,12 +638,6 @@ class SettingsWindow:
             return {}
         return result if isinstance(result, dict) else {}
 
-    def _handle_reset_context_profile(self) -> None:
-        if self._context_personalization is None:
-            return
-        self._context_personalization.reset()
-        summary = self._context_personalization.summary()
-        self._eval_js(f"loadContextProfile({json.dumps(summary)})")
 
     def _handle_check_dashscope_models(self) -> None:
         """Check Pro and Lite model access without blocking the WebView."""
@@ -756,28 +736,6 @@ class SettingsWindow:
             )
         self._handle_get_recordings()
 
-    def _handle_generate_meeting_notes(self, rec_id: str) -> None:
-        if not self._recording_store:
-            return
-
-        self._eval_js(f"meetingNotesStarted({json.dumps(rec_id)})")
-
-        def _do_generate():
-            from ..application.meeting_jobs import MeetingNotesRecordingRunner
-            from ..config import get_config
-
-            MeetingNotesRecordingRunner(
-                config=get_config(),
-                recording_store=self._recording_store,
-            ).generate_for_recording(
-                rec_id,
-                on_stage=lambda stage: self._eval_js(
-                    f"meetingNotesStage({json.dumps(rec_id)}, {json.dumps(stage)})"
-                ),
-            )
-            self._handle_get_recordings()
-
-        self._meeting_tasks.submit(_do_generate)
 
     def _handle_delete_recording(self, rec_id: str) -> None:
         if not self._recording_store:

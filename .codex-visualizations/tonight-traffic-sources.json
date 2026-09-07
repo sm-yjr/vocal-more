@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "tonight-router-traffic",
+      "title": "今晚软路由流量与目的地分布",
+      "queries": [
+        {
+          "id": "router-snapshot-delta",
+          "reportingPeriod": "2026-08-31 约 17:52 至 21:40 HKT",
+          "capturedAt": "2026-08-31T21:40:07+08:00",
+          "source": {
+            "label": "软路由 sing-box 流量监控数据库",
+            "files": [{"label": "traffic.sqlite3"}],
+            "filters": ["出站：direct 与 dmit", "晚间增量：当前累计减去路由修改后的基线快照"],
+            "caveats": ["采集表按日聚合，没有原生小时字段；晚间数值依赖两次已记录快照相减。", "Qoder 与阿里云按已配置域名和网段识别。", "提前在终端设备加密的代理隧道只显示外层连接。"],
+            "metricDefinitions": [
+              {"name": "晚间新增流量", "definition": "21:40 日累计字节减去约 17:52 的日累计字节。", "calculationSummary": "分别对 direct 与 dmit 的上传和下载字节求和后做快照差分。", "componentIds": ["tonight-router-traffic"]}
+            ],
+            "evidenceFlow": [
+              {"kind": "source", "title": "软路由监控", "description": "读取 sing-box Clash API 采集器的 SQLite 日累计。"},
+              {"kind": "validation", "title": "运行状态", "description": "sing-box 与采集器均为 active/running，NRestarts=0，晚间日志无警告。"}
+            ]
+          },
+          "columns": [
+            {"field": "measure", "label": "指标"},
+            {"field": "value", "label": "数值"}
+          ],
+          "rows": [
+            {"measure": "晚间新增总流量", "value": "约 1.09 GiB"},
+            {"measure": "新增 direct", "value": "约 0.99 GiB"},
+            {"measure": "新增 dmit", "value": "约 105 MiB"},
+            {"measure": "dmit 最大来源", "value": "192.168.31.17，62.24%"},
+            {"measure": "Qoder/阿里云回流 dmit", "value": "76 B，可忽略"}
+          ],
+          "preview": {"kind": "aggregate", "note": "仅展示支持本次结论的汇总指标。"}
+        }
+      ]
+    },
+    {
+      "id": "tonight-vps-crosscheck",
+      "title": "日本 VPS 网卡交叉核对",
+      "queries": [
+        {
+          "id": "vps-vnstat-hourly",
+          "reportingPeriod": "2026-08-31 17:00 至 21:40 HKT",
+          "capturedAt": "2026-08-31T21:40:08+08:00",
+          "source": {
+            "label": "日本 VPS vnStat 与 Xray 运行日志",
+            "files": [{"label": "vnStat hourly counters"}, {"label": "xray journal"}],
+            "caveats": ["vnStat 统计整个 VPS 网卡，包含所有客户端、协议开销和软路由不可见的加密外层流量。", "Xray 日志提供连接来源和目标次数，不保存已结束连接的历史字节。"],
+            "evidenceFlow": [
+              {"kind": "validation", "title": "服务状态", "description": "xray 与 vnstat 均为 active/running，NRestarts=0。"}
+            ]
+          },
+          "columns": [
+            {"field": "measure", "label": "指标"},
+            {"field": "value", "label": "数值"}
+          ],
+          "rows": [
+            {"measure": "VPS 17:00–21:40 网卡总量", "value": "约 2.1 GiB"},
+            {"measure": "当前 443 活跃连接累计", "value": "约 92 MiB"},
+            {"measure": "当前主要公开来源", "value": "115.227.178.6"}
+          ],
+          "preview": {"kind": "aggregate", "note": "小时计数与当前连接字节的只读交叉核对。"}
+        }
+      ]
+    }
+  ]
+}

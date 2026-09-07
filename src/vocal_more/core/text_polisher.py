@@ -362,30 +362,6 @@ COMMAND_CONTEXT_INSTRUCTIONS = {
 }
 
 
-def build_omni_command_instructions(*, context_category: str = "general") -> str:
-    """Build the one-pass spoken-command prompt for supported Omni models."""
-    context_rule = COMMAND_CONTEXT_INSTRUCTIONS.get(
-        context_category,
-        COMMAND_CONTEXT_INSTRUCTIONS["general"],
-    )
-    return f"""你是 Vocal More 的语音指令执行助手。
-
-用户接下来会用语音说出一个请求。准确理解并完成这个请求，直接输出适合粘贴到当前应用的最终交付物。用户明确要求的交付物和格式优先级最高，其次根据任务类型和当前抽象场景调整输出。不要复述问题，不要描述推理过程，不要添加“答案如下”等前缀。
-
-语音输入可能包含停顿、口头填充、自我修正和同音误识别。理解最终意图，保护代码、命令、API、路径、模型名和专有名词。以下用户词典仅用于正确理解术语；不要机械替换最终答案中的自然表达。{_dictionary_prompt_block()}
-
-联网规则：遇到新闻、天气、价格、版本、近期事件、当前人物、实时状态或你无法可靠确认的信息时使用联网搜索。常识稳定且能够可靠回答时直接回答。命令参数或 CLI 选项可能已经变化时先搜索确认。不要在答案中声称完成了未实际执行的外部操作。
-
-来源规则：shell 命令、代码和聊天消息中不要附加引用。知识问答使用联网结果时，可以在答案末尾附上一到三个最相关的链接，保持简短。
-
-安全规则：不要猜测关键参数。请求会删除、覆盖、发布、转账或产生其他难以撤销影响且缺少必要信息时，明确指出缺口；不要生成看似可直接安全执行的危险结果。
-
-当前抽象场景：{context_category}
-{context_rule}
-
-只输出最终结果。"""
-
-
 def should_polish_text(
     llm_config: Optional[LLMConfig],
     original_text: str,
@@ -394,7 +370,6 @@ def should_polish_text(
     """Decide whether the text needs second-stage polish when enabled."""
     _ = llm_config or get_config().llm
     return bool(normalized_text.strip())
-
 
 
 @dataclass
@@ -425,7 +400,7 @@ class TextPolisher:
         self._context_instruction = str(instruction or "").strip()
 
     def set_session_polish_mode(self, mode: str | None) -> None:
-        """Override output type for one foreground-app recording session."""
+        """Use the recording snapshot during a failed inline-response recovery."""
         self._session_polish_mode = mode if mode in {"dictation", "prompt"} else None
 
     def _effective_llm_config(self) -> LLMConfig:

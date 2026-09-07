@@ -931,7 +931,7 @@ vm_audio_stream *vm_audio_create(
     return nullptr;
 }
 
-int32_t vm_audio_start(
+int32_t vm_audio_prepare(
     vm_audio_stream *stream,
     char *error_buffer,
     size_t error_capacity
@@ -944,7 +944,7 @@ int32_t vm_audio_start(
     return run_abi_guarded(
         [&]() -> int32_t {
             std::lock_guard<std::mutex> lifecycle_guard(stream->lifecycle_mutex);
-            if (stream->started.load(std::memory_order_acquire)) {
+            if (stream->started.load(std::memory_order_acquire) || stream->paused) {
                 return 0;
             }
             if (stream->stop_completed) {
@@ -1082,15 +1082,6 @@ int32_t vm_audio_start(
                                 return -1;
                             }
 
-                            stream->raw_queue = std::make_unique<RawQueue>(
-                                stream->queue_blocks,
-                                raw_capacity
-                            );
-                            stream->tap_context =
-                                std::make_shared<RealtimeTapContext>(
-                                    stream->raw_queue.get(),
-                                    stream->start_time_ns.load(std::memory_order_acquire)
-                                );
                             stream->converter = converter;
                             stream->converter_input = converter_input;
                             stream->converter_output = converter_output;
@@ -1102,79 +1093,9 @@ int32_t vm_audio_start(
                                 input_node.isVoiceProcessingAGCEnabled,
                                 std::memory_order_release
                             );
-                            stream->tap_context->accepting.store(
-                                true,
-                                std::memory_order_seq_cst
-                            );
-
-                            const std::shared_ptr<RealtimeTapContext> captured_context =
-                                stream->tap_context;
-                            [input_node installTapOnBus:0
-                                bufferSize:native_buffer_frames
-                                format:nil
-                                block:^(AVAudioPCMBuffer *buffer, AVAudioTime *when) {
-                                    (void)when;
-                                    RealtimeTapCallbackScope callback_scope(
-                                        captured_context.get()
-                                    );
-                                    if (callback_scope.accepting()) {
-                                        const AVAudioFrameCount frames = buffer.frameLength;
-                                        float *const *channels = buffer.floatChannelData;
-                                        if (frames > 0 && channels != nullptr &&
-                                            channels[0] != nullptr) {
-                                            uint64_t expected = 0;
-                                            const uint64_t started =
-                                                captured_context->start_time_ns;
-                                            const uint64_t now = monotonic_now_ns();
-                                            const uint64_t latency = now > started
-                                                ? now - started
-                                                : 1;
-                                            captured_context->first_tap_latency_ns.compare_exchange_strong(
-                                                expected,
-                                                latency,
-                                                std::memory_order_release,
-                                                std::memory_order_relaxed
-                                            );
-                                            captured_context->queue->push(
-                                                channels[0],
-                                                frames
-                                            );
-                                        }
-                                    }
-                                }];
-                            stream->worker = std::thread(
-                                worker_main,
-                                stream,
-                                raw_capacity
-                            );
-                            [engine prepare];
-                            NSError *start_error = nil;
-                            if (![engine startAndReturnError:&start_error]) {
-                                write_error(
-                                    error_buffer,
-                                    error_capacity,
-                                    start_error.localizedDescription ?:
-                                        @"AVAudioEngine failed to start"
-                                );
-                                return -1;
-                            }
-                            // Verify the running unit, not only the configured
-                            // value observed before the audio unit started.
-                            if (!input_node.isVoiceProcessingEnabled ||
-                                input_node.isVoiceProcessingAGCEnabled !=
-                                    stream->automatic_gain) {
-                                write_error(
-                                    error_buffer,
-                                    error_capacity,
-                                    "Running voice-processing state mismatch"
-                                );
-                                return -1;
-                            }
-                            stream->observed_agc.store(
-                                input_node.isVoiceProcessingAGCEnabled,
-                                std::memory_order_release
-                            );
-                            stream->started.store(true, std::memory_order_release);
+                            // Prepare only: no tap, worker or running input unit.
+                            // Capture starts explicitly in vm_audio_resume.
+                            stream->paused = true;
                             return 0;
                         }
                     }
@@ -1200,6 +1121,18 @@ int32_t vm_audio_start(
         error_buffer,
         error_capacity
     );
+}
+
+int32_t vm_audio_start(
+    vm_audio_stream *stream,
+    char *error_buffer,
+    size_t error_capacity
+) {
+    const int32_t prepared = vm_audio_prepare(stream, error_buffer, error_capacity);
+    if (prepared != 0) {
+        return prepared;
+    }
+    return vm_audio_resume(stream, error_buffer, error_capacity);
 }
 
 int32_t vm_audio_read(

@@ -94,10 +94,8 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
             "transcription; the remaining text was not pasted to avoid "
             "duplicates."
         ),
-        "meeting_generation_canceled": "Meeting generation canceled",
         "mode_walkie_talkie": "Walkie-Talkie (Hold)",
         "mode_realtime_long": "Real-time Long (Toggle)",
-        "mode_meeting": "Meeting Mode (Toggle)",
         "polish_level_minimal": "Minimal",
         "polish_level_balanced": "Balanced",
         "polish_level_strong": "Strong",
@@ -208,10 +206,8 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "mode_streaming_paste_mismatch": (
             "分段粘贴内容与最终识别结果无法对齐，为避免重复，剩余文本未粘贴。"
         ),
-        "meeting_generation_canceled": "会议记录生成已取消",
         "mode_walkie_talkie": "对讲模式（按住）",
         "mode_realtime_long": "实时长录（切换）",
-        "mode_meeting": "会议模式（切换）",
         "polish_level_minimal": "轻度",
         "polish_level_balanced": "均衡",
         "polish_level_strong": "强力",

@@ -13,8 +13,8 @@ _MODULE_IMPORT_STARTED_AT = time.perf_counter()
 
 import objc
 import rumps
-from rumps import events as rumps_events
 from Foundation import NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer
+from rumps import events as rumps_events
 
 from . import __version__
 from .application.background_executor import BackgroundExecutor
@@ -26,12 +26,12 @@ from .config import (
 )
 from .dictionary import get_dictionary, reload_dictionary
 from .domain.hotkey_gestures import HotkeyGestureAction, HotkeyGestureController
-from .domain.input_intent import InputIntent
 from .domain.waveform_calibration import waveform_level_from_rms
+from .infrastructure.timestamped_output import install_timestamped_stream
 from .localization import t
 from .modes.base_mode import ModeState
 from .paths import bundled_resource_path
-from .infrastructure.timestamped_output import install_timestamped_stream
+from .startup_diagnostics import new_startup_attempt_id, record_startup_event
 
 
 def AudioRecorder(*args, **kwargs):
@@ -91,12 +91,6 @@ def RealtimeLongMode(*args, **kwargs):
     return Implementation(*args, **kwargs)
 
 
-def MeetingMode(*args, **kwargs):
-    from .modes.meeting import MeetingMode as Implementation
-
-    return Implementation(*args, **kwargs)
-
-
 def run_environment_checks(*args, **kwargs):
     from .environment_check import run_environment_checks as implementation
 
@@ -148,7 +142,6 @@ MENU_STATE_ON = 1
 MODE_MENU_OPTIONS = [
     ("walkie_talkie", "mode_walkie_talkie"),
     ("realtime_long", "mode_realtime_long"),
-    ("meeting", "mode_meeting"),
 ]
 
 POLISH_LEVEL_OPTIONS = [
@@ -221,7 +214,6 @@ class VocalMoreApp(rumps.App):
         self._recording_retry = None
         self._walkie_talkie = starting_mode
         self._realtime_long = starting_mode
-        self._meeting = None
         self._current_mode = starting_mode
         self._command_coordinator = None
         self._hotkey_manager = None
@@ -230,7 +222,6 @@ class VocalMoreApp(rumps.App):
         self._runtime = None
         self._settings_window = None
         self._dictionary_learning = None
-        self._context_personalization = None
         self._main_thread_timers: set[NSTimer] = set()
         self._hotkey_permission_retry_timer = None
         self._status_menu_delegate = None
@@ -256,7 +247,6 @@ class VocalMoreApp(rumps.App):
                 recording_store_factory=RecordingStore,
                 walkie_talkie_factory=WalkieTalkieMode,
                 realtime_long_factory=RealtimeLongMode,
-                meeting_factory=MeetingMode,
                 hotkey_manager_factory=HotkeyManager,
                 settings_window_factory=SettingsWindow,
             )
@@ -280,7 +270,7 @@ class VocalMoreApp(rumps.App):
         if callable(close_retry):
             shutdown = close_retry(timeout=0.5)
             retry_drained = getattr(shutdown, "drained", True)
-        for name in ("walkie_talkie", "realtime_long", "meeting"):
+        for name in ("walkie_talkie", "realtime_long"):
             close = getattr(getattr(dependencies, name, None), "close", None)
             if callable(close):
                 close()
@@ -290,7 +280,7 @@ class VocalMoreApp(rumps.App):
             close_recordings()
         elif not retry_drained:
             print("[App] Recording retry did not drain; leaving its store open")
-        for name in ("dictionary_learning", "context_personalization"):
+        for name in ("dictionary_learning",):
             close = getattr(getattr(dependencies, name, None), "close", None)
             if callable(close):
                 close()
@@ -309,7 +299,6 @@ class VocalMoreApp(rumps.App):
         self._recording_retry = getattr(dependencies, "recording_retry", None)
         self._walkie_talkie = dependencies.walkie_talkie
         self._realtime_long = dependencies.realtime_long
-        self._meeting = dependencies.meeting
         self._current_mode = dependencies.current_mode
         self._command_coordinator = dependencies.command_coordinator
         self._hotkey_manager = dependencies.hotkey_manager
@@ -320,11 +309,6 @@ class VocalMoreApp(rumps.App):
         self._dictionary_learning = getattr(
             dependencies,
             "dictionary_learning",
-            None,
-        )
-        self._context_personalization = getattr(
-            dependencies,
-            "context_personalization",
             None,
         )
         self._main_thread_timers: set[NSTimer] = set()
@@ -922,8 +906,6 @@ class VocalMoreApp(rumps.App):
         elif mode_name == "realtime_long":
             self._current_mode = self._realtime_long
             selected = True
-        elif mode_name == "meeting":
-            self._current_mode = self._meeting
             selected = True
         if selected and getattr(self, "_hotkey_listener_ready", None) is not None:
             executor = getattr(self, "_startup_executor", None)
@@ -942,9 +924,6 @@ class VocalMoreApp(rumps.App):
 
     def _all_modes(self) -> tuple[object, ...]:
         modes = [self._walkie_talkie, self._realtime_long]
-        meeting = getattr(self, "_meeting", None)
-        if meeting is not None:
-            modes.append(meeting)
         return tuple(modes)
 
     def _select_default_mode_when_safe(self) -> None:
@@ -1291,6 +1270,7 @@ class VocalMoreApp(rumps.App):
                 recording_store=self._recording_store,
                 environment_checks=self._environment_checks,
                 app_version=__version__,
+                runtime_diagnostics=self._diagnostic_runtime_snapshot(),
             )
             subprocess.run(["open", "-R", str(bundle_path)], check=False)
             rumps.notification(
@@ -1312,6 +1292,36 @@ class VocalMoreApp(rumps.App):
                 )
             except RuntimeError:
                 print(f"[Diagnostics] Export failed: {exc}")
+
+    def _diagnostic_runtime_snapshot(self) -> dict:
+        """Capture live control-path health without triggering device/network I/O."""
+        mode = getattr(self, "_current_mode", None)
+        hotkey = getattr(self, "_hotkey_manager", None)
+        coordinator = getattr(self, "_command_coordinator", None)
+        recorder = getattr(mode, "_recorder", None)
+        asr = initialized_resource(getattr(mode, "_asr", None))
+        snapshot = getattr(recorder, "diagnostic_snapshot", None)
+        asr_snapshot = getattr(asr, "diagnostic_snapshot", None)
+        hotkey_snapshot = getattr(hotkey, "diagnostics", None)
+        coordinator_snapshot = getattr(coordinator, "diagnostics", None)
+        return {
+            "captured_at_monotonic_ns": time.monotonic_ns(),
+            "dependencies_ready": getattr(self, "_dependencies_ready", None),
+            "hotkey_listener_ready": getattr(self, "_hotkey_listener_ready", None),
+            "mode": {
+                "name": getattr(mode, "name", None),
+                "state": getattr(getattr(mode, "state", None), "value", None),
+            },
+            "hotkey": hotkey_snapshot() if callable(hotkey_snapshot) else None,
+            "command_coordinator": (
+                coordinator_snapshot() if callable(coordinator_snapshot) else None
+            ),
+            "audio": snapshot() if callable(snapshot) else None,
+            "asr": {
+                "initialized": asr is not None,
+                "runtime": asr_snapshot() if callable(asr_snapshot) else None,
+            },
+        }
 
     def _on_quick_set_mode(self, mode_name: str) -> None:
         """Switch the default recording mode from the status bar."""
@@ -1427,9 +1437,6 @@ class VocalMoreApp(rumps.App):
             "walkie_talkie": self._walkie_talkie,
             "realtime_long": self._realtime_long,
         }
-        meeting = getattr(self, "_meeting", None)
-        if meeting is not None:
-            modes["meeting"] = meeting
 
         return RuntimeFacade(
             config=self.config,
@@ -1500,8 +1507,19 @@ class VocalMoreApp(rumps.App):
     def _on_fn_pressed(self) -> None:
         """Handle Fn key pressed."""
         event_time = time.monotonic()
+        attempt_id = new_startup_attempt_id()
+        record_startup_event(
+            "hotkey_received",
+            attempt_id=attempt_id,
+            trigger="dictation",
+            mode_state=getattr(
+                getattr(getattr(self, "_current_mode", None), "state", None),
+                "value",
+                None,
+            ),
+        )
         self._get_command_coordinator().submit(
-            lambda: self._handle_fn_pressed_command(event_time),
+            lambda: self._handle_fn_pressed_command(event_time, attempt_id),
             command_name="fn_pressed",
         )
 
@@ -1512,22 +1530,32 @@ class VocalMoreApp(rumps.App):
             self._hotkey_gesture_controller = controller
         return controller
 
-    def _get_command_gesture_controller(self) -> HotkeyGestureController:
-        controller = getattr(self, "_command_gesture_controller", None)
-        if controller is None:
-            controller = HotkeyGestureController()
-            self._command_gesture_controller = controller
-        return controller
 
     def _uses_unified_dictation_gesture(self) -> bool:
         return self._current_mode is getattr(self, "_realtime_long", None)
 
+    @staticmethod
+    def _set_mode_startup_diagnostic_context(
+        mode: object, attempt_id: str, trigger: str
+    ) -> None:
+        setter = getattr(mode, "set_startup_diagnostic_context", None)
+        if callable(setter):
+            setter(attempt_id, trigger)
+
     def _handle_fn_pressed_command(
         self,
         event_time: float | None = None,
+        diagnostic_attempt_id: str | None = None,
     ) -> None:
-        if getattr(self, "_command_session_active", False):
-            return
+        attempt_id = diagnostic_attempt_id or new_startup_attempt_id()
+        record_startup_event(
+            "control_command_started",
+            attempt_id=attempt_id,
+            trigger="dictation",
+            queue_delay_ms=(time.monotonic() - event_time) * 1000
+            if event_time is not None
+            else None,
+        )
         command_time = time.monotonic() if event_time is None else event_time
         if self._uses_unified_dictation_gesture():
             action = self._get_hotkey_gesture_controller().on_pressed(
@@ -1535,6 +1563,9 @@ class VocalMoreApp(rumps.App):
                 self._current_mode.state,
             )
             if action == HotkeyGestureAction.START:
+                self._set_mode_startup_diagnostic_context(
+                    self._current_mode, attempt_id, "dictation"
+                )
                 self._begin_live_benchmark_trace(command_time)
                 self._show_capsule_for_current_mode()
                 self._current_mode.on_hotkey_pressed()
@@ -1544,6 +1575,9 @@ class VocalMoreApp(rumps.App):
             return
 
         if self._current_mode.state == ModeState.IDLE:
+            self._set_mode_startup_diagnostic_context(
+                self._current_mode, attempt_id, "dictation"
+            )
             self._begin_live_benchmark_trace(command_time)
             self._show_capsule_for_current_mode()
         elif self._current_mode.state == ModeState.RECORDING:
@@ -1562,8 +1596,6 @@ class VocalMoreApp(rumps.App):
         self,
         event_time: float | None = None,
     ) -> None:
-        if getattr(self, "_command_session_active", False):
-            return
         command_time = time.monotonic() if event_time is None else event_time
         if self._uses_unified_dictation_gesture():
             action = self._get_hotkey_gesture_controller().on_released(
@@ -1579,56 +1611,6 @@ class VocalMoreApp(rumps.App):
             self._mark_live_benchmark_trace("speech_end", at=command_time)
         self._current_mode.on_hotkey_released()
 
-    def _on_command_pressed(self) -> None:
-        event_time = time.monotonic()
-        self._get_command_coordinator().submit(
-            lambda: self._handle_command_pressed(event_time),
-            command_name="command_pressed",
-        )
-
-    def _handle_command_pressed(self, event_time: float | None = None) -> None:
-        command_time = time.monotonic() if event_time is None else event_time
-        active_mode = getattr(self, "_current_mode", None)
-        command_active = bool(getattr(self, "_command_session_active", False))
-        if (
-            active_mode is not None
-            and active_mode.state != ModeState.IDLE
-            and not command_active
-        ):
-            return
-        if not command_active:
-            self._select_mode("realtime_long")
-        action = self._get_command_gesture_controller().on_pressed(
-            command_time,
-            self._current_mode.state,
-        )
-        if action == HotkeyGestureAction.START:
-            self._command_session_active = True
-            self._begin_live_benchmark_trace(command_time)
-            self._capsule.show("command")
-            self._current_mode.on_hotkey_pressed(InputIntent.COMMAND)
-        elif action == HotkeyGestureAction.STOP:
-            self._mark_live_benchmark_trace("speech_end", at=command_time)
-            self._current_mode.on_hotkey_pressed(InputIntent.COMMAND)
-
-    def _on_command_released(self) -> None:
-        event_time = time.monotonic()
-        self._get_command_coordinator().submit(
-            lambda: self._handle_command_released(event_time),
-            command_name="command_released",
-        )
-
-    def _handle_command_released(self, event_time: float | None = None) -> None:
-        command_time = time.monotonic() if event_time is None else event_time
-        if self._current_mode is not getattr(self, "_realtime_long", None):
-            return
-        action = self._get_command_gesture_controller().on_released(
-            command_time,
-            self._current_mode.state,
-        )
-        if action == HotkeyGestureAction.STOP:
-            self._mark_live_benchmark_trace("speech_end", at=command_time)
-            self._current_mode.on_hotkey_pressed(InputIntent.COMMAND)
 
     def _on_double_cmd(self) -> None:
         """Handle double Cmd key press."""
@@ -1707,15 +1689,9 @@ class VocalMoreApp(rumps.App):
                 self._finish_live_benchmark_trace(status="failed")
         if state in (ModeState.STOPPING, ModeState.PROCESSING, ModeState.CANCELLING):
             current_mode = getattr(self, "_current_mode", None)
-            stage = (
-                "meeting_transcribing"
-                if current_mode is not None
-                and current_mode is getattr(self, "_meeting", None)
-                else "transcribing"
-            )
+            stage = "transcribing"
             self._capsule.set_processing_stage(stage)
         elif state == ModeState.IDLE:
-            self._command_session_active = False
             self._select_default_mode_when_safe()
 
     def _sync_audio_input_status(self) -> None:
@@ -1770,23 +1746,18 @@ class VocalMoreApp(rumps.App):
         )
 
     def _handle_capsule_finish_command(self) -> None:
-        if self._current_mode in (self._realtime_long, getattr(self, "_meeting", None)):
+        if self._current_mode is self._realtime_long:
             self._mark_live_benchmark_trace("speech_end")
             self._current_mode.on_hotkey_pressed()
 
     def _capsule_mode_for_current_mode(self) -> str:
         if self._current_mode is self._walkie_talkie:
             return "pushToTalk"
-        if self._current_mode is getattr(self, "_meeting", None):
-            return "meeting"
         return "handsFree"
 
     def _show_capsule_for_current_mode(self) -> None:
-        """Use the same prepared foreground-app snapshot as the next session."""
+        """Reflect the user-selected polish mode without inspecting other apps."""
         effective_mode = self.config.llm.polish_mode
-        prepare = getattr(self._current_mode, "prepare_app_context", None)
-        if callable(prepare):
-            effective_mode = prepare()
         self._capsule.show(
             self._capsule_mode_for_current_mode(),
             prompt_mode=effective_mode == "prompt",
@@ -1827,7 +1798,6 @@ class VocalMoreApp(rumps.App):
         current_mode = getattr(self, "_current_mode", None)
         if (
             trace is None
-            or current_mode is getattr(self, "_meeting", None)
             or trace.active
         ):
             return
@@ -1882,14 +1852,6 @@ class VocalMoreApp(rumps.App):
             except Exception as exc:
                 print(f"[Benchmark] Failed to finish live trace: {exc}")
 
-    def _on_meeting_result(self, recording_id: str) -> None:
-        """Open the history view focused on a completed meeting recording."""
-        self._run_on_main_thread(
-            lambda: self._show_settings(
-                initial_tab="history",
-                focus_recording_id=recording_id,
-            )
-        )
 
     def _on_error(self, error: str) -> None:
         """Handle error."""

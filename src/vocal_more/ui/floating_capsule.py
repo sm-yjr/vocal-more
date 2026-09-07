@@ -172,7 +172,7 @@ class FloatingCapsule:
         self._current_state = "recording"
         self._latest_prompt_text = ""
         self._panel.setIgnoresMouseEvents_(
-            display_mode in {"pushToTalk", "promptPushToTalk", "meeting"}
+            display_mode in {"pushToTalk", "promptPushToTalk"}
         )
 
         # Cancel any pending hide timer from a previous hide() call

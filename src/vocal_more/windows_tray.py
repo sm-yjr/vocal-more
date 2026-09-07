@@ -55,7 +55,6 @@ _IDI_APPLICATION = 32512
 _CMD_TOGGLE = 1001
 _CMD_MODE_WALKIE = 1002
 _CMD_MODE_REALTIME = 1003
-_CMD_MODE_MEETING = 1004
 _CMD_AUTO_PASTE = 1005
 _CMD_SETTINGS = 1006
 _CMD_OPEN_CONFIG = 1007
@@ -66,7 +65,6 @@ _ACTIONS = {
     _CMD_TOGGLE: "toggle",
     _CMD_MODE_WALKIE: "mode:walkie_talkie",
     _CMD_MODE_REALTIME: "mode:realtime_long",
-    _CMD_MODE_MEETING: "mode:meeting",
     _CMD_AUTO_PASTE: "toggle_auto_paste",
     _CMD_SETTINGS: "settings",
     _CMD_OPEN_CONFIG: "open_config",
@@ -164,7 +162,6 @@ _TEXT = {
         "mode": "录音模式",
         "walkie_talkie": "按住说话",
         "realtime_long": "长语音听写",
-        "meeting": "会议记录",
         "auto_paste": "自动粘贴",
         "open_config": "高级：打开配置文件",
         "open_data": "打开数据目录",
@@ -187,7 +184,6 @@ _TEXT = {
         "mode": "Recording mode",
         "walkie_talkie": "Push to Talk",
         "realtime_long": "Long Dictation",
-        "meeting": "Meeting",
         "auto_paste": "Auto paste",
         "open_config": "Advanced: Open config file",
         "open_data": "Open data folder",
@@ -554,7 +550,6 @@ class WindowsTray:
         mode_commands = (
             ("walkie_talkie", _CMD_MODE_WALKIE),
             ("realtime_long", _CMD_MODE_REALTIME),
-            ("meeting", _CMD_MODE_MEETING),
         )
         for mode, command in mode_commands:
             flags = _MF_STRING | (_MF_CHECKED if snapshot.mode == mode else 0)

@@ -87,21 +87,12 @@ describe("WKWebView settings bridge", () => {
     expect(store.getSnapshot().playingRecordingId).toBeNull()
   })
 
-  it("routes context and recording-compaction callbacks into state", () => {
+  it("routes recording-compaction callbacks into state", () => {
     const store = createSettingsStore(makeInitData())
     installPythonApi(store)
-
-    window.loadContextProfile({
-      counts: { development: 5, writing: 2 },
-      total: 7,
-    })
     window.recordingCompactionStarted()
 
     expect(store.getSnapshot()).toMatchObject({
-      contextProfile: {
-        counts: { development: 5, writing: 2 },
-        total: 7,
-      },
       recordingCompacting: true,
       recordingCompactionError: null,
     })

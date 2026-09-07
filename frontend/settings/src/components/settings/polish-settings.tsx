@@ -7,7 +7,6 @@ import {
   SettingsRow,
 } from "@/components/settings/settings-card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
   NativeSelect,
   NativeSelectOption,
@@ -19,7 +18,7 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@/components/ui/toggle-group"
-import { sendAction, setConfig } from "@/settings/actions"
+import { setConfig } from "@/settings/actions"
 import type { SettingsCopy } from "@/settings/i18n"
 import type { SettingsStore } from "@/settings/store"
 import type {
@@ -59,9 +58,11 @@ export function PolishSettings({
   copy: SettingsCopy
 }) {
   const llm = snapshot.config.llm ?? {}
-  const appContext = snapshot.config.context_personalization ?? {}
   const advanced = snapshot.config.ui?.advanced_settings === true
-  const enabled = snapshot.config.enable_polish !== false
+  const nativeAsr = snapshot.asrModels.find(
+    (model) => model.id === snapshot.config.asr?.model,
+  )?.pipeline === "native_asr"
+  const enabled = snapshot.config.enable_polish !== false && !nativeAsr
   const [category, setCategory] =
     useState<PromptCategory>("output_type")
   const asrModel = snapshot.asrModels.find(
@@ -81,14 +82,6 @@ export function PolishSettings({
     snapshot.polishPromptPresets[category]?.[
       promptPresetKey(category, llm)
     ] ?? ""
-  const contextCounts = snapshot.contextProfile.counts
-  const contextSummary = [
-    `${copy.contextDevelopment} ${contextCounts.development ?? 0}`,
-    `${copy.contextTerminal} ${contextCounts.terminal ?? 0}`,
-    `${copy.contextMessaging} ${contextCounts.messaging ?? 0}`,
-    `${copy.contextWriting} ${contextCounts.writing ?? 0}`,
-    `${copy.contextGeneral} ${contextCounts.general ?? 0}`,
-  ].join(" · ")
 
   function setLlm(key: string, value: unknown) {
     setConfig(store, `llm.${key}`, value)
@@ -106,9 +99,10 @@ export function PolishSettings({
       <SettingsCard>
         <SettingsRow
           label={copy.enablePolish}
-          description={copy.enablePolishHint}
+          description={nativeAsr ? copy.nativeAsrHint : copy.enablePolishHint}
         >
           <Switch
+            disabled={nativeAsr}
             checked={enabled}
             onCheckedChange={(checked) =>
               setConfig(store, "enable_polish", checked)
@@ -117,63 +111,7 @@ export function PolishSettings({
         </SettingsRow>
       </SettingsCard>
 
-      <SettingsCard
-        title={copy.contextPersonalization}
-        description={copy.contextPersonalizationHint}
-      >
-        <SettingsRow
-          label={copy.contextAdaptation}
-          description={copy.contextPrivacyBoundary}
-        >
-          <Switch
-            checked={appContext.enabled !== false}
-            onCheckedChange={(checked) =>
-              setConfig(
-                store,
-                "context_personalization.enabled",
-                checked,
-              )
-            }
-          />
-        </SettingsRow>
-        <SettingsRow
-          label={copy.contextExcludedApps}
-          description={copy.contextExcludedAppsHint}
-          htmlFor="context-excluded-apps"
-        >
-          <Input
-            id="context-excluded-apps"
-            className="h-8 w-64"
-            value={(appContext.excluded_bundle_ids ?? []).join(", ")}
-            onChange={(event) =>
-              setConfig(
-                store,
-                "context_personalization.excluded_bundle_ids",
-                event.target.value
-                  .split(",")
-                  .map((value) => value.trim())
-                  .filter(Boolean),
-              )
-            }
-          />
-        </SettingsRow>
-        <SettingsRow
-          label={copy.contextActivity}
-          description={copy.contextActivityHint}
-        >
-          <div className="flex max-w-72 flex-col items-end gap-1.5">
-            <InlineValue>{contextSummary}</InlineValue>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={snapshot.contextProfile.total === 0}
-              onClick={() => sendAction("resetContextProfile")}
-            >
-              {copy.contextReset}
-            </Button>
-          </div>
-        </SettingsRow>
-      </SettingsCard>
+
 
       <SettingsCard>
         <SettingsRow label={copy.outputType} htmlFor="polish-mode">

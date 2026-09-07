@@ -3,7 +3,6 @@ import {
   FileText,
   Play,
   RotateCcw,
-  Sparkles,
   Trash2,
   Volume2,
 } from "lucide-react"
@@ -198,12 +197,9 @@ function MeetingView({
     meeting.status === "summarizing"
   ) {
     return (
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Spinner />
-        {meeting.status === "summarizing"
-          ? copy.summarizing
-          : copy.transcribing}
-      </div>
+      <p className="text-xs text-muted-foreground">
+        {meeting.transcript || copy.retiredRecordingTask}
+      </p>
     )
   }
   const minutes =
@@ -275,11 +271,6 @@ function RecordingCard({
       ? recording.duration_seconds
       : recording.duration ?? 0
   const retrying = recording.status === "retrying"
-  const meetingGenerating =
-    recording.meeting_status === "generating" ||
-    ["transcribing", "summarizing"].includes(
-      recording.meeting?.status ?? "",
-    )
   const accessibleText = recording.transcript || recording.id
 
   function stageDelete() {
@@ -370,18 +361,7 @@ function RecordingCard({
           >
             <RotateCcw />
           </Button>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            disabled={retrying || meetingGenerating}
-            aria-label={`${copy.meetingNotes} ${accessibleText}`}
-            onClick={() => {
-              store.meetingNotesStarted(recording.id)
-              sendAction("generateMeetingNotes", { id: recording.id })
-            }}
-          >
-            <Sparkles />
-          </Button>
+
           {recording.status === "success" && recording.transcript ? (
             <Button
               size="icon-sm"

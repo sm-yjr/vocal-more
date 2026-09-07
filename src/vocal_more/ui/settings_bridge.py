@@ -62,7 +62,6 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
         "active_hotkeys",
         "custom_key",
         "custom_keys",
-        "command_key",
     },
     "ui": {
         "language",
@@ -70,10 +69,6 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
         "advanced_settings",
     },
     "dictionary_learning": {
-        "enabled",
-        "excluded_bundle_ids",
-    },
-    "context_personalization": {
         "enabled",
         "excluded_bundle_ids",
     },
@@ -208,12 +203,6 @@ class SettingsBridge:
             return None
         return {"action": "set_active_hotkeys", "hotkeys": hotkeys}
 
-    def _normalize_resetContextProfile(
-        self,
-        body: dict[str, Any],
-    ) -> Optional[dict[str, Any]]:
-        del body
-        return {"action": "reset_context_profile"}
 
     def _normalize_compactRecordingHistory(
         self,
@@ -295,8 +284,6 @@ class SettingsBridge:
     def _normalize_retryTranscription(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
         return _recording_action("retry_transcription", body)
 
-    def _normalize_generateMeetingNotes(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
-        return _recording_action("generate_meeting_notes", body)
 
     def _normalize_deleteRecording(self, body: dict[str, Any]) -> Optional[dict[str, Any]]:
         return _recording_action("delete_recording", body)

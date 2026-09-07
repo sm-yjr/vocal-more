@@ -24,10 +24,6 @@ class AppPaths:
     def dictionary_learning_path(self) -> Path:
         return self.base_dir / "dictionary-learning.sqlite3"
 
-    @property
-    def context_profile_path(self) -> Path:
-        return self.base_dir / "context-profile.json"
-
 
 def default_data_dir() -> Path:
     """Return the conventional per-user data directory for this platform."""

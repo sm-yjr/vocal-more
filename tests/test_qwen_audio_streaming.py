@@ -36,7 +36,8 @@ def test_recognition_adapter_sends_binary_pcm_and_maps_sentence_snapshots(monkey
             self.callback = kwargs["callback"]
             self.frames = []
 
-        def start(self):
+        def start(self, **kwargs):
+            captured.update(kwargs)
             self.callback.on_open()
 
         def send_audio_frame(self, frame):
@@ -103,7 +104,8 @@ def test_recognition_adapter_coalesces_macos_blocks_and_flushes_tail(monkeypatch
         def __init__(self, **_kwargs):
             pass
 
-        def start(self):
+        def start(self, **kwargs):
+            captured.update(kwargs)
             pass
 
         def send_audio_frame(self, frame):
@@ -455,3 +457,40 @@ def test_streaming_stop_empty_recognition_uses_legacy_fallback():
             {"model_override": "qwen3-asr-flash"},
         )
     ]
+
+
+@pytest.mark.parametrize("model", ["qwen-audio-3.0-asr-flash-streaming", "fun-asr-realtime"])
+def test_native_hotwords_are_bounded_and_protocol_specific(monkeypatch, model):
+    import vocal_more.infrastructure.asr.qwen_audio_streaming as streaming
+
+    captured = {}
+    monkeypatch.setattr(streaming, "Recognition", lambda **kwargs: captured.update(kwargs))
+    streaming.StreamingRecognitionConversation(
+        model=model, sample_rate=16000, language=None, context_instruction="",
+        corpus_text="Codex\nCodex\n\n" + "\n".join(f"Term{i}" for i in range(2100)),
+        on_ready=lambda: None, on_partial=lambda _: None, on_final=lambda _: None,
+        on_complete=lambda: None, on_error=lambda _: None, on_close=lambda: None,
+    )
+    if model == "fun-asr-realtime":
+        assert "vocabulary" not in captured
+    else:
+        assert len(captured["vocabulary"]) == 2000
+        assert captured["vocabulary"]["Codex"] == 4
+        assert "Term2099" not in captured["vocabulary"]
+        assert captured["semantic_punctuation_enabled"] is False
+
+
+def test_recognition_corpus_respects_session_opt_out_and_extra_terms(monkeypatch):
+    from vocal_more.core.asr_engine import _get_recognition_corpus
+    from vocal_more.domain.dictionary_models import DictEntry
+    import vocal_more.dictionary as dictionary
+
+    monkeypatch.setattr(dictionary, "get_dictionary", lambda: SimpleNamespace(
+        snapshot_entries=lambda: [DictEntry(term="Codex", aliases=["扣得克斯"])],
+    ))
+    config = SimpleNamespace(asr=SimpleNamespace(
+        use_dictionary_corpus=True, extra_corpus_terms=["ESP32", "Codex"],
+    ))
+    assert _get_recognition_corpus(config) == "Codex\n\nESP32"
+    config.asr.use_dictionary_corpus = False
+    assert _get_recognition_corpus(config) == ""

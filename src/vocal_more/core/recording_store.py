@@ -26,7 +26,6 @@ CHANNELS = OUTPUT_CHANNELS
 SAMPLE_WIDTH = PCM_SAMPLE_WIDTH_BYTES
 MAX_RECORDINGS = 30
 _MISSING = object()
-_RUNNING_MEETING_STATUSES = {"transcribing", "summarizing"}
 _TERMINAL_RECORDING_STATUSES = {"success", "failed"}
 
 
@@ -117,8 +116,6 @@ class RecordingStore:
                     entry.setdefault("transcript", None)
                     entry.setdefault("error", None)
                     entry.setdefault("billing", None)
-                    entry.setdefault("meeting", None)
-                    entry.setdefault("command", None)
                     normalized.append(entry)
             return normalized
         except (json.JSONDecodeError, OSError):
@@ -211,8 +208,6 @@ class RecordingStore:
             "status": "pending",
             "transcript": None,
             "error": None,
-            "meeting": None,
-            "command": None,
             "storage_format": "wav",
             "original_bytes": wav_path.stat().st_size,
             "stored_bytes": wav_path.stat().st_size,
@@ -234,8 +229,6 @@ class RecordingStore:
         *,
         error: Optional[str] = _MISSING,
         billing: Optional[dict] = _MISSING,
-        meeting: Optional[dict] = _MISSING,
-        command: Optional[dict] = _MISSING,
     ) -> bool:
         """Update status and transcript for a recording."""
         updated = False
@@ -252,10 +245,6 @@ class RecordingStore:
                         rec["error"] = None
                     if billing is not _MISSING:
                         rec["billing"] = billing
-                    if meeting is not _MISSING:
-                        rec["meeting"] = meeting
-                    if command is not _MISSING:
-                        rec["command"] = command
                     break
             if updated:
                 self._save_index()
@@ -267,48 +256,6 @@ class RecordingStore:
             self.schedule_history_compaction()
         return updated
 
-    def begin_meeting_generation(self, recording_id: str) -> dict:
-        """Atomically mark a recording as generating meeting notes.
-
-        Returns a small status dictionary so callers can avoid launching
-        duplicate model requests for the same recording.
-        """
-        with self._lock:
-            for rec in self._recordings:
-                if rec["id"] != recording_id:
-                    continue
-
-                recording_status = rec.get("status") or "pending"
-                meeting = rec.get("meeting")
-                meeting_status = (
-                    meeting.get("status")
-                    if isinstance(meeting, dict)
-                    else None
-                )
-                if meeting_status in _RUNNING_MEETING_STATUSES:
-                    return {
-                        "started": False,
-                        "reason": "already_running",
-                        "recording_status": recording_status,
-                        "meeting": meeting,
-                    }
-
-                rec["error"] = None
-                rec["meeting"] = {"status": "transcribing"}
-                self._save_index()
-                return {
-                    "started": True,
-                    "reason": None,
-                    "recording_status": recording_status,
-                    "meeting": rec["meeting"],
-                }
-
-        return {
-            "started": False,
-            "reason": "not_found",
-            "recording_status": "pending",
-            "meeting": None,
-        }
 
     def list_recordings(self) -> list[dict]:
         """Return all recording metadata, newest first."""

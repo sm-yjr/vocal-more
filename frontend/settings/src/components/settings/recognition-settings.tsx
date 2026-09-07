@@ -65,7 +65,7 @@ export function RecognitionSettings({
           <NativeSelect
             id="asr-model"
             aria-label={copy.asrModel}
-            className="h-8 w-64"
+            className="h-8 w-80"
             value={asr.model ?? ""}
             onChange={(event) => {
               const model = snapshot.asrModels.find(
@@ -76,6 +76,7 @@ export function RecognitionSettings({
               }
             }}
           >
+            {!selected && <NativeSelectOption value={asr.model ?? ""} disabled>{copy.retiredModel}</NativeSelectOption>}
             {snapshot.asrModels.map((model, index) =>
               model.separator ? (
                 <NativeSelectOption
@@ -99,6 +100,7 @@ export function RecognitionSettings({
         >
           <InlineValue>
             {backendLabel(selected?.transport ?? asr.backend, copy)}
+            {selected?.pipeline === "native_asr" ? ` · ${copy.nativeAsr}` : selected?.pipeline === "inline_generation" ? ` · ${copy.inlineGeneration}` : ""}
           </InlineValue>
         </SettingsRow>
         <SettingsRow label={copy.language} htmlFor="asr-language">

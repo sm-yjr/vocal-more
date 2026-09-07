@@ -25,28 +25,20 @@ from Quartz import CALayer, CATransaction, CGColorCreateGenericRGB
 
 _TRANSLATIONS = {
     "en": {
-        "command": "Command",
-        "meeting": "Meeting recording",
         "prompt": "Prompt",
         "transcribing": "Transcribing",
         "polishing": "Polishing",
         "understanding": "Understanding",
         "searching": "Searching",
         "generating": "Generating",
-        "meeting_transcribing": "Generating transcript",
-        "meeting_summarizing": "Generating minutes",
     },
     "zh": {
-        "command": "指令",
-        "meeting": "会议录制中",
         "prompt": "提示词",
         "transcribing": "识别中",
         "polishing": "润色中",
         "understanding": "理解中",
         "searching": "搜索中",
         "generating": "生成中",
-        "meeting_transcribing": "生成逐字稿中",
-        "meeting_summarizing": "生成纪要中",
     },
 }
 
@@ -377,12 +369,10 @@ class NativeCapsuleRenderer:
         return translations.get(key, _TRANSLATIONS["en"].get(key, key))
 
     def _update_labels(self) -> None:
-        if self._mode == "command":
-            recording = self._translation("command")
-        elif self._mode in {"prompt", "promptPushToTalk"}:
+        if self._mode in {"prompt", "promptPushToTalk"}:
             recording = self._translation("prompt")
         else:
-            recording = self._translation("meeting")
+            recording = ""
         self._recording_label.setStringValue_(recording)
         self._thinking_label.setStringValue_(self._translation(self._stage))
 
@@ -392,8 +382,6 @@ class NativeCapsuleRenderer:
             "handsFree": 126.0,
             "prompt": 178.0,
             "promptPushToTalk": 112.0,
-            "command": 172.0,
-            "meeting": 168.0,
         }.get(self._mode, 126.0)
 
     def _row_center_y(self) -> float:
@@ -418,12 +406,12 @@ class NativeCapsuleRenderer:
         if is_processing:
             compact_width = max(compact_width, self.PROCESSING_SURFACE_WIDTH, thinking_width + 8.0 + self.PROGRESS_TRACK_WIDTH + 24.0)
         label_visible = is_recording and self._mode in {
-            "meeting", "command", "prompt", "promptPushToTalk",
+            "prompt", "promptPushToTalk",
         }
         label_width = math.ceil(self._recording_label.intrinsicContentSize().width) if label_visible else 0.0
         if label_visible:
             # Reserve both controls, gaps and measured localized text.
-            margin = 80.0 if self._mode in {"prompt", "command"} else 24.0
+            margin = 80.0 if self._mode == "prompt" else 24.0
             compact_width = max(compact_width, label_width + 8.0 + 38.0 + margin)
         surface_width = 360.0 if expanded else compact_width
         surface_height = 176.0 if expanded else 36.0
@@ -433,11 +421,8 @@ class NativeCapsuleRenderer:
         buttons_visible = is_recording and self._mode in {
             "handsFree",
             "prompt",
-            "command",
         }
         label_visible = is_recording and self._mode in {
-            "meeting",
-            "command",
             "prompt",
             "promptPushToTalk",
         }

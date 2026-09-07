@@ -7,7 +7,6 @@ from collections.abc import Callable
 from .bootstrap import build_rpc_handler_dependencies
 from .core.recording_store import RecordingStore
 from .core.text_polisher import TextPolisher
-from .modes.meeting import MeetingMode
 from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
 from .paths import default_data_dir
@@ -39,7 +38,6 @@ class WindowsRPCHandler(RPCHandler):
             recording_store_factory=build_windows_recording_store,
             walkie_talkie_factory=WalkieTalkieMode,
             realtime_long_factory=RealtimeLongMode,
-            meeting_factory=MeetingMode,
         )
         self._apply_dependencies(dependencies)
 

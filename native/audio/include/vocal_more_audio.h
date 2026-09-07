@@ -50,6 +50,13 @@ VM_AUDIO_EXPORT vm_audio_stream *vm_audio_create(
     size_t error_capacity
 );
 
+// Configure VoiceProcessingIO without installing a tap or starting capture.
+VM_AUDIO_EXPORT int32_t vm_audio_prepare(
+    vm_audio_stream *stream,
+    char *error_buffer,
+    size_t error_capacity
+);
+
 VM_AUDIO_EXPORT int32_t vm_audio_start(
     vm_audio_stream *stream,
     char *error_buffer,

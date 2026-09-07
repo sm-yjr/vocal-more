@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Callable, Optional
 
 import objc
+import Quartz
 from Quartz import (
     CFMachPortCreateRunLoopSource,
     CFRunLoopAddSource,
@@ -56,8 +57,6 @@ class HotkeyEvent(Enum):
 
     FN_PRESSED = "fn_pressed"
     FN_RELEASED = "fn_released"
-    COMMAND_PRESSED = "command_pressed"
-    COMMAND_RELEASED = "command_released"
     DOUBLE_CMD = "double_cmd"
     ESC_PRESSED = "esc_pressed"
 
@@ -69,8 +68,6 @@ class HotkeyManager:
         self,
         on_fn_pressed: Optional[Callable[[], None]] = None,
         on_fn_released: Optional[Callable[[], None]] = None,
-        on_command_pressed: Optional[Callable[[], None]] = None,
-        on_command_released: Optional[Callable[[], None]] = None,
         on_double_cmd: Optional[Callable[[], None]] = None,
         on_escape_pressed: Optional[Callable[[], None]] = None,
         fn_system_action_guard: Optional[FnSystemActionGuard] = None,
@@ -87,8 +84,6 @@ class HotkeyManager:
         self.config = get_config()
         self.on_fn_pressed = on_fn_pressed
         self.on_fn_released = on_fn_released
-        self.on_command_pressed = on_command_pressed
-        self.on_command_released = on_command_released
         self.on_double_cmd = on_double_cmd
         self.on_escape_pressed = on_escape_pressed
         self._fn_system_action_guard = (
@@ -106,7 +101,6 @@ class HotkeyManager:
                 else []
             )
         )
-        self._command_key: Optional[dict] = self.config.hotkey.command_key
 
         self._tap = None
         self._run_loop_source = None
@@ -129,10 +123,7 @@ class HotkeyManager:
         """Rebuild fast-lookup tables from active_hotkeys."""
         self._modifier_lookup = {}
         self._regular_lookup = set()
-        self._command_keycode: Optional[int] = None
 
-        if self._command_key is not None:
-            self._command_keycode = self._command_key["key_code"]
 
         for name in self._active_hotkeys:
             if name in KEY_REGISTRY:
@@ -144,19 +135,11 @@ class HotkeyManager:
 
         for custom_key in self._custom_keys:
             keycode = custom_key["key_code"]
-            if keycode == self._command_keycode:
-                continue
             if custom_key["is_modifier"]:
                 self._modifier_lookup[keycode] = custom_key["flag_mask"]
             else:
                 self._regular_lookup.add(keycode)
 
-        if self._command_key is not None:
-            keycode = self._command_key["key_code"]
-            if self._command_key["is_modifier"]:
-                self._modifier_lookup[keycode] = self._command_key["flag_mask"]
-            else:
-                self._regular_lookup.add(keycode)
 
         self._key_states = {
             keycode: pressed
@@ -172,17 +155,11 @@ class HotkeyManager:
     def _is_key_pressed(self, keycode: int) -> bool:
         return self._key_states.get(keycode, False) or keycode in self._held_keys
 
-    def _has_pressed_command(self) -> bool:
-        return bool(
-            self._command_keycode is not None
-            and self._is_key_pressed(self._command_keycode)
-        )
 
     def _has_pressed_dictation(self) -> bool:
         return any(
             self._is_key_pressed(keycode)
             for keycode in (*self._modifier_lookup.keys(), *self._regular_lookup)
-            if keycode != self._command_keycode
         )
 
     def _uses_fn_key(self) -> bool:
@@ -206,9 +183,8 @@ class HotkeyManager:
     def _emit_hotkey_transitions(
         self,
         was_dictation_pressed: bool,
-        was_command_pressed: bool,
     ) -> None:
-        """Emit logical edges for dictation and command trigger groups."""
+        """Emit logical edges for the configured dictation triggers."""
         is_pressed = self._has_pressed_dictation()
         if is_pressed and not was_dictation_pressed:
             if self.on_fn_pressed:
@@ -217,13 +193,6 @@ class HotkeyManager:
             if self.on_fn_released:
                 self._enqueue_event(HotkeyEvent.FN_RELEASED)
 
-        command_pressed = self._has_pressed_command()
-        if command_pressed and not was_command_pressed:
-            if self.on_command_pressed:
-                self._enqueue_event(HotkeyEvent.COMMAND_PRESSED)
-        elif was_command_pressed and not command_pressed:
-            if self.on_command_released:
-                self._enqueue_event(HotkeyEvent.COMMAND_RELEASED)
 
     def _event_callback(self, proxy, event_type, event, refcon):
         """Callback for CGEventTap events.
@@ -252,19 +221,15 @@ class HotkeyManager:
 
                 if pressed and not prev:
                     was_dictation_pressed = self._has_pressed_dictation()
-                    was_command_pressed = self._has_pressed_command()
                     self._key_states[keycode] = True
                     self._emit_hotkey_transitions(
                         was_dictation_pressed,
-                        was_command_pressed,
                     )
                 elif not pressed and prev:
                     was_dictation_pressed = self._has_pressed_dictation()
-                    was_command_pressed = self._has_pressed_command()
                     self._key_states[keycode] = False
                     self._emit_hotkey_transitions(
                         was_dictation_pressed,
-                        was_command_pressed,
                     )
 
                 # Consume modifier hotkey events so they don't reach the focused app
@@ -275,11 +240,9 @@ class HotkeyManager:
             if keycode in self._regular_lookup:
                 if keycode not in self._held_keys:
                     was_dictation_pressed = self._has_pressed_dictation()
-                    was_command_pressed = self._has_pressed_command()
                     self._held_keys.add(keycode)
                     self._emit_hotkey_transitions(
                         was_dictation_pressed,
-                        was_command_pressed,
                     )
                 # Consume both initial press and repeats
                 return None
@@ -292,11 +255,9 @@ class HotkeyManager:
             if keycode in self._regular_lookup:
                 if keycode in self._held_keys:
                     was_dictation_pressed = self._has_pressed_dictation()
-                    was_command_pressed = self._has_pressed_command()
                     self._held_keys.discard(keycode)
                     self._emit_hotkey_transitions(
                         was_dictation_pressed,
-                        was_command_pressed,
                     )
                 # Consume key-up too
                 return None
@@ -315,10 +276,6 @@ class HotkeyManager:
             callback = self.on_fn_pressed
         elif event == HotkeyEvent.FN_RELEASED:
             callback = self.on_fn_released
-        elif event == HotkeyEvent.COMMAND_PRESSED:
-            callback = self.on_command_pressed
-        elif event == HotkeyEvent.COMMAND_RELEASED:
-            callback = self.on_command_released
         elif event == HotkeyEvent.DOUBLE_CMD:
             callback = self.on_double_cmd
         elif event == HotkeyEvent.ESC_PRESSED:
@@ -465,6 +422,32 @@ class HotkeyManager:
         self._run_loop_source = None
         self._fn_system_action_guard.restore()
 
+    def diagnostics(self) -> dict:
+        """Return listener health without touching the event-tap thread."""
+        tap_enabled = None
+        if self._tap is not None:
+            probe = getattr(Quartz, "CGEventTapIsEnabled", None)
+            if callable(probe):
+                try:
+                    tap_enabled = bool(probe(self._tap))
+                except Exception:
+                    tap_enabled = None
+        return {
+            "running": self._running,
+            "event_tap_present": self._tap is not None,
+            "event_tap_enabled": tap_enabled,
+            "event_thread_alive": bool(self._thread and self._thread.is_alive()),
+            "callback_thread_alive": bool(
+                self._callback_thread and self._callback_thread.is_alive()
+            ),
+            "pending_callbacks": self._callback_queue.qsize(),
+            "configured_dictation_triggers": len(self._active_hotkeys)
+            + len(self._custom_keys),
+            "pressed_modifier_count": sum(self._key_states.values()),
+            "pressed_regular_count": len(self._held_keys),
+            "uses_fn_key": self._uses_fn_key(),
+        }
+
     def set_active_hotkeys(self, hotkeys: list[str]) -> None:
         """Update which hotkeys are active at runtime. No restart needed."""
         self._active_hotkeys = list(hotkeys)
@@ -483,11 +466,6 @@ class HotkeyManager:
         self._update_lookup_tables()
         self._sync_fn_system_action_guard()
 
-    def set_command_key(self, command_key: Optional[dict]) -> None:
-        """Replace the physical shortcut dedicated to command mode."""
-        self._command_key = command_key
-        self._update_lookup_tables()
-        self._sync_fn_system_action_guard()
 
     def is_fn_pressed(self) -> bool:
         """Check if any hold-type hotkey is currently pressed."""

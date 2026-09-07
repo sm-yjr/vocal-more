@@ -5,7 +5,6 @@ import type {
   DictionaryLearningRecord,
   EnvironmentCheck,
   FormState,
-  ContextProfileSummary,
   RecordingStorageSummary,
   Recording,
   SettingsInitData,
@@ -22,7 +21,6 @@ export const PYTHON_API_NAMES = [
   "loadEnvironmentChecks",
   "dashscopeModelCheckStarted",
   "dashscopeModelCheckComplete",
-  "loadContextProfile",
   "recordingCompactionStarted",
   "recordingCompactionComplete",
   "recordingCompactionFailed",
@@ -37,8 +35,6 @@ export const PYTHON_API_NAMES = [
   "retryStarted",
   "retryCompleted",
   "retryFailed",
-  "meetingNotesStarted",
-  "meetingNotesStage",
   "recordingDeleted",
   "playAudio",
   "recordingPlaybackEnded",
@@ -65,8 +61,6 @@ export function installPythonApi(store: SettingsStore): void {
     store.dashscopeModelCheckStarted()
   window.dashscopeModelCheckComplete = (results) =>
     store.dashscopeModelCheckComplete(results)
-  window.loadContextProfile = (profile) =>
-    store.loadContextProfile(profile)
   window.recordingCompactionStarted = () =>
     store.recordingCompactionStarted()
   window.recordingCompactionComplete = (summary) =>
@@ -88,9 +82,6 @@ export function installPythonApi(store: SettingsStore): void {
   window.retryCompleted = (id, transcript) =>
     store.retryCompleted(id, transcript)
   window.retryFailed = (id, error) => store.retryFailed(id, error)
-  window.meetingNotesStarted = (id) => store.meetingNotesStarted(id)
-  window.meetingNotesStage = (id, stage) =>
-    store.meetingNotesStage(id, stage)
   window.recordingDeleted = (id) => store.recordingDeleted(id)
   window.playAudio = (id, base64Data) =>
     store.playAudio(id, base64Data)
@@ -131,7 +122,6 @@ declare global {
     dashscopeModelCheckComplete: (
       results: import("@/settings/types").DashScopeModelCheckResult[],
     ) => void
-    loadContextProfile: (profile: ContextProfileSummary) => void
     recordingCompactionStarted: () => void
     recordingCompactionComplete: (
       summary: RecordingStorageSummary,
@@ -151,8 +141,6 @@ declare global {
     retryStarted: (id: string) => void
     retryCompleted: (id: string, transcript: string) => void
     retryFailed: (id: string, error?: string | null) => void
-    meetingNotesStarted: (id: string) => void
-    meetingNotesStage: (id: string, stage: string) => void
     recordingDeleted: (id: string) => void
     playAudio: (id: string, base64Data: string | null) => void
     recordingPlaybackEnded: (id: string) => void

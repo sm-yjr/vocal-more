@@ -81,7 +81,6 @@ def test_build_settings_payload_normalizes_runtime_keys():
             "audio.highpass_freq": "180",
             "audio.soft_limiter": True,
             "audio.waveform_ceiling_dbfs": "-8",
-            "context_personalization.enabled": True,
         }
     )
 
@@ -146,7 +145,7 @@ def test_build_settings_payload_rejects_invalid_output_language():
 def test_build_settings_payload_rejects_out_of_range_gain():
     values = {
         "ui.language": "en",
-        "default_mode": "meeting",
+        "default_mode": "realtime_long",
         "asr.language": "en",
         "audio.gain_mode": "manual",
         "audio.gain": "100",
@@ -207,7 +206,6 @@ _POPULATE_VAR_NAMES = (
     "audio.highpass_freq",
     "audio.soft_limiter",
     "audio.waveform_ceiling_dbfs",
-    "context_personalization.enabled",
 )
 
 

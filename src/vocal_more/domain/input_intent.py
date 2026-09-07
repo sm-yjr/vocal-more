@@ -8,7 +8,6 @@ class InputIntent(str, Enum):
 
     DICTATION = "dictation"
     PROMPT = "prompt"
-    COMMAND = "command"
 
 
 __all__ = ["InputIntent"]

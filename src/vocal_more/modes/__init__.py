@@ -5,14 +5,12 @@ from typing import Any
 
 __all__ = [
     "BaseMode",
-    "MeetingMode",
     "WalkieTalkieMode",
     "RealtimeLongMode",
 ]
 
 _PUBLIC_IMPORTS = {
     "BaseMode": (".base_mode", "BaseMode"),
-    "MeetingMode": (".meeting", "MeetingMode"),
     "WalkieTalkieMode": (".walkie_talkie", "WalkieTalkieMode"),
     "RealtimeLongMode": (".realtime_long", "RealtimeLongMode"),
 }

@@ -6,12 +6,14 @@ from dataclasses import asdict
 from datetime import datetime
 import json
 import os
+import platform
 from pathlib import Path
 from typing import Iterable, Optional
 import zipfile
 
 from .config import Config
 from .environment_check import EnvironmentCheckResult
+from .startup_diagnostics import sanitize_diagnostic_value, startup_event_paths
 
 DEBUG_TRACE_LIMIT = 3
 
@@ -128,6 +130,7 @@ def export_support_bundle(
     recording_store,
     environment_checks: Iterable[EnvironmentCheckResult],
     app_version: str,
+    runtime_diagnostics: Optional[dict] = None,
 ) -> Path:
     """Write a support bundle zip and return its path."""
     support_dir = Config.get_config_dir() / "support"
@@ -139,6 +142,7 @@ def export_support_bundle(
     debug_dir_raw = os.environ.get("VOCAL_MORE_DEBUG_DIR", "").strip()
     debug_dir = Path(os.path.expanduser(debug_dir_raw)) if debug_dir_raw else default_debug_dir()
     trace_paths = _latest_trace_paths(debug_dir)
+    startup_paths = startup_event_paths()
     recording_meta, recording_path = _recording_payload(recording_store)
     config_dir = Config.get_config_dir()
     config_path = Config.get_config_path()
@@ -147,6 +151,13 @@ def export_support_bundle(
     manifest = {
         "exported_at": datetime.now().isoformat(timespec="seconds"),
         "app_version": app_version,
+        "system": {
+            "name": platform.system(),
+            "macos_version": platform.mac_ver()[0],
+            "kernel_version": platform.release(),
+            "architecture": platform.machine(),
+            "python_version": platform.python_version(),
+        },
         "config_path": _manifest_path_hint(
             config_path,
             base_dir=config_dir,
@@ -164,6 +175,8 @@ def export_support_bundle(
             is_dir=True,
         ),
         "trace_files": [path.name for path in trace_paths],
+        "startup_event_files": [path.name for path in startup_paths],
+        "runtime_snapshot_included": runtime_diagnostics is not None,
         "recording_id": recording_meta.get("id") if recording_meta else None,
         "environment_checks": _sanitized_environment_checks(
             environment_checks,
@@ -181,6 +194,15 @@ def export_support_bundle(
             "config.snapshot.json",
             json.dumps(_redacted_config_snapshot(config), ensure_ascii=False, indent=2),
         )
+        if runtime_diagnostics is not None:
+            bundle.writestr(
+                "runtime.snapshot.json",
+                json.dumps(
+                    sanitize_diagnostic_value(runtime_diagnostics),
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
 
         if dictionary_path.exists():
             bundle.write(dictionary_path, arcname="dictionary.yaml")
@@ -197,5 +219,8 @@ def export_support_bundle(
             wav_path = trace_path.with_suffix(".wav")
             if wav_path.exists():
                 bundle.write(wav_path, arcname=f"debug/{wav_path.name}")
+
+        for startup_path in startup_paths:
+            bundle.write(startup_path, arcname=f"startup/{startup_path.name}")
 
     return bundle_path

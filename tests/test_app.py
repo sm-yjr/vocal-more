@@ -357,7 +357,7 @@ def test_floating_capsule_show_marshals_to_main_thread(tmp_path, monkeypatch):
     capsule._show_on_main_thread.assert_called_once_with("handsFree")
 
 
-def test_app_capsule_uses_prepared_foreground_app_mode(tmp_path, monkeypatch):
+def test_app_capsule_uses_manually_selected_prompt_mode(tmp_path, monkeypatch):
     from vocal_more.config import Config
 
     _install_rumps_stub(monkeypatch)
@@ -374,15 +374,15 @@ def test_app_capsule_uses_prepared_foreground_app_mode(tmp_path, monkeypatch):
     app.config = Config()
     app._capsule = MagicMock()
     app._walkie_talkie = SimpleNamespace()
-    app._meeting = SimpleNamespace()
-    app._current_mode = SimpleNamespace(prepare_app_context=lambda: "prompt")
+    app.config.llm.polish_mode = "prompt"
+    app._current_mode = SimpleNamespace()
 
     app._show_capsule_for_current_mode()
 
     app._capsule.show.assert_called_once_with("handsFree", prompt_mode=True)
 
 
-def test_app_capsule_routes_non_terminal_session_to_dictation(tmp_path, monkeypatch):
+def test_app_capsule_uses_manually_selected_dictation_mode(tmp_path, monkeypatch):
     from vocal_more.config import Config
 
     _install_rumps_stub(monkeypatch)
@@ -399,8 +399,7 @@ def test_app_capsule_routes_non_terminal_session_to_dictation(tmp_path, monkeypa
     app.config = Config()
     app._capsule = MagicMock()
     app._walkie_talkie = SimpleNamespace()
-    app._meeting = SimpleNamespace()
-    app._current_mode = SimpleNamespace(prepare_app_context=lambda: "dictation")
+    app._current_mode = SimpleNamespace()
 
     app._show_capsule_for_current_mode()
 
@@ -629,7 +628,7 @@ def test_build_menu_adds_quick_settings_and_marks_current_config(
     app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
     app.config = Config()
     app.config.apply_update("ui.language", "en")
-    app.config.apply_update("asr.model", "qwen3.5-omni-plus")
+    app.config.apply_update("asr.model", "qwen3.5-omni-plus-realtime")
     app.config.apply_update("enable_polish", False)
     app.config.apply_update("llm.level", "strong")
 
@@ -644,13 +643,13 @@ def test_build_menu_adds_quick_settings_and_marks_current_config(
     assert "Environment: Pending" in titles
     assert "Recording Mode: Real-time Long (Toggle)" in titles
     assert "Microphone: System Default" in titles
-    assert "ASR Model: Pro" in titles
+    assert "ASR Model: Qwen3.5 Omni Plus Realtime" in titles
     assert "Enable Polishing" in titles
     assert "Polish Strength: Strong" in titles
     assert "Export Diagnostics…" in titles
     assert app._quick_enable_polish_item.state == 0
     assert app._mode_menu_items["realtime_long"].state == 1
-    assert app._asr_model_menu_items["qwen3.5-omni-plus"].state == 1
+    assert app._asr_model_menu_items["qwen3.5-omni-plus-realtime"].state == 1
     assert app._polish_level_menu_items["strong"].state == 1
     assert app._microphone_default_item.state == 1
 
@@ -975,18 +974,18 @@ def test_quick_settings_actions_update_config_and_menu_state(
     app._current_mode = app._walkie_talkie
     app._build_menu()
 
-    app._on_quick_set_asr_model("qwen3.5-omni-plus")
+    app._on_quick_set_asr_model("qwen3.5-omni-plus-realtime")
     app._on_quick_toggle_polish(None)
     app._on_quick_set_polish_level("balanced")
     app._on_quick_set_mode("realtime_long")
 
-    assert app.config.asr.model == "qwen3.5-omni-plus"
-    assert app.config.asr.backend == "omni_offline"
+    assert app.config.asr.model == "qwen3.5-omni-plus-realtime"
+    assert app.config.asr.backend == "realtime_ws"
     assert app.config.enable_polish is False
     assert app.config.llm.level == "balanced"
     assert app.config.default_mode == "realtime_long"
     assert app._current_mode is app._realtime_long
-    assert app._asr_model_menu_items["qwen3.5-omni-plus"].state == 1
+    assert app._asr_model_menu_items["qwen3.5-omni-plus-realtime"].state == 1
     assert app._quick_enable_polish_item.state == 0
     assert app._polish_level_menu_items["balanced"].state == 1
     assert app._mode_menu_items["realtime_long"].state == 1
@@ -1020,7 +1019,7 @@ def test_build_menu_localizes_titles_when_ui_language_is_chinese(
     titles = [item.title for item in app.menu if item]
     assert "环境：待检查" in titles
     assert "录音模式：实时长录（切换）" in titles
-    assert "识别模型：Lite Fast" in titles
+    assert "识别模型：Qwen3.5 Omni Flash Realtime" in titles
     assert "启用润色" in titles
     assert "润色强度：轻度" in titles
     assert "导出诊断包…" in titles
@@ -1707,7 +1706,6 @@ def test_unapplied_dependencies_keep_store_open_when_retry_did_not_drain(
         meeting=None,
         hotkey_manager=None,
         dictionary_learning=None,
-        context_personalization=None,
         command_coordinator=None,
     )
 

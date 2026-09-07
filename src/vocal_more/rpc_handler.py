@@ -8,7 +8,6 @@ from typing import Any, Callable, Optional
 
 import dashscope
 
-from .application.background_executor import BackgroundExecutor
 from .application.dictation_command_coordinator import DictationCommandCoordinator
 from .application.runtime_facade import RuntimeFacade
 from .application.lazy_resource import initialized_resource
@@ -24,7 +23,6 @@ from .core.recording_store import RecordingStore
 from .core.text_polisher import TextPolisher, build_polish_prompt_presets
 from .dictionary import get_dictionary, reload_dictionary
 from .modes.base_mode import BaseMode, ModeState
-from .modes.meeting import MeetingMode
 from .modes.realtime_long import RealtimeLongMode
 from .modes.walkie_talkie import WalkieTalkieMode
 from . import __version__
@@ -46,7 +44,6 @@ class RPCHandler:
             recording_store_factory=RecordingStore,
             walkie_talkie_factory=WalkieTalkieMode,
             realtime_long_factory=RealtimeLongMode,
-            meeting_factory=MeetingMode,
         )
         self._apply_dependencies(dependencies)
 
@@ -58,11 +55,9 @@ class RPCHandler:
         self._text_polisher = dependencies.text_polisher
         self._walkie_talkie = dependencies.walkie_talkie
         self._realtime_long = dependencies.realtime_long
-        self._meeting = dependencies.meeting
         self._modes = {
             "walkie_talkie": self._walkie_talkie,
             "realtime_long": self._realtime_long,
-            "meeting": self._meeting,
         }
         self._current_mode = dependencies.current_mode
         self._command_coordinator = dependencies.command_coordinator
@@ -71,15 +66,6 @@ class RPCHandler:
             dependencies,
             "dictionary_learning",
             None,
-        )
-        self._context_personalization = getattr(
-            dependencies,
-            "context_personalization",
-            None,
-        )
-        self._meeting_tasks = BackgroundExecutor(
-            max_workers=1,
-            thread_name_prefix="vocal-more-rpc-meeting-notes",
         )
 
     # -- Notification callbacks -----------------------------------------------
@@ -253,45 +239,6 @@ class RPCHandler:
                 {"id": event.recording_id, "error": event.error or ""},
             )
 
-    def _handle_generate_meeting_notes(self, params: dict) -> dict:
-        from .application.meeting_jobs import MeetingNotesRecordingRunner
-
-        rec_id = params.get("id", "")
-        if not rec_id:
-            raise RPCError(-32602, "id is required")
-
-        self._send_notification("meeting_notes_started", {"id": rec_id})
-
-        def _do_generate():
-            result = MeetingNotesRecordingRunner(
-                config=self.config,
-                recording_store=self._recording_store,
-            ).generate_for_recording(
-                rec_id,
-                on_stage=lambda stage: self._send_notification(
-                    "meeting_notes_stage",
-                    {"id": rec_id, "stage": stage},
-                ),
-            )
-            if result.status == "already_running":
-                self._send_notification(
-                    "meeting_notes_stage",
-                    {"id": rec_id, "stage": "meeting_transcribing"},
-                )
-                return
-            if result.status in {"success", "partial"}:
-                self._send_notification(
-                    "meeting_notes_completed",
-                    {"id": rec_id, "meeting": result.meeting},
-                )
-                return
-            self._send_notification(
-                "meeting_notes_failed",
-                {"id": rec_id, "error": result.error or "Meeting notes failed"},
-            )
-
-        self._meeting_tasks.submit(_do_generate)
-        return {"ok": True}
 
     def _handle_delete_recording(self, params: dict) -> dict:
         rec_id = params.get("id", "")
@@ -386,9 +333,6 @@ class RPCHandler:
         if callable(close_retry):
             shutdown = close_retry(timeout=0.5)
             retry_drained = getattr(shutdown, "drained", True)
-        meeting_tasks = getattr(self, "_meeting_tasks", None)
-        if meeting_tasks is not None:
-            meeting_tasks.close(wait=False, cancel_futures=True)
         dictionary_learning = getattr(self, "_dictionary_learning", None)
         if dictionary_learning is not None:
             set_on_change = getattr(dictionary_learning, "set_on_change", None)

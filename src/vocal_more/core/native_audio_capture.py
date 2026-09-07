@@ -121,6 +121,8 @@ class NativeAudioDiagnostics:
 class NativeAudioAPI(Protocol):
     def create(self, config: NativeCaptureConfig): ...
 
+    def prepare(self, handle) -> None: ...
+
     def start(self, handle) -> NativeAudioDiagnostics: ...
 
     def read(
@@ -330,6 +332,16 @@ class _CtypesNativeAudioAPI:
         self._configs[key] = config
         self._buffers[key] = (ctypes.c_int16 * int(config.blocksize))()
         return handle
+
+    def prepare(self, handle) -> None:
+        prepare = getattr(self._library, "vm_audio_prepare", None)
+        if prepare is None:
+            raise NativeAudioUnavailable("Native audio preparation is unavailable")
+        prepare.argtypes = self._library.vm_audio_start.argtypes
+        prepare.restype = ctypes.c_int32
+        error = ctypes.create_string_buffer(self._ERROR_CAPACITY)
+        if prepare(handle, error, len(error)) != 0:
+            raise NativeAudioUnavailable(self._error_text(error) or "Audio preparation failed")
 
     def start(self, handle) -> NativeAudioDiagnostics:
         error = self._error_buffer()
@@ -550,6 +562,23 @@ class NativeMacOSVoiceProcessingStream:
         )
         self._lock = threading.Lock()
 
+    def prepare_for_reuse(self) -> None:
+        """Initialize the graph without capturing any idle microphone audio."""
+        with self._lifecycle_lock:
+            with self._lock:
+                if self._closed or self._handle is not None:
+                    return
+            with self._foreign_call_lock:
+                handle = self._api.create(self._config)
+                try:
+                    self._api.prepare(handle)
+                except Exception:
+                    self._api.destroy(handle)
+                    raise
+            with self._lock:
+                self._handle = handle
+                self._stopped = True
+
     def start(self) -> None:
         with self._lifecycle_lock:
             with self._lock:
@@ -688,6 +717,9 @@ class NativeMacOSVoiceProcessingStream:
             )
             with self._lock:
                 self._diagnostics = diagnostics
+                self._start_preferred_microphone_mode = diagnostics.preferred_microphone_mode
+                self._start_active_microphone_mode = diagnostics.active_microphone_mode
+                self._microphone_mode_drifted = False
                 self._consumer = consumer
                 self._consumer_error = None
                 self._consumer_fault_count = 0

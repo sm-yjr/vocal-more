@@ -351,13 +351,20 @@ def test_waveform_ceiling_dbfs_is_configurable_and_bounded():
     assert config.audio.waveform_ceiling_dbfs == 0.0
 
 
-def test_meeting_is_valid_default_mode():
-    from vocal_more.config import Config
+def test_retired_meeting_default_migrates_to_realtime_dictation():
+    from vocal_more.domain.config_models import AppConfig
 
-    config = Config()
-    config.apply_update("default_mode", "meeting")
-
-    assert config.default_mode == "meeting"
+    config = AppConfig.from_dict({
+        "default_mode": "meeting",
+        "context_personalization": {"enabled": True},
+        "hotkey": {"command_key": {"key_code": 105, "display_name": "F13"}},
+        "llm": {"polish_mode": "prompt"},
+    })
+    assert config.default_mode == "realtime_long"
+    assert config.llm.polish_mode == "prompt"
+    saved = config.to_dict()
+    assert "context_personalization" not in saved
+    assert "command_key" not in saved["hotkey"]
 
 
 def test_config_repository_round_trips_app_config(tmp_path):
@@ -413,41 +420,6 @@ def test_dictionary_learning_config_sanitizes_exclusions():
     assert config.dictionary_learning.enabled is True
     assert config.dictionary_learning.excluded_bundle_ids == [
         "com.1password.1password"
-    ]
-
-
-def test_context_personalization_config_defaults_to_private_app_categories():
-    from vocal_more.domain.config_models import AppConfig
-
-    config = AppConfig.from_dict({})
-
-    assert config.context_personalization.enabled is True
-    assert config.context_personalization.excluded_bundle_ids == []
-    assert config.to_dict()["context_personalization"] == {
-        "enabled": True,
-        "excluded_bundle_ids": [],
-    }
-
-
-def test_context_personalization_config_sanitizes_exclusions():
-    from vocal_more.domain.config_models import AppConfig
-
-    config = AppConfig.from_dict(
-        {
-            "context_personalization": {
-                "enabled": "false",
-                "excluded_bundle_ids": [
-                    " com.example.private ",
-                    "com.example.private",
-                    42,
-                ],
-            }
-        }
-    )
-
-    assert config.context_personalization.enabled is False
-    assert config.context_personalization.excluded_bundle_ids == [
-        "com.example.private"
     ]
 
 

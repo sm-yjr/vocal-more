@@ -545,31 +545,6 @@ describe("settings application", () => {
     }
   })
 
-  it("requests a context-profile reset and renders the Python refresh", async () => {
-    const user = userEvent.setup()
-    const { postMessage, store } = renderApp()
-
-    await user.click(screen.getByRole("tab", { name: "润色" }))
-    expect(
-      screen.getByText("开发 3 · 终端 0 · 沟通 2 · 写作 4 · 通用 1"),
-    ).toBeVisible()
-
-    await user.click(screen.getByRole("button", { name: "清除计数" }))
-    expect(postMessage).toHaveBeenCalledWith({
-      action: "resetContextProfile",
-    })
-
-    act(() => {
-      store.loadContextProfile({ counts: {}, total: 0 })
-    })
-    expect(
-      screen.getByText("开发 0 · 终端 0 · 沟通 0 · 写作 0 · 通用 0"),
-    ).toBeVisible()
-    expect(
-      screen.getByRole("button", { name: "清除计数" }),
-    ).toBeDisabled()
-  })
-
   it("requests recording compaction and renders success and failure callbacks", async () => {
     const user = userEvent.setup()
     const { postMessage, store } = renderApp()
@@ -610,7 +585,7 @@ describe("settings application", () => {
     ).toBeEnabled()
   })
 
-  it("preserves recording recovery, playback, meeting, and copy contracts", async () => {
+  it("preserves recording recovery, playback, and copy contracts", async () => {
     const user = userEvent.setup()
     const execCommand = vi.fn(() => true)
     const originalExecCommand = document.execCommand
@@ -641,16 +616,7 @@ describe("settings application", () => {
       expect(execCommand).toHaveBeenCalledWith("copy")
       expect(store.getSnapshot().copiedRecordingId).toBe("rec-1")
 
-      await user.click(
-        screen.getByRole("button", {
-          name: "会议记录 Hello Vocal More.",
-        }),
-      )
-      expect(postMessage).toHaveBeenCalledWith({
-        action: "generateMeetingNotes",
-        id: "rec-1",
-      })
-      expect(screen.getByText("生成逐字稿中…")).toBeVisible()
+      expect(screen.queryByRole("button", { name: "会议记录 Hello Vocal More." })).not.toBeInTheDocument()
 
       await user.click(
         screen.getByRole("button", {
@@ -902,4 +868,49 @@ describe("settings application", () => {
       value: "en",
     })
   })
+})
+
+it("disables instruction polish for native hotword transcription", async () => {
+  const user = userEvent.setup()
+  const data = makeInitData()
+  data.config!.asr!.model = "qwen-audio-3.0-asr-flash-streaming"
+  data.asr_models = [{
+    id: "qwen-audio-3.0-asr-flash-streaming",
+    display_name: "Qwen Audio 3.0 ASR Flash Streaming",
+    transport: "realtime_ws",
+    pipeline: "native_asr",
+    handles_inline_polish: false,
+  }]
+  renderApp(data)
+  await user.click(screen.getByRole("tab", { name: "润色" }))
+  expect(screen.getByText(/当前模型单次输出带热词和标点的转写/)).toBeVisible()
+  expect(document.querySelector("#llm-model")).toBeDisabled()
+  expect(document.querySelector("#polish-mode")).toBeDisabled()
+})
+
+it("keeps manual polish selection while hiding retired shortcuts and app routing", async () => {
+  const user = userEvent.setup()
+  const { postMessage } = renderApp()
+  await user.click(screen.getByRole("tab", { name: "快捷键" }))
+  expect(screen.queryByText("指令模式快捷键")).not.toBeInTheDocument()
+  await user.click(screen.getByRole("tab", { name: "润色" }))
+  expect(screen.queryByText("App 上下文")).not.toBeInTheDocument()
+  const output = document.querySelector("#polish-mode") as HTMLSelectElement
+  await user.selectOptions(output, "prompt")
+  expect(postMessage).toHaveBeenCalledWith({
+    action: "setConfig", key: "llm.polish_mode", value: "prompt",
+  })
+  await user.selectOptions(output, "dictation")
+  expect(postMessage).toHaveBeenCalledWith({
+    action: "setConfig", key: "llm.polish_mode", value: "dictation",
+  })
+})
+
+it("shows unfinished legacy meeting records without an active generation state", () => {
+  const data = makeInitData()
+  data.recordings![0].meeting = { status: "summarizing" }
+  renderApp(data)
+  expect(screen.getByText("历史任务已停止，可播放或重新转写录音。")).toBeVisible()
+  expect(screen.queryByText("生成纪要中…")).not.toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "播放 Hello Vocal More." })).toBeEnabled()
 })

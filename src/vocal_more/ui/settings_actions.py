@@ -31,12 +31,10 @@ class SettingsActionDispatcher:
         on_open_external: Optional[Callable[[str], None]] = None,
         on_get_recordings: Optional[Callable[[], None]] = None,
         on_retry_transcription: Optional[Callable[[str], None]] = None,
-        on_generate_meeting_notes: Optional[Callable[[str], None]] = None,
         on_delete_recording: Optional[Callable[[str], None]] = None,
         on_stop_recording: Optional[Callable[[str], None]] = None,
         on_play_recording: Optional[Callable[[str], None]] = None,
         on_copy_transcript: Optional[Callable[[str], None]] = None,
-        on_reset_context_profile: Optional[Callable[[], None]] = None,
         on_compact_recording_history: Optional[Callable[[], None]] = None,
         mic_test_controller: object | None = None,
     ) -> None:
@@ -60,12 +58,10 @@ class SettingsActionDispatcher:
         self._on_open_external = on_open_external
         self._on_get_recordings = on_get_recordings
         self._on_retry_transcription = on_retry_transcription
-        self._on_generate_meeting_notes = on_generate_meeting_notes
         self._on_delete_recording = on_delete_recording
         self._on_stop_recording = on_stop_recording
         self._on_play_recording = on_play_recording
         self._on_copy_transcript = on_copy_transcript
-        self._on_reset_context_profile = on_reset_context_profile
         self._on_compact_recording_history = on_compact_recording_history
         self._mic_test_controller = mic_test_controller
 
@@ -90,12 +86,10 @@ class SettingsActionDispatcher:
             "open_external": self._dispatch_open_external,
             "get_recordings": self._dispatch_get_recordings,
             "retry_transcription": self._dispatch_retry_transcription,
-            "generate_meeting_notes": self._dispatch_generate_meeting_notes,
             "delete_recording": self._dispatch_delete_recording,
             "stop_recording": self._dispatch_stop_recording,
             "play_recording": self._dispatch_play_recording,
             "copy_transcript": self._dispatch_copy_transcript,
-            "reset_context_profile": self._dispatch_reset_context_profile,
             "compact_recording_history": self._dispatch_compact_recording_history,
             "start_mic_test": self._dispatch_start_mic_test,
             "stop_mic_test": self._dispatch_stop_mic_test,
@@ -216,10 +210,6 @@ class SettingsActionDispatcher:
         if rec_id and self._on_retry_transcription is not None:
             self._on_retry_transcription(rec_id)
 
-    def _dispatch_generate_meeting_notes(self, message: dict[str, Any]) -> None:
-        rec_id = message.get("id", "")
-        if rec_id and self._on_generate_meeting_notes is not None:
-            self._on_generate_meeting_notes(rec_id)
 
     def _dispatch_delete_recording(self, message: dict[str, Any]) -> None:
         rec_id = message.get("id", "")
@@ -240,10 +230,6 @@ class SettingsActionDispatcher:
         if rec_id and self._on_copy_transcript is not None:
             self._on_copy_transcript(rec_id)
 
-    def _dispatch_reset_context_profile(self, message: dict[str, Any]) -> None:
-        del message
-        if self._on_reset_context_profile is not None:
-            self._on_reset_context_profile()
 
     def _dispatch_compact_recording_history(self, message: dict[str, Any]) -> None:
         del message

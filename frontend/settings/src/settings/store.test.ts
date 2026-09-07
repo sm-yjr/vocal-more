@@ -53,25 +53,11 @@ describe("settings store", () => {
         double_tap_threshold: 0.3,
         custom_key: null,
       custom_keys: [],
-      command_key: null,
       },
       dictionary_learning: {
         enabled: true,
         excluded_bundle_ids: ["com.example.private"],
       },
-      context_personalization: {
-        enabled: true,
-        excluded_bundle_ids: ["com.example.secret"],
-      },
-    })
-    expect(store.getSnapshot().contextProfile).toEqual({
-      counts: {
-        development: 3,
-        general: 1,
-        messaging: 2,
-        writing: 4,
-      },
-      total: 10,
     })
     expect(store.getSnapshot().recordingStorage).toEqual({
       recording_count: 4,
@@ -117,11 +103,6 @@ describe("settings store", () => {
     expect(store.getSnapshot().recordings[0]).toMatchObject({
       status: "failed",
       error: "network error",
-    })
-
-    store.meetingNotesStage("rec-1", "meeting_summarizing")
-    expect(store.getSnapshot().recordings[0]?.meeting).toMatchObject({
-      status: "summarizing",
     })
 
     store.micTestStarted()

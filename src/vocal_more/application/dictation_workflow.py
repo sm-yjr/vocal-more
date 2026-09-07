@@ -6,7 +6,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from ..config import asr_model_handles_inline_polish
+from ..domain.model_catalog import asr_model_uses_single_pass
 from ..domain.bilingual_formatting import format_bilingual_text
 from ..infrastructure.pricing import merge_billing
 
@@ -191,7 +191,7 @@ class DictationWorkflow:
                     recording_id=recording_id,
                     billing=merge_billing(asr_billing),
                 )
-            uses_inline_polish = asr_model_handles_inline_polish(asr_model)
+            uses_single_pass = asr_model_uses_single_pass(asr_model)
             # A streaming-paste session already inserted unpolished segment
             # text while recording; polishing only the tail now would mix
             # two writing styles in one document, so the first-phase
@@ -201,7 +201,7 @@ class DictationWorkflow:
             if (
                 self.config.enable_polish
                 and text_polisher
-                and not uses_inline_polish
+                and not uses_single_pass
                 and not streamed_session
             ):
                 try:

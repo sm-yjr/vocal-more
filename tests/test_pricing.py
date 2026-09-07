@@ -128,3 +128,17 @@ def test_merge_billing_rolls_up_total_and_stage_costs():
         "asr": {"stage": "asr", "cost_cny": 0.002, "estimated": True},
         "polish": {"stage": "polish", "cost_cny": 0.001, "estimated": False},
     }
+
+
+def test_qwen_audio_realtime_flash_uses_official_token_prices():
+    billing = build_asr_billing(
+        model="qwen-audio-3.0-realtime-flash",
+        audio_seconds=5.0,
+        usage={
+            "input_tokens": 110, "output_tokens": 20, "total_tokens": 130,
+            "input_tokens_details": {"audio_tokens": 100, "text_tokens": 10},
+            "output_tokens_details": {"text_tokens": 20},
+        },
+    )
+    assert billing["pricing_basis"] == "token_usage"
+    assert billing["cost_cny"] == 0.00363

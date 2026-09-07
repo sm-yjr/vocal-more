@@ -103,7 +103,6 @@ def test_show_recreates_released_settings_surface():
     window._inject_data_and_reload = MagicMock()
     window.set_interface_language = MagicMock()
     window._recording_store = None
-    window._context_personalization = None
     window._current_audio_input_status = MagicMock(return_value={})
 
     window.show(config={"ui": {}}, asr_models=[], llm_models=[], devices=[], dictionary=[])
@@ -214,14 +213,12 @@ def test_settings_close_closes_each_workload_executor():
     window._mic_test_controller = MagicMock()
     window._model_check_tasks = MagicMock()
     window._recording_maintenance_tasks = MagicMock()
-    window._meeting_tasks = MagicMock()
 
     window.close()
 
     for executor in (
         window._model_check_tasks,
         window._recording_maintenance_tasks,
-        window._meeting_tasks,
     ):
         executor.close.assert_called_once_with(
             wait=False,

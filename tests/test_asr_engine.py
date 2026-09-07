@@ -935,8 +935,9 @@ def test_omni_realtime_uses_transcription_model(tmp_path, monkeypatch):
     assert text == "你好世界"
 
 
-def test_qwen_audio_realtime_plus_uses_native_inline_polish_protocol(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("model", ["qwen-audio-3.0-realtime-plus", "qwen-audio-3.0-realtime-flash"])
+def test_qwen_audio_realtime_uses_native_inline_polish_protocol(
+    tmp_path, monkeypatch, model
 ):
     from vocal_more.config import Config, reload_config
     import vocal_more.core.asr_engine as asr_engine
@@ -950,7 +951,7 @@ def test_qwen_audio_realtime_plus_uses_native_inline_polish_protocol(
             {
                 "enable_polish": True,
                 "asr": {
-                    "model": "qwen-audio-3.0-realtime-plus",
+                    "model": model,
                     "language": "zh",
                 },
             },
@@ -1008,7 +1009,7 @@ def test_qwen_audio_realtime_plus_uses_native_inline_polish_protocol(
     engine = asr_engine.BatchASREngine()
     text = engine.transcribe(b"\x01\x00" * 4000)
 
-    assert captured["model"] == "qwen-audio-3.0-realtime-plus"
+    assert captured["model"] == model
     assert "input_audio_transcription_model" not in captured["update_kwargs"]
     assert captured["update_kwargs"]["enable_input_audio_transcription"] is False
     assert captured["update_kwargs"]["voice"] == "longanqian"
@@ -1021,11 +1022,12 @@ def test_qwen_audio_realtime_plus_uses_native_inline_polish_protocol(
     assert text == "润色后的文本"
 
 
-def test_qwen_audio_realtime_plus_uses_native_response_without_polish():
+@pytest.mark.parametrize("model", ["qwen-audio-3.0-realtime-plus", "qwen-audio-3.0-realtime-flash"])
+def test_qwen_audio_realtime_uses_native_response_without_polish(model):
     from vocal_more.config import get_asr_model_info
     import vocal_more.core.asr_engine as asr_engine
 
-    model_info = get_asr_model_info("qwen-audio-3.0-realtime-plus")
+    model_info = get_asr_model_info(model)
     config = SimpleNamespace(enable_polish=False)
 
     session = asr_engine._build_session_kwargs(model_info, config=config)

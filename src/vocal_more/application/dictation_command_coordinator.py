@@ -31,6 +31,7 @@ class DictationCommandCoordinator:
         self._lock = threading.Lock()
         self._next_sequence = 0
         self._closed = False
+        self._active_command: Optional[str] = None
         self._ensure_worker()
 
     def submit(
@@ -92,6 +93,18 @@ class DictationCommandCoordinator:
         self._queue.put(_STOP)
         worker.join(timeout=timeout)
 
+    def diagnostics(self) -> dict[str, Any]:
+        """Return an I/O-free snapshot suitable for a support bundle."""
+        with self._lock:
+            worker = self._worker
+            return {
+                "closed": self._closed,
+                "worker_alive": bool(worker and worker.is_alive()),
+                "pending_commands": self._queue.qsize(),
+                "active_command": self._active_command,
+                "last_sequence": self._next_sequence,
+            }
+
     def _enqueue(self, item: _WorkItem) -> None:
         with self._lock:
             if self._closed:
@@ -131,6 +144,8 @@ class DictationCommandCoordinator:
             self._worker_ident = None
 
     def _execute(self, item: _WorkItem) -> None:
+        with self._lock:
+            self._active_command = item.command_name
         print(
             "[DictationCoordinator] "
             f"running seq={item.sequence} command={item.command_name} "
@@ -154,6 +169,8 @@ class DictationCommandCoordinator:
                 f"completed seq={item.sequence} command={item.command_name}"
             )
         finally:
+            with self._lock:
+                self._active_command = None
             if item.done is not None:
                 item.done.set()
 

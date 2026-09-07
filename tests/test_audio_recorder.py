@@ -3486,3 +3486,66 @@ def test_list_input_devices_can_refresh_portaudio_before_enumerating(monkeypatch
         {"index": 2, "name": "Built-in Mic", "is_default": True},
         {"index": 4, "name": "USB Headset Mic", "is_default": False},
     ]
+
+
+@pytest.mark.parametrize('close_during_prepare', [False, True])
+def test_idle_preparation_does_not_capture_and_rejects_late_closed_graph(monkeypatch, close_during_prepare):
+    import vocal_more.core.audio_recorder as module
+    recorder = module.AudioRecorder()
+    recorder._capture_backend = 'voice_processing'
+    entered, release = threading.Event(), threading.Event()
+    stream = MagicMock()
+    def prepare():
+        entered.set()
+        assert release.wait(2)
+    stream.prepare_for_reuse.side_effect = prepare
+    monkeypatch.setattr(module.platform, 'system', lambda: 'Darwin')
+    monkeypatch.setattr(recorder, '_resolved_device_index_for_status', lambda: 0)
+    monkeypatch.setattr(recorder, '_device_info', lambda _: {})
+    monkeypatch.setattr(recorder, '_should_use_macos_voice_processing', lambda *a, **k: True)
+    monkeypatch.setattr(module, '_build_macos_voice_processing_stream', lambda **k: stream)
+    assert recorder.prepare_idle_capture()
+    assert entered.wait(1)
+    assert not recorder.prepare_idle_capture()
+    if close_during_prepare:
+        recorder.close()
+    release.set()
+    recorder._prepare_thread.join(1)
+    stream.start.assert_not_called()
+    stream.resume.assert_not_called()
+    if close_during_prepare:
+        assert recorder._warm_voice_stream is None
+        stream.close.assert_called_once()
+    else:
+        assert recorder._warm_voice_stream is stream
+        recorder.close()
+
+
+def test_blocked_idle_prepare_obeys_start_deadline_and_never_late_starts(monkeypatch):
+    import vocal_more.core.audio_recorder as module
+    recorder = module.AudioRecorder()
+    recorder._start_timeout = .03
+    entered, release = threading.Event(), threading.Event()
+    def prepare():
+        entered.set()
+        release.wait(2)
+    worker = threading.Thread(target=prepare)
+    recorder._prepare_thread = worker
+    worker.start()
+    assert entered.wait(1)
+    opened = MagicMock()
+    monkeypatch.setattr(recorder, '_start_stream_with_recovery', opened)
+    try:
+        before = time.monotonic()
+        with pytest.raises(module.AudioRecorderStartError) as caught:
+            recorder.start()
+        assert caught.value.code == 'startup_timeout'
+        assert time.monotonic() - before < .5
+    finally:
+        release.set()
+        worker.join(1)
+        startup = recorder._stream_start_thread
+        if startup is not None:
+            startup.join(1)
+        recorder.close()
+    opened.assert_not_called()

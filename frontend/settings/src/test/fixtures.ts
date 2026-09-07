@@ -52,10 +52,6 @@ export function makeInitData(): SettingsInitData {
         enabled: true,
         excluded_bundle_ids: ["com.example.private"],
       },
-      context_personalization: {
-        enabled: true,
-        excluded_bundle_ids: ["com.example.secret"],
-      },
     },
     asr_models: [
       {
@@ -98,15 +94,6 @@ export function makeInitData(): SettingsInitData {
       { key: "input_device", status: "ok", details: "2 available" },
       { key: "hotkey_listener", status: "ok", details: "running" },
     ],
-    context_profile: {
-      counts: {
-        development: 3,
-        general: 1,
-        messaging: 2,
-        writing: 4,
-      },
-      total: 10,
-    },
     recording_storage: {
       recording_count: 4,
       compressed_count: 1,

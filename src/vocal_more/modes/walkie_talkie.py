@@ -38,7 +38,6 @@ class WalkieTalkieMode(BaseMode):
         on_audio_level: Optional[Callable[[float], None]] = None,
         recording_store: Optional[object] = None,
         dictionary_learning: Optional[object] = None,
-        context_personalization: Optional[object] = None,
     ):
         super().__init__(
             on_state_change,
@@ -52,11 +51,6 @@ class WalkieTalkieMode(BaseMode):
         self.config = get_config()
         self.text_polisher = text_polisher
         self._recording_store = recording_store
-        self._context_personalization = context_personalization
-        self._active_app_context = None
-        self._active_context_instruction = ""
-        self._app_context_prepared = False
-        self._effective_polish_mode = self.config.llm.polish_mode
 
         self._asr = LazyResource(
             lambda: ASREngine(
@@ -90,53 +84,6 @@ class WalkieTalkieMode(BaseMode):
         self._recorder_stop_lock = threading.Lock()
         self._recorder_stopped_session: Optional[int] = None
 
-    def _prepare_app_context(self) -> str:
-        if self._app_context_prepared:
-            return self._active_context_instruction
-        self._active_app_context = None
-        instruction = ""
-        if self._context_personalization is not None:
-            try:
-                self._active_app_context = self._context_personalization.capture()
-                instruction = self._context_personalization.instruction(
-                    self._active_app_context
-                )
-            except Exception as exc:
-                print(f"[WalkieTalkie] Context capture failed: {exc}")
-        resolver = getattr(self._context_personalization, "polish_mode", None)
-        if callable(resolver):
-            self._effective_polish_mode = resolver(
-                self._active_app_context,
-                self.config.llm.polish_mode,
-            )
-        else:
-            self._effective_polish_mode = self.config.llm.polish_mode
-        setter = getattr(self.text_polisher, "set_context_instruction", None)
-        if callable(setter):
-            setter(instruction)
-        mode_setter = getattr(self.text_polisher, "set_session_polish_mode", None)
-        if callable(mode_setter):
-            mode_setter(self._effective_polish_mode)
-        self._active_context_instruction = instruction
-        self._app_context_prepared = True
-        return instruction
-
-    def prepare_app_context(self) -> str:
-        """Prepare the next session so UI and runtime use one app snapshot."""
-        self._prepare_app_context()
-        return self._effective_polish_mode
-
-    def _clear_app_context(self) -> None:
-        setter = getattr(self.text_polisher, "set_context_instruction", None)
-        if callable(setter):
-            setter("")
-        mode_setter = getattr(self.text_polisher, "set_session_polish_mode", None)
-        if callable(mode_setter):
-            mode_setter(None)
-        self._active_app_context = None
-        self._active_context_instruction = ""
-        self._app_context_prepared = False
-        self._effective_polish_mode = self.config.llm.polish_mode
 
     @property
     def name(self) -> str:
@@ -154,7 +101,6 @@ class WalkieTalkieMode(BaseMode):
         session_token = self._begin_session()
         self._active_session_token = session_token
         self._recording_asr_model = self.config.asr.model
-        context_instruction = self._prepare_app_context()
         self._set_state(ModeState.STARTING)
 
         session_audio_config = deepcopy(self.config.audio)
@@ -178,8 +124,7 @@ class WalkieTalkieMode(BaseMode):
                 self._asr_session_token = session_token
                 self._start_realtime_asr(
                     audio_config=session_audio_config,
-                    context_instruction=context_instruction,
-                    polish_mode=self._effective_polish_mode,
+                    polish_mode=self.config.llm.polish_mode,
                 )
         except Exception as exc:
             print(f"[WalkieTalkie] Failed to start realtime ASR: {exc}")
@@ -249,7 +194,6 @@ class WalkieTalkieMode(BaseMode):
             else:
                 self.on_error(t(self.config.ui.language, "mode_asr_error", details=str(exc)))
         self._set_state(ModeState.FAILED)
-        self._clear_app_context()
         self._set_state(ModeState.IDLE)
 
     def on_hotkey_released(self) -> None:
@@ -299,7 +243,6 @@ class WalkieTalkieMode(BaseMode):
                 self._clear_asr_session_owner(session_token)
             if self.on_error:
                 self.on_error(t(self.config.ui.language, "mode_recording_too_short"))
-            self._clear_app_context()
             self._set_state(ModeState.IDLE)
             return
 
@@ -365,22 +308,11 @@ class WalkieTalkieMode(BaseMode):
                 should_abort=lambda: not self._is_active_session(session_token),
             )
             if self._is_active_session(session_token):
-                if (
-                    getattr(result, "pasted", False)
-                    and self._context_personalization is not None
-                ):
-                    try:
-                        self._context_personalization.record_success(
-                            self._active_app_context
-                        )
-                    except Exception as exc:
-                        print(f"[WalkieTalkie] Context profile update failed: {exc}")
                 if getattr(result, "error_message", None):
                     self._set_state(ModeState.FAILED)
                 self._emit_workflow_result(result)
         finally:
             self._clear_asr_session_owner(session_token)
-            self._clear_app_context()
             if self._is_active_session(session_token):
                 self._set_state(ModeState.IDLE)
             elif self._state == ModeState.CANCELLING:
@@ -419,7 +351,6 @@ class WalkieTalkieMode(BaseMode):
                 self._clear_asr_session_owner(cancelled_session_token)
 
         self._recording_asr_model = self.config.asr.model
-        self._clear_app_context()
         if previous_state == ModeState.PROCESSING:
             processing = self._processing_thread
             if processing is not None and processing.done():

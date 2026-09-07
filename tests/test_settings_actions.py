@@ -590,40 +590,6 @@ def test_mic_test_permission_request_uses_the_same_localized_retry_message():
     assert controller.is_running is False
 
 
-def test_settings_bridge_and_dispatcher_route_meeting_notes_action():
-    from vocal_more.ui.settings_actions import SettingsActionDispatcher
-    from vocal_more.ui.settings_bridge import SettingsBridge
-
-    bridge = SettingsBridge()
-    message = bridge.parse({"action": "generateMeetingNotes", "id": "rec-1"})
-    calls: list[str] = []
-    dispatcher = SettingsActionDispatcher(
-        on_generate_meeting_notes=lambda rec_id: calls.append(rec_id)
-    )
-
-    assert message == {"action": "generate_meeting_notes", "id": "rec-1"}
-
-    dispatcher.dispatch(message)
-
-    assert calls == ["rec-1"]
-
-
-def test_settings_bridge_and_dispatcher_reset_context_profile():
-    from vocal_more.ui.settings_actions import SettingsActionDispatcher
-    from vocal_more.ui.settings_bridge import SettingsBridge
-
-    calls = []
-    dispatcher = SettingsActionDispatcher(
-        on_reset_context_profile=lambda: calls.append("reset")
-    )
-
-    message = SettingsBridge().parse({"action": "resetContextProfile"})
-    dispatcher.dispatch(message)
-
-    assert message == {"action": "reset_context_profile"}
-    assert calls == ["reset"]
-
-
 def test_settings_bridge_and_dispatcher_compact_recording_history():
     from vocal_more.ui.settings_actions import SettingsActionDispatcher
     from vocal_more.ui.settings_bridge import SettingsBridge
@@ -638,3 +604,13 @@ def test_settings_bridge_and_dispatcher_compact_recording_history():
 
     assert message == {"action": "compact_recording_history"}
     assert calls == ["compact"]
+
+
+def test_retired_settings_actions_are_rejected():
+    from vocal_more.ui.settings_bridge import SettingsBridge
+
+    bridge = SettingsBridge()
+    assert bridge.parse({"action": "generateMeetingNotes", "id": "rec-1"}) is None
+    assert bridge.parse({"action": "resetContextProfile"}) is None
+    for key in ("hotkey.command_key", "context_personalization.enabled"):
+        assert bridge.parse({"action": "setConfig", "key": key, "value": True}) is None

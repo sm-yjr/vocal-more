@@ -57,6 +57,8 @@ This removes the old thread-per-event behavior and preserves order during rapid 
 ### 4. Dictation command coordinator owns control intent ordering
 
 `DictationCommandCoordinator` is the serial control plane for dictation commands.
+It serializes recording control operations; the removed voice-command product
+feature does not own this coordinator.
 
 Current command sources:
 
@@ -81,6 +83,17 @@ owned by their mode.
 thread and waits at most 3 seconds. This boundary exists because CoreAudio
 and PortAudio can block indefinitely after sleep/wake, a default-device change,
 or a Bluetooth route transition.
+
+An authorized, idle selected mode may prepare the Apple graph on one
+`vocal-more-audio-prepare` worker. `vm_audio_prepare` configures VoiceProcessingIO
+and conversion buffers without a tap, consumer or running input engine. Capture
+starts only after an explicit recording action. Startup waits for an in-flight
+prepare inside its existing deadline worker; close rejects late publication.
+Configuration mismatches discard the prepared graph. Finished Apple sessions
+keep the paused graph for up to 30 minutes, and recorder close releases it.
+Studio Display can use the prepared Apple graph; its unprepared route retains
+the existing CoreAudio fallback. Older native libraries without the optional
+prepare symbol continue using ordinary startup.
 
 Microphone privacy admission precedes that worker. When an explicit recording
 action first observes TCC `not_determined`, it starts the asynchronous
@@ -357,10 +370,8 @@ worker. A later close can retry the drain.
 
 These non-realtime workloads do not share a generic adapter pool:
 
-- RPC meeting-notes executor
 - settings model-access-check executor
 - settings recording-maintenance executor
-- settings meeting-notes executor
 - recording-store archive executor
 
 The recording-store archive executor is a single owned worker. It converts

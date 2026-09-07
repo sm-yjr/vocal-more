@@ -49,13 +49,11 @@ _MODE_LABELS = {
     "zh": {
         "walkie_talkie": "按住说话",
         "realtime_long": "长语音听写",
-        "meeting": "会议记录",
         "prompt": "提示词",
     },
     "en": {
         "walkie_talkie": "Push to Talk",
         "realtime_long": "Long Dictation",
-        "meeting": "Meeting",
         "prompt": "Prompt",
     },
 }
@@ -189,7 +187,7 @@ def build_settings_payload(values: Mapping[str, Any]) -> dict[str, Any]:
 
     if language not in {"zh", "en"}:
         raise ValueError("Interface language is invalid")
-    if default_mode not in {"walkie_talkie", "realtime_long", "meeting"}:
+    if default_mode not in {"walkie_talkie", "realtime_long"}:
         raise ValueError("Default mode is invalid")
     if asr_language not in {"auto", "zh", "en"}:
         raise ValueError("Recognition language is invalid")
@@ -264,9 +262,6 @@ def build_settings_payload(values: Mapping[str, Any]) -> dict[str, Any]:
             name="Waveform ceiling",
             minimum=-40.0,
             maximum=-1.0,
-        ),
-        "context_personalization.enabled": bool(
-            values.get("context_personalization.enabled")
         ),
     }
     return {"updates": updates, "trigger_browser_code": trigger}
@@ -835,7 +830,6 @@ class _SettingsWindow:
             "audio.highpass_freq": tk.StringVar(),
             "audio.soft_limiter": tk.BooleanVar(),
             "audio.waveform_ceiling_dbfs": tk.StringVar(),
-            "context_personalization.enabled": tk.BooleanVar(),
         }
 
         row = 0
@@ -859,7 +853,7 @@ class _SettingsWindow:
             row,
             "Default mode",
             "default_mode",
-            ("realtime_long", "walkie_talkie", "meeting"),
+            ("realtime_long", "walkie_talkie"),
         )
         row += 1
         self._combo_row(general, row, "Global trigger", "trigger_browser_code", ())
@@ -893,12 +887,6 @@ class _SettingsWindow:
             style="Settings.TCheckbutton",
         ).grid(row=row, column=0, columnspan=2, sticky="w", pady=5)
         row += 1
-        ttk.Checkbutton(
-            general,
-            text="Adapt output to the foreground application category",
-            variable=self._vars["context_personalization.enabled"],
-            style="Settings.TCheckbutton",
-        ).grid(row=row, column=0, columnspan=2, sticky="w", pady=5)
 
         row = 0
         self._combo_row(recognition, row, "ASR model", "asr.model", ())
@@ -1069,7 +1057,6 @@ class _SettingsWindow:
         audio = _section(config, "audio")
         asr = _section(config, "asr")
         llm = _section(config, "llm")
-        context = _section(config, "context_personalization")
 
         self._version_var.set(snapshot.version)
         self._data_var.set(snapshot.data_dir)
@@ -1098,7 +1085,6 @@ class _SettingsWindow:
         self._vars["audio.highpass_freq"].set(str(audio.get("highpass_freq", 200)))
         self._vars["audio.soft_limiter"].set(bool(audio.get("soft_limiter", True)))
         self._vars["audio.waveform_ceiling_dbfs"].set(str(audio.get("waveform_ceiling_dbfs", -6.0)))
-        self._vars["context_personalization.enabled"].set(bool(context.get("enabled", True)))
 
         self._set_catalog_combo(
             self._asr_combo,

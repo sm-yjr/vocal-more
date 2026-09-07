@@ -8,6 +8,8 @@ from typing import Callable, Optional
 
 from dashscope.audio.asr import Recognition, RecognitionCallback, RecognitionResult
 
+from ...domain.model_catalog import get_asr_model_info
+
 
 class _RecognitionCallbackBridge(RecognitionCallback):
     """Translate DashScope sentence snapshots into the app's callback contract."""
@@ -85,6 +87,7 @@ class StreamingRecognitionConversation:
         on_error: Callable[[str], None],
         on_close: Callable[[], None],
         on_usage: Optional[Callable[[dict], None]] = None,
+        corpus_text: str = "",
     ) -> None:
         self._closed = False
         self._committing = False
@@ -109,13 +112,24 @@ class StreamingRecognitionConversation:
             "semantic_punctuation_enabled": True,
             "heartbeat": True,
         }
+        model_info = get_asr_model_info(model) or {}
+        if model_info.get("supports_instant_hotwords"):
+            # Canonical terms only; aliases remain deterministic local mappings.
+            vocabulary = dict.fromkeys(
+                (term.strip() for term in corpus_text.splitlines() if term.strip()), 4
+            )
+            if vocabulary:
+                kwargs["vocabulary"] = dict(list(vocabulary.items())[:2000])
+            kwargs["semantic_punctuation_enabled"] = False
+            kwargs["punctuation_prediction_enabled"] = True
         if language:
             kwargs["language_hints"] = [language]
+        self._start_kwargs: dict = {}
         if context_instruction:
             # Recognition forwards ``raw_input`` as the run-task ``input``
             # object. Provider-native streaming models expect context messages
             # under ``input.context``; a bare string makes the request malformed.
-            kwargs["raw_input"] = {
+            self._start_kwargs["raw_input"] = {
                 "context": [
                     {
                         "role": "user",
@@ -137,7 +151,7 @@ class StreamingRecognitionConversation:
         )
 
     def connect(self) -> None:
-        self._recognition.start()
+        self._recognition.start(**self._start_kwargs)
 
     def update_session(self, **_kwargs) -> None:
         """Compatibility no-op: Recognition parameters are fixed at start."""

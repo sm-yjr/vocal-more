@@ -4,9 +4,9 @@ Vocal-More is a desktop voice-recognition application with real-time speech-to-t
 
 ## Features
 
-- Walkie-Talkie, long dictation, and meeting modes
-- Realtime and file ASR with selectable Qwen models
-- Optional LLM polishing, dictionary corpus, recording history, and foreground-app adaptation
+- Walkie-Talkie and long dictation modes
+- Realtime dictation with selectable Qwen models
+- Optional text polishing with manually selected dictation or Prompt output, dictionary corpus, and recording history
 - Auto-paste into the active application
 - Native global triggers: Fn on macOS and a selectable F8–F12 or modifier trigger on Windows
 - macOS menu-bar UI with Apple Voice Processing and verified AGC
@@ -95,7 +95,7 @@ Persistent configuration is stored at `~/.vocal-more/config.yaml` on macOS and `
 
 Vocal More exposes one downstream audio contract: 16 kHz, mono, signed PCM16. macOS prefers Apple Voice Processing and `AVAudioConverter`; Windows uses PortAudio through `sounddevice` with the shared software gain, high-pass filter, and limiter.
 
-Automatic dictionary learning from post-paste edits currently requires macOS Accessibility. On Windows, context personalization reads only the foreground executable basename and never reads window titles or document text.
+Automatic dictionary learning from post-paste edits currently requires macOS Accessibility.
 
 ## Verification
 

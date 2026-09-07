@@ -37,7 +37,7 @@ _NATIVE_DRAIN_THREAD_NAME = "vocal-more-native-audio-drain"
 _DEFAULT_START_TIMEOUT_SECONDS = 3.0
 _NATIVE_DRAIN_TIMEOUT_SECONDS = 0.5
 _FIRST_PCM_TIMEOUT_SECONDS = 0.75
-_WARM_VOICE_STREAM_TTL_SECONDS = 30.0
+_WARM_VOICE_STREAM_TTL_SECONDS = 1800.0
 _MAX_MACOS_ARRAY_CHANNELS = 3
 # Keep the vectorized first-order IIR numerically stable without returning to
 # a per-sample Python loop. At the highest supported cutoff, inverse filter
@@ -252,6 +252,8 @@ class AudioRecorder:
 
         self._stream: Optional[sd.InputStream] = None
         self._warm_voice_stream = None
+        self._prepare_thread = None
+        self._prepare_closed = False
         self._warm_voice_stream_timer: Optional[threading.Timer] = None
         self._warm_voice_stream_generation = 0
         self._stream_release_thread: Optional[threading.Thread] = None
@@ -510,6 +512,8 @@ class AudioRecorder:
                 raise AudioRecorderStartError(
                     "A previous microphone startup is still blocked in CoreAudio",
                     startup_timed_out=True,
+                    code="previous_start_blocked",
+                    stage="admission",
                 )
             if capture_plan is None:
                 self._apply_pending_capture_config_locked()
@@ -710,6 +714,14 @@ class AudioRecorder:
                     time.monotonic_ns(),
                 )
         try:
+            # All CoreAudio initialization stays behind the existing startup
+            # deadline/circuit breaker, including a still-running idle prepare.
+            prepare_thread = self._prepare_thread
+            if prepare_thread is not None:
+                prepare_thread.join()
+            with self._lock:
+                if generation != self._start_generation or self._prepare_closed:
+                    return
             result = self._start_stream_with_recovery()
             if isinstance(result, _VerifiedStreamCandidate):
                 stream = result.stream
@@ -953,8 +965,63 @@ class AudioRecorder:
 
         return audio_data
 
+    def prepare_idle_capture(self) -> bool:
+        """Prepare Apple's graph on one owned worker without starting capture."""
+        if platform.system() != "Darwin" or microphone_permission_status() != "authorized":
+            return False
+        with self._lock:
+            if (self._prepare_closed or self._is_recording or self._is_stopping
+                    or self._warm_voice_stream is not None
+                    or (self._stream_start_thread is not None and self._stream_start_thread.is_alive())
+                    or (self._prepare_thread is not None and self._prepare_thread.is_alive())):
+                return False
+            if self._capture_backend != "voice_processing":
+                return False
+            kwargs = dict(
+                sample_rate=self.sample_rate, blocksize=self.blocksize,
+                automatic_gain=self._gain_mode == "automatic", gain=self._gain,
+                highpass_filter=self._highpass_filter, highpass_freq=self._hp_freq,
+                soft_limiter=self._soft_limiter,
+            )
+            device_name = self._device_name
+            worker = threading.Thread(
+                target=self._prepare_idle_capture_worker, args=(kwargs, device_name),
+                name="vocal-more-audio-prepare", daemon=True,
+            )
+            self._prepare_thread = worker
+            worker.start()
+        return True
+
+    def _prepare_idle_capture_worker(self, kwargs, device_name) -> None:
+        stream = None
+        try:
+            device_index = self._resolved_device_index_for_status()
+            if not self._should_use_macos_voice_processing(device_index, self._device_info(device_index), preparing=True):
+                return
+            stream = _build_macos_voice_processing_stream(
+                callback=lambda *args: None, pcm_callback=lambda *args: None, **kwargs,
+            )
+            stream.prepare_for_reuse()
+            with self._lock:
+                valid = (not self._prepare_closed and device_name == self._device_name
+                         and self._capture_backend == "voice_processing"
+                         and self._warm_voice_stream is None
+                         and kwargs["sample_rate"] == self.sample_rate
+                         and kwargs["blocksize"] == self.blocksize
+                         and kwargs["automatic_gain"] == (self._gain_mode == "automatic"))
+                if valid:
+                    # Startup joins this worker before taking ownership. No
+                    # input tap or consumer exists in this prepared graph.
+                    self._warm_voice_stream = stream
+                    stream = None
+        except Exception as exc:
+            print(f"[AudioRecorder] Idle audio preparation unavailable: {exc}")
+        finally:
+            if stream is not None:
+                self._release_stream(stream)
+
     def _retain_warm_voice_stream(self, stream):
-        """Keep a paused VPIO graph briefly, then release it while idle."""
+        """Keep a paused VPIO graph across dictations with bounded idle retention."""
         with self._lock:
             previous_warm = self._warm_voice_stream
             previous_timer = self._warm_voice_stream_timer
@@ -1007,6 +1074,7 @@ class AudioRecorder:
     def close(self) -> None:
         """Release active and retained Core Audio resources owned by recorder."""
         with self._lock:
+            self._prepare_closed = True
             recording = self._is_recording or self._is_stopping
         if recording:
             self.stop()
@@ -1122,6 +1190,30 @@ class AudioRecorder:
             status = self._merge_stream_diagnostics(status, stream)
         status["last_session"] = last_session
         return status
+
+    def diagnostic_snapshot(self) -> dict:
+        """Return startup state without native selector calls or audio probing."""
+        with self._lock:
+            return {
+                "is_recording": self._is_recording,
+                "is_stopping": self._is_stopping,
+                "stream_present": self._stream is not None,
+                "start_generation": self._start_generation,
+                "start_worker_alive": bool(
+                    self._stream_start_thread
+                    and self._stream_start_thread.is_alive()
+                ),
+                "release_worker_alive": bool(
+                    self._stream_release_thread
+                    and self._stream_release_thread.is_alive()
+                ),
+                "input_status": dict(self._input_status),
+                "last_session": (
+                    dict(self._last_input_session)
+                    if self._last_input_session is not None
+                    else None
+                ),
+            }
 
     @classmethod
     def inspect_input_status(cls, device: Optional[str] = None) -> dict:
@@ -1530,20 +1622,19 @@ class AudioRecorder:
         self,
         device_index: Optional[int],
         device: Optional[dict],
+        *,
+        preparing: bool = False,
     ) -> bool:
         if self._capture_backend != "voice_processing":
             return False
         if not self._is_macos_builtin_microphone(device):
             return False
-        # Studio Display's VoiceProcessingIO route spends roughly 0.6 s
-        # enabling voice processing and another 0.45 s starting the engine on
-        # observed hardware. The CoreAudio compatibility route reaches its
-        # first frame in about half that time and matches the pre-native app's
-        # dictation behavior. Prefer complete sentence capture over AEC on this
-        # route; the VPIO warm-resume optimization is intentionally limited to
-        # the built-in microphone path measured and verified below.
+        # Studio Display cold VPIO initialization is expensive. A prepared
+        # graph avoids that work and has been measured at roughly 0.6 s to
+        # first PCM. Retain the low-latency fallback for unprepared starts.
         name = str(device.get("name", "")).strip().lower() if device else ""
-        if any(marker in name for marker in _MACOS_LOW_LATENCY_ROUTE_MARKERS):
+        if (any(marker in name for marker in _MACOS_LOW_LATENCY_ROUTE_MARKERS)
+                and not preparing and self._warm_voice_stream is None):
             return False
         target_index = (
             self._default_input_device_index()
@@ -2157,8 +2248,14 @@ class AudioRecorder:
             if self._is_recording or self._is_stopping:
                 self._pending_capture_config.update(plan)
                 return
+            incompatible = any(
+                getattr(self, key) != plan[key] for key in
+                ("sample_rate", "blocksize", "_gain_mode", "_capture_backend", "_device_name")
+            )
             self._pending_capture_config.clear()
             self._apply_capture_plan_locked(plan)
+        if incompatible:
+            self._drop_warm_voice_stream()
 
     def set_sample_rate(self, sample_rate: int) -> None:
         """Normalize the legacy runtime setting to the fixed PCM contract."""

@@ -863,3 +863,45 @@ def test_native_diagnostics_failure_is_monotonic_and_fails_closed():
     assert recovered_read.runtime_fault_count == 1
     assert recovered_read.runtime_fault_code == "native_diagnostics_read_failed"
     stream.close()
+
+
+def test_prepared_stream_does_not_capture_until_resume_and_uses_fresh_callback():
+    from vocal_more.core.native_audio_capture import (
+        NativeMacOSVoiceProcessingStream, NativeAudioDiagnostics,
+        NativeAudioPacket, NativeAudioEnd,
+    )
+    calls = []
+    received = threading.Event()
+    class API:
+        def create(self, config):
+            calls.append('create')
+            return object()
+        def prepare(self, handle):
+            calls.append('prepare')
+        def resume(self, handle):
+            calls.append('resume')
+            return NativeAudioDiagnostics('objective_cpp', 48000, True, 0)
+        def read(self, handle, **kwargs):
+            if 'read' in calls:
+                raise NativeAudioEnd()
+            calls.append('read')
+            return NativeAudioPacket(b'\x01\x00', 1, .1)
+        def stop(self, handle):
+            calls.append('stop')
+        def destroy(self, handle):
+            calls.append('destroy')
+    stale = []
+    stream = NativeMacOSVoiceProcessingStream(
+        pcm_callback=lambda *args: stale.append(args), sample_rate=16000,
+        blocksize=640, automatic_gain=True, gain=1, highpass_filter=True,
+        highpass_freq=200, soft_limiter=True, api=API(),
+    )
+    stream.prepare_for_reuse()
+    assert calls == ['create', 'prepare']
+    assert stream._consumer is None
+    stream.resume(pcm_callback=lambda *_: received.set())
+    assert received.wait(1)
+    stream.close()
+    assert stale == []
+    assert calls.count('create') == 1
+    assert calls.count('destroy') == 1

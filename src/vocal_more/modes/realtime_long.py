@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from typing import Callable, Optional
 
 from ..application.background_executor import BackgroundExecutor, TaskHandle
-from ..application.command_workflow import CommandWorkflow
 from ..application.dictation_workflow import DictationWorkflow
 from ..application.lazy_resource import LazyResource
 from ..config import asr_model_handles_inline_polish, get_config
@@ -16,7 +15,6 @@ from ..core.keyboard_sim import KeyboardSimulator
 from ..dictionary import normalize_terms
 from ..domain.bilingual_formatting import format_bilingual_text
 from ..domain.input_intent import InputIntent
-from ..domain.model_catalog import supports_command_mode
 from ..localization import format_microphone_start_error, t
 from .base_mode import BaseMode, ModeState
 
@@ -42,7 +40,6 @@ class RealtimeLongMode(BaseMode):
         on_audio_level: Optional[Callable[[float], None]] = None,
         recording_store: Optional[object] = None,
         dictionary_learning: Optional[object] = None,
-        context_personalization: Optional[object] = None,
     ):
         super().__init__(
             on_state_change,
@@ -56,11 +53,6 @@ class RealtimeLongMode(BaseMode):
         self.config = get_config()
         self.text_polisher = text_polisher
         self._recording_store = recording_store
-        self._context_personalization = context_personalization
-        self._active_app_context = None
-        self._active_context_instruction = ""
-        self._app_context_prepared = False
-        self._effective_polish_mode = self.config.llm.polish_mode
 
         self._asr = LazyResource(
             lambda: ASREngine(
@@ -82,12 +74,6 @@ class RealtimeLongMode(BaseMode):
             normalize_text=normalize_terms,
             dictionary_learning=dictionary_learning,
         )
-        self._command_workflow = CommandWorkflow(
-            config=self.config,
-            asr_engine=self._asr,
-            keyboard=self._keyboard,
-            recording_store=self._recording_store,
-        )
 
         self._processing_executor = BackgroundExecutor(
             max_workers=1,
@@ -108,53 +94,6 @@ class RealtimeLongMode(BaseMode):
         self._streaming_paste_active = False
         self._streamed_raw_parts: list[str] = []
 
-    def _prepare_app_context(self) -> str:
-        if self._app_context_prepared:
-            return self._active_context_instruction
-        self._active_app_context = None
-        instruction = ""
-        if self._context_personalization is not None:
-            try:
-                self._active_app_context = self._context_personalization.capture()
-                instruction = self._context_personalization.instruction(
-                    self._active_app_context
-                )
-            except Exception as exc:
-                print(f"[RealtimeLong] Context capture failed: {exc}")
-        resolver = getattr(self._context_personalization, "polish_mode", None)
-        if callable(resolver):
-            self._effective_polish_mode = resolver(
-                self._active_app_context,
-                self.config.llm.polish_mode,
-            )
-        else:
-            self._effective_polish_mode = self.config.llm.polish_mode
-        setter = getattr(self.text_polisher, "set_context_instruction", None)
-        if callable(setter):
-            setter(instruction)
-        mode_setter = getattr(self.text_polisher, "set_session_polish_mode", None)
-        if callable(mode_setter):
-            mode_setter(self._effective_polish_mode)
-        self._active_context_instruction = instruction
-        self._app_context_prepared = True
-        return instruction
-
-    def prepare_app_context(self) -> str:
-        """Prepare the next session so UI and runtime use one app snapshot."""
-        self._prepare_app_context()
-        return self._effective_polish_mode
-
-    def _clear_app_context(self) -> None:
-        setter = getattr(self.text_polisher, "set_context_instruction", None)
-        if callable(setter):
-            setter("")
-        mode_setter = getattr(self.text_polisher, "set_session_polish_mode", None)
-        if callable(mode_setter):
-            mode_setter(None)
-        self._active_app_context = None
-        self._active_context_instruction = ""
-        self._app_context_prepared = False
-        self._effective_polish_mode = self.config.llm.polish_mode
 
     @property
     def name(self) -> str:
@@ -183,7 +122,7 @@ class RealtimeLongMode(BaseMode):
         if (
             intent == InputIntent.DICTATION
             and self.config.enable_polish
-            and self._effective_polish_mode == "prompt"
+            and self.config.llm.polish_mode == "prompt"
         ):
             return InputIntent.PROMPT
         return intent
@@ -193,19 +132,6 @@ class RealtimeLongMode(BaseMode):
         intent: InputIntent = InputIntent.DICTATION,
     ) -> None:
         """Start recording + streaming ASR."""
-        if intent == InputIntent.COMMAND and not supports_command_mode(
-            self.config.asr.model
-        ):
-            if self.on_error:
-                self.on_error(
-                    "指令模式仅支持 Qwen3.5 Omni 模型。"
-                    if self.config.ui.language == "zh"
-                    else "Command mode requires a Qwen3.5 Omni model."
-                )
-            self._set_state(ModeState.FAILED)
-            self._set_state(ModeState.IDLE)
-            return
-        context_instruction = self._prepare_app_context()
         intent = self._resolve_input_intent(intent)
         session_token = self._begin_session()
         self._active_session_token = session_token
@@ -213,7 +139,7 @@ class RealtimeLongMode(BaseMode):
         self._active_input_intent = intent
         # Streaming segment paste is opt-in and only valid for plain
         # dictation with raw transcripts. Prompt sessions must wait for the
-        # structured final result; inline-polish and command sessions also
+        # structured final result; inline-polish sessions also
         # keep the original one-shot finish path.
         self._streaming_paste_active = bool(
             intent == InputIntent.DICTATION
@@ -222,12 +148,6 @@ class RealtimeLongMode(BaseMode):
             and not asr_model_handles_inline_polish(self._recording_asr_model)
         )
         self._streamed_raw_parts = []
-        if intent == InputIntent.COMMAND:
-            context_instruction = getattr(
-                self._active_app_context,
-                "category",
-                "general",
-            )
         self._set_state(ModeState.STARTING)
 
         session_audio_config = deepcopy(self.config.audio)
@@ -251,9 +171,7 @@ class RealtimeLongMode(BaseMode):
                 self._asr_session_token = session_token
                 self._start_realtime_asr(
                     audio_config=session_audio_config,
-                    context_instruction=context_instruction,
-                    command_mode=intent == InputIntent.COMMAND,
-                    polish_mode=self._effective_polish_mode,
+                    polish_mode=self.config.llm.polish_mode,
                 )
         except Exception as exc:
             print(f"[RealtimeLong] Failed to start realtime ASR: {exc}")
@@ -321,7 +239,6 @@ class RealtimeLongMode(BaseMode):
             else:
                 self.on_error(t(self.config.ui.language, "mode_asr_error", details=str(exc)))
         self._set_state(ModeState.FAILED)
-        self._clear_app_context()
         self._set_state(ModeState.IDLE)
 
     def _stop_recording(self) -> None:
@@ -372,7 +289,6 @@ class RealtimeLongMode(BaseMode):
                 self._clear_asr_session_owner(session_token)
             if self.on_error:
                 self.on_error(t(self.config.ui.language, "mode_recording_too_short"))
-            self._clear_app_context()
             self._set_state(ModeState.IDLE)
             return
 
@@ -472,70 +388,41 @@ class RealtimeLongMode(BaseMode):
             # tasks discard themselves.
             self._streaming_paste_active = False
         try:
-            if self._active_input_intent == InputIntent.COMMAND:
-                result = self._command_workflow.finish_recording(
-                    pcm_data,
-                    asr_model=self._recording_asr_model,
-                    empty_message=(
-                        "没有生成可用的指令结果，请重试。"
-                        if self.config.ui.language == "zh"
-                        else "No command result was generated. Please try again."
+            result = self._workflow.finish_recording(
+                pcm_data,
+                mode_name="realtime_long",
+                asr_model=self._recording_asr_model,
+                text_polisher=self.text_polisher,
+                messages=SimpleNamespace(
+                    empty_transcription=t(
+                        self.config.ui.language,
+                        "settings_empty_transcription",
                     ),
-                    error_message=lambda details: t(
+                    processing_error=lambda details: t(
                         self.config.ui.language,
                         "mode_processing_error",
                         details=details,
                     ),
-                    on_processing_stage=self._set_processing_stage,
-                    should_abort=lambda: not self._is_active_session(session_token),
-                )
-            else:
-                result = self._workflow.finish_recording(
-                    pcm_data,
-                    mode_name="realtime_long",
-                    asr_model=self._recording_asr_model,
-                    text_polisher=self.text_polisher,
-                    messages=SimpleNamespace(
-                        empty_transcription=t(
-                            self.config.ui.language,
-                            "settings_empty_transcription",
-                        ),
-                        processing_error=lambda details: t(
-                            self.config.ui.language,
-                            "mode_processing_error",
-                            details=details,
-                        ),
-                        polish_error=lambda details: t(
-                            self.config.ui.language,
-                            "mode_polish_error",
-                            details=details,
-                        ),
-                        streaming_paste_mismatch=t(
-                            self.config.ui.language,
-                            "mode_streaming_paste_mismatch",
-                        ),
+                    polish_error=lambda details: t(
+                        self.config.ui.language,
+                        "mode_polish_error",
+                        details=details,
                     ),
-                    on_processing_stage=self._set_processing_stage,
-                    should_abort=lambda: not self._is_active_session(session_token),
-                    streamed_raw_text=streamed_raw_text,
-                )
+                    streaming_paste_mismatch=t(
+                        self.config.ui.language,
+                        "mode_streaming_paste_mismatch",
+                    ),
+                ),
+                on_processing_stage=self._set_processing_stage,
+                should_abort=lambda: not self._is_active_session(session_token),
+                streamed_raw_text=streamed_raw_text,
+            )
             if self._is_active_session(session_token):
-                if (
-                    getattr(result, "pasted", False)
-                    and self._context_personalization is not None
-                ):
-                    try:
-                        self._context_personalization.record_success(
-                            self._active_app_context
-                        )
-                    except Exception as exc:
-                        print(f"[RealtimeLong] Context profile update failed: {exc}")
                 if getattr(result, "error_message", None):
                     self._set_state(ModeState.FAILED)
                 self._emit_workflow_result(result)
         finally:
             self._clear_asr_session_owner(session_token)
-            self._clear_app_context()
             self._active_input_intent = InputIntent.DICTATION
             if self._is_active_session(session_token):
                 self._set_state(ModeState.IDLE)
@@ -577,7 +464,6 @@ class RealtimeLongMode(BaseMode):
         self._recording_asr_model = self.config.asr.model
         self._active_input_intent = InputIntent.DICTATION
         self._streaming_paste_active = False
-        self._clear_app_context()
         if previous_state == ModeState.PROCESSING:
             processing = self._processing_thread
             if processing is not None and processing.done():

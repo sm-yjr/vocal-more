@@ -46,7 +46,6 @@ const EMPTY_SNAPSHOT: SettingsSnapshot = {
   recordings: [],
   environmentChecks: [],
   dashscopeModelCheck: { state: "idle", results: [] },
-  contextProfile: { counts: {}, total: 0 },
   recordingStorage: {},
   recordingCompacting: false,
   recordingCompactionError: null,
@@ -146,9 +145,6 @@ export class SettingsStore {
       ),
       recordings: clone(data.recordings ?? []),
       environmentChecks: clone(data.environment_checks ?? []),
-      contextProfile: clone(
-        data.context_profile ?? { counts: {}, total: 0 },
-      ),
       recordingStorage: clone(data.recording_storage ?? {}),
       activeTab: normalizeTab(data.initial_tab),
       focusRecordingId:
@@ -224,10 +220,6 @@ export class SettingsStore {
         results: clone(results),
       },
     })
-  }
-
-  loadContextProfile(profile: SettingsSnapshot["contextProfile"]): void {
-    this.patch({ contextProfile: clone(profile) })
   }
 
   recordingCompactionStarted(): void {
@@ -327,34 +319,6 @@ export class SettingsStore {
     })
   }
 
-  meetingNotesStarted(id: string): void {
-    this.patch({
-      recordings: updateRecording(this.snapshot.recordings, id, (recording) => ({
-        ...recording,
-        meeting_status: "generating",
-        meeting: { status: "transcribing" },
-      })),
-      focusRecordingId: id,
-    })
-  }
-
-  meetingNotesStage(id: string, stage: string): void {
-    this.patch({
-      recordings: updateRecording(this.snapshot.recordings, id, (recording) => ({
-        ...recording,
-        meeting_status: "generating",
-        meeting: {
-          ...(recording.meeting ?? {}),
-          status:
-            stage === "meeting_summarizing"
-              ? "summarizing"
-              : "transcribing",
-        },
-      })),
-      focusRecordingId: id,
-    })
-  }
-
   playAudio(id: string, base64Data: string | null): void {
     this.patch({
       playingRecordingId: id,
@@ -437,7 +401,6 @@ export class SettingsStore {
     const llm = config.llm ?? {}
     const hotkey = config.hotkey ?? {}
     const learning = config.dictionary_learning ?? {}
-    const context = config.context_personalization ?? {}
     const selectedModel = this.snapshot.asrModels.find(
       (model) => model.id === asr.model,
     )
@@ -506,20 +469,11 @@ export class SettingsStore {
           hotkey.custom_keys ??
             (hotkey.custom_key ? [hotkey.custom_key] : []),
         ),
-        command_key: hotkey.command_key
-          ? clone(hotkey.command_key)
-          : null,
       },
       dictionary_learning: {
         enabled: learning.enabled === true,
         excluded_bundle_ids: [
           ...(learning.excluded_bundle_ids ?? []),
-        ],
-      },
-      context_personalization: {
-        enabled: context.enabled !== false,
-        excluded_bundle_ids: [
-          ...(context.excluded_bundle_ids ?? []),
         ],
       },
     }

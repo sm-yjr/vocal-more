@@ -154,9 +154,6 @@ export function GeneralSettings({
             <NativeSelectOption value="realtime_long">
               {copy.realtimeLong}
             </NativeSelectOption>
-            <NativeSelectOption value="meeting">
-              {copy.meetingMode}
-            </NativeSelectOption>
           </NativeSelect>
         </SettingsRow>
         <SettingsRow

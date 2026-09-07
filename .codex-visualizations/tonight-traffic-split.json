@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "tonight-traffic-split",
+  "queryId": "router_traffic_snapshots",
+  "title": "今晚软路由累计流量变化",
+  "description": "17:52 路由修改后基线与 21:40 只读快照",
+  "chart": {
+    "type": "stackedBar",
+    "x": "time",
+    "y": "mib",
+    "series": "outbound",
+    "yLabel": "累计应用流量（MiB）",
+    "showXAxisLabel": false
+  },
+  "rows": [
+    {"time": "17:52", "outbound": "Direct", "mib": 62.90},
+    {"time": "17:52", "outbound": "DMIT 日本", "mib": 16.90},
+    {"time": "21:40", "outbound": "Direct", "mib": 1076.43},
+    {"time": "21:40", "outbound": "DMIT 日本", "mib": 121.87}
+  ],
+  "source": {
+    "label": "软路由 sing-box 流量监控数据库",
+    "files": [{"label": "traffic.sqlite3 日累计快照"}],
+    "filters": ["日期：2026-08-31", "基线：路由修改完成后的上一份快照", "终点：21:40 HKT"],
+    "caveats": ["数据库按日聚合且不保存小时桶；今晚增量由两次已记录快照相减得到。", "Mac 本机提前加密的 VLESS 外层连接无法在软路由侧拆分内部目标。"],
+    "metricDefinitions": [
+      {"name": "累计应用流量", "definition": "sing-box Clash API 连接计数器记录的上行与下行应用字节之和。"}
+    ]
+  },
+  "generatedAt": "2026-08-31T21:40:07+08:00",
+  "theme": "codex-classic"
+}

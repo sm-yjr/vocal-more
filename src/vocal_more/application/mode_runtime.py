@@ -69,6 +69,10 @@ class ModeRuntimeService:
     def apply_audio_config(self, audio_config: object) -> None:
         for mode in self._modes.values():
             mode.apply_audio_runtime_config(audio_config)
+        if self._prewarm_current_on_refresh:
+            prewarm = getattr(self._get_current_mode(), "prewarm_audio", None)
+            if callable(prewarm):
+                prewarm()
 
     def refresh_asr_runtime(self) -> None:
         for mode in self._modes.values():

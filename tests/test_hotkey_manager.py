@@ -232,42 +232,6 @@ def test_overlapping_custom_keys_emit_one_aggregate_press_and_release(monkeypatc
     ]
 
 
-def test_command_key_emits_separate_intent_edges(monkeypatch):
-    config = Config()
-    config.hotkey.active_hotkeys = []
-    config.hotkey.command_key = {
-        "key_code": 105,
-        "display_name": "F13",
-        "is_modifier": False,
-        "flag_mask": 0,
-    }
-    monkeypatch.setattr(hotkey_module, "get_config", lambda: config)
-    monkeypatch.setattr(
-        hotkey_module,
-        "CGEventGetIntegerValueField",
-        lambda event, _field: event["key_code"],
-    )
-    key_down = object()
-    key_up = object()
-    monkeypatch.setattr(hotkey_module, "kCGEventKeyDown", key_down)
-    monkeypatch.setattr(hotkey_module, "kCGEventKeyUp", key_up)
-
-    manager = hotkey_module.HotkeyManager(
-        on_command_pressed=lambda: None,
-        on_command_released=lambda: None,
-    )
-    captured = []
-    monkeypatch.setattr(manager, "_enqueue_event", captured.append)
-
-    manager._event_callback(None, key_down, {"key_code": 105}, None)
-    manager._event_callback(None, key_up, {"key_code": 105}, None)
-
-    assert captured == [
-        hotkey_module.HotkeyEvent.COMMAND_PRESSED,
-        hotkey_module.HotkeyEvent.COMMAND_RELEASED,
-    ]
-
-
 def test_same_mask_modifiers_release_without_leaving_pressed_state(monkeypatch):
     """Left/right modifiers sharing one Quartz flag must not stick."""
     command_mask = 0x10_0000
@@ -605,3 +569,15 @@ def test_hotkey_manager_failed_event_tap_leaves_clean_retry_state(monkeypatch):
     assert manager._thread is None
     assert manager._callback_thread is None
     assert fn_guard.restore_count == 2
+
+
+def test_retired_command_shortcut_is_not_registered_after_upgrade(monkeypatch):
+    from vocal_more.domain.config_models import AppConfig
+
+    config = AppConfig.from_dict({"hotkey": {"command_key": {
+        "key_code": 105, "display_name": "F13", "is_modifier": False, "flag_mask": 0,
+    }}})
+    monkeypatch.setattr(hotkey_module, "get_config", lambda: config)
+    manager = hotkey_module.HotkeyManager()
+    assert 105 not in manager._regular_lookup
+    assert hotkey_module.FN_KEYCODE in manager._modifier_lookup

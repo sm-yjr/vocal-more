@@ -671,3 +671,25 @@ def test_dictionary_observer_failure_does_not_block_paste():
     keyboard.paste_text.assert_called_once_with("正常听写")
     learner.observe_after_paste.assert_not_called()
     assert result.pasted is True
+
+
+def test_native_hotword_asr_does_not_call_second_stage_llm():
+    from vocal_more.application.dictation_workflow import DictationWorkflow
+
+    asr = MagicMock()
+    asr.stop.return_value = "扣得克斯测试。"
+    asr.get_last_metering.return_value = None
+    polisher = MagicMock()
+    workflow = DictationWorkflow(
+        config=SimpleNamespace(enable_polish=True, auto_paste=False),
+        asr_engine=asr, keyboard=MagicMock(),
+        normalize_text=lambda text: text.replace("扣得克斯", "Codex"),
+    )
+    result = workflow.finish_recording(
+        b"pcm", mode_name="realtime_long",
+        asr_model="qwen-audio-3.0-asr-flash-streaming",
+        text_polisher=polisher, messages=_messages(),
+    )
+    polisher.polish.assert_not_called()
+    assert result.error_code is None
+    assert result.final_text == "Codex 测试。"

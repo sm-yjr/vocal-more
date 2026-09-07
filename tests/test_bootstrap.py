@@ -22,10 +22,8 @@ def test_retry_worker_is_not_started_before_mode_construction_succeeds(builder_n
         recording_store_factory=MagicMock(return_value=MagicMock()),
         walkie_talkie_factory=failing_mode_factory,
         realtime_long_factory=MagicMock(),
-        meeting_factory=MagicMock(),
         recording_retry_factory=recording_retry_factory,
         dictionary_learning_factory=MagicMock(return_value=MagicMock()),
-        context_personalization_factory=MagicMock(return_value=MagicMock()),
     )
 
     with pytest.raises(RuntimeError, match="mode failed"):

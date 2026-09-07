@@ -34,10 +34,10 @@ LLM_MODEL_CATALOG = [
     },
 ]
 
-ASR_MODEL_CATALOG = [
+ALL_ASR_MODELS = [
     {
         "id": "qwen3.5-omni-flash-realtime",
-        "display_name": "Lite Fast",
+        "display_name": "Qwen3.5 Omni Flash Realtime",
         "transport": "realtime_ws",
         "supports_transcription_params": False,
         "input_audio_transcription_model": "gummy-realtime-v1",
@@ -53,7 +53,7 @@ ASR_MODEL_CATALOG = [
     },
     {
         "id": "qwen3.5-omni-plus-realtime",
-        "display_name": "Pro Fast",
+        "display_name": "Qwen3.5 Omni Plus Realtime",
         "transport": "realtime_ws",
         "supports_transcription_params": False,
         "input_audio_transcription_model": "gummy-realtime-v1",
@@ -78,7 +78,17 @@ ASR_MODEL_CATALOG = [
         "handles_inline_polish": True,
         "always_request_response": True,
     },
-    {"separator": True, "display_name": "───────────"},
+    {
+        "id": "qwen-audio-3.0-realtime-flash",
+        "display_name": "Qwen Audio 3.0 Realtime Flash",
+        "transport": "realtime_ws",
+        "protocol": "realtime_conversation",
+        "supports_transcription_params": False,
+        "input_audio_transcription_model": None,
+        "voice": "longanqian",
+        "handles_inline_polish": True,
+        "always_request_response": True,
+    },
     {
         "id": "fun-asr-realtime",
         "display_name": "Fun-ASR Realtime",
@@ -91,7 +101,7 @@ ASR_MODEL_CATALOG = [
     },
     {
         "id": "qwen-audio-3.0-asr-flash-streaming",
-        "display_name": "Qwen Audio 3.0 Fast",
+        "display_name": "Qwen Audio 3.0 ASR Flash Streaming",
         "transport": "realtime_ws",
         "protocol": "audio_recognition",
         "fallback_model": "qwen3-asr-flash",
@@ -117,14 +127,39 @@ ASR_MODEL_CATALOG = [
     },
 ]
 
-LLM_MODEL_IDS = {model["id"] for model in LLM_MODEL_CATALOG}
-ASR_MODEL_IDS = {model["id"] for model in ASR_MODEL_CATALOG if "id" in model}
-OMNI_COMMAND_MODEL_IDS = {
-    "qwen3.5-omni-flash-realtime",
-    "qwen3.5-omni-flash",
+# Transport (WebSocket / HTTP), wire protocol and output capability are
+# independent. Native hotwords do not imply instruction-following polish.
+for _model in ALL_ASR_MODELS:
+    _model.setdefault("protocol", {
+        "realtime_ws": "omni_realtime",
+        "short_file": "openai_audio",
+        "omni_offline": "omni_completion",
+    }[_model["transport"]])
+    _native_asr = _model["id"] == "qwen-audio-3.0-asr-flash-streaming"
+    _model["supports_instant_hotwords"] = _native_asr
+    _model["pipeline"] = (
+        "native_asr" if _native_asr else
+        "inline_generation" if _model["handles_inline_polish"] else
+        "cascade"
+    )
+
+# Official ASR recommendation first for dictation; Omni Plus precedes Flash
+# within the Omni family. See docs/dictation-models.md for sources and scope.
+_DICTATION_MODEL_ORDER = (
+    "qwen-audio-3.0-asr-flash-streaming",
     "qwen3.5-omni-plus-realtime",
-    "qwen3.5-omni-plus",
-}
+    "qwen3.5-omni-flash-realtime",
+    "qwen-audio-3.0-realtime-plus",
+    "qwen-audio-3.0-realtime-flash",
+)
+ASR_MODEL_CATALOG = [
+    next(model for model in ALL_ASR_MODELS if model["id"] == model_id)
+    for model_id in _DICTATION_MODEL_ORDER
+]
+DICTATION_MODEL_IDS = {model["id"] for model in ASR_MODEL_CATALOG}
+
+LLM_MODEL_IDS = {model["id"] for model in LLM_MODEL_CATALOG}
+ASR_MODEL_IDS = {model["id"] for model in ALL_ASR_MODELS}
 DEFAULT_ASR_MODEL_BY_BACKEND = {
     "realtime_ws": "qwen3.5-omni-flash-realtime",
     "short_file": "qwen3-asr-flash",
@@ -139,7 +174,7 @@ def get_llm_model_info(model_id: str) -> dict | None:
 
 def get_asr_model_info(model_id: str) -> dict | None:
     """Look up an ASR model entry by id."""
-    return next((model for model in ASR_MODEL_CATALOG if model.get("id") == model_id), None)
+    return next((model for model in ALL_ASR_MODELS if model.get("id") == model_id), None)
 
 
 def asr_model_handles_inline_polish(model_id: str) -> bool:
@@ -148,11 +183,12 @@ def asr_model_handles_inline_polish(model_id: str) -> bool:
     return bool(info and info.get("handles_inline_polish"))
 
 
-def supports_command_mode(model_id: str) -> bool:
-    """Return whether a model supports command execution with web search."""
-    return model_id in OMNI_COMMAND_MODEL_IDS
-
-
 def default_asr_model_for_backend(backend: ASRBackend) -> str:
     """Return the default model for the provided backend."""
     return DEFAULT_ASR_MODEL_BY_BACKEND.get(backend, "qwen3.5-omni-flash-realtime")
+
+
+def asr_model_uses_single_pass(model_id: str) -> bool:
+    """Whether final dictation skips a separate text LLM request."""
+    info = get_asr_model_info(model_id)
+    return bool(info and info["pipeline"] != "cascade")

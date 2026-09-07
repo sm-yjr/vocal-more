@@ -59,7 +59,6 @@ export interface HotkeyConfig {
   double_tap_threshold?: number
   custom_key?: CustomHotkey | null
   custom_keys?: CustomHotkey[]
-  command_key?: CustomHotkey | null
   [key: string]: unknown
 }
 
@@ -87,11 +86,6 @@ export interface SettingsConfig {
     excluded_bundle_ids?: string[]
     [key: string]: unknown
   }
-  context_personalization?: {
-    enabled?: boolean
-    excluded_bundle_ids?: string[]
-    [key: string]: unknown
-  }
   [key: string]: unknown
 }
 
@@ -99,6 +93,9 @@ export interface AsrModel {
   id?: string
   display_name: string
   transport?: string
+  protocol?: string
+  pipeline?: "native_asr" | "inline_generation" | "cascade"
+  supports_instant_hotwords?: boolean
   handles_inline_polish?: boolean
   separator?: boolean
   [key: string]: unknown
@@ -250,7 +247,6 @@ export interface Recording {
   error?: string | null
   asr_model?: string
   billing?: Record<string, unknown> | null
-  meeting_status?: string
   meeting?: MeetingNotes | null
   language?: string
   [key: string]: unknown
@@ -275,17 +271,6 @@ export interface DashScopeModelCheckState {
   results: DashScopeModelCheckResult[]
 }
 
-export interface ContextProfileSummary {
-  counts: {
-    development?: number
-    general?: number
-    messaging?: number
-    writing?: number
-    [key: string]: number | undefined
-  }
-  total: number
-}
-
 export interface RecordingStorageSummary {
   recording_count?: number
   compressed_count?: number
@@ -305,7 +290,6 @@ export interface SettingsInitData {
   dictionary_learning_records?: DictionaryLearningRecord[]
   recordings?: Recording[]
   environment_checks?: EnvironmentCheck[]
-  context_profile?: ContextProfileSummary
   recording_storage?: RecordingStorageSummary
   initial_tab?: string
   focus_recording_id?: string
@@ -336,7 +320,6 @@ export interface SettingsSnapshot {
   recordings: Recording[]
   environmentChecks: EnvironmentCheck[]
   dashscopeModelCheck: DashScopeModelCheckState
-  contextProfile: ContextProfileSummary
   recordingStorage: RecordingStorageSummary
   recordingCompacting: boolean
   recordingCompactionError: string | null
@@ -395,13 +378,8 @@ export interface FormState {
     double_tap_threshold: number
     custom_key: CustomHotkey | null
     custom_keys: CustomHotkey[]
-    command_key: CustomHotkey | null
   }
   dictionary_learning: {
-    enabled: boolean
-    excluded_bundle_ids: string[]
-  }
-  context_personalization: {
     enabled: boolean
     excluded_bundle_ids: string[]
   }
