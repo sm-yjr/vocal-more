@@ -119,7 +119,20 @@ The startup path guarantees:
 Python cannot forcibly terminate a thread blocked inside a native audio call.
 The containment policy therefore abandons that daemon attempt, rejects repeated
 starts while it remains blocked, and keeps hotkey cancellation, UI work, and
-application shutdown responsive.
+application shutdown responsive. Admission also waits for all owned stream
+release workers to finish. Modes check that barrier before opening ASR, so
+repeated hotkeys do not create redundant network sessions. Between native calls,
+startup checks its generation again; a constructor returning after timeout cannot
+proceed to start the rejected stream or reset PortAudio.
+
+Microphone startup failures remain visible in the capsule. One main-run-loop
+timer reads Python worker ownership only and updates the notice when a manual
+retry becomes possible. Closing or replacing the notice invalidates the timer.
+It never restarts capture automatically after a released hotkey. A permanently
+blocked native call still requires restarting the app; in-process Python threads
+cannot safely interrupt it. Startup diagnostics reset per admitted/rejected
+request and retain a separate worker generation, thread ID and native-call phase
+so a blocked worker is not confused with a previous successful recording.
 
 ### 6. Native audio capture has two explicit queue boundaries
 

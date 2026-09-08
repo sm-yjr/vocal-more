@@ -13,72 +13,7 @@ import { Switch } from "@/components/ui/switch"
 import { sendAction, setConfig } from "@/settings/actions"
 import type { SettingsCopy } from "@/settings/i18n"
 import type { SettingsStore } from "@/settings/store"
-import type {
-  DictionaryLearningRecord,
-  SettingsSnapshot,
-} from "@/settings/types"
-
-const ANALYZING_STATUSES = new Set([
-  "pending",
-  "processing",
-  "applying",
-  "retry",
-])
-
-function learningRecordLabel(
-  record: DictionaryLearningRecord,
-  copy: SettingsCopy,
-): string {
-  if (record.status === "monitoring") {
-    return record.app_name
-      ? `${copy.monitoringEdit} · ${record.app_name}`
-      : copy.monitoringEdit
-  }
-  if (record.status === "no_change") return copy.noChangeDetected
-  if (
-    record.status === "failed" ||
-    record.status === "observation_failed"
-  ) {
-    return copy.analysisFailed
-  }
-
-  const term = record.term?.trim()
-  const aliases = record.aliases?.filter(Boolean) ?? []
-  if (term) {
-    return `${term}${aliases.length ? ` ← ${aliases.join(", ")}` : ""}`
-  }
-  return copy.detectedCorrection
-}
-
-function learningRecordDescription(
-  record: DictionaryLearningRecord,
-  copy: SettingsCopy,
-): string | undefined {
-  if (typeof record.confidence !== "number") return undefined
-  return `${copy.confidence} ${Math.round(record.confidence * 100)}%`
-}
-
-function learningRecordStatus(
-  record: DictionaryLearningRecord,
-  copy: SettingsCopy,
-): string {
-  if (record.status === "monitoring") return copy.monitoringEdit
-  if (ANALYZING_STATUSES.has(record.status ?? "")) {
-    return copy.analyzingEdit
-  }
-  if (record.status === "review") return copy.needsReview
-  if (record.status === "reverted") return copy.reverted
-  if (
-    record.status === "failed" ||
-    record.status === "observation_failed"
-  ) {
-    return copy.analysisFailed
-  }
-  if (record.status === "ignored" || record.status === "no_change") {
-    return copy.notLearned
-  }
-  return copy.learned
-}
+import type { SettingsSnapshot } from "@/settings/types"
 
 export function DictionarySettings({
   store,
@@ -148,73 +83,6 @@ export function DictionarySettings({
             }
           />
         </SettingsRow>
-      </SettingsCard>
-
-      <SettingsCard
-        title={copy.learningActivity}
-        description={copy.learningActivityHint}
-      >
-        {snapshot.dictionaryLearningRecords.length ? (
-          snapshot.dictionaryLearningRecords.map((record) => (
-            <SettingsRow
-              key={record.id}
-              label={learningRecordLabel(record, copy)}
-              description={learningRecordDescription(record, copy)}
-            >
-              <Badge
-                variant={
-                  record.status === "failed" ||
-                  record.status === "observation_failed"
-                    ? "destructive"
-                    : "outline"
-                }
-              >
-                {learningRecordStatus(record, copy)}
-              </Badge>
-              {record.status === "review" ? (
-                <>
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      sendAction("approveDictionaryLearning", {
-                        id: record.id,
-                      })
-                    }
-                  >
-                    {copy.add}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      sendAction("rejectDictionaryLearning", {
-                        id: record.id,
-                      })
-                    }
-                  >
-                    {copy.ignore}
-                  </Button>
-                </>
-              ) : record.status === "applied" ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    sendAction("undoDictionaryLearning", {
-                      id: record.id,
-                    })
-                  }
-                >
-                  {copy.undo}
-                </Button>
-              ) : null}
-            </SettingsRow>
-          ))
-        ) : (
-          <p className="p-4 text-xs text-muted-foreground">
-            {copy.noLearning}
-          </p>
-        )}
       </SettingsCard>
 
       <SettingsCard title={copy.customTerms}>

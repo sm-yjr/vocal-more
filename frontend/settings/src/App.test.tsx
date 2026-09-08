@@ -633,41 +633,7 @@ describe("settings application", () => {
     }
   })
 
-  it("routes dictionary-learning review decisions by record id", async () => {
-    const user = userEvent.setup()
-    const { postMessage, store } = renderApp()
-
-    await user.click(screen.getByRole("tab", { name: "词典" }))
-    await user.click(screen.getByRole("button", { name: "添加" }))
-    await user.click(screen.getByRole("button", { name: "忽略" }))
-
-    expect(postMessage).toHaveBeenCalledWith({
-      action: "approveDictionaryLearning",
-      id: "learn-1",
-    })
-    expect(postMessage).toHaveBeenCalledWith({
-      action: "rejectDictionaryLearning",
-      id: "learn-1",
-    })
-
-    act(() => {
-      store.loadDictionaryLearning([
-        {
-          id: "learn-1",
-          term: "shadcn",
-          aliases: [],
-          status: "applied",
-        },
-      ])
-    })
-    await user.click(screen.getByRole("button", { name: "撤销" }))
-    expect(postMessage).toHaveBeenCalledWith({
-      action: "undoDictionaryLearning",
-      id: "learn-1",
-    })
-  })
-
-  it("shows automatic-learning observation and analysis stages", async () => {
+  it("hides retired automatic-learning records", async () => {
     const user = userEvent.setup()
     const data = makeInitData()
     data.dictionary_learning_records = [
@@ -691,9 +657,9 @@ describe("settings application", () => {
 
     await user.click(screen.getByRole("tab", { name: "词典" }))
 
-    expect(screen.getByText("正在监听修改 · Notes")).toBeVisible()
-    expect(screen.getByText("正在分析纠正")).toBeVisible()
-    expect(screen.getAllByText("未添加词条")).toHaveLength(1)
+    expect(screen.queryByText("自动学习记录")).not.toBeInTheDocument()
+    expect(screen.queryByText("正在分析纠正")).not.toBeInTheDocument()
+    expect(screen.queryByText("正在监听修改 · Notes")).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "添加" }),
     ).not.toBeInTheDocument()
@@ -884,7 +850,7 @@ it("disables instruction polish for native hotword transcription", async () => {
   renderApp(data)
   await user.click(screen.getByRole("tab", { name: "润色" }))
   expect(screen.getByText(/当前模型单次输出带热词和标点的转写/)).toBeVisible()
-  expect(document.querySelector("#llm-model")).toBeDisabled()
+  expect(document.querySelector("#llm-model")).not.toBeInTheDocument()
   expect(document.querySelector("#polish-mode")).toBeDisabled()
 })
 

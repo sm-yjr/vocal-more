@@ -266,6 +266,35 @@ class BaseMode(ABC):
             raise
         record_startup_event("asr_start_admitted", attempt_id=attempt_id, mode=self.name)
 
+    def _check_microphone_recovery(self) -> None:
+        recorder = initialized_resource(getattr(self, "_recorder", None))
+        check = getattr(recorder, "check_startup_available", None)
+        if not callable(check):
+            return
+        try:
+            check()
+        except Exception as exc:
+            record_startup_event(
+                "microphone_start_rejected", attempt_id=self._ensure_startup_diagnostic_context(),
+                mode=self.name, audio_input=recorder.diagnostic_snapshot(), **exception_fields(exc),
+            )
+            raise
+
+    def _report_microphone_notice(self, exc: Exception) -> None:
+        from ..domain.microphone_status import MicrophoneStatus
+        from ..localization import format_microphone_start_error
+        from ..startup_diagnostics import sanitize_diagnostic_value
+        recorder = initialized_resource(getattr(self, "_recorder", None))
+        probe = getattr(recorder, "startup_recovery_status", None)
+        if getattr(exc, "code", "") not in {
+            "startup_timeout", "previous_start_blocked", "previous_release_blocked", "first_pcm_timeout",
+        }:
+            probe = None
+        self._on_connection_update(self._active_session_token, MicrophoneStatus(
+            str(sanitize_diagnostic_value(format_microphone_start_error(self.config.ui.language, exc))),
+            probe if callable(probe) else None,
+        ))
+
     @property
     def connection_status(self):
         return self._connection_status
@@ -273,6 +302,10 @@ class BaseMode(ABC):
     def _on_connection_update(self, token, status) -> None:
         with self._session_lock:
             if token != self._session_token:
+                return
+            # Late ASR readiness must not erase an audio failure for this session.
+            if (getattr(self._connection_status, "phase", None) == "microphone_failed"
+                    and status.phase != "microphone_failed"):
                 return
             self._connection_status = status
         observer = self.on_connection_status

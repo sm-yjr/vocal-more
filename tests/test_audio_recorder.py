@@ -736,7 +736,7 @@ def test_start_deadline_covers_blocked_device_enumeration(monkeypatch):
     block_queries = False
     query_entered = threading.Event()
     release_query = threading.Event()
-    late_stream_closed = threading.Event()
+    late_stream_created = threading.Event()
 
     def query_devices():
         if block_queries:
@@ -748,7 +748,7 @@ def test_start_deadline_covers_blocked_device_enumeration(monkeypatch):
         samplerate = 16000
 
         def __init__(self, **_kwargs):
-            return None
+            late_stream_created.set()
 
         def start(self):
             return None
@@ -757,7 +757,7 @@ def test_start_deadline_covers_blocked_device_enumeration(monkeypatch):
             return None
 
         def close(self):
-            late_stream_closed.set()
+            return None
 
     fake_sd = type(
         "FakeSoundDevice",
@@ -801,7 +801,10 @@ def test_start_deadline_covers_blocked_device_enumeration(monkeypatch):
     assert len(errors) == 1
     assert isinstance(errors[0], AudioRecorderStartError)
     assert errors[0].startup_timed_out is True
-    assert late_stream_closed.wait(timeout=0.5)
+    worker = recorder._stream_start_thread
+    if worker is not None:
+        worker.join(timeout=0.5)
+    assert not late_stream_created.is_set()
 
 
 def test_constructor_never_blocks_on_device_enumeration(monkeypatch):

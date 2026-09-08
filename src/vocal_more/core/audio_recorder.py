@@ -258,6 +258,8 @@ class AudioRecorder:
         self._warm_voice_stream_generation = 0
         self._stream_release_thread: Optional[threading.Thread] = None
         self._stream_start_thread: Optional[threading.Thread] = None
+        self._stream_release_threads: set[threading.Thread] = set()
+        self._startup_worker_status: dict[str, object] = {}
         self._start_generation = 0
         self._first_pcm_generation = 0
         self._first_pcm_event = threading.Event()
@@ -508,13 +510,8 @@ class AudioRecorder:
         with self._lock:
             if self._is_recording:
                 return
-            if self._stream_start_thread and self._stream_start_thread.is_alive():
-                raise AudioRecorderStartError(
-                    "A previous microphone startup is still blocked in CoreAudio",
-                    startup_timed_out=True,
-                    code="previous_start_blocked",
-                    stage="admission",
-                )
+            self._reset_startup_status_locked(requested_at_ns)
+            self._check_startup_available_locked()
             if capture_plan is None:
                 self._apply_pending_capture_config_locked()
                 if self._use_config_device:
@@ -640,6 +637,66 @@ class AudioRecorder:
                 self._startup_timing_snapshot_locked()
             )
 
+    def _reset_startup_status_locked(self, requested_at_ns: int) -> None:
+        # A rejected new request must never inherit a previous session's PCM,
+        # device or timing evidence. The outstanding worker has its own record.
+        self._input_status = self._initial_input_status()
+        self._first_pcm_event = threading.Event()
+        self._startup_timing_ns = {"request": requested_at_ns}
+
+    def _check_startup_available_locked(self) -> None:
+        if self._stream_start_thread and self._stream_start_thread.is_alive():
+            raise AudioRecorderStartError(
+                "A previous microphone startup is still blocked in the audio backend",
+                startup_timed_out=True, code="previous_start_blocked", stage="admission",
+            )
+        if self._stream_release_threads:
+            raise AudioRecorderStartError(
+                "The previous microphone stream is still being released",
+                code="previous_release_blocked", stage="admission",
+            )
+
+    def check_startup_available(self) -> None:
+        """Reject a busy backend before the mode opens another ASR session."""
+        with self._lock:
+            if self._is_recording:
+                return
+            try:
+                self._check_startup_available_locked()
+            except AudioRecorderStartError:
+                self._reset_startup_status_locked(time.monotonic_ns())
+                self._input_status["phase"] = "blocked"
+                raise
+
+    def startup_recovery_status(self) -> dict:
+        """I/O-free probe, safe for a UI timer; never opens a microphone."""
+        with self._lock:
+            starting = bool(self._stream_start_thread and self._stream_start_thread.is_alive())
+            return {"busy": starting or bool(self._stream_release_threads),
+                    "phase": "startup" if starting else "release"}
+
+    def _startup_checkpoint(self, phase: str, **details) -> None:
+        if phase in {"portaudio_construct", "portaudio_reset", "apple_construct", "apple_resume"}:
+            with self._lock:
+                releases = tuple(self._stream_release_threads)
+                if releases:
+                    self._startup_worker_status["phase"] = "release_wait"
+            # Still inside the one deadline worker. Never open/reset a device
+            # while an earlier candidate is being destroyed.
+            for worker in releases:
+                worker.join()
+        with self._lock:
+            # Private stream helpers also have direct callers in smoke checks.
+            if self._stream_start_thread is not threading.current_thread():
+                return
+            if self._startup_worker_status.get("generation") != self._start_generation:
+                self._startup_worker_status["cancelled_before_phase"] = phase
+                raise AudioRecorderStartError(
+                    "Microphone startup was cancelled", code="startup_cancelled", stage=phase,
+                )
+            self._startup_worker_status.update(phase=phase, **details)
+            self._startup_worker_status["phase_started_ns"] = time.monotonic_ns()
+
     def _admit_microphone_permission_locked(self) -> None:
         """Admit one explicit capture without consuming device-start time.
 
@@ -713,7 +770,12 @@ class AudioRecorder:
                     "worker_started",
                     time.monotonic_ns(),
                 )
+            self._startup_worker_status = {
+                "generation": generation, "thread_id": threading.get_ident(),
+                "phase": "worker_started", "started_ns": time.monotonic_ns(),
+            }
         try:
+            self._startup_checkpoint("prepare_wait")
             # All CoreAudio initialization stays behind the existing startup
             # deadline/circuit breaker, including a still-running idle prepare.
             prepare_thread = self._prepare_thread
@@ -745,7 +807,8 @@ class AudioRecorder:
                 else:
                     self._array_processing_active = False
                     self._apple_agc_active = False
-                    self._mark_input_inactive()
+                    self._input_status = self._initial_input_status()
+                    self._mark_input_inactive(phase="failed")
             if not accepted:
                 if startup_gate is not None:
                     startup_gate.reject()
@@ -764,6 +827,7 @@ class AudioRecorder:
         finally:
             with self._lock:
                 if self._stream_start_thread is threading.current_thread():
+                    self._startup_worker_status["completed_ns"] = time.monotonic_ns()
                     self._stream_start_thread = None
             done.set()
 
@@ -972,6 +1036,7 @@ class AudioRecorder:
         with self._lock:
             if (self._prepare_closed or self._is_recording or self._is_stopping
                     or self._warm_voice_stream is not None
+                    or self._stream_release_threads
                     or (self._stream_start_thread is not None and self._stream_start_thread.is_alive())
                     or (self._prepare_thread is not None and self._prepare_thread.is_alive())):
                 return False
@@ -1159,13 +1224,20 @@ class AudioRecorder:
         *,
         after_thread: Optional[threading.Thread] = None,
     ) -> None:
+        def release():
+            try:
+                self._release_stream_after(stream, after_thread)
+            finally:
+                with self._lock:
+                    self._stream_release_threads.discard(threading.current_thread())
         release_thread = threading.Thread(
-            target=self._release_stream_after,
-            args=(stream, after_thread),
+            target=release,
             name=_STREAM_RELEASE_THREAD_NAME,
             daemon=True,
         )
-        self._stream_release_thread = release_thread
+        with self._lock:
+            self._stream_release_thread = release_thread
+            self._stream_release_threads.add(release_thread)
         release_thread.start()
 
     @property
@@ -1207,6 +1279,12 @@ class AudioRecorder:
                     self._stream_release_thread
                     and self._stream_release_thread.is_alive()
                 ),
+                "startup_worker": {
+                    **self._startup_worker_status,
+                    "elapsed_ms": (int(self._startup_worker_status.get("completed_ns", time.monotonic_ns())) - int(self._startup_worker_status.get("started_ns", time.monotonic_ns()))) / 1e6,
+                },
+                "startup_timing_ms": self._startup_timing_snapshot_locked(),
+                "release_worker_count": len(self._stream_release_threads),
                 "input_status": dict(self._input_status),
                 "last_session": (
                     dict(self._last_input_session)
@@ -1264,7 +1342,9 @@ class AudioRecorder:
                 stage="permission",
             )
 
+        self._startup_checkpoint("device_resolution")
         device_index = self._resolve_device()
+        self._startup_checkpoint("device_resolved", device_index=device_index)
         with self._lock:
             self._startup_timing_ns.setdefault(
                 "device_resolved",
@@ -1274,7 +1354,9 @@ class AudioRecorder:
         try:
             return self._open_stream_with_fallback(device_index)
         except Exception as initial_error:
+            self._startup_checkpoint("recovery_decision")
             if self._should_retry_after_portaudio_reset(initial_error):
+                self._startup_checkpoint("portaudio_reset")
                 if self._recover_portaudio_state(initial_error):
                     try:
                         return self._open_stream_with_fallback(self._resolve_device())
@@ -1361,6 +1443,7 @@ class AudioRecorder:
             return self._open_stream(None)
 
     def _open_stream(self, device_index: Optional[int]):
+        self._startup_checkpoint("device_info")
         device = self._device_info(device_index)
         voice_processing_error: Optional[Exception] = None
         if self._should_use_macos_voice_processing(device_index, device):
@@ -1420,15 +1503,15 @@ class AudioRecorder:
             array_processing = False
             actual_capture_channels = 1
         stream = candidate.stream
-        with self._lock:
-            self._array_processing_active = array_processing
+        try:
+            self._startup_checkpoint("backend_diagnostics")
             if array_processing:
                 processing_mode = "vocal_more_array"
             elif self._is_macos_builtin_microphone(device):
                 processing_mode = "system_managed_mono"
             else:
                 processing_mode = "standard"
-            self._input_status = self._status_for_device(
+            status = self._status_for_device(
                 device_index,
                 device,
                 processing_mode=processing_mode,
@@ -1457,10 +1540,16 @@ class AudioRecorder:
                     ) if voice_processing_error is not None else None
                 ),
             )
-            self._input_status["source_sample_rate_hz"] = float(
-                getattr(stream, "samplerate", self.sample_rate)
-            )
-            self._input_status["source_channels"] = actual_capture_channels
+            status["source_sample_rate_hz"] = float(getattr(stream, "samplerate", self.sample_rate))
+            status["source_channels"] = actual_capture_channels
+            self._startup_checkpoint("backend_verified")
+            with self._lock:
+                self._array_processing_active = array_processing
+                self._input_status = status
+        except Exception:
+            candidate.gate.reject()
+            self._release_stream_async(stream)
+            raise
         return candidate
 
     def _start_verified_voice_processing_candidate(
@@ -1498,10 +1587,12 @@ class AudioRecorder:
                     highpass_freq=self._hp_freq,
                     soft_limiter=self._soft_limiter,
                 )
+                self._startup_checkpoint("apple_resume")
                 voice_stream.resume(pcm_callback=gate.pcm_callback)
             else:
                 if warm_stream is not None:
                     self._release_stream_async(warm_stream)
+                self._startup_checkpoint("apple_construct")
                 voice_stream = builder(
                     callback=gate.float_callback,
                     pcm_callback=gate.pcm_callback,
@@ -1513,7 +1604,9 @@ class AudioRecorder:
                     highpass_freq=self._hp_freq,
                     soft_limiter=self._soft_limiter,
                 )
+                self._startup_checkpoint("apple_start")
                 voice_stream.start()
+            self._startup_checkpoint("apple_diagnostics")
             active_status = self._status_for_device(
                 device_index,
                 device,
@@ -1526,6 +1619,7 @@ class AudioRecorder:
                 active_status,
                 voice_stream,
             )
+            self._startup_checkpoint("apple_verified")
             with self._lock:
                 self._array_processing_active = False
                 self._input_status = active_status
@@ -1567,6 +1661,7 @@ class AudioRecorder:
             pcm_callback=self._native_pcm_callback,
         )
         stream_factory = getattr(sd, "RawInputStream", sd.InputStream)
+        self._startup_checkpoint("portaudio_construct", device_index=device_index, channels=channels)
         stream = stream_factory(
             samplerate=self.sample_rate,
             channels=channels,
@@ -1576,7 +1671,9 @@ class AudioRecorder:
             device=device_index,
         )
         try:
+            self._startup_checkpoint("portaudio_start")
             stream.start()
+            self._startup_checkpoint("portaudio_started")
         except Exception:
             gate.reject()
             self._release_stream_async(stream)

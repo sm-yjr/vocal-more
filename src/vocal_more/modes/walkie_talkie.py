@@ -109,6 +109,7 @@ class WalkieTalkieMode(BaseMode):
             # Synchronize the recorder from the same config boundary that the
             # ASR engine snapshots, then open ASR admission before any verified
             # recorder startup PCM can be published.
+            self._check_microphone_recovery()
             self.apply_audio_runtime_config(session_audio_config)
         except Exception as exc:
             if (
@@ -187,8 +188,8 @@ class WalkieTalkieMode(BaseMode):
                 self._asr_session_token = None
 
     def _report_startup_failure(self, exc: Exception, *, stage: str) -> None:
-        if stage == "microphone" and self._connection_is_pending():
-            self._on_connection_update(self._active_session_token, ConnectionStatus("ready"))
+        if stage == "microphone":
+            self._report_microphone_notice(exc)
         elif stage == "asr":
             from ..startup_diagnostics import sanitize_diagnostic_value
             self._on_connection_update(self._active_session_token, ConnectionStatus(

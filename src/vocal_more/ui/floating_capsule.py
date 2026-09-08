@@ -63,6 +63,7 @@ class FloatingCapsule:
         self._hide_timer: NSTimer | None = None
         self._interface_language: str = "en"
         self._connection_notice = None
+        self._recovery_timer: NSTimer | None = None
         self._latest_transcript_text = ""
         self._latest_prompt_text: str = ""
         self._main_thread_timers: set[NSTimer] = set()
@@ -169,6 +170,7 @@ class FloatingCapsule:
     ) -> None:
         self._ensure_setup()
         self._connection_notice = None
+        self._stop_recovery_timer()
         self._latest_transcript_text = ""
         self._set_capsule_size_on_main_thread(False)
         display_mode = self._display_mode(mode, prompt_mode)
@@ -244,6 +246,7 @@ class FloatingCapsule:
 
     def _hide_on_main_thread(self) -> None:
         self._connection_notice = None
+        self._stop_recovery_timer()
         self._stop_push_timer()
         self._stop_progress_timer()
         self._current_state = "hidden"
@@ -352,8 +355,15 @@ class FloatingCapsule:
     def _show_connection_status_on_main_thread(self, status) -> None:
         if self._current_state == "hidden":
             return
+        # Ordinary first connection stays on the recording surface. Only an
+        # actual failure/backoff needs an interrupting connection notice.
+        if status.phase == "connecting" and status.retry == 0:
+            return
         if status.phase == "ready":
+            if self._connection_notice is None:
+                return
             self._connection_notice = None
+            self._stop_recovery_timer()
             state = self._current_state
             self._renderer.set_state(state)
             self._set_capsule_size_on_main_thread(False)
@@ -367,12 +377,37 @@ class FloatingCapsule:
                 self._start_progress_timer()
             return
         self._connection_notice = status
+        self._start_recovery_timer(status)
         self._stop_push_timer()
         self._stop_progress_timer()
         title, detail = status.display_text(self._interface_language)
         self._set_capsule_size_on_main_thread(True, detail)
         self._renderer.set_connection_message(title, detail)
         self._panel.setIgnoresMouseEvents_(False)
+
+    def _stop_recovery_timer(self) -> None:
+        timer = getattr(self, "_recovery_timer", None)
+        if timer is not None:
+            timer.invalidate()
+        self._recovery_timer = None
+
+    def _start_recovery_timer(self, status) -> None:
+        # One main-run-loop observer per visible notice. The probe only reads
+        # Python ownership state: no device queries, threads or capture replay.
+        self._stop_recovery_timer()
+        if not callable(getattr(status, "recovery_probe", None)):
+            return
+        def refresh(timer):
+            if self._connection_notice is not status or self._current_state == "hidden":
+                self._stop_recovery_timer()
+                return
+            title, detail = status.display_text(self._interface_language)
+            self._set_capsule_size_on_main_thread(True, detail)
+            self._renderer.set_connection_message(title, detail)
+            if not status.recovery_probe()["busy"]:
+                self._stop_recovery_timer()
+        self._recovery_timer = NSTimer.timerWithTimeInterval_repeats_block_(1.0, True, refresh)
+        NSRunLoop.mainRunLoop().addTimer_forMode_(self._recovery_timer, NSRunLoopCommonModes)
 
     def _set_capsule_size_on_main_thread(self, expanded: bool, text: str = "") -> None:
         """Resize around the current horizontal center without moving screens."""

@@ -1,7 +1,6 @@
 import { useState } from "react"
 
 import {
-  InlineValue,
   SettingsCard,
   SettingsPage,
   SettingsRow,
@@ -11,7 +10,6 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "@/components/ui/native-select"
-import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -32,10 +30,6 @@ type PromptCategory =
   | "structured"
   | "tone"
   | "persona"
-
-function sliderNumber(value: number | readonly number[]): number {
-  return typeof value === "number" ? value : (value[0] ?? 0)
-}
 
 function promptPresetKey(
   category: PromptCategory,
@@ -65,14 +59,6 @@ export function PolishSettings({
   const enabled = snapshot.config.enable_polish !== false && !nativeAsr
   const [category, setCategory] =
     useState<PromptCategory>("output_type")
-  const asrModel = snapshot.asrModels.find(
-    (model) => model.id === snapshot.config.asr?.model,
-  )
-  const inlinePolish = asrModel?.handles_inline_polish === true
-  const selectedLlm = snapshot.llmModels.find(
-    (model) => model.id === llm.model,
-  )
-  const llmEnabled = enabled && !inlinePolish
   const overrides = llm.prompt_overrides ?? {}
   const override = overrides[category] ?? {
     enabled: false,
@@ -110,8 +96,6 @@ export function PolishSettings({
           />
         </SettingsRow>
       </SettingsCard>
-
-
 
       <SettingsCard>
         <SettingsRow label={copy.outputType} htmlFor="polish-mode">
@@ -321,68 +305,6 @@ export function PolishSettings({
         </div>
       </SettingsCard> : null}
 
-      {advanced ? <SettingsCard>
-        <SettingsRow label={copy.llmModel} htmlFor="llm-model">
-          <NativeSelect
-            id="llm-model"
-            className="h-8 w-52"
-            disabled={!llmEnabled}
-            value={llm.model ?? "qwen3.5-plus"}
-            onChange={(event) => setLlm("model", event.target.value)}
-          >
-            {snapshot.llmModels.map((model) => (
-              <NativeSelectOption key={model.id} value={model.id}>
-                {model.display_name}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-        </SettingsRow>
-        <SettingsRow label={copy.temperature}>
-          <div className="flex w-52 items-center gap-3">
-            <Slider
-              min={0}
-              max={1}
-              step={0.1}
-              disabled={!llmEnabled}
-              value={
-                typeof llm.temperature === "number"
-                  ? llm.temperature
-                  : 0
-              }
-              onValueChange={(value) =>
-                setLlm("temperature", sliderNumber(value))
-              }
-            />
-            <InlineValue>
-              {(llm.temperature ?? 0).toFixed(1)}
-            </InlineValue>
-          </div>
-        </SettingsRow>
-        <SettingsRow
-          label={copy.thinking}
-          description={
-            inlinePolish
-              ? copy.thinkingLocked
-              : selectedLlm?.supports_thinking === false
-                ? copy.thinkingUnsupported
-                : copy.thinkingHint
-          }
-        >
-          <Switch
-            disabled={
-              !llmEnabled || selectedLlm?.supports_thinking === false
-            }
-            checked={
-              llmEnabled &&
-              selectedLlm?.supports_thinking !== false &&
-              llm.enable_thinking === true
-            }
-            onCheckedChange={(checked) =>
-              setLlm("enable_thinking", checked)
-            }
-          />
-        </SettingsRow>
-      </SettingsCard> : null}
     </SettingsPage>
   )
 }
