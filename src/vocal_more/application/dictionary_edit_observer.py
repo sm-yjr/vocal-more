@@ -22,6 +22,31 @@ from .dictionary_learning_candidates import (
 _ZERO_WIDTH_RE = re.compile("[\u200b\u200c\u200d\ufeff]")
 
 
+class ObservationControl(threading.Event):
+    """Abort on shutdown; finish an accepted correction before the next paste."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._finish_lock = threading.Lock()
+        self._finishing = False
+        self._final_snapshot: FocusedTextSnapshot | None = None
+
+    def finish(self, snapshot: FocusedTextSnapshot | None = None) -> None:
+        with self._finish_lock:
+            if self._finishing:
+                return
+            self._final_snapshot = snapshot
+            self._finishing = True
+
+    def finish_state(self) -> tuple[bool, FocusedTextSnapshot | None]:
+        with self._finish_lock:
+            return self._finishing, self._final_snapshot
+
+
+def _finish_state(control: threading.Event) -> tuple[bool, FocusedTextSnapshot | None]:
+    return control.finish_state() if isinstance(control, ObservationControl) else (False, None)
+
+
 @dataclass(frozen=True)
 class PasteObservation:
     """Focused-field context captured immediately before Cmd+V."""
@@ -65,9 +90,19 @@ def _is_plausible_edit(baseline: str, edited: str) -> bool:
 
     if hunk_count == 0 or hunk_count > MAX_CANDIDATES_PER_OBSERVATION:
         return False
-    if removed > len(baseline) * 0.50:
+    # A short name can change every character or grow during transliteration.
+    # Keep it for lexical validation without relaxing the document rewrite cap.
+    short_before = baseline.strip(" 。！？!?.,，")
+    short_after = edited.strip(" 。！？!?.,，")
+    short_replacement = bool(
+        1 < len(short_before) <= 8
+        and 1 < len(short_after) <= 24
+        and re.fullmatch(r"[\w+#./-]+", short_before)
+        and re.fullmatch(r"[\w+#./-]+(?: [\w+#./-]+){0,3}", short_after)
+    )
+    if removed > len(baseline) * 0.50 and not short_replacement:
         return False
-    if changed > max(4, len(baseline) * 2):
+    if changed > max(4, len(baseline) * 2) and not short_replacement:
         return False
     if max(removed, added) > MAX_EVIDENCE_TEXT_LENGTH:
         return False
@@ -133,7 +168,7 @@ def _snapshot_with_value(
 
 def _expected_pasted_text(ticket: PasteObservation) -> str | None:
     """Build the exact post-paste baseline from the pre-paste selection."""
-    original = _normalize_ax_text(ticket.original.value)
+    original = ticket.original.value
     selection_start = ticket.original.selection_start
     selection_length = ticket.original.selection_length
     if selection_start is None or selection_length is None:
@@ -142,9 +177,9 @@ def _expected_pasted_text(ticket: PasteObservation) -> str | None:
         return None
     selection_end = min(len(original), selection_start + selection_length)
     return (
-        original[:selection_start]
+        _normalize_ax_text(original[:selection_start])
         + _normalize_ax_text(ticket.pasted_text)
-        + original[selection_end:]
+        + _normalize_ax_text(original[selection_end:])
     )
 
 
@@ -212,7 +247,7 @@ def _project_span_after_edit(
     ):
         return ""
     projected: list[str] = []
-    matcher = SequenceMatcher(None, baseline, edited, autojunk=True)
+    matcher = SequenceMatcher(None, baseline, edited, autojunk=False)
     for tag, before_start, before_end, after_start, after_end in matcher.get_opcodes():
         if tag == "insert":
             if span_start <= before_start <= span_end:
@@ -341,6 +376,21 @@ class DictionaryEditObserver:
 
         deadline = self._clock() + self._observation_seconds
         while not focus_committed and not cancel_event.is_set():
+            finishing, final_snapshot = _finish_state(cancel_event)
+            if finishing:
+                # This snapshot was captured before the *next* paste, so that
+                # paste can never be mistaken for a correction of this one.
+                if final_snapshot is not None and ticket.original.is_same_target(final_snapshot):
+                    if final_snapshot.is_secure:
+                        return None
+                    final_text = _bounded_ax_text(final_snapshot.value)
+                    if final_text is None:
+                        return None
+                    latest_pasted = _project_span_after_edit(
+                        baseline_text, final_text, pasted_start, pasted_end,
+                    )
+                focus_committed = True
+                break
             remaining = deadline - self._clock()
             if remaining <= 0:
                 break
@@ -348,6 +398,8 @@ class DictionaryEditObserver:
             observed_at = self._clock()
             if cancel_event.is_set():
                 return None
+            if _finish_state(cancel_event)[0]:
+                continue
             if observed_at >= deadline:
                 break
 
@@ -435,6 +487,21 @@ class DictionaryEditObserver:
     ) -> _PastedBaseline | None:
         deadline = self._clock() + self._post_paste_timeout
         while not cancel_event.is_set():
+            finishing, final = _finish_state(cancel_event)
+            if finishing:
+                if final is None or final.is_secure or not ticket.original.is_same_target(final):
+                    return None
+                normalized_final = _bounded_ax_text(final.value)
+                if normalized_final is None:
+                    return None
+                reconstructed = _reconstruct_pasted_text(ticket, normalized_final)
+                if reconstructed is None:
+                    return None
+                return _PastedBaseline(
+                    baseline=_snapshot_with_value(final, reconstructed),
+                    current=_snapshot_with_value(final, normalized_final),
+                    focus_committed=True,
+                )
             current = self._provider.capture_focused()
             if current is None or not ticket.original.is_same_target(current):
                 final = self._capture_original_target(ticket)
@@ -489,5 +556,6 @@ class DictionaryEditObserver:
 
 __all__ = [
     "DictionaryEditObserver",
+    "ObservationControl",
     "PasteObservation",
 ]

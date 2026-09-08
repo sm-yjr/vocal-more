@@ -29,7 +29,9 @@ dictation and edit context to DashScope.
    the deadline, the last relevant edit must have been stable for at least
    500 ms. If the user switches apps before the observer's first post-paste
    poll, the baseline is reconstructed from the pre-paste selection and the
-   retained Accessibility element.
+   retained Accessibility element. Starting another paste captures the previous
+   edit before insertion, even if the previous observer has not begun polling.
+   Accessibility UTF-16 ranges are converted before Python text slicing.
 5. Secure fields, excluded bundle IDs, clears, and large rewrites stop or
    discard the observation. Edits to pre-existing text outside the pasted span
    are ignored.
@@ -37,12 +39,18 @@ dictation and edit context to DashScope.
    `~/.vocal-more/dictionary-learning.sqlite3`.
 7. A single background worker calls `qwen3.7-plus` using the user's configured
    DashScope API key.
-8. Deterministic local validation checks that the corrected term occurs in the
-   edited text and every alias occurs in the pasted or raw text.
-9. Results at or above `0.90` confidence are added automatically. Every other
-   structurally valid candidate waits for review, including low-confidence
-   candidates. Model decisions that are clearly unrelated to reusable
-   vocabulary remain ignored.
+8. Local validation requires a minimal reusable name, technical term, or
+   abbreviation whose alias-to-term replacement explains the entire candidate
+   edit, including unchanged affixes. Ordinary rewrites and numeric identifier
+   changes are rejected even when the model reports high confidence.
+9. Model confidence is diagnostic only. Eligible `add` candidates with a case
+   correction or exact system romanization match can activate immediately.
+   Other eligible candidates need the same mapping in two independent
+   dictations. A recording contributes at most one confirmation; without a
+   recording ID, the observation ID is used. Conflicting corrections and
+   explicitly rejected/undone mappings cannot activate automatically.
+   Internal `review` status stores candidates awaiting further evidence and
+   does not require a review screen.
 10. A macOS notification is shown only when automatic learning actually creates
     a term or adds at least one alias. Duplicate results and manually approved
     review items do not report an automatic-learning success.
@@ -71,7 +79,8 @@ The model must return one JSON object:
   "term": "阿里云百炼",
   "aliases": ["阿里云白练"],
   "confidence": 0.98,
-  "reason_code": "proper_noun_correction"
+  "reason_code": "proper_noun_correction",
+  "term_type": "proper_name"
 }
 ```
 
@@ -128,10 +137,17 @@ reverted states. Network and rate-limit failures retry with exponential
 backoff, up to five attempts. Invalid JSON and non-retryable request failures
 are marked failed.
 
-The settings page exposes the runtime pipeline instead of showing only final
-successes. It reports active observation, queued or processing corrections,
-review decisions, automatic additions, ignored decisions, retry/failure
-states, and the latest observation that produced no reusable correction.
+Settings exposes the opt-in switch, excluded apps, and editable dictionary.
+Candidate collection runs quietly; the removed learning-activity panel is not
+needed for promotion. The confirmation table keeps only mappings, hashed
+source IDs, and timestamps, allowing confirmations to survive restart after
+full evidence is redacted. Existing dictionary entries are preserved.
+
+The macOS fast path uses Foundation romanization with case/whitespace folding,
+while preserving punctuation. Polyphonic words can miss the fast path and use
+repeated confirmation. Other platforms use case-only matching. These checks
+reduce false additions; they cannot prove a user's intent or eliminate model
+classification mistakes.
 
 Jobs record the model and prompt version so a future prompt change remains
 auditable. Dictionary entries stay in the existing YAML format; SQLite stores
@@ -161,7 +177,8 @@ The observer and model queue have separate single-worker executors:
 - the observer may wait for the bounded edit window but never blocks the
   finish-time dictation worker;
 - the queue worker performs only non-realtime network and persistence work;
-- a new observation cancels the previous session token;
+- preparing a new paste captures and finishes the previous observation before
+  the next insertion; cancellation is reserved for shutdown or disabled learning;
 - both workers have explicit `close()` paths;
 - UI notifications are marshaled back to the main thread.
 

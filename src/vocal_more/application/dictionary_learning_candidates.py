@@ -22,7 +22,7 @@ def _group_edit_opcodes(
         None,
         before,
         after,
-        autojunk=True,
+        autojunk=False,
     ).get_opcodes():
         if tag == "equal":
             continue

@@ -254,7 +254,7 @@ const en = {
   privacyHint:
     "Observe the pasted field for up to 15 seconds. Switching apps commits the latest edit immediately. Password fields are never collected.",
   learningPolicyHint:
-    "Only high-confidence corrections are added automatically. You can add other terms manually below.",
+    "Learns corrected names and terms. Clear spelling or homophone corrections can be added immediately; other candidates need confirmation in separate dictations.",
   excludedApps: "Excluded app bundle IDs",
   excludedAppsHint:
     "Comma-separated bundle IDs. Edits in these apps stay local.",
@@ -568,7 +568,7 @@ const zh: Copy = {
   privacyHint:
     "粘贴后最多观察 15 秒；切换 App 时会立即提交最后一次修改；密码输入框永远不会被采集。",
   learningPolicyHint:
-    "仅高置信度纠正会自动加入词典，其他词条可在下方手动添加。",
+    "学习你纠正的专名和术语。明确的拼写或同音纠正可立即加入，其他候选需在不同听写中重复确认。",
   excludedApps: "排除的 App Bundle ID",
   excludedAppsHint: "使用逗号分隔；这些 App 中的修改不会离开本机。",
   learningActivity: "自动学习记录",

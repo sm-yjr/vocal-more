@@ -41,6 +41,7 @@ class FloatingCapsule:
     CAPSULE_WIDTH = 240
     CAPSULE_HEIGHT = 80
     HINT_CAPSULE_WIDTH = 400
+    RECORDING_CAPSULE_WIDTH = 360
     HINT_CAPSULE_HEIGHT = 200
 
     def __init__(
@@ -416,6 +417,8 @@ class FloatingCapsule:
         if panel is None or renderer is None:
             return
         width = self.HINT_CAPSULE_WIDTH if expanded else self.CAPSULE_WIDTH
+        if expanded and self._current_state == "recording" and self._connection_notice is None:
+            width = self.RECORDING_CAPSULE_WIDTH
         height = (
             min(self.HINT_CAPSULE_HEIGHT, renderer.preferred_container_height(text, width))
             if expanded else self.CAPSULE_HEIGHT

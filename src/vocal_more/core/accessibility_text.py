@@ -119,6 +119,9 @@ class MacOSFocusedTextProvider:
                     api,
                     selected_range,
                 )
+                selection_start, selection_length = self._python_text_range(
+                    value, selection_start, selection_length,
+                )
 
         if expected is None:
             from AppKit import NSRunningApplication
@@ -148,6 +151,21 @@ class MacOSFocusedTextProvider:
             selection_length=selection_length,
             _target_handle=element,
         )
+
+    @staticmethod
+    def _python_text_range(value: str, start: int | None, length: int | None) -> tuple[int | None, int | None]:
+        """AX ranges use UTF-16 units; snapshots expose Python string offsets."""
+        if start is None or length is None:
+            return None, None
+        encoded = value.encode("utf-16-le")
+        if start < 0 or length < 0 or (start + length) * 2 > len(encoded):
+            return None, None
+        try:
+            prefix = encoded[:start * 2].decode("utf-16-le")
+            selected = encoded[start * 2:(start + length) * 2].decode("utf-16-le")
+        except UnicodeDecodeError:
+            return None, None
+        return len(prefix), len(selected)
 
     @staticmethod
     def _extract_text_range(api, value) -> tuple[int | None, int | None]:

@@ -54,7 +54,7 @@ def main() -> None:
             renderer.set_mode(mode)
             renderer.set_state("recording")
             for expanded in (False, True):
-                width, height = (400, 200) if expanded else (240, 80)
+                width, height = (360, 200) if expanded else (240, 80)
                 panel.setFrame_display_(((50, 50), (width, height)), True)
                 renderer.set_container_size(width, height)
                 renderer.set_expanded(expanded)
@@ -108,7 +108,8 @@ def main() -> None:
         if name != "overflow":
             used = layout.usedRectForTextContainer_(container).size.height
             assert used <= renderer._streaming_scroll.contentSize().height + 1
-        assert height == renderer.preferred_container_height(text, 400)
+        assert panel.frame().size.width == capsule.RECORDING_CAPSULE_WIDTH
+        assert height == renderer.preferred_container_height(text, capsule.RECORDING_CAPSULE_WIDTH)
         surface = renderer._surface.frame()
         assert surface.origin.y + surface.size.height <= height
         visible_bars = [bar.frame() for bar in renderer._waveform if not bar.isHidden()]
@@ -136,6 +137,7 @@ def main() -> None:
         renderer.set_state("recording")
         notice = ConnectionStatus("retrying", "连接超时：无法连接 dashscope.aliyuncs.com", retry=3, delay=4)
         capsule._show_connection_status_on_main_thread(notice)
+        assert panel.frame().size.width == capsule.HINT_CAPSULE_WIDTH
         assert not panel.ignoresMouseEvents()
         assert not renderer._cancel_button.isHidden()
         assert renderer._finish_button.isHidden()

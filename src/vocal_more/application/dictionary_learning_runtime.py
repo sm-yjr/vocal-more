@@ -8,7 +8,7 @@ import time
 import uuid
 
 from .background_executor import BackgroundExecutor
-from .dictionary_edit_observer import PasteObservation
+from .dictionary_edit_observer import ObservationControl, PasteObservation
 from .dictionary_learning_candidates import split_dictionary_learning_evidence
 
 
@@ -146,7 +146,7 @@ class AutomaticDictionaryLearningCoordinator:
             lambda: str(uuid.uuid4())
         )
         self._lock = threading.Lock()
-        self._active_cancel: threading.Event | None = None
+        self._active_cancel: ObservationControl | None = None
         self._on_change = None
         self._last_observation: dict | None = None
         self._closed = False
@@ -166,6 +166,9 @@ class AutomaticDictionaryLearningCoordinator:
             or not learning_config.enabled
             or not str(getattr(self._config, "api_key", "")).strip()
         ):
+            with self._lock:
+                if self._active_cancel is not None:
+                    self._active_cancel.set()
             return None
 
         observer = self._observer_factory(
@@ -177,6 +180,10 @@ class AutomaticDictionaryLearningCoordinator:
             recording_id=recording_id,
             mode_name=mode_name,
         )
+        with self._lock:
+            if self._active_cancel is not None:
+                snapshot = getattr(ticket, "original", None)
+                self._active_cancel.finish(snapshot)
         if ticket is None:
             return None
         prepared = _PreparedObservation(
@@ -211,8 +218,8 @@ class AutomaticDictionaryLearningCoordinator:
             return
         with self._lock:
             if self._active_cancel is not None:
-                self._active_cancel.set()
-            cancel_event = threading.Event()
+                self._active_cancel.finish()
+            cancel_event = ObservationControl()
             self._active_cancel = cancel_event
         self._executor.submit(
             self._observe_and_enqueue,
@@ -230,6 +237,9 @@ class AutomaticDictionaryLearningCoordinator:
                 prepared.ticket,
                 cancel_event=cancel_event,
             )
+            if (cancel_event.is_set() or self._closed
+                    or not self._config.dictionary_learning.enabled):
+                return
             if evidence is not None:
                 candidates = split_dictionary_learning_evidence(
                     evidence,

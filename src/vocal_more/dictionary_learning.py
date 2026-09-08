@@ -70,6 +70,10 @@ def build_dictionary_learning_runtime(
         repository=repository,
         dictionary=get_dictionary(),
         model_client=_CurrentAPIKeyModelClient(config),
+        can_apply=lambda evidence: (
+            config.dictionary_learning.enabled
+            and evidence.app_bundle_id not in config.dictionary_learning.excluded_bundle_ids
+        ),
     )
     queue_worker = DictionaryLearningQueueWorker(
         config=config,

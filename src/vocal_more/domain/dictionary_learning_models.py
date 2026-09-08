@@ -11,6 +11,8 @@ from .dictionary_models import DictEntry, normalize_term
 
 LearningDecisionName = Literal["add", "ignore", "review"]
 ValidatedAction = Literal["add", "ignore", "review"]
+LearningTermType = Literal["proper_name", "technical_term", "abbreviation", "other"]
+_LEARNABLE_TYPES = {"proper_name", "technical_term", "abbreviation"}
 LearningJobStatus = Literal[
     "pending",
     "processing",
@@ -23,11 +25,9 @@ LearningJobStatus = Literal[
     "reverted",
 ]
 
-AUTO_ADD_CONFIDENCE = 0.90
-REVIEW_CONFIDENCE = 0.0
 MAX_LEARNED_TERM_LENGTH = 60
 MAX_EVIDENCE_TEXT_LENGTH = 8_000
-CURRENT_PROMPT_VERSION = 3
+CURRENT_PROMPT_VERSION = 4
 
 _NUMERIC_OR_DATE_RE = re.compile(
     r"^[零〇一二两三四五六七八九十百千万亿\d年月日号点时分秒"
@@ -112,6 +112,7 @@ class DictionaryLearningDecision:
     aliases: list[str] = field(default_factory=list)
     confidence: float = 0.0
     reason_code: str = ""
+    term_type: LearningTermType = "other"
 
     @classmethod
     def from_payload(cls, payload: object) -> "DictionaryLearningDecision":
@@ -135,8 +136,12 @@ class DictionaryLearningDecision:
         if not 0.0 <= confidence <= 1.0:
             raise ValueError("model response confidence must be between 0 and 1")
 
+        term_type = payload.get("term_type", "other")
+        if term_type not in (*_LEARNABLE_TYPES, "other"):
+            raise ValueError("model response has an invalid term_type")
         return cls(
             decision=decision,
+            term_type=term_type,
             term=str(payload.get("term", "")),
             aliases=list(raw_aliases),
             confidence=confidence,
@@ -153,6 +158,7 @@ class ValidatedDictionaryDecision:
     aliases: list[str] = field(default_factory=list)
     confidence: float = 0.0
     reason_code: str = ""
+    term_type: LearningTermType = "other"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -244,6 +250,51 @@ def _has_dictionary_conflict(
     )
 
 
+def _occurrences(value: str, text: str):
+    start = text.find(value)
+    while start >= 0:
+        yield start
+        start = text.find(value, start + 1)
+
+
+def _mapping_matches_candidate(term: str, alias: str, evidence: DictionaryLearningEvidence) -> bool:
+    """Require both words to explain the complete edit, including unchanged affixes."""
+    before = evidence.candidate_before_text or evidence.baseline_text
+    after = evidence.candidate_after_text or evidence.edited_text
+    bs, be = evidence.candidate_before_change_start, evidence.candidate_before_change_end
+    after_start, after_end = evidence.candidate_after_change_start, evidence.candidate_after_change_end
+    if None in (bs, be, after_start, after_end):
+        # Legacy/single-candidate evidence has no offsets. Accept only an exact
+        # replacement, never two unrelated substrings in a larger rewrite.
+        return any(before[:i] + term + before[i + len(alias):] == after
+                   for i in _occurrences(alias, before))
+    if not (0 <= bs <= be <= len(before) and 0 <= after_start <= after_end <= len(after)):
+        return False
+    for i in _occurrences(alias, before):
+        if not (i <= bs and i + len(alias) >= be):
+            continue
+        for j in _occurrences(term, after):
+            if not (j <= after_start and j + len(term) >= after_end):
+                continue
+            if (before[i:bs] == after[j:after_start]
+                    and before[be:i + len(alias)] == after[after_end:j + len(term)]):
+                return True
+    return False
+
+
+def _lexical_shape(value: str) -> bool:
+    # A name can contain spaces, dots or slashes, but not sentence punctuation
+    # or a whole clause. This is an automatic-learning guard, not a constraint
+    # on the user's manually maintained dictionary.
+    if len(value) > MAX_LEARNED_TERM_LENGTH or len(value.split()) > 5:
+        return False
+    if any(mark in value for mark in ("\n", "\r", "。", "，", ",", "；", ";", "！", "？", "!", "?", "：", ":")):
+        return False
+    if sum("\u4e00" <= char <= "\u9fff" for char in value) > 16:
+        return False
+    return True
+
+
 def validate_decision(
     decision: DictionaryLearningDecision,
     evidence: DictionaryLearningEvidence,
@@ -260,7 +311,7 @@ def validate_decision(
     for raw_alias in decision.aliases:
         alias = normalize_term(raw_alias)
         folded = alias.casefold()
-        if not alias or folded == term.casefold() or folded in seen:
+        if not alias or alias == term or folded in seen:
             continue
         seen.add(folded)
         aliases.append(alias)
@@ -306,16 +357,22 @@ def validate_decision(
         return _ignore("alias_not_in_pasted_text")
     if _is_numeric_or_date_change(term, aliases):
         return _ignore("numeric_or_date_change")
+    if any("".join(re.findall(r"\d", alias)) != "".join(re.findall(r"\d", term)) for alias in aliases):
+        return _ignore("numeric_identifier_change")
+    if not _lexical_shape(term) or any(not _lexical_shape(alias) for alias in aliases):
+        return _ignore("non_lexical_phrase")
+    if any(len(alias) < 2 for alias in aliases):
+        return _ignore("alias_too_broad")
+    if any(not _mapping_matches_candidate(term, alias, evidence) for alias in aliases):
+        return _ignore("mapping_does_not_explain_edit")
+    if decision.term_type not in _LEARNABLE_TYPES:
+        return _ignore("not_a_reusable_term")
     if _has_dictionary_conflict(term, aliases, existing_entries):
         return _ignore("dictionary_conflict")
 
-    action: ValidatedAction
-    action = (
-        "add"
-        if decision.decision == "add"
-        and decision.confidence >= AUTO_ADD_CONFIDENCE
-        else "review"
-    )
+    # Eligibility only. The processor authorizes writes from local evidence;
+    # the model's self-reported confidence is diagnostic, not a probability.
+    action: ValidatedAction = decision.decision
 
     reason_code = decision.reason_code or "model_classification"
     return ValidatedDictionaryDecision(
@@ -324,18 +381,17 @@ def validate_decision(
         aliases=aliases if action != "ignore" else [],
         confidence=decision.confidence,
         reason_code=reason_code,
+        term_type=decision.term_type,
     )
 
 
 __all__ = [
-    "AUTO_ADD_CONFIDENCE",
     "CURRENT_PROMPT_VERSION",
     "DictionaryLearningDecision",
     "DictionaryLearningEvidence",
     "DictionaryLearningJob",
     "LearningJobStatus",
     "MAX_EVIDENCE_TEXT_LENGTH",
-    "REVIEW_CONFIDENCE",
     "ValidatedDictionaryDecision",
     "validate_decision",
 ]

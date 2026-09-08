@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import json
+import hashlib
 from dataclasses import replace
 from pathlib import Path
 import sqlite3
@@ -90,6 +91,21 @@ class DictionaryLearningRepository:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS dictionary_learning_confirmations (
+                    alias TEXT NOT NULL,
+                    term TEXT NOT NULL,
+                    source_id TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY(alias, term, source_id)
+                )
+                """
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS dictionary_learning_suppressed "
+                "(alias TEXT NOT NULL, term TEXT NOT NULL, PRIMARY KEY(alias, term))"
+            )
             columns = {
                 str(row["name"])
                 for row in connection.execute(
@@ -153,6 +169,53 @@ class DictionaryLearningRepository:
                 return
             self._initialize()
             self._initialized = True
+
+    def record_confirmation(self, job, decision, *, now: float) -> tuple[int, bool]:
+        """Count independent dictations without retaining surrounding text.
+
+        One recording contributes one vote even across observations/retries.
+        Conflicting targets keep the alias out of automatic activation.
+        """
+        self._ensure_initialized()
+        source = ("recording:" + job.evidence.recording_id
+                  if job.evidence.recording_id
+                  else "observation:" + job.observation_id)
+        source_id = hashlib.sha256(source.encode("utf-8")).hexdigest()
+        counts = []
+        conflict = False
+        with self._lock, self._connect() as connection:
+            for alias in decision.aliases:
+                alias_key = alias.casefold()
+                term_key = decision.term.casefold()
+                connection.execute(
+                    "INSERT OR IGNORE INTO dictionary_learning_confirmations "
+                    "(alias, term, source_id, created_at) VALUES (?, ?, ?, ?)",
+                    (alias_key, term_key, source_id, now),
+                )
+                conflict = conflict or bool(connection.execute(
+                    "SELECT 1 FROM dictionary_learning_suppressed WHERE alias = ? AND term = ?",
+                    (alias_key, term_key),
+                ).fetchone())
+                counts.append(connection.execute(
+                    "SELECT COUNT(*) FROM dictionary_learning_confirmations "
+                    "WHERE alias = ? AND term = ?",
+                    (alias_key, term_key),
+                ).fetchone()[0])
+                conflict = conflict or bool(connection.execute(
+                    "SELECT 1 FROM dictionary_learning_confirmations "
+                    "WHERE alias = ? AND term != ? LIMIT 1",
+                    (alias_key, term_key),
+                ).fetchone())
+        return min(counts, default=0), conflict
+
+    def suppress_mapping(self, decision) -> None:
+        """Honor an explicit rejection/undo across later automatic observations."""
+        self._ensure_initialized()
+        with self._lock, self._connect() as connection:
+            connection.executemany(
+                "INSERT OR IGNORE INTO dictionary_learning_suppressed(alias, term) VALUES (?, ?)",
+                [(alias.casefold(), decision.term.casefold()) for alias in decision.aliases],
+            )
 
     def enqueue(
         self,
@@ -483,6 +546,7 @@ class DictionaryLearningRepository:
         raw_result = json.loads(row["result_json"]) if row["result_json"] else None
         result = (
             ValidatedDictionaryDecision(
+                term_type=raw_result.get("term_type", "other"),
                 action=raw_result["action"],
                 term=str(raw_result.get("term", "")),
                 aliases=list(raw_result.get("aliases", [])),

@@ -36,6 +36,7 @@ def _decision(**overrides):
         "aliases": ["阿里云白练"],
         "confidence": 0.98,
         "reason_code": "proper_noun_correction",
+        "term_type": "proper_name",
     }
     values.update(overrides)
     return DictionaryLearningDecision(**values)
@@ -72,6 +73,7 @@ def test_model_client_uses_user_key_and_fixed_json_mode_parameters():
                             "aliases": ["阿里云白练"],
                             "confidence": 0.98,
                             "reason_code": "proper_noun_correction",
+                            "term_type": "proper_name",
                         },
                         ensure_ascii=False,
                     )
@@ -275,22 +277,22 @@ def test_decision_validation_requires_mapping_to_overlap_candidate_diff():
     assert shadcn_from_wrong_candidate.reason_code == "term_not_in_candidate"
 
 
-def test_decision_validation_routes_medium_confidence_to_review():
+def test_decision_validation_keeps_confidence_as_diagnostic():
     from vocal_more.domain.dictionary_learning_models import validate_decision
 
     result = validate_decision(_decision(confidence=0.82), _evidence())
 
-    assert result.action == "review"
+    assert result.action == "add"
     assert result.term == "阿里云百炼"
     assert result.aliases == ["阿里云白练"]
 
 
-def test_decision_validation_routes_low_confidence_candidate_to_review():
+def test_decision_validation_does_not_treat_model_confidence_as_probability():
     from vocal_more.domain.dictionary_learning_models import validate_decision
 
     result = validate_decision(_decision(confidence=0.28), _evidence())
 
-    assert result.action == "review"
+    assert result.action == "add"
     assert result.term == "阿里云百炼"
     assert result.aliases == ["阿里云白练"]
 
@@ -312,7 +314,7 @@ def test_sqlite_repository_persists_and_claims_due_jobs(tmp_path):
     assert claimed.status == "processing"
     assert claimed.evidence == queued.evidence
     assert claimed.model == "qwen3.7-plus"
-    assert claimed.prompt_version == 3
+    assert claimed.prompt_version == 4
 
     reopened.schedule_retry(claimed.id, error="rate limited", now=100.0)
     assert reopened.claim_next(now=101.0) is None
@@ -339,7 +341,7 @@ def test_repository_enqueue_many_is_atomic_and_preserves_candidate_order(tmp_pat
     ]
     assert [job.candidate_index for job in jobs] == [0, 1]
     assert [job.candidate_count for job in jobs] == [2, 2]
-    assert [job.prompt_version for job in jobs] == [3, 3]
+    assert [job.prompt_version for job in jobs] == [4, 4]
     assert repository.claim_next(now=100.0).id == jobs[0].id
     assert repository.claim_next(now=100.0).id == jobs[1].id
 
@@ -517,6 +519,7 @@ def test_processor_auto_adds_high_confidence_and_can_undo(tmp_path):
         repository=learning_repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
         on_change=changes.append,
     )
 
@@ -583,6 +586,7 @@ def test_processor_applies_and_independently_undoes_two_sibling_candidates(
         repository=learning_repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
     )
 
     assert processor.process_next(now=100.0) is True
@@ -647,6 +651,7 @@ def test_processor_emits_one_group_summary_after_all_siblings_finish(tmp_path):
         repository=learning_repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
         on_change=changes.append,
     )
 
@@ -704,6 +709,7 @@ def test_group_summary_excludes_duplicate_that_did_not_change_dictionary(
         repository=learning_repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
         on_change=changes.append,
     )
 
@@ -745,6 +751,7 @@ def test_processor_keeps_applied_sibling_while_other_candidate_retries(tmp_path)
         repository=learning_repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
     )
 
     processor.process_next(now=100.0)
@@ -798,6 +805,7 @@ def test_processor_keeps_valid_sibling_when_other_response_is_invalid(tmp_path):
         repository=learning_repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
         on_change=changes.append,
     )
 
@@ -836,6 +844,7 @@ def test_processor_applies_high_confidence_sibling_and_reviews_other(tmp_path):
         _decision(
             term="Shadcn/ui",
             aliases=["Shadcn UI"],
+            decision="review",
             confidence=0.82,
         ),
     ]
@@ -843,6 +852,7 @@ def test_processor_applies_high_confidence_sibling_and_reviews_other(tmp_path):
         repository=learning_repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
     )
 
     processor.process_next(now=100.0)
@@ -909,6 +919,7 @@ def test_processor_revalidates_sibling_conflict_against_latest_dictionary(
         repository=learning_repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
     )
 
     processor.process_next(now=100.0)
@@ -946,6 +957,7 @@ def test_processor_marks_duplicate_auto_add_as_unchanged_for_notifications(tmp_p
         repository=learning_repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
         on_change=changes.append,
     )
 
@@ -980,11 +992,12 @@ def test_processor_keeps_medium_confidence_for_review(tmp_path):
     dictionary = DictionaryService(DictionaryRepository(base_dir=tmp_path))
     job = learning_repository.enqueue(_evidence(), now=100.0)
     model = MagicMock()
-    model.classify.return_value = _decision(confidence=0.82)
+    model.classify.return_value = _decision(decision="review", confidence=0.82)
     processor = DictionaryLearningProcessor(
         repository=learning_repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
     )
 
     processor.process_next(now=100.0)
@@ -1017,12 +1030,13 @@ def test_processor_marks_review_approval_as_manual_for_notifications(tmp_path):
     dictionary = DictionaryService(DictionaryRepository(base_dir=tmp_path))
     job = learning_repository.enqueue(_evidence(), now=100.0)
     model = MagicMock()
-    model.classify.return_value = _decision(confidence=0.82)
+    model.classify.return_value = _decision(decision="review", confidence=0.82)
     changes: list[dict] = []
     processor = DictionaryLearningProcessor(
         repository=learning_repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
         on_change=changes.append,
     )
     processor.process_next(now=100.0)
@@ -1059,11 +1073,12 @@ def test_processor_can_reject_review_without_mutating_dictionary(tmp_path):
     dictionary = DictionaryService(DictionaryRepository(base_dir=tmp_path))
     job = learning_repository.enqueue(_evidence(), now=100.0)
     model = MagicMock()
-    model.classify.return_value = _decision(confidence=0.82)
+    model.classify.return_value = _decision(decision="review", confidence=0.82)
     processor = DictionaryLearningProcessor(
         repository=learning_repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
     )
     processor.process_next(now=100.0)
 
@@ -1097,6 +1112,7 @@ def test_processor_retries_transient_failures_without_blocking(tmp_path):
         repository=learning_repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
     )
 
     processor.process_next(now=100.0)
@@ -1147,6 +1163,7 @@ def test_processor_recovers_journaled_apply_without_calling_model_again(tmp_path
         repository=reopened,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
     )
 
     assert processor.process_next(now=101.0) is True
@@ -1205,6 +1222,7 @@ def test_processor_recovers_journaled_sibling_then_processes_remaining_candidate
         repository=reopened,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
     )
 
     processor.process_next(now=101.0)
@@ -2246,6 +2264,7 @@ def test_multiple_terms_are_learned_after_edit_and_immediate_focus_switch(
         repository=repository,
         dictionary=dictionary,
         model_client=model,
+        identity_matcher=lambda before, after: True,
         on_change=changes.append,
     )
 
@@ -2323,3 +2342,223 @@ def test_queue_worker_starts_lazily_only_after_feature_is_enabled():
     worker.wake()
 
     executor.submit.assert_called_once_with(worker._run)
+
+
+@pytest.mark.parametrize("before,after", [("露那", "Luna"), ("github", "GitHub")])
+def test_short_name_and_case_corrections_can_be_learned(before, after):
+    from vocal_more.application.dictionary_edit_observer import DictionaryEditObserver
+    from vocal_more.domain.dictionary_learning_models import validate_decision
+
+    provider = _SnapshotProvider([
+        _snapshot("", selection_start=0, selection_length=0),
+        _snapshot(before), _snapshot(after), None,
+    ])
+    clock, sleep = _fake_time()
+    observer = DictionaryEditObserver(provider=provider, clock=clock, sleep=sleep)
+    evidence = observer.observe(observer.prepare(
+        raw_text=before, pasted_text=before, recording_id=None, mode_name="realtime_long",
+    ))
+    assert evidence is not None
+    result = validate_decision(_decision(term=after, aliases=[before]), evidence)
+    assert result.action == "add"
+    assert result.aliases == [before]
+
+
+@pytest.mark.parametrize("before,after,term,alias,kind,reason", [
+    ("我觉得可以", "可以", "可以", "我觉得可以", "other", "not_a_reusable_term"),
+    ("请把这块换了，然后继续", "请把这块去掉，然后继续", "请把这块去掉，然后继续", "请把这块换了，然后继续", "proper_name", "non_lexical_phrase"),
+    ("qwen3.5", "qwen3.7", "qwen3.7", "qwen3.5", "technical_term", "numeric_identifier_change"),
+    ("阿里云白练", "阿里云百炼", "百", "白", "proper_name", "alias_too_broad"),
+    ("今天用阿里云白练", "今天用阿里云百炼", "百炼", "阿里云白练", "proper_name", "mapping_does_not_explain_edit"),
+])
+def test_confident_model_cannot_bypass_lexical_and_exact_edit_guards(
+    before, after, term, alias, kind, reason,
+):
+    from vocal_more.application.dictionary_learning_candidates import split_dictionary_learning_evidence
+    from vocal_more.domain.dictionary_learning_models import validate_decision
+
+    evidence = _evidence(raw_text=before, pasted_text=before, baseline_text=before, edited_text=after)
+    candidates = split_dictionary_learning_evidence(evidence, observation_id="guard")
+    assert candidates
+    result = validate_decision(_decision(
+        term=term, aliases=[alias], term_type=kind, confidence=1.0,
+    ), candidates[0])
+    assert result.action == "ignore"
+    assert result.reason_code == reason
+
+
+def test_next_paste_commits_previous_correction_without_observing_new_text():
+    from vocal_more.application.dictionary_edit_observer import DictionaryEditObserver
+    from vocal_more.application.dictionary_learning_runtime import AutomaticDictionaryLearningCoordinator
+
+    class DeferredExecutor:
+        def __init__(self):
+            self.jobs = []
+        def submit(self, callback, *args):
+            self.jobs.append((callback, args))
+
+    provider = _SnapshotProvider([
+        _snapshot("", selection_start=0, selection_length=0),
+        _snapshot("请打开Luna", selection_start=8, selection_length=0),
+        _snapshot("请打开Luna这是下一次听写，不应学成词条"),
+    ])
+    executor = DeferredExecutor()
+    repository = MagicMock()
+    config = SimpleNamespace(api_key="test", dictionary_learning=SimpleNamespace(enabled=True, excluded_bundle_ids=[]))
+    coordinator = AutomaticDictionaryLearningCoordinator(
+        config=config, observer_factory=lambda **kwargs: DictionaryEditObserver(provider=provider, **kwargs),
+        repository=repository, queue_worker=MagicMock(), executor=executor,
+    )
+    old = coordinator.prepare_paste(raw_text="请打开露那", pasted_text="请打开露那", recording_id="old", mode_name="realtime_long")
+    coordinator.observe_after_paste(old)
+    coordinator.prepare_paste(raw_text="下一次", pasted_text="下一次", recording_id="new", mode_name="realtime_long")
+    callback, args = executor.jobs[0]
+    callback(*args)
+    candidates = repository.enqueue_many.call_args.args[0]
+    assert candidates[0].baseline_text == "请打开露那"
+    assert candidates[0].edited_text == "请打开Luna"
+    assert len(provider.snapshots) == 1  # no read after the new paste boundary
+
+
+def test_shutdown_cancels_instead_of_committing_an_observation():
+    from vocal_more.application.dictionary_edit_observer import DictionaryEditObserver, ObservationControl
+    provider = _SnapshotProvider([_snapshot("", selection_start=0, selection_length=0)])
+    observer = DictionaryEditObserver(provider=provider)
+    ticket = observer.prepare(raw_text="露那", pasted_text="露那", recording_id=None, mode_name="realtime_long")
+    control = ObservationControl()
+    control.finish(_snapshot("Luna"))
+    control.set()
+    assert observer.observe(ticket, cancel_event=control) is None
+
+
+def test_ax_selection_normalizes_utf16_and_line_endings_before_paste():
+    from vocal_more.core.accessibility_text import MacOSFocusedTextProvider
+    from vocal_more.application.dictionary_edit_observer import PasteObservation, _expected_pasted_text
+    value = "😀\r\n旧词"
+    start, length = MacOSFocusedTextProvider._python_text_range(value, 4, 2)
+    assert (start, length) == (3, 2)
+    ticket = PasteObservation(
+        original=_snapshot(value, selection_start=start, selection_length=length),
+        raw_text="新词", pasted_text="新词", recording_id=None, mode_name="realtime_long",
+    )
+    assert _expected_pasted_text(ticket) == "😀\n新词"
+    assert MacOSFocusedTextProvider._python_text_range(value, 1, 1) == (None, None)
+
+
+def test_disabling_learning_during_classification_prevents_dictionary_write(tmp_path):
+    from vocal_more.application.dictionary_learning_service import DictionaryLearningProcessor
+    from vocal_more.infrastructure.dictionary_learning_repository import DictionaryLearningRepository
+    repository = DictionaryLearningRepository(database_path=tmp_path / "learning.sqlite3")
+    job = repository.enqueue(_evidence())
+    enabled = [True]
+    def classify(evidence):
+        enabled[0] = False
+        return _decision()
+    dictionary = MagicMock()
+    dictionary.snapshot_entries.return_value = []
+    processor = DictionaryLearningProcessor(
+        repository=repository, dictionary=dictionary, model_client=SimpleNamespace(classify=classify),
+        can_apply=lambda evidence: enabled[0],
+    )
+    assert processor.process_next()
+    assert repository.get(job.id).status == "ignored"
+    dictionary.add_entry_with_result.assert_not_called()
+
+
+def _learning_policy_harness(tmp_path, *, identity_matcher):
+    from vocal_more.application.dictionary_learning_service import DictionaryLearningProcessor
+    from vocal_more.application.dictionary_service import DictionaryService
+    from vocal_more.infrastructure.dictionary_learning_repository import DictionaryLearningRepository
+    from vocal_more.infrastructure.dictionary_repository import DictionaryRepository
+
+    repository = DictionaryLearningRepository(database_path=tmp_path / "policy.sqlite3")
+    dictionary = DictionaryService(DictionaryRepository(base_dir=tmp_path))
+    model = MagicMock()
+    processor = DictionaryLearningProcessor(
+        repository=repository, dictionary=dictionary, model_client=model,
+        identity_matcher=identity_matcher,
+    )
+    return repository, dictionary, model, processor
+
+
+def test_learning_policy_requires_independent_recordings_and_survives_restart(tmp_path):
+    repo, dictionary, model, processor = _learning_policy_harness(
+        tmp_path, identity_matcher=lambda a, b: False,
+    )
+    model.classify.return_value = _decision(confidence=1.0)
+    first = repo.enqueue(_evidence(recording_id="one"))
+    processor.process_next()
+    assert repo.get(first.id).status == "review"
+    assert repo.get(first.id).evidence.raw_text == ""
+    # A new job/observation of the same recording cannot promote the candidate.
+    duplicate = repo.enqueue(_evidence(recording_id="one"))
+    processor.process_next()
+    assert repo.get(duplicate.id).status == "review"
+    assert dictionary.entries == []
+
+    repo, dictionary, model, processor = _learning_policy_harness(
+        tmp_path, identity_matcher=lambda a, b: False,
+    )
+    model.classify.return_value = _decision(decision="review", confidence=0.1)
+    second = repo.enqueue(_evidence(recording_id="two"))
+    processor.process_next()
+    assert repo.get(second.id).status == "applied"
+    assert repo.get(second.id).result.reason_code == "repeated_correction"
+    assert dictionary.entries[0].term == "阿里云百炼"
+
+
+def test_learning_policy_case_correction_uses_evidence_not_confidence(tmp_path):
+    from vocal_more.core.dictionary_term_identity import same_term_identity
+
+    repo, dictionary, model, processor = _learning_policy_harness(
+        tmp_path, identity_matcher=same_term_identity,
+    )
+    model.classify.return_value = _decision(term="GitHub", aliases=["github"], confidence=0.01)
+    job = repo.enqueue(_evidence(raw_text="github", pasted_text="github",
+                                baseline_text="github", edited_text="GitHub"))
+    processor.process_next()
+    assert repo.get(job.id).status == "applied"
+    assert dictionary.entries[0].term == "GitHub"
+    assert not same_term_identity("C++", "C")
+    assert not same_term_identity("Shadcn UI", "Shadcn/ui")
+
+
+def test_learning_policy_conflicting_targets_never_auto_activate(tmp_path):
+    repo, dictionary, model, processor = _learning_policy_harness(
+        tmp_path, identity_matcher=lambda a, b: False,
+    )
+    for recording, term in [("one", "阿里云百炼"), ("two", "阿里云百练"), ("three", "阿里云百炼")]:
+        model.classify.return_value = _decision(term=term)
+        job = repo.enqueue(_evidence(recording_id=recording, edited_text=f"今天用{term}测试。"))
+        processor.process_next()
+    assert dictionary.entries == []
+    assert repo.get(job.id).result.reason_code == "conflicting_corrections"
+
+
+def test_learning_policy_undo_prevents_immediate_automatic_relearning(tmp_path):
+    repo, dictionary, model, processor = _learning_policy_harness(
+        tmp_path, identity_matcher=lambda a, b: True,
+    )
+    model.classify.return_value = _decision()
+    first = repo.enqueue(_evidence(recording_id="one"))
+    processor.process_next()
+    assert processor.undo(first.id)
+    second = repo.enqueue(_evidence(recording_id="two"))
+    processor.process_next()
+    assert dictionary.entries == []
+    assert repo.get(second.id).status == "review"
+
+
+def test_learning_policy_observation_fallback_deduplicates_siblings(tmp_path):
+    repo, dictionary, model, processor = _learning_policy_harness(
+        tmp_path, identity_matcher=lambda a, b: False,
+    )
+    model.classify.return_value = _decision()
+    jobs = repo.enqueue_many([_evidence(recording_id=None), _evidence(recording_id=None)])
+    processor.process_next()
+    processor.process_next()
+    assert all(repo.get(job.id).status == "review" for job in jobs)
+    assert dictionary.entries == []
+    next_job = repo.enqueue(_evidence(recording_id=None))
+    processor.process_next()
+    assert repo.get(next_job.id).status == "applied"

@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
+
+from ..core.dictionary_term_identity import same_term_identity
 
 from ..core.dictionary_learning_model import (
     DictionaryLearningRequestError,
     DictionaryLearningResponseError,
 )
-from ..domain.dictionary_learning_models import validate_decision
+from ..domain.dictionary_learning_models import (
+    DictionaryLearningDecision, ValidatedDictionaryDecision, validate_decision,
+)
 from ..domain.dictionary_models import DictionaryMutation
 
 
@@ -22,11 +27,30 @@ class DictionaryLearningProcessor:
         dictionary,
         model_client,
         on_change=None,
+        can_apply=None,
+        identity_matcher=None,
     ) -> None:
         self._repository = repository
         self._dictionary = dictionary
         self._model_client = model_client
         self._on_change = on_change
+        self._can_apply = can_apply or (lambda evidence: True)
+        self._identity_matcher = identity_matcher or same_term_identity
+
+    def _authorize_candidate(self, job, decision, *, now):
+        if decision.action == "ignore":
+            return decision
+        count, conflict = self._repository.record_confirmation(job, decision, now=now)
+        fast = decision.action == "add" and all(
+            self._identity_matcher(alias, decision.term) for alias in decision.aliases
+        )
+        if conflict:
+            return replace(decision, action="review", reason_code="conflicting_corrections")
+        if fast or count >= 2:
+            return replace(decision, action="add", reason_code=(
+                "same_term_correction" if fast else "repeated_correction"
+            ))
+        return replace(decision, action="review", reason_code="awaiting_independent_correction")
 
     def set_on_change(self, callback) -> None:
         self._on_change = callback
@@ -94,7 +118,28 @@ class DictionaryLearningProcessor:
         if job is None:
             return False
 
+        if not self._can_apply(job.evidence):
+            self._repository.finish(
+                job.id, status="ignored", now=timestamp,
+                result=ValidatedDictionaryDecision(action="ignore", reason_code="learning_disabled_or_excluded"),
+            )
+            return True
+
         if job.result is not None:
+            # Recheck journaled results against today's policy and dictionary.
+            # A restart must not bypass validation through an old apply record.
+            checked = validate_decision(
+                DictionaryLearningDecision(
+                    decision=job.result.action, term=job.result.term,
+                    aliases=job.result.aliases, confidence=job.result.confidence,
+                    reason_code=job.result.reason_code, term_type=job.result.term_type,
+                ), job.evidence, self._dictionary.snapshot_entries(),
+            )
+            checked = self._authorize_candidate(job, checked, now=timestamp)
+            if checked.action != "add":
+                self._repository.finish(job.id, status="review" if checked.action == "review" else "ignored", result=checked, now=timestamp)
+                self._emit_observation_summary(job)
+                return True
             try:
                 self._dictionary.add_entry(
                     job.result.term,
@@ -185,6 +230,14 @@ class DictionaryLearningProcessor:
             self._emit_observation_summary(job)
             return True
 
+        if not self._can_apply(job.evidence):
+            self._repository.finish(
+                job.id, status="ignored", now=timestamp,
+                result=ValidatedDictionaryDecision(action="ignore", reason_code="learning_disabled_or_excluded"),
+            )
+            return True
+
+        decision = self._authorize_candidate(job, decision, now=timestamp)
         if decision.action == "add":
             try:
                 mutation = self._dictionary.add_entry_with_result(
@@ -275,6 +328,7 @@ class DictionaryLearningProcessor:
         )
         if not self._dictionary.undo_mutation(mutation):
             return False
+        self._repository.suppress_mapping(job.result)
         self._repository.mark_reverted(job_id)
         self._emit_change(
             job.id,
@@ -315,6 +369,7 @@ class DictionaryLearningProcessor:
         job = self._repository.get(job_id)
         if job is None or job.status != "review" or job.result is None:
             return False
+        self._repository.suppress_mapping(job.result)
         self._repository.finish(
             job.id,
             status="ignored",
