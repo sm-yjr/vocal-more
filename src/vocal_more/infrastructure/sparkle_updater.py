@@ -20,7 +20,11 @@ class SparkleUpdater:
             if resolved_path is None or not resolved_path.is_dir():
                 return
 
-            objc.loadBundle("Sparkle", {}, bundle_path=str(resolved_path))
+            # Only the updater class is needed; scanning all runtime classes
+            # creates and retains unnecessary PyObjC class proxies.
+            objc.loadBundle(
+                "Sparkle", {}, bundle_path=str(resolved_path), scan_classes=False
+            )
             controller_class = objc.lookUpClass("SPUStandardUpdaterController")
             self._controller = (
                 controller_class.alloc().initWithStartingUpdater_updaterDelegate_userDriverDelegate_(

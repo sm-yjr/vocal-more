@@ -27,7 +27,9 @@ def test_sparkle_updater_loads_framework_and_starts_controller(tmp_path, monkeyp
     updater = updater_module.SparkleUpdater(framework)
 
     assert updater.available is True
-    load_bundle.assert_called_once_with("Sparkle", {}, bundle_path=str(framework))
+    load_bundle.assert_called_once_with(
+        "Sparkle", {}, bundle_path=str(framework), scan_classes=False
+    )
     initializer.assert_called_once_with(
         True,
         None,
