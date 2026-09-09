@@ -1,6 +1,13 @@
-## Development Focus
+## 下一阶段技术方向（2026-09-09 用户已确定）
 
-The active codebase is the **Python app** (`src/vocal_more/`). All new features, bug fixes, and improvements should target the Python codebase.
+- 下一阶段采用 **Rust 全栈 + 最新 GPUI Kit**：Rust 承载共享业务核心，GPUI Kit 承载桌面前端，面向 macOS 和 Windows。
+- GPUI Kit 已完成选型；后续任务按此方向推进，不再将 Slint、Tauri 或 SwiftUI 的选型对照作为迁移前置条件。只有用户重新要求评估时才重开选型。
+- 启动实现时核对 `longbridge/gpui-kit` 的官方最新发布版本，并锁定具体版本或 commit。2026-09-09 调研确认的 `0.6.1` 是当时快照，不是永久版本上限。
+- 保留并复用现有原生音频 C ABI、低声 DSP 和必要的平台集成；Rust 全栈不要求重写已经验证的 Objective-C++ 音频能力。
+- 当前已交付应用仍是 Python 实现；维护现有版本时继续使用下述路径与验证流程。技术方向已确定，不代表 Rust 迁移已经完成。
+- 决策与调研依据见 [Rust 技术路线记录](docs/rust-direction-research-2026-09-09.md)。
+
+## 当前交付代码
 
 - **Python source**: `src/vocal_more/`
 - **Tests**: `tests/`
