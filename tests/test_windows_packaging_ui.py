@@ -2,9 +2,25 @@ from pathlib import Path
 from struct import unpack
 import subprocess
 import sys
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_installer_numeric_version_accepts_prerelease_source():
+    from tests.project_metadata import read_project_version
+
+    script = ROOT / "packaging/windows/read_version.py"
+    full = subprocess.check_output([sys.executable, str(script)], text=True).strip()
+    numeric = subprocess.check_output([sys.executable, str(script), "--numeric"], text=True).strip()
+    assert full == read_project_version(ROOT)
+    assert re.fullmatch(r"\d+\.\d+\.\d+", numeric)
+    assert full.startswith(numeric)
+    setup = (ROOT / "packaging/windows/vocal_more.iss").read_text()
+    for field in ("VersionInfoVersion", "VersionInfoProductVersion"):
+        assert f"{field}={{#MyAppNumericVersion}}" in setup
+    assert "VersionInfoProductTextVersion={#MyAppVersion}" in setup
 
 
 def test_windows_spec_bundles_tk_ui_and_brand_icon():

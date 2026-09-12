@@ -1,6 +1,9 @@
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
 #endif
+#ifndef MyAppNumericVersion
+  #define MyAppNumericVersion "0.0.0"
+#endif
 #ifndef SourceDir
   #define SourceDir "..\..\dist\Vocal More"
 #endif
@@ -45,11 +48,13 @@ CloseApplicationsFilter={#MyAppExeName}
 RestartApplications=no
 RestartIfNeededByRun=no
 AppMutex=Local\VocalMoreDesktop
-VersionInfoVersion={#MyAppVersion}
+VersionInfoVersion={#MyAppNumericVersion}
+VersionInfoTextVersion={#MyAppVersion}
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Windows installer
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion={#MyAppVersion}
+VersionInfoProductVersion={#MyAppNumericVersion}
+VersionInfoProductTextVersion={#MyAppVersion}
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked

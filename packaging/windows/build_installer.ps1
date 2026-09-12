@@ -24,6 +24,7 @@ if (-not $SkipPortableBuild) {
 }
 
 $Version = (& $Python (Join-Path $ScriptDir "read_version.py")).Trim()
+$NumericVersion = (& $Python (Join-Path $ScriptDir "read_version.py") --numeric).Trim()
 $DistDir = Join-Path $Root "dist"
 $AppDir = Join-Path $DistDir "Vocal More"
 $SetupPath = Join-Path $DistDir "Vocal-More-$Version-windows-x64-setup.exe"
@@ -58,6 +59,7 @@ if (-not $Iscc -or -not (Test-Path $Iscc)) {
 Remove-Item -Force $SetupPath -ErrorAction SilentlyContinue
 & $Iscc `
     "/DMyAppVersion=$Version" `
+    "/DMyAppNumericVersion=$NumericVersion" `
     "/DSourceDir=$AppDir" `
     "/DOutputDir=$DistDir" `
     "/DSourceLicense=$License" `
