@@ -2,6 +2,7 @@
 use anyhow::Result;
 use serde_json::json;
 use std::fs;
+#[cfg(target_os = "macos")]
 use tokio_util::sync::CancellationToken;
 use vocal_more_backend::{history::History, wave::wav_bytes};
 use vocal_more_core::recording::RecordingStore;
