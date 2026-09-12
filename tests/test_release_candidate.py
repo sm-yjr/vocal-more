@@ -33,6 +33,26 @@ def test_binary_download_selects_the_endpoint_media_type(monkeypatch, endpoint, 
     assert GitHub().api(endpoint, binary=True) == b"binary archive"
 
 
+def test_release_lookup_finds_drafts_and_rejects_ambiguity(monkeypatch):
+    api = GitHub()
+    draft = {"id": 7, "tag_name": "v0.5.0-alpha.1", "draft": True}
+    monkeypatch.setattr(api, "optional", lambda _: None)
+    monkeypatch.setattr(api, "pages", lambda _: [draft])
+    assert api.release("v0.5.0-alpha.1") == draft
+    assert api.release("v0.5.0-alpha.2") is None
+    monkeypatch.setattr(api, "pages", lambda _: [draft, {**draft, "id": 8}])
+    with pytest.raises(ReleaseError, match="Multiple draft"):
+        api.release("v0.5.0-alpha.1")
+
+
+def test_published_release_lookup_does_not_scan_drafts(monkeypatch):
+    api = GitHub()
+    published = {"id": 7, "tag_name": "v0.5.0-alpha.1", "draft": False}
+    monkeypatch.setattr(api, "optional", lambda _: published)
+    monkeypatch.setattr(api, "pages", lambda _: pytest.fail("Published lookup must use tag endpoint"))
+    assert api.release("v0.5.0-alpha.1") == published
+
+
 @pytest.mark.parametrize("text,tag,channel", [("0.4.18", "v0.4.18", "stable"), ("0.4.18a1", "v0.4.18-alpha.1", "alpha"), ("0.4.18b12", "v0.4.18-beta.12", "beta")])
 def test_version_contract(text, tag, channel):
     version = Version.parse(text)

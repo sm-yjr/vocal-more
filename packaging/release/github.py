@@ -62,7 +62,16 @@ class GitHub:
         raise ReleaseError("GitHub pagination exceeded supported limit")
 
     def release(self, tag: str):
-        return self.optional("releases/tags/" + quote(tag, safe=""))
+        release = self.optional("releases/tags/" + quote(tag, safe=""))
+        if release is not None:
+            return release
+        # The tag endpoint only returns published releases. Drafts are visible
+        # to the authenticated publisher in the release listing instead.
+        drafts = [item for item in self.pages("releases")
+                  if item.get("draft") and item.get("tag_name") == tag]
+        if len(drafts) > 1:
+            raise ReleaseError(f"Multiple draft releases for tag: {tag}")
+        return drafts[0] if drafts else None
 
     def tag_sha(self, tag: str) -> str:
         obj = self.api("git/ref/tags/" + quote(tag, safe=""))["object"]

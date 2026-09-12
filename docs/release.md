@@ -134,4 +134,10 @@ actionlint .github/workflows/release.yml \
 - `initial_queue_seconds`：run 创建到 run 开始；不等于各依赖 job 排队时间之和。
 - `prepare_to_published_seconds`：原始候选准备开始到公开，包含人工等待 tag 的时间。
 
-GitHub 计时元数据读取失败会记录 `metrics_error`；只有资产和 feed 验证通过才会生成成功回执。首轮 CI 还需实测签名、公证、从上一版升级、完整包回退，以及一分钟达标情况。
+GitHub 计时元数据读取失败会记录 `metrics_error`；只有资产和 feed 验证通过才会生成成功回执。恢复运行的 `published_at` 是本次公开内容读回完成时间，不能当作 GitHub Release 的首次公开时间。
+
+2026-09-12 的 `0.5.0a1` 已实测 Developer ID 签名、公证、stapling、候选复用、公开 DMG/签名 feed 读回及签名包启动。候选来自 [Prepare Release 34680004180](https://github.com/sm-yjr/vocal-more/actions/runs/34680004180)，源码为 `b7ec59155d23ebae9e2220e0d26ef219d0cbe06a`，artifact ID 为 `10293848025`。
+
+首次发布暴露了草稿查询差异：GitHub 的按 tag 查询接口只返回已公开的 Release，草稿须从经过身份验证的 Release 列表查找。恢复时先核对候选来源及全部已上传文件摘要，再补齐 manifest、公开同一草稿和签名 feed，随后续跑 [Release DMG 34680414530](https://github.com/sm-yjr/vocal-more/actions/runs/34680414530)。不得因查询草稿失败而创建重复草稿；遇到同 tag 的多个草稿须先明确各自来源。
+
+本轮包含人工恢复，不能作为一分钟发布达标证据。首个 alpha 没有同通道上一版，因此增量升级、完整包回退及稳定的快路径耗时仍需后续实测。
