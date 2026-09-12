@@ -1,0 +1,49 @@
+name: Prepare Release
+on:
+  push:
+    branches:
+    - main
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full source SHA on main (empty means main HEAD)
+        type: string
+        required: false
+      release_tag:
+        description: Expected version tag (empty means canonical tag)
+        type: string
+        required: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      source_sha: ${{ steps.metadata.outputs.source_sha }}
+      release_tag: ${{ steps.metadata.outputs.release_tag }}
+      skip: ${{ steps.metadata.outputs.skip }}
+    steps:
+    - name: Check out exact source
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.source_sha || github.sha }}
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Check candidate eligibility
+      id: metadata
+      env:
+        SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+        RELEASE_TAG: ${{ inputs.release_tag }}
+      run: python3 packaging/release_cli.py preflight --prepare --source-sha "$SOURCE_SHA" --tag "$RELEASE_TAG"
+  prepare:
+    needs: inspect
+    if: needs.inspect.outputs.skip != 'true'
+    uses: ./.github/workflows/_release-candidate.yml
+    with:
+      source_sha: ${{ needs.inspect.outputs.source_sha }}
+      release_tag: ${{ needs.inspect.outputs.release_tag }}
+    secrets: inherit

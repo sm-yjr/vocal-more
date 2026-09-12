@@ -5,6 +5,7 @@ __pycache__/
 dist/
 build/
 .build/
+rust/target/
 .venv/
 packaging/macos/.venv-py2app/
 packaging/macos/.sparkle/

@@ -3,12 +3,15 @@
 #import <Accelerate/Accelerate.h>
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
+#import <CoreAudio/CoreAudio.h>
+#import <AudioToolbox/AudioToolbox.h>
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <dispatch/dispatch.h>
@@ -31,6 +34,105 @@ constexpr uint32_t kMaximumBlockFrames = 16384;
 constexpr int32_t kMinimumSampleRate = 8000;
 constexpr int32_t kMaximumSampleRate = 384000;
 constexpr uint32_t kMaximumNativeBufferFrames = 65536;
+
+// The callback uses fixed stack arrays and preallocated destination storage.
+// Match AudioRecorder._coherent_array_downmix without Python/NumPy ownership.
+void coherent_downmix(const float *const *source, uint32_t channels,
+                      uint32_t frames, float *destination) noexcept {
+    if (channels == 1) {
+        std::memcpy(destination, source[0], frames * sizeof(float));
+        return;
+    }
+    double mean[3] = {}, energy[3] = {}, correlation[3][3] = {};
+    for (uint32_t c = 0; c < channels; ++c) {
+        for (uint32_t f = 0; f < frames; ++f) mean[c] += source[c][f];
+        mean[c] /= frames;
+        for (uint32_t f = 0; f < frames; ++f) {
+            const double centered = source[c][f] - mean[c];
+            energy[c] += centered * centered;
+        }
+        energy[c] = std::sqrt(energy[c]);
+    }
+    uint32_t reference = 0, anchor = channels;
+    double best = -1;
+    for (uint32_t c = 0; c < channels; ++c) {
+        if (anchor == channels && energy[c] > 1e-7) anchor = c;
+        double score = 0;
+        for (uint32_t d = 0; d < channels; ++d) {
+            const double denominator = energy[c] * energy[d];
+            if (denominator > 1e-12) {
+                double covariance = 0;
+                for (uint32_t f = 0; f < frames; ++f)
+                    covariance += (source[c][f] - mean[c]) * (source[d][f] - mean[d]);
+                correlation[c][d] = covariance / denominator;
+            }
+            score += std::abs(correlation[c][d]);
+        }
+        if (score > best) { best = score; reference = c; }
+    }
+    double weights[3] = {};
+    uint32_t count = 0;
+    for (uint32_t c = 0; c < channels; ++c) {
+        if (anchor == channels || c == reference ||
+            (energy[c] > 1e-7 && std::abs(correlation[reference][c]) >= 0.15)) {
+            weights[c] = correlation[reference][c] < 0 ? -1.0 : 1.0;
+            ++count;
+        }
+    }
+    const double sign = anchor < channels && correlation[reference][anchor] < 0 ? -1 : 1;
+    for (uint32_t f = 0; f < frames; ++f) {
+        double mixed = 0;
+        for (uint32_t c = 0; c < channels; ++c) mixed += source[c][f] * weights[c];
+        destination[f] = static_cast<float>(mixed * sign / count);
+    }
+}
+
+NSArray<NSDictionary *> *input_devices() {
+    AudioObjectPropertyAddress address = {
+        kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    UInt32 bytes = 0;
+    if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &address, 0, nullptr, &bytes) != noErr)
+        throw std::runtime_error("Cannot enumerate Core Audio devices");
+    std::vector<AudioDeviceID> devices(bytes / sizeof(AudioDeviceID));
+    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, nullptr, &bytes, devices.data()) != noErr)
+        throw std::runtime_error("Cannot read Core Audio devices");
+    devices.resize(bytes / sizeof(AudioDeviceID));
+    AudioDeviceID default_device = kAudioObjectUnknown;
+    address.mSelector = kAudioHardwarePropertyDefaultInputDevice;
+    bytes = sizeof(default_device);
+    AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, nullptr, &bytes, &default_device);
+    NSMutableArray *result = [NSMutableArray array];
+    for (AudioDeviceID device : devices) {
+        address = {kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeInput,
+                   kAudioObjectPropertyElementMain};
+        bytes = 0;
+        if (AudioObjectGetPropertyDataSize(device, &address, 0, nullptr, &bytes) != noErr ||
+            bytes < sizeof(AudioBufferList)) continue;
+        // Non-realtime enumeration; max_align_t keeps AudioBufferList aligned.
+        std::vector<std::max_align_t> storage((bytes + sizeof(std::max_align_t) - 1) / sizeof(std::max_align_t));
+        auto *buffers = reinterpret_cast<AudioBufferList *>(storage.data());
+        if (AudioObjectGetPropertyData(device, &address, 0, nullptr, &bytes, buffers) != noErr) continue;
+        UInt32 channels = 0;
+        for (UInt32 i = 0; i < buffers->mNumberBuffers; ++i) channels += buffers->mBuffers[i].mNumberChannels;
+        if (channels == 0) continue;
+        auto string_property = [&](AudioObjectPropertySelector selector) -> NSString * {
+            AudioObjectPropertyAddress property = {selector, kAudioObjectPropertyScopeGlobal,
+                                                   kAudioObjectPropertyElementMain};
+            CFStringRef value = nullptr;
+            UInt32 size = sizeof(value);
+            if (AudioObjectGetPropertyData(device, &property, 0, nullptr, &size, &value) != noErr)
+                return @"";
+            return CFBridgingRelease(value) ?: @"";
+        };
+        [result addObject:@{@"index": @(device), @"name": string_property(kAudioObjectPropertyName),
+                            @"uid": string_property(kAudioDevicePropertyDeviceUID),
+                            @"is_default": @(device == default_device),
+                            @"max_input_channels": @(channels)}];
+    }
+    return result;
+}
 
 uint64_t monotonic_now_ns() noexcept {
     return static_cast<uint64_t>(
@@ -231,6 +333,20 @@ public:
         return true;
     }
 
+    bool push_channels(const float *const *source, uint32_t channels, uint32_t frames) noexcept {
+        if (source == nullptr || frames == 0 || channels == 0) return false;
+        if (frames > frames_per_slot_) { record_drop(); return false; }
+        channels = std::min(channels, 3U);
+        for (uint32_t c = 0; c < channels; ++c) if (source[c] == nullptr) return false;
+        uint64_t position = 0;
+        RawSlot *slot = nullptr;
+        if (!reserve_write(position, slot)) return false;
+        coherent_downmix(source, channels, frames, slot->samples.get());
+        slot->frames = frames;
+        publish_write(position, false);
+        return true;
+    }
+
     ReadState pop(float *destination, uint32_t capacity, uint32_t &frames) noexcept {
         uint64_t position = 0;
         RawSlot *slot = nullptr;
@@ -406,6 +522,9 @@ struct vm_audio_stream {
     uint32_t block_frames;
     uint32_t queue_blocks;
     bool automatic_gain;
+    bool voice_processing = true;
+    NSString *__strong input_device = nil;
+    uint32_t capture_channels = 1;
     std::atomic<float> gain;
     std::atomic<bool> highpass_enabled;
     std::atomic<float> highpass_frequency;
@@ -704,6 +823,7 @@ bool install_session_locked(
     stream->tap_context->accepting.store(true, std::memory_order_seq_cst);
     const std::shared_ptr<RealtimeTapContext> captured_context =
         stream->tap_context;
+    const uint32_t capture_channels = stream->capture_channels;
     [input_node installTapOnBus:0
         bufferSize:stream->native_buffer_frames
         format:nil
@@ -729,7 +849,8 @@ bool install_session_locked(
                 std::memory_order_release,
                 std::memory_order_relaxed
             );
-            captured_context->queue->push(channels[0], frames);
+            captured_context->queue->push_channels(channels,
+                std::min(capture_channels, buffer.format.channelCount), frames);
         }];
     stream->worker = std::thread(worker_main, stream, stream->raw_capacity);
     // Mark the session active before starting the engine so the unified pause
@@ -745,8 +866,8 @@ bool install_session_locked(
         );
         return false;
     }
-    if (!input_node.isVoiceProcessingEnabled ||
-        input_node.isVoiceProcessingAGCEnabled != stream->automatic_gain) {
+    if (input_node.isVoiceProcessingEnabled != stream->voice_processing ||
+        (stream->voice_processing && input_node.isVoiceProcessingAGCEnabled != stream->automatic_gain)) {
         write_error(
             error_buffer,
             error_capacity,
@@ -755,7 +876,7 @@ bool install_session_locked(
         return false;
     }
     stream->observed_agc.store(
-        input_node.isVoiceProcessingAGCEnabled,
+        stream->voice_processing && input_node.isVoiceProcessingAGCEnabled,
         std::memory_order_release
     );
     stream->started.store(true, std::memory_order_release);
@@ -851,7 +972,7 @@ bool stop_stream_locked(vm_audio_stream *stream) noexcept {
         // detaching a worker that still references its state.
         return false;
     }
-    if (input_node != nil) {
+    if (input_node != nil && stream->voice_processing) {
         @try {
             NSError *disable_error = nil;
             if (![input_node setVoiceProcessingEnabled:NO error:&disable_error]) {
@@ -887,6 +1008,34 @@ extern "C" {
 
 uint32_t vm_audio_abi_version(void) {
     return kABIVersion;
+}
+
+int32_t vm_audio_list_devices(char *json_buffer, size_t capacity) {
+    if (json_buffer == nullptr || capacity == 0) return -1;
+    return run_abi_guarded([&]() -> int32_t {
+        @autoreleasepool {
+            NSData *data = [NSJSONSerialization dataWithJSONObject:input_devices() options:0 error:nil];
+            if (data == nil || data.length >= capacity) return -1;
+            std::memcpy(json_buffer, data.bytes, data.length);
+            json_buffer[data.length] = '\0';
+            return 0;
+        }
+    }, json_buffer, capacity);
+}
+
+int32_t vm_audio_microphone_authorization(void) {
+    return run_abi_guarded([]() -> int32_t {
+        return static_cast<int32_t>([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio]);
+    }, nullptr, 0);
+}
+
+int32_t vm_audio_test_downmix(const float *const *channels, uint32_t channel_count,
+                            uint32_t frames, float *destination) {
+    if (channels == nullptr || destination == nullptr || channel_count < 1 || channel_count > 3 ||
+        frames == 0 || frames > kMaximumNativeBufferFrames) return -1;
+    for (uint32_t c = 0; c < channel_count; ++c) if (channels[c] == nullptr) return -1;
+    coherent_downmix(channels, channel_count, frames, destination);
+    return 0;
 }
 
 vm_audio_stream *vm_audio_create(
@@ -929,6 +1078,34 @@ vm_audio_stream *vm_audio_create(
         write_error(error_buffer, error_capacity, "Native audio allocation failed");
     }
     return nullptr;
+}
+
+vm_audio_stream *vm_audio_create_configured(
+    int32_t target_sample_rate, uint32_t block_frames, uint32_t queue_blocks,
+    bool automatic_gain, float software_gain, bool highpass_enabled,
+    float highpass_frequency, bool soft_limiter, bool voice_processing,
+    const char *input_device, uint32_t capture_channels,
+    char *error_buffer, size_t error_capacity
+) {
+    vm_audio_stream *result = nullptr;
+    const int32_t code = run_abi_guarded([&]() -> int32_t {
+        if (capture_channels < 1 || capture_channels > 3) {
+            write_error(error_buffer, error_capacity, "Capture channels must be between 1 and 3");
+            return -1;
+        }
+        // Allocate the ObjC string before taking ownership of a C++ stream.
+        NSString *device = input_device == nullptr ? nil : [NSString stringWithUTF8String:input_device];
+        if (input_device != nullptr && device == nil) return -1;
+        result = vm_audio_create(target_sample_rate, block_frames, queue_blocks,
+            automatic_gain && voice_processing, software_gain, highpass_enabled,
+            highpass_frequency, soft_limiter, error_buffer, error_capacity);
+        if (result == nullptr) return -1;
+        result->voice_processing = voice_processing;
+        result->input_device = device;
+        result->capture_channels = capture_channels;
+        return 0;
+    }, error_buffer, error_capacity);
+    return code == 0 ? result : nullptr;
 }
 
 int32_t vm_audio_prepare(
@@ -979,7 +1156,8 @@ int32_t vm_audio_prepare(
                             stream->input_node = input_node;
 
                             NSError *voice_error = nil;
-                            if (![input_node setVoiceProcessingEnabled:YES error:&voice_error]) {
+                            if (stream->voice_processing &&
+                                ![input_node setVoiceProcessingEnabled:YES error:&voice_error]) {
                                 write_error(
                                     error_buffer,
                                     error_capacity,
@@ -988,26 +1166,34 @@ int32_t vm_audio_prepare(
                                 );
                                 return -1;
                             }
-                            if (![input_node respondsToSelector:
-                                    @selector(setVoiceProcessingAGCEnabled:)] ||
-                                ![input_node respondsToSelector:
-                                    @selector(isVoiceProcessingAGCEnabled)]) {
-                                write_error(
-                                    error_buffer,
-                                    error_capacity,
-                                    "Apple AGC controls are unavailable"
-                                );
-                                return -1;
+                            if (stream->voice_processing) {
+                                if (![input_node respondsToSelector:@selector(setVoiceProcessingAGCEnabled:)] ||
+                                    ![input_node respondsToSelector:@selector(isVoiceProcessingAGCEnabled)]) {
+                                    write_error(error_buffer, error_capacity, "Apple AGC controls are unavailable");
+                                    return -1;
+                                }
+                                input_node.voiceProcessingAGCEnabled = stream->automatic_gain;
+                                if (input_node.isVoiceProcessingAGCEnabled != stream->automatic_gain) {
+                                    write_error(error_buffer, error_capacity, "Apple AGC state mismatch");
+                                    return -1;
+                                }
                             }
-                            input_node.voiceProcessingAGCEnabled = stream->automatic_gain;
-                            if (input_node.isVoiceProcessingAGCEnabled !=
-                                stream->automatic_gain) {
-                                write_error(
-                                    error_buffer,
-                                    error_capacity,
-                                    "Apple AGC state mismatch"
-                                );
-                                return -1;
+                            if (stream->input_device.length > 0) {
+                                AudioDeviceID selected = kAudioObjectUnknown;
+                                for (NSDictionary *device in input_devices()) {
+                                    if ([device[@"uid"] isEqual:stream->input_device] ||
+                                        [device[@"name"] isEqual:stream->input_device]) {
+                                        selected = [device[@"index"] unsignedIntValue];
+                                        break;
+                                    }
+                                }
+                                if (selected == kAudioObjectUnknown ||
+                                    AudioUnitSetProperty(input_node.audioUnit,
+                                        kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global,
+                                        0, &selected, sizeof(selected)) != noErr) {
+                                    write_error(error_buffer, error_capacity, "Selected input device is unavailable");
+                                    return -1;
+                                }
                             }
 
                             AVAudioFormat *hardware_format =
@@ -1090,7 +1276,7 @@ int32_t vm_audio_prepare(
                                 std::memory_order_release
                             );
                             stream->observed_agc.store(
-                                input_node.isVoiceProcessingAGCEnabled,
+                                stream->voice_processing && input_node.isVoiceProcessingAGCEnabled,
                                 std::memory_order_release
                             );
                             // Prepare only: no tap, worker or running input unit.

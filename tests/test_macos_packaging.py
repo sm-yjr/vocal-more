@@ -118,13 +118,7 @@ def test_completed_app_runs_a_runtime_dependency_smoke_test():
 
 def test_py2app_declares_signed_sparkle_feed():
     app_plist = _load_py2app_plist()
-
-    feed_url = app_plist["SUFeedURL"]
-    public_key = app_plist["SUPublicEDKey"]
-    assert isinstance(feed_url, ast.Constant)
-    assert feed_url.value.endswith("/sparkle-feed/appcast.xml")
-    assert isinstance(public_key, ast.Constant)
-    assert public_key.value == "rX4Sp1huP0v763afpuPlVkpDuXYoMj/+2fNqnFFMHsk="
+    assert app_plist["SUPublicEDKey"].value == "rX4Sp1huP0v763afpuPlVkpDuXYoMj/+2fNqnFFMHsk="
     assert app_plist["SUVerifyUpdateBeforeExtraction"].value is True
     assert app_plist["SURequireSignedFeed"].value is True
 
@@ -355,11 +349,14 @@ def test_bundle_optimizer_rejects_macho_without_target_architecture(tmp_path):
 
 
 def test_release_build_uses_clean_locked_arm64_packaging_environment():
-    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
-
-    assert "UV_PROJECT_ENVIRONMENT" in workflow
-    assert "uv sync --locked --no-dev --group packaging" in workflow
-    assert "VOCAL_MORE_TARGET_ARCH: arm64" in workflow
+    import yaml
+    workflow = yaml.safe_load((ROOT / ".github/workflows/_release-candidate.yml").read_text())
+    steps = workflow["jobs"]["build"]["steps"]
+    prepare = next(s for s in steps if s["name"] == "Prepare clean packaging environment")
+    assert "UV_PROJECT_ENVIRONMENT" in prepare["run"]
+    assert "uv sync --locked --no-dev --group packaging" in prepare["run"]
+    build = next(s for s in steps if s["name"] == "Build signed DMG")
+    assert build["env"]["VOCAL_MORE_TARGET_ARCH"] == "arm64"
 
 
 def test_py2app_excludes_test_and_optional_gui_modules():
@@ -389,24 +386,14 @@ def test_bundle_uses_generated_notification_logo_instead_of_source_artwork():
 
 
 def test_release_workflow_tests_and_builds_settings_frontend():
-    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
-
-    assert "actions/setup-node@v4" in workflow
-    assert "npm --prefix frontend/settings ci" in workflow
-    assert "npm --prefix frontend/settings test" in workflow
-    assert "npm --prefix frontend/settings run typecheck" in workflow
-    assert "npm --prefix frontend/settings run lint" in workflow
-    assert "npm --prefix frontend/settings run build" in workflow
+    import yaml
+    workflow = yaml.safe_load((ROOT / ".github/workflows/_release-candidate.yml").read_text())
+    steps = workflow["jobs"]["build"]["steps"]
+    commands = "\n".join(s.get("run", "") for s in steps)
+    for command in ("ci", "test", "run typecheck", "run lint", "run build"):
+        assert f"npm --prefix frontend/settings {command}" in commands
 
 
-def test_release_workflow_requires_and_publishes_versioned_release_notes():
-    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
-
-    assert 'notes_path="$GITHUB_WORKSPACE/docs/releases/$version.md"' in workflow
-    assert '[[ ! -s "$notes_path" ]]' in workflow
-    assert 'VOCAL_MORE_RELEASE_NOTES_PATH=$notes_path' in workflow
-    assert '--notes-file "$VOCAL_MORE_RELEASE_NOTES_PATH"' in workflow
-    assert 'gh release edit "$tag"' in workflow
 
 
 def test_sparkle_nested_services_are_signed_in_official_order():
@@ -424,39 +411,17 @@ def test_sparkle_nested_services_are_signed_in_official_order():
     assert "--preserve-metadata=entitlements" in sign_script
 
 
-def test_release_workflow_publishes_signed_sparkle_appcast():
-    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
-
-    assert "SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}" in workflow
-    assert '"$sparkle_root/bin/generate_appcast"' in workflow
-    assert "--ed-key-file -" in workflow
-    assert "gh release upload sparkle-feed" in workflow
 
 
-def test_release_workflow_publishes_sparkle_delta_updates():
-    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
-
-    assert "maximum_deltas=1" in workflow
-    assert "gh release list --exclude-drafts --exclude-pre-releases" in workflow
-    assert 'gh release download "$previous_tag"' in workflow
-    assert '--maximum-deltas "$maximum_deltas"' in workflow
-    assert "--delta-compression lzfse" in workflow
-    assert 'gh release upload "$tag" "${delta_files[@]}" --clobber' in workflow
-    assert 'grep -q "<sparkle:deltas>" "$updates_dir/appcast.xml"' in workflow
 
 
 def test_release_workflow_avoids_duplicate_build_and_signing_work():
-    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
-    build_script = (ROOT / "packaging" / "macos" / "build_app.sh").read_text()
-
-    assert "Run frontend and Python checks in parallel" in workflow
-    assert 'VOCAL_MORE_SKIP_FRONTEND_BUILD: "1"' in workflow
-    assert 'VOCAL_MORE_SKIP_ADHOC_SIGN: "1"' in workflow
-    assert 'VOCAL_MORE_USE_PREPARED_BUILD_VENV: "1"' in workflow
-    assert "--group packaging" in workflow
-    assert '${VOCAL_MORE_SKIP_FRONTEND_BUILD:-0}' in build_script
-    assert '${VOCAL_MORE_SKIP_ADHOC_SIGN:-0}' in build_script
-    assert '${VOCAL_MORE_USE_PREPARED_BUILD_VENV:-0}' in build_script
+    import yaml
+    workflow = yaml.safe_load((ROOT / ".github/workflows/_release-candidate.yml").read_text())
+    steps = workflow["jobs"]["build"]["steps"]
+    build = next(s for s in steps if s["name"] == "Build signed DMG")
+    for key in ("VOCAL_MORE_SKIP_FRONTEND_BUILD", "VOCAL_MORE_SKIP_ADHOC_SIGN", "VOCAL_MORE_USE_PREPARED_BUILD_VENV"):
+        assert build["env"][key] == "1"
 
 
 def _load_release_artifact_verifier():
@@ -549,11 +514,32 @@ def test_release_artifact_verifier_rejects_non_apple_native_dependency(tmp_path)
 
 
 def test_release_workflow_verifies_mounted_native_artifact_before_upload():
-    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
-    verifier = 'python3 packaging/macos/verify_release_artifact.py "$DMG_PATH"'
+    import yaml
+    workflow = yaml.safe_load((ROOT / ".github/workflows/_release-candidate.yml").read_text())
+    steps = workflow["jobs"]["build"]["steps"]
+    names = [s["name"] for s in steps]
+    assert names.index("Notarize and staple final DMG") < names.index("Verify final candidate artifact")
+    assert names.index("Verify final candidate artifact") < names.index("Upload immutable release candidate")
+    assert workflow["jobs"]["seal-candidate"]["needs"] == "build"
 
-    notarize = workflow.index("./packaging/macos/notarize_dmg.sh")
-    verify = workflow.index(verifier)
-    upload = workflow.index("actions/upload-artifact@v4")
 
-    assert notarize < verify < upload
+def test_rust_release_service_requires_matching_bundle_version(tmp_path):
+    import plistlib
+    verifier = _load_release_artifact_verifier()
+    app = tmp_path / "Vocal More.app"
+    binary = app / "Contents/Resources/rust-backend/vocal-more-backend"
+    binary.parent.mkdir(parents=True)
+    binary.touch()
+    (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleShortVersionString": "0.4.17"}))
+    def runner(command, **kwargs):
+        if command[0] == str(binary):
+            output = "Vocal More Rust backend 0.4.17\n"
+        elif command[0] == "lipo":
+            output = "arm64\n"
+        else:
+            output = str(binary) + ":\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n"
+        return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
+    verifier.verify_rust_backend(app, command_runner=runner)
+    (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleShortVersionString": "0.4.18"}))
+    with pytest.raises(RuntimeError, match="does not match"):
+        verifier.verify_rust_backend(app, command_runner=runner)

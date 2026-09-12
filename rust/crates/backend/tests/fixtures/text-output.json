@@ -1,0 +1,332 @@
+[
+  {
+    "input": "",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "",
+    "bilingual": "",
+    "prompt": "",
+    "structured": ""
+  },
+  {
+    "input": "使用rustlang和拉斯特",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "使用Rust和Rust",
+    "bilingual": "使用 rustlang 和拉斯特",
+    "prompt": "使用rustlang和拉斯特",
+    "structured": "使用rustlang和拉斯特"
+  },
+  {
+    "input": "RUSTLANG rustlangx xrustlang _rustlang_",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "Rust rustlangx xrustlang _Rust_",
+    "bilingual": "RUSTLANG rustlangx xrustlang _rustlang_",
+    "prompt": "RUSTLANG rustlangx xrustlang _rustlang_",
+    "structured": "RUSTLANG rustlangx xrustlang _rustlang_"
+  },
+  {
+    "input": "vocalmore和Vocal More",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "Vocal More和Vocal More",
+    "bilingual": "vocalmore 和 Vocal More",
+    "prompt": "vocalmore和Vocal More",
+    "structured": "vocalmore和Vocal More"
+  },
+  {
+    "input": "拉斯特/vocalmore",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "Rust/Vocal More",
+    "bilingual": "拉斯特/vocalmore",
+    "prompt": "拉斯特/vocalmore",
+    "structured": "拉斯特/vocalmore"
+  },
+  {
+    "input": "中文ＡＰＩ和3个词。。",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "中文ＡＰＩ和3个词。。",
+    "bilingual": "中文 API 和 3 个词。",
+    "prompt": "中文ＡＰＩ和3个词。。",
+    "structured": "中文ＡＰＩ和3个词。。"
+  },
+  {
+    "input": "使用`ＡＰＩ中文`和Python脚本",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "使用`ＡＰＩ中文`和Python脚本",
+    "bilingual": "使用`ＡＰＩ中文`和 Python 脚本",
+    "prompt": "使用`ＡＰＩ中文`和Python脚本",
+    "structured": "使用`ＡＰＩ中文`和Python脚本"
+  },
+  {
+    "input": "打开https://example.com/中文3和www.测试中文3",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "打开https://example.com/中文3和www.测试中文3",
+    "bilingual": "打开https://example.com/中文3和www.测试中文3",
+    "prompt": "打开https://example.com/中文3和www.测试中文3",
+    "structured": "打开https://example.com/中文3和www.测试中文3"
+  },
+  {
+    "input": "路径C:\\中文3完整保留",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "路径C:\\中文3完整保留",
+    "bilingual": "路径C:\\中文3完整保留",
+    "prompt": "路径C:\\中文3完整保留",
+    "structured": "路径C:\\中文3完整保留"
+  },
+  {
+    "input": "# Goal\n做一个工具\n# Open questions\n私有控制信息\n# Output\n文件\n当前场景：终端\n",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "# Goal\n做一个工具\n# Open questions\n私有控制信息\n# Output\n文件\n当前场景：终端\n",
+    "bilingual": "# Goal\n做一个工具\n# Open questions\n私有控制信息\n# Output\n文件\n当前场景：终端\n",
+    "prompt": "# Goal\n做一个工具\n# Output\n文件",
+    "structured": "# Goal\n做一个工具\n# Open questions\n私有控制信息\n# Output\n文件\n当前场景：终端"
+  },
+  {
+    "input": "# Context\n\n# Goal\n完成任务\n",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "# Context\n\n# Goal\n完成任务\n",
+    "bilingual": "# Context\n\n# Goal\n完成任务\n",
+    "prompt": "# Goal\n完成任务",
+    "structured": "# Context\n\n# Goal\n完成任务"
+  },
+  {
+    "input": "事项：1. 检查 2. 发布 3. 复盘",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "事项：1. 检查 2. 发布 3. 复盘",
+    "bilingual": "事项：1. 检查 2. 发布 3. 复盘",
+    "prompt": "事项：1. 检查 2. 发布 3. 复盘",
+    "structured": "事项：\n1. 检查\n2. 发布\n3. 复盘"
+  },
+  {
+    "input": "版本 1.2.3 与 Python 3.12",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "版本 1.2.3 与 Python 3.12",
+    "bilingual": "版本 1.2.3 与 Python 3.12",
+    "prompt": "版本 1.2.3 与 Python 3.12",
+    "structured": "版本 1.2.3 与 Python 3.12"
+  },
+  {
+    "input": "要点 - 开始 - 结束",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "要点 - 开始 - 结束",
+    "bilingual": "要点 - 开始 - 结束",
+    "prompt": "要点 - 开始 - 结束",
+    "structured": "要点\n- 开始\n- 结束"
+  },
+  {
+    "input": "中文！！？？。。，，、、",
+    "entries": [
+      {
+        "term": "Rust",
+        "aliases": [
+          "拉斯特",
+          "rustlang"
+        ]
+      },
+      {
+        "term": "Vocal More",
+        "aliases": [
+          "vocalmore"
+        ]
+      }
+    ],
+    "normalized": "中文！！？？。。，，、、",
+    "bilingual": "中文！？。，、",
+    "prompt": "中文！！？？。。，，、、",
+    "structured": "中文！！？？。。，，、、"
+  }
+]

@@ -65,6 +65,7 @@ export interface HotkeyConfig {
 export interface SettingsConfig {
   _version?: string
   api_key?: string
+  _api_key_set?: boolean
   default_mode?: string
   auto_paste?: boolean
   native_fast_paste?: boolean

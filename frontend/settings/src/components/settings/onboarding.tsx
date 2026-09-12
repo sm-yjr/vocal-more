@@ -85,7 +85,7 @@ export function Onboarding({
     typeof audio.waveform_ceiling_dbfs === "number"
       ? audio.waveform_ceiling_dbfs
       : DEFAULT_WAVEFORM_CEILING_DBFS
-  const apiReady = Boolean(config.api_key?.trim())
+  const apiReady = Boolean(config._api_key_set || config.api_key?.trim())
   const deviceReady =
     snapshot.devices.length > 0 && readiness(snapshot, "input_device")
   const accessibilityReady = readiness(snapshot, "accessibility")
@@ -141,7 +141,7 @@ export function Onboarding({
                 aria-label={copy.apiKey}
                 type="password"
                 value={config.api_key ?? ""}
-                placeholder="sk-…"
+                placeholder={config._api_key_set ? "••••••••" : "sk-…"}
                 autoComplete="off"
                 spellCheck={false}
                 onChange={(event) =>

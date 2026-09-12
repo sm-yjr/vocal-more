@@ -1,0 +1,598 @@
+{
+  "host": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0\nBuildVersion:\t\t26A428\n",
+  "hardware": "hw.model: MacBookPro18,1\nhw.memsize: 17179869184\n",
+  "binary_sha256": "a2b44edb59d9d012bd24ab56317b24120929a2c14c8d0c5d591c1a9611cf7ee3",
+  "audio_seconds": 1800,
+  "pcm_sha256": "d5c853762667f9bf4661bf2aa3d18485697483ffca59580469093acdfc4bad45",
+  "date": "2026-09-11",
+  "base_commit": "084d1a86f45e6c7f8a94a9a2356561a71ed2c990",
+  "rust_version": "1.90.0",
+  "binary_bytes": 3630192,
+  "native_library_bytes": 80664,
+  "native_library_sha256": "6117dfd2e98831911f046f3c521c5a8e8c92dd58f810631f9f5aecd4b409e6c5",
+  "rust_tests_passed": 17,
+  "python_tests_passed": 946,
+  "fixture_completed_sessions": 104,
+  "raw_results": ".build/rust-core-acceptance-20260911/results.json",
+  "runs": {
+    "rust-core": {
+      "ready_ms": 60.732583000000005,
+      "shutdown_ms": 1.687665999995147,
+      "samples": [
+        {
+          "label": "idle-1s",
+          "elapsed_seconds": 1.6701951670000001,
+          "footprint_mib": 1.5625,
+          "peak_footprint_mib": 1.5625,
+          "rss_mib": 2.921875,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.01",
+          "threads": 6
+        },
+        {
+          "label": "idle-5s",
+          "elapsed_seconds": 5.6477133749999995,
+          "footprint_mib": 1.5625,
+          "peak_footprint_mib": 1.5625,
+          "rss_mib": 2.921875,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.01",
+          "threads": 6
+        },
+        {
+          "label": "idle-15s",
+          "elapsed_seconds": 15.645969792,
+          "footprint_mib": 1.5625,
+          "peak_footprint_mib": 1.578125,
+          "rss_mib": 2.9375,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.01",
+          "threads": 5
+        },
+        {
+          "label": "idle-30s",
+          "elapsed_seconds": 30.642676292,
+          "footprint_mib": 1.5625,
+          "peak_footprint_mib": 1.578125,
+          "rss_mib": 2.9375,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.01",
+          "threads": 5
+        },
+        {
+          "label": "after-first-ws",
+          "elapsed_seconds": 31.303315667,
+          "footprint_mib": 2.265625,
+          "peak_footprint_mib": 2.265625,
+          "rss_mib": 3.96875,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.01",
+          "threads": 6
+        },
+        {
+          "label": "after-50-ws",
+          "elapsed_seconds": 34.063207917,
+          "footprint_mib": 2.953125,
+          "peak_footprint_mib": 2.984375,
+          "rss_mib": 4.65625,
+          "cpu_percent": 0.8,
+          "cpu_time": "0:00.20",
+          "threads": 6
+        },
+        {
+          "label": "after-long-file",
+          "elapsed_seconds": 35.486416333,
+          "footprint_mib": 3.234375,
+          "peak_footprint_mib": 3.265625,
+          "rss_mib": 4.921875,
+          "cpu_percent": 2.4,
+          "cpu_time": "0:00.51",
+          "threads": 6
+        },
+        {
+          "label": "after-long-websocket",
+          "elapsed_seconds": 47.541387125,
+          "footprint_mib": 3.453125,
+          "peak_footprint_mib": 3.484375,
+          "rss_mib": 5.140625,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.94",
+          "threads": 6
+        },
+        {
+          "label": "after-cancel",
+          "elapsed_seconds": 48.425466375,
+          "footprint_mib": 3.46875,
+          "peak_footprint_mib": 3.5,
+          "rss_mib": 5.15625,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.94",
+          "threads": 6
+        },
+        {
+          "label": "after-tls-rejection",
+          "elapsed_seconds": 49.086221792,
+          "footprint_mib": 3.5,
+          "peak_footprint_mib": 3.5,
+          "rss_mib": 5.671875,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.94",
+          "threads": 6
+        },
+        {
+          "label": "used-idle-10s",
+          "elapsed_seconds": 59.72911275,
+          "footprint_mib": 3.484375,
+          "peak_footprint_mib": 3.5,
+          "rss_mib": 5.65625,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.94",
+          "threads": 5
+        }
+      ],
+      "cancel_ms": 26.392250000000672,
+      "python_images_found": false,
+      "child_pids": [],
+      "idle_tcp_connections": "",
+      "file": {
+        "elapsed_seconds": 0.8020250830000037,
+        "status": {
+          "phase": "completed",
+          "pcm_bytes": 57600000,
+          "input_queue_high_watermark": 159,
+          "asr_queue_high_watermark": 0
+        },
+        "progress": [
+          {
+            "pcm_bytes": 0,
+            "label": "file-progress-000",
+            "elapsed_seconds": 34.705161542,
+            "footprint_mib": 3.1875,
+            "peak_footprint_mib": 3.1875,
+            "rss_mib": 4.875,
+            "cpu_percent": 7.6,
+            "cpu_time": "0:00.32",
+            "threads": 7
+          }
+        ]
+      },
+      "websocket": {
+        "elapsed_seconds": 11.430170666999999,
+        "status": {
+          "phase": "completed",
+          "pcm_bytes": 57600000,
+          "input_queue_high_watermark": 159,
+          "asr_queue_high_watermark": 160
+        },
+        "progress": [
+          {
+            "pcm_bytes": 3840,
+            "label": "websocket-progress-000",
+            "elapsed_seconds": 36.140925958000004,
+            "footprint_mib": 3.453125,
+            "peak_footprint_mib": 3.453125,
+            "rss_mib": 5.15625,
+            "cpu_percent": 0.5,
+            "cpu_time": "0:00.53",
+            "threads": 7
+          },
+          {
+            "pcm_bytes": 6776320,
+            "label": "websocket-progress-001",
+            "elapsed_seconds": 37.303486583,
+            "footprint_mib": 3.46875,
+            "peak_footprint_mib": 3.46875,
+            "rss_mib": 5.15625,
+            "cpu_percent": 0.5,
+            "cpu_time": "0:00.58",
+            "threads": 7
+          },
+          {
+            "pcm_bytes": 12634880,
+            "label": "websocket-progress-002",
+            "elapsed_seconds": 38.453158458000004,
+            "footprint_mib": 3.46875,
+            "peak_footprint_mib": 3.46875,
+            "rss_mib": 5.15625,
+            "cpu_percent": 0.6,
+            "cpu_time": "0:00.62",
+            "threads": 7
+          },
+          {
+            "pcm_bytes": 18648320,
+            "label": "websocket-progress-003",
+            "elapsed_seconds": 39.594738667,
+            "footprint_mib": 3.46875,
+            "peak_footprint_mib": 3.46875,
+            "rss_mib": 5.15625,
+            "cpu_percent": 1.0,
+            "cpu_time": "0:00.67",
+            "threads": 7
+          },
+          {
+            "pcm_bytes": 24807680,
+            "label": "websocket-progress-004",
+            "elapsed_seconds": 40.757315625000004,
+            "footprint_mib": 3.46875,
+            "peak_footprint_mib": 3.46875,
+            "rss_mib": 5.15625,
+            "cpu_percent": 0.4,
+            "cpu_time": "0:00.71",
+            "threads": 7
+          },
+          {
+            "pcm_bytes": 30894080,
+            "label": "websocket-progress-005",
+            "elapsed_seconds": 41.928766875,
+            "footprint_mib": 3.46875,
+            "peak_footprint_mib": 3.46875,
+            "rss_mib": 5.15625,
+            "cpu_percent": 0.5,
+            "cpu_time": "0:00.75",
+            "threads": 7
+          },
+          {
+            "pcm_bytes": 36753920,
+            "label": "websocket-progress-006",
+            "elapsed_seconds": 43.070795000000004,
+            "footprint_mib": 3.46875,
+            "peak_footprint_mib": 3.46875,
+            "rss_mib": 5.15625,
+            "cpu_percent": 0.7,
+            "cpu_time": "0:00.80",
+            "threads": 7
+          },
+          {
+            "pcm_bytes": 42612480,
+            "label": "websocket-progress-007",
+            "elapsed_seconds": 44.2148905,
+            "footprint_mib": 3.46875,
+            "peak_footprint_mib": 3.46875,
+            "rss_mib": 5.15625,
+            "cpu_percent": 0.8,
+            "cpu_time": "0:00.84",
+            "threads": 7
+          },
+          {
+            "pcm_bytes": 48472320,
+            "label": "websocket-progress-008",
+            "elapsed_seconds": 45.370844375,
+            "footprint_mib": 3.46875,
+            "peak_footprint_mib": 3.46875,
+            "rss_mib": 5.15625,
+            "cpu_percent": 0.4,
+            "cpu_time": "0:00.88",
+            "threads": 7
+          },
+          {
+            "pcm_bytes": 54334720,
+            "label": "websocket-progress-009",
+            "elapsed_seconds": 46.520071708,
+            "footprint_mib": 3.46875,
+            "peak_footprint_mib": 3.46875,
+            "rss_mib": 5.15625,
+            "cpu_percent": 0.5,
+            "cpu_time": "0:00.92",
+            "threads": 7
+          }
+        ]
+      },
+      "tls_rejection": {
+        "error": "WebSocket connection or TLS handshake failed",
+        "server_observed": [
+          "certificate rejected before HTTP authorization"
+        ]
+      }
+    },
+    "rust-native-loaded": {
+      "ready_ms": 318.29379199999863,
+      "shutdown_ms": 1.6906669999912083,
+      "samples": [
+        {
+          "label": "idle-1s",
+          "elapsed_seconds": 1.8342620419999989,
+          "footprint_mib": 2.3916015625,
+          "peak_footprint_mib": 2.3916015625,
+          "rss_mib": 13.234375,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.01",
+          "threads": 6
+        },
+        {
+          "label": "idle-5s",
+          "elapsed_seconds": 5.8002130000000065,
+          "footprint_mib": 2.3916015625,
+          "peak_footprint_mib": 2.3916015625,
+          "rss_mib": 13.234375,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.01",
+          "threads": 6
+        },
+        {
+          "label": "idle-15s",
+          "elapsed_seconds": 15.814752457999994,
+          "footprint_mib": 2.3916015625,
+          "peak_footprint_mib": 2.4072265625,
+          "rss_mib": 13.25,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.01",
+          "threads": 5
+        },
+        {
+          "label": "idle-30s",
+          "elapsed_seconds": 30.807057832999995,
+          "footprint_mib": 2.3916015625,
+          "peak_footprint_mib": 2.4072265625,
+          "rss_mib": 13.25,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.01",
+          "threads": 5
+        },
+        {
+          "label": "after-first-ws",
+          "elapsed_seconds": 31.630938167000004,
+          "footprint_mib": 3.1416015625,
+          "peak_footprint_mib": 3.1416015625,
+          "rss_mib": 14.328125,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.01",
+          "threads": 6
+        },
+        {
+          "label": "after-50-ws",
+          "elapsed_seconds": 34.47604904200001,
+          "footprint_mib": 3.7509765625,
+          "peak_footprint_mib": 3.7822265625,
+          "rss_mib": 14.9375,
+          "cpu_percent": 0.2,
+          "cpu_time": "0:00.20",
+          "threads": 7
+        },
+        {
+          "label": "after-long-file",
+          "elapsed_seconds": 36.145853917000004,
+          "footprint_mib": 3.9697265625,
+          "peak_footprint_mib": 4.0009765625,
+          "rss_mib": 15.15625,
+          "cpu_percent": 0.6,
+          "cpu_time": "0:00.51",
+          "threads": 7
+        },
+        {
+          "label": "after-long-websocket",
+          "elapsed_seconds": 48.51318383300001,
+          "footprint_mib": 4.2509765625,
+          "peak_footprint_mib": 4.2822265625,
+          "rss_mib": 15.4375,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.95",
+          "threads": 7
+        },
+        {
+          "label": "after-cancel",
+          "elapsed_seconds": 49.541332000000004,
+          "footprint_mib": 4.2666015625,
+          "peak_footprint_mib": 4.2978515625,
+          "rss_mib": 15.453125,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.95",
+          "threads": 7
+        },
+        {
+          "label": "after-tls-rejection",
+          "elapsed_seconds": 50.36444062500001,
+          "footprint_mib": 4.2978515625,
+          "peak_footprint_mib": 4.2978515625,
+          "rss_mib": 15.96875,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.95",
+          "threads": 7
+        },
+        {
+          "label": "used-idle-10s",
+          "elapsed_seconds": 61.161339042,
+          "footprint_mib": 4.1259765625,
+          "peak_footprint_mib": 4.2978515625,
+          "rss_mib": 15.9375,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.95",
+          "threads": 5
+        }
+      ],
+      "cancel_ms": 15.447417000004293,
+      "python_images_found": false,
+      "child_pids": [],
+      "idle_tcp_connections": "",
+      "file": {
+        "elapsed_seconds": 0.8885395830000107,
+        "status": {
+          "phase": "completed",
+          "pcm_bytes": 57600000,
+          "input_queue_high_watermark": 153,
+          "asr_queue_high_watermark": 0
+        },
+        "progress": [
+          {
+            "pcm_bytes": 14080,
+            "label": "file-progress-000",
+            "elapsed_seconds": 35.2735085,
+            "footprint_mib": 3.9697265625,
+            "peak_footprint_mib": 3.9697265625,
+            "rss_mib": 15.15625,
+            "cpu_percent": 7.0,
+            "cpu_time": "0:00.44",
+            "threads": 8
+          }
+        ]
+      },
+      "websocket": {
+        "elapsed_seconds": 11.593941334000007,
+        "status": {
+          "phase": "completed",
+          "pcm_bytes": 57600000,
+          "input_queue_high_watermark": 159,
+          "asr_queue_high_watermark": 160
+        },
+        "progress": [
+          {
+            "pcm_bytes": 7680,
+            "label": "websocket-progress-000",
+            "elapsed_seconds": 36.979482708,
+            "footprint_mib": 4.2666015625,
+            "peak_footprint_mib": 4.2666015625,
+            "rss_mib": 15.453125,
+            "cpu_percent": 0.3,
+            "cpu_time": "0:00.54",
+            "threads": 8
+          },
+          {
+            "pcm_bytes": 7889920,
+            "label": "websocket-progress-001",
+            "elapsed_seconds": 38.298633042,
+            "footprint_mib": 4.2666015625,
+            "peak_footprint_mib": 4.2666015625,
+            "rss_mib": 15.453125,
+            "cpu_percent": 0.4,
+            "cpu_time": "0:00.59",
+            "threads": 8
+          },
+          {
+            "pcm_bytes": 14558720,
+            "label": "websocket-progress-002",
+            "elapsed_seconds": 39.598028792,
+            "footprint_mib": 4.2666015625,
+            "peak_footprint_mib": 4.2666015625,
+            "rss_mib": 15.453125,
+            "cpu_percent": 3.5,
+            "cpu_time": "0:00.64",
+            "threads": 8
+          },
+          {
+            "pcm_bytes": 20805120,
+            "label": "websocket-progress-003",
+            "elapsed_seconds": 40.884805582999995,
+            "footprint_mib": 4.2666015625,
+            "peak_footprint_mib": 4.2666015625,
+            "rss_mib": 15.453125,
+            "cpu_percent": 0.3,
+            "cpu_time": "0:00.69",
+            "threads": 8
+          },
+          {
+            "pcm_bytes": 27473920,
+            "label": "websocket-progress-004",
+            "elapsed_seconds": 42.19822408300001,
+            "footprint_mib": 4.2666015625,
+            "peak_footprint_mib": 4.2666015625,
+            "rss_mib": 15.453125,
+            "cpu_percent": 0.4,
+            "cpu_time": "0:00.74",
+            "threads": 8
+          },
+          {
+            "pcm_bytes": 34580480,
+            "label": "websocket-progress-005",
+            "elapsed_seconds": 43.5189215,
+            "footprint_mib": 4.2666015625,
+            "peak_footprint_mib": 4.2666015625,
+            "rss_mib": 15.453125,
+            "cpu_percent": 0.2,
+            "cpu_time": "0:00.79",
+            "threads": 8
+          },
+          {
+            "pcm_bytes": 41255680,
+            "label": "websocket-progress-006",
+            "elapsed_seconds": 44.80418208299999,
+            "footprint_mib": 4.2666015625,
+            "peak_footprint_mib": 4.2666015625,
+            "rss_mib": 15.453125,
+            "cpu_percent": 0.4,
+            "cpu_time": "0:00.84",
+            "threads": 8
+          },
+          {
+            "pcm_bytes": 47499520,
+            "label": "websocket-progress-007",
+            "elapsed_seconds": 46.11800483299999,
+            "footprint_mib": 4.2666015625,
+            "peak_footprint_mib": 4.2666015625,
+            "rss_mib": 15.453125,
+            "cpu_percent": 0.5,
+            "cpu_time": "0:00.89",
+            "threads": 8
+          },
+          {
+            "pcm_bytes": 54168320,
+            "label": "websocket-progress-008",
+            "elapsed_seconds": 47.408969082999995,
+            "footprint_mib": 4.2666015625,
+            "peak_footprint_mib": 4.2666015625,
+            "rss_mib": 15.453125,
+            "cpu_percent": 0.4,
+            "cpu_time": "0:00.94",
+            "threads": 8
+          }
+        ]
+      },
+      "tls_rejection": {
+        "error": "WebSocket connection or TLS handshake failed",
+        "server_observed": [
+          "certificate rejected before HTTP authorization"
+        ]
+      }
+    },
+    "python-reference": {
+      "ready_ms": 685.0124999999991,
+      "shutdown_ms": 86.4508340000043,
+      "samples": [
+        {
+          "label": "idle-1s",
+          "elapsed_seconds": 2.078276917000011,
+          "footprint_mib": 60.2,
+          "peak_footprint_mib": 60.2,
+          "rss_mib": 101.6875,
+          "cpu_percent": 0.6,
+          "cpu_time": "0:00.54",
+          "threads": 6
+        },
+        {
+          "label": "idle-5s",
+          "elapsed_seconds": 6.0309954579999925,
+          "footprint_mib": 60.2,
+          "peak_footprint_mib": 60.2,
+          "rss_mib": 101.65625,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.54",
+          "threads": 5
+        },
+        {
+          "label": "idle-15s",
+          "elapsed_seconds": 16.014078458000014,
+          "footprint_mib": 60.2,
+          "peak_footprint_mib": 60.2,
+          "rss_mib": 101.65625,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.54",
+          "threads": 5
+        },
+        {
+          "label": "idle-30s",
+          "elapsed_seconds": 31.04103050000002,
+          "footprint_mib": 60.2,
+          "peak_footprint_mib": 60.2,
+          "rss_mib": 101.65625,
+          "cpu_percent": 0.0,
+          "cpu_time": "0:00.54",
+          "threads": 5
+        }
+      ]
+    }
+  },
+  "crash_recovery": {
+    "accepted_pcm_bytes": 256000,
+    "status": "interrupted",
+    "pcm_bytes": 195840,
+    "transcript": ""
+  }
+}

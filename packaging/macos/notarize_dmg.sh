@@ -23,7 +23,19 @@ if [[ -n "$KEYCHAIN" ]]; then
   NOTARY_ARGS+=(--keychain "$KEYCHAIN")
 fi
 
-xcrun notarytool submit "$DMG" "${NOTARY_ARGS[@]}" --wait
+if [[ -n "${VOCAL_MORE_NOTARY_RESULT_PATH:-}" ]]; then
+  xcrun notarytool submit "$DMG" "${NOTARY_ARGS[@]}" --wait --output-format json > "$VOCAL_MORE_NOTARY_RESULT_PATH"
+  python3 - "$VOCAL_MORE_NOTARY_RESULT_PATH" <<'PY'
+import json
+import sys
+with open(sys.argv[1]) as source:
+    result = json.load(source)
+if result.get("status") != "Accepted" or not result.get("id"):
+    raise SystemExit("Notarization was not accepted")
+PY
+else
+  xcrun notarytool submit "$DMG" "${NOTARY_ARGS[@]}" --wait
+fi
 
 xcrun stapler staple "$DMG"
 xcrun stapler validate "$DMG"

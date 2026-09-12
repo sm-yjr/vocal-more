@@ -1,0 +1,253 @@
+name: Prepare Release Candidate
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: true
+      release_tag:
+        type: string
+        required: true
+      refresh_artifact_id:
+        type: string
+        default: '0'
+    secrets:
+      MACOS_CERTIFICATE_P12_BASE64:
+        required: true
+      MACOS_CERTIFICATE_PASSWORD:
+        required: true
+      APPLE_ID:
+        required: true
+      APPLE_TEAM_ID:
+        required: true
+      APPLE_APP_SPECIFIC_PASSWORD:
+        required: true
+      SPARKLE_PRIVATE_KEY:
+        required: true
+    outputs:
+      artifact_id:
+        value: ${{ jobs.seal-candidate.outputs.artifact_id }}
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONUNBUFFERED: '1'
+      DASHSCOPE_API_KEY: test-api-key
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+      NOTARY_PROFILE: vocal-more-notary
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+    - name: Record preparation start
+      run: echo "PREPARE_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+    - name: Check out exact source
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.source_sha }}
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Validate source and version
+      id: metadata
+      env:
+        SOURCE_SHA: ${{ inputs.source_sha }}
+        RELEASE_TAG: ${{ inputs.release_tag }}
+      run: python3 packaging/release_cli.py preflight --source-sha "$SOURCE_SHA" --tag "$RELEASE_TAG"
+    - name: Install pinned Rust toolchain
+      run: |-
+        rustup toolchain install 1.90.0 --profile minimal --component rustfmt
+        rustup default 1.90.0
+      if: inputs.refresh_artifact_id == '0'
+    - name: Restore Rust dependency builds
+      if: inputs.refresh_artifact_id == '0'
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: rust -> target
+        shared-key: macos-release
+        env-vars: CARGO CC CFLAGS CXX CMAKE RUST MACOSX_DEPLOYMENT_TARGET
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: frontend/settings/package-lock.json
+      if: inputs.refresh_artifact_id == '0'
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v6
+      if: inputs.refresh_artifact_id == '0'
+      with:
+        version: 0.12.13
+        python-version: '3.12'
+        enable-cache: true
+        prune-cache: false
+    - name: Install packaging Python
+      run: |
+        set -euo pipefail
+        brew install python@3.12
+        echo "VOCAL_MORE_BUILD_PYTHON=$(brew --prefix python@3.12)/bin/python3.12" >> "$GITHUB_ENV"
+      if: inputs.refresh_artifact_id == '0'
+    - name: Install frontend and Python dependencies in parallel
+      run: |
+        set -uo pipefail
+        npm --prefix frontend/settings ci &
+        frontend_install_pid=$!
+        uv sync --locked --group dev --python "$VOCAL_MORE_BUILD_PYTHON" &
+        python_install_pid=$!
+
+        status=0
+        wait "$frontend_install_pid" || status=$?
+        wait "$python_install_pid" || status=$?
+        exit "$status"
+      if: inputs.refresh_artifact_id == '0'
+    - name: Verify Rust backend and build stdio integration target
+      run: |
+        cargo fmt --all --manifest-path rust/Cargo.toml -- --check
+        cargo test --locked --manifest-path rust/Cargo.toml --workspace
+        cargo build --locked --manifest-path rust/Cargo.toml -p vocal-more-backend
+      if: inputs.refresh_artifact_id == '0'
+    - name: Run frontend and Python checks in parallel
+      run: |
+        set -uo pipefail
+        (
+          set -e
+          npm --prefix frontend/settings test
+          npm --prefix frontend/settings run typecheck
+          npm --prefix frontend/settings run lint
+        ) &
+        frontend_check_pid=$!
+        uv run python -m pytest -q &
+        python_check_pid=$!
+
+        check_exit=0
+        wait "$frontend_check_pid" || check_exit=$?
+        wait "$python_check_pid" || check_exit=$?
+        exit "$check_exit"
+      if: inputs.refresh_artifact_id == '0'
+    - name: Build frontend bundle
+      run: npm --prefix frontend/settings run build
+      if: inputs.refresh_artifact_id == '0'
+    - name: Prepare clean packaging environment
+      run: |
+        set -euo pipefail
+        packaging_env="$RUNNER_TEMP/vocal-more-packaging-venv"
+        UV_PROJECT_ENVIRONMENT="$packaging_env" \
+          uv sync --locked --no-dev --group packaging \
+            --python "$VOCAL_MORE_BUILD_PYTHON"
+        echo "VOCAL_MORE_BUILD_VENV=$packaging_env" >> "$GITHUB_ENV"
+      if: inputs.refresh_artifact_id == '0'
+    - name: Import signing certificate
+      env:
+        MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+        MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      run: |
+        set -euo pipefail
+        : "${MACOS_CERTIFICATE_P12_BASE64:?Missing MACOS_CERTIFICATE_P12_BASE64 secret}"
+        : "${MACOS_CERTIFICATE_PASSWORD:?Missing MACOS_CERTIFICATE_PASSWORD secret}"
+
+        keychain="$RUNNER_TEMP/vocal-more-signing.keychain-db"
+        keychain_password="$(uuidgen)"
+        certificate="$RUNNER_TEMP/developer-id-application.p12"
+
+        if ! printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate" 2>/dev/null; then
+          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 -D > "$certificate"
+        fi
+
+        security create-keychain -p "$keychain_password" "$keychain"
+        security set-keychain-settings -lut 21600 "$keychain"
+        security unlock-keychain -p "$keychain_password" "$keychain"
+        security import "$certificate" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12
+        security list-keychains -d user -s "$keychain" login.keychain
+        security default-keychain -s "$keychain"
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+
+        identity="$(
+          security find-identity -p codesigning -v "$keychain" |
+            awk -F '"' '/Developer ID Application/ { print $2; exit }'
+        )"
+        if [[ -z "$identity" ]]; then
+          echo "Developer ID Application signing identity was not found in imported certificate." >&2
+          exit 1
+        fi
+
+        echo "VOCAL_MORE_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+        echo "VOCAL_MORE_NOTARY_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+      if: inputs.refresh_artifact_id == '0'
+    - name: Store notarization credentials
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      run: |
+        set -euo pipefail
+        : "${APPLE_ID:?Missing APPLE_ID secret}"
+        : "${APPLE_TEAM_ID:?Missing APPLE_TEAM_ID secret}"
+        : "${APPLE_APP_SPECIFIC_PASSWORD:?Missing APPLE_APP_SPECIFIC_PASSWORD secret}"
+
+        xcrun notarytool store-credentials "$NOTARY_PROFILE" \
+          --keychain "$VOCAL_MORE_NOTARY_KEYCHAIN" \
+          --apple-id "$APPLE_ID" \
+          --team-id "$APPLE_TEAM_ID" \
+          --password "$APPLE_APP_SPECIFIC_PASSWORD"
+        echo "VOCAL_MORE_NOTARY_PROFILE=$NOTARY_PROFILE" >> "$GITHUB_ENV"
+      if: inputs.refresh_artifact_id == '0'
+    - name: Build signed DMG
+      env:
+        VOCAL_MORE_USE_PREPARED_BUILD_VENV: '1'
+        VOCAL_MORE_SKIP_FRONTEND_BUILD: '1'
+        VOCAL_MORE_SKIP_ADHOC_SIGN: '1'
+        VOCAL_MORE_TARGET_ARCH: arm64
+      run: ./packaging/macos/build_dmg.sh
+      if: inputs.refresh_artifact_id == '0'
+    - name: Notarize and staple final DMG
+      if: inputs.refresh_artifact_id == '0'
+      env:
+        VERSION: ${{ steps.metadata.outputs.version }}
+        VOCAL_MORE_NOTARY_RESULT_PATH: ${{ runner.temp }}/notary-result.json
+      run: ./packaging/macos/notarize_dmg.sh "$GITHUB_WORKSPACE/dist/Vocal-More-$VERSION.dmg"
+    - name: Verify final candidate artifact
+      if: inputs.refresh_artifact_id == '0'
+      env:
+        VERSION: ${{ steps.metadata.outputs.version }}
+      run: python3 packaging/macos/verify_release_artifact.py "dist/Vocal-More-$VERSION.dmg" --report verification.json --notary-result
+        "$RUNNER_TEMP/notary-result.json"
+    - name: Prepare signed update feed and candidate manifest
+      id: candidate
+      env:
+        SOURCE_SHA: ${{ inputs.source_sha }}
+        RELEASE_TAG: ${{ inputs.release_tag }}
+        REFRESH_ARTIFACT: ${{ inputs.refresh_artifact_id }}
+        SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+      run: python3 packaging/release_cli.py prepare-feed --source-sha "$SOURCE_SHA" --tag "$RELEASE_TAG" --artifact-id "$REFRESH_ARTIFACT"
+        --directory "$RUNNER_TEMP/candidate"
+    - name: Upload immutable release candidate
+      id: upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.candidate.outputs.artifact_name }}
+        path: ${{ runner.temp }}/candidate/*
+        if-no-files-found: error
+        retention-days: 14
+        compression-level: 0
+    - name: Remove temporary signing material
+      if: always()
+      run: |-
+        if [[ -n "${VOCAL_MORE_NOTARY_KEYCHAIN:-}" ]]; then
+          security delete-keychain "$VOCAL_MORE_NOTARY_KEYCHAIN"
+        fi
+        rm -f "$RUNNER_TEMP/developer-id-application.p12"
+  seal-candidate:
+    needs: build
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_id: ${{ needs.build.outputs.artifact_id }}
+    steps:
+    - name: Mark candidate ready
+      env:
+        CANDIDATE_ID: ${{ needs.build.outputs.artifact_id }}
+        SOURCE_SHA: ${{ inputs.source_sha }}
+        RELEASE_TAG: ${{ inputs.release_tag }}
+      run: 'echo "候选已就绪：$RELEASE_TAG / $SOURCE_SHA；artifact ID: $CANDIDATE_ID" >> "$GITHUB_STEP_SUMMARY"'

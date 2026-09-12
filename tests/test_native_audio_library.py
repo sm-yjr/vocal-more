@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 from pathlib import Path
 import platform
@@ -40,6 +41,43 @@ def test_native_audio_library_builds_and_uses_accelerate_dsp(tmp_path):
     library = ctypes.CDLL(str(output))
     library.vm_audio_abi_version.restype = ctypes.c_uint32
     assert library.vm_audio_abi_version() == 2
+
+    # ABI extensions are exercised without preparing an audio graph or asking
+    # for microphone access. Core Audio IDs are intentionally not PortAudio IDs.
+    library.vm_audio_list_devices.argtypes = [ctypes.POINTER(ctypes.c_char), ctypes.c_size_t]
+    library.vm_audio_list_devices.restype = ctypes.c_int32
+    devices_json = ctypes.create_string_buffer(256 * 1024)
+    assert library.vm_audio_list_devices(devices_json, len(devices_json)) == 0
+    devices = json.loads(devices_json.value)
+    assert isinstance(devices, list)
+    assert all(device["max_input_channels"] > 0 and device["name"] for device in devices)
+    too_small = ctypes.create_string_buffer(1)
+    assert library.vm_audio_list_devices(too_small, 1) == -1
+    library.vm_audio_microphone_authorization.restype = ctypes.c_int32
+    assert library.vm_audio_microphone_authorization() in range(4)
+
+    import numpy as np
+    from vocal_more.core.audio_recorder import AudioRecorder
+
+    float_pointer = ctypes.POINTER(ctypes.c_float)
+    library.vm_audio_test_downmix.argtypes = [ctypes.POINTER(float_pointer), ctypes.c_uint32,
+                                             ctypes.c_uint32, float_pointer]
+    library.vm_audio_test_downmix.restype = ctypes.c_int32
+    generator = np.random.default_rng(42)
+    signal = np.sin(np.arange(1280) * 0.2).astype(np.float32)
+    matrices = [signal[:, None], np.column_stack([signal, -signal]),
+                np.column_stack([signal, -signal, generator.normal(0, 0.5, 1280)]),
+                np.full((1280, 3), [0.1, -0.2, 0.3]), np.zeros((1280, 3)),
+                np.column_stack([np.zeros(1280), signal, -signal])]
+    matrices += [generator.normal(size=(257, channels)) for channels in (1, 2, 3)]
+    for matrix in matrices:
+        matrix = np.asarray(matrix, dtype=np.float32)
+        planar = [np.ascontiguousarray(matrix[:, channel]) for channel in range(matrix.shape[1])]
+        pointers = (float_pointer * len(planar))(*(channel.ctypes.data_as(float_pointer) for channel in planar))
+        mixed = np.empty(len(matrix), dtype=np.float32)
+        assert library.vm_audio_test_downmix(pointers, len(planar), len(matrix), mixed.ctypes.data_as(float_pointer)) == 0
+        expected = AudioRecorder._coherent_array_downmix(matrix, len(matrix))
+        np.testing.assert_allclose(mixed, expected, rtol=1e-6, atol=1e-7)
 
     library.vm_audio_test_process.argtypes = [
         ctypes.POINTER(ctypes.c_float),

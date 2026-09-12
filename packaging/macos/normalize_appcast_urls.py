@@ -10,15 +10,15 @@ import re
 
 _RELEASE_ASSET_URL = re.compile(
     r"(?P<prefix>https://github\.com/[^/]+/[^/]+/releases/download/)"
-    r"(?P<tag>v?\d+\.\d+\.\d+)/"
+    r"(?P<tag>v?\d+\.\d+\.\d+(?:[ab]\d+|-(?:alpha|beta)\.\d+)?)/"
     r"(?P<name>Vocal(?:-More-|%20More|\.More| More)\d+\.\d+\.\d+[^\"<]*)"
 )
 _ASSET_VERSION = re.compile(
-    r"^Vocal(?:-More-|%20More|\.More| More)(?P<version>\d+\.\d+\.\d+)"
+    r"^Vocal(?:-More-|%20More|\.More| More)(?P<version>\d+\.\d+\.\d+(?:[ab]\d+)?)"
 )
 
 
-def normalize_appcast_urls(xml: str) -> str:
+def normalize_appcast_urls(xml: str, *, tag_map: dict[str, str] | None = None) -> str:
     """Point each enclosure at its own release and GitHub-normalized name."""
 
     def replace(match: re.Match[str]) -> str:
@@ -28,7 +28,10 @@ def normalize_appcast_urls(xml: str) -> str:
             return match.group(0)
         normalized_name = name.replace("%20", ".").replace(" ", ".")
         version = version_match.group("version")
-        return f"{match.group('prefix')}v{version}/{normalized_name}"
+        tag = (tag_map or {}).get(version, f"v{version}")
+        if not re.fullmatch(r"v?\d+\.\d+\.\d+(?:[ab]\d+|-(?:alpha|beta)\.\d+)?", tag):
+            raise ValueError(f"Invalid release tag: {tag}")
+        return f"{match.group('prefix')}{tag}/{normalized_name}"
 
     return _RELEASE_ASSET_URL.sub(replace, xml)
 

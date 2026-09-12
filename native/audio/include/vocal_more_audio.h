@@ -50,6 +50,25 @@ VM_AUDIO_EXPORT vm_audio_stream *vm_audio_create(
     size_t error_capacity
 );
 
+// Optional ABI 2 extensions. Old callers retain the original voice-processing
+// behavior. Device names/UIDs are UTF-8; null/empty selects the system default.
+VM_AUDIO_EXPORT vm_audio_stream *vm_audio_create_configured(
+    int32_t target_sample_rate, uint32_t block_frames, uint32_t queue_blocks,
+    bool automatic_gain, float software_gain, bool highpass_enabled,
+    float highpass_frequency, bool soft_limiter, bool voice_processing,
+    const char *input_device, uint32_t capture_channels,
+    char *error_buffer, size_t error_capacity
+);
+// JSON array of {index,name,uid,is_default,max_input_channels}. A too-small
+// destination returns -1; neither enumeration nor status requests permission.
+VM_AUDIO_EXPORT int32_t vm_audio_list_devices(char *json_buffer, size_t capacity);
+VM_AUDIO_EXPORT int32_t vm_audio_microphone_authorization(void);
+// Pure coherent downmix hook; planar channels, 1..3, no device access.
+VM_AUDIO_EXPORT int32_t vm_audio_test_downmix(
+    const float *const *channels, uint32_t channel_count,
+    uint32_t frames, float *destination
+);
+
 // Configure VoiceProcessingIO without installing a tap or starting capture.
 VM_AUDIO_EXPORT int32_t vm_audio_prepare(
     vm_audio_stream *stream,

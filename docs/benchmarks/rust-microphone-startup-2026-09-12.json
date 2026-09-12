@@ -1,0 +1,19 @@
+{
+  "date": "2026-09-12",
+  "scope": "合成 C ABI；无真实麦克风采集，无云端请求",
+  "network_admission": {
+    "fixture_handshake_delay_ms": 600,
+    "before_first_pcm_ms": 639.639167,
+    "after_first_pcm_ms": 60.905125,
+    "test": "microphone_captures_before_slow_asr_ready_and_keeps_the_first_blocks",
+    "verified": ["ASR 未就绪时已收到 PCM", "握手前松键后全部 PCM 按序送达"]
+  },
+  "prepared_graph": {
+    "fixture_prepare_delay_ms": 180,
+    "first_pcm_ms": [25.180375, 24.124083],
+    "test": "prepared_graph_is_silent_and_reuse_resets_audio_and_invalidates_changed_routes",
+    "verified": ["空闲不开始采集", "连续录音复用同一 handle", "新会话重置音频序列", "设备与配置变化丢弃旧图"]
+  },
+  "measurement_boundary": "从核心 start 请求开始计时，到核心收到并归档第一块 PCM；不包含快捷键事件分发和 UI 排空耗时",
+  "limitations": ["调度和磁盘操作会引入测量波动", "不代表真实 CoreAudio 或云端性能", "真实首字完整性需重新启动开发版后实际说话验证"]
+}

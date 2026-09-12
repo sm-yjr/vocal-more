@@ -71,6 +71,7 @@ class HotkeyManager:
         on_double_cmd: Optional[Callable[[], None]] = None,
         on_escape_pressed: Optional[Callable[[], None]] = None,
         fn_system_action_guard: Optional[FnSystemActionGuard] = None,
+        config: object | None = None,
     ):
         """Initialize the hotkey manager.
 
@@ -81,7 +82,7 @@ class HotkeyManager:
             on_escape_pressed: Callback when Escape is pressed
             fn_system_action_guard: macOS standalone Fn action lifecycle guard
         """
-        self.config = get_config()
+        self.config = config if config is not None else get_config()
         self.on_fn_pressed = on_fn_pressed
         self.on_fn_released = on_fn_released
         self.on_double_cmd = on_double_cmd

@@ -48,9 +48,13 @@ class FloatingCapsule:
         self,
         on_cancel: Callable[[], None] | None = None,
         on_finish: Callable[[], None] | None = None,
+        config_provider: Callable[[], object] | None = None,
+        prompt_hint_provider: Callable[[], str] | None = None,
     ):
         self._on_cancel = on_cancel
         self._on_finish = on_finish
+        self._config_provider = config_provider
+        self._prompt_hint_provider = prompt_hint_provider
         self._panel: NSPanel | None = None
         self._renderer: object | None = None
         self._current_mode: str | None = None
@@ -116,7 +120,7 @@ class FloatingCapsule:
         self._panel.setContentView_(self._renderer.content_view)
 
     def _prompt_mode_enabled(self) -> bool:
-        config = get_config()
+        config = (getattr(self, "_config_provider", None) or get_config)()
         return bool(
             config.enable_polish
             and config.llm.polish_mode == "prompt"
@@ -141,9 +145,9 @@ class FloatingCapsule:
         return mode
 
     def _update_prompt_hint_on_main_thread(self) -> None:
-        hint = prompt_coach_hint(
-            self._latest_prompt_text,
-            self._interface_language,
+        provider = getattr(self, "_prompt_hint_provider", None)
+        hint = provider() if provider is not None else prompt_coach_hint(
+            self._latest_prompt_text, self._interface_language,
         )
         self._set_capsule_size_on_main_thread(bool(hint.strip()), hint)
         if self._renderer is not None:

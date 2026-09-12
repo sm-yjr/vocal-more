@@ -1,313 +1,118 @@
 name: Release DMG
-
 on:
   push:
     tags:
-      - "v*.*.*"
-      - "*.*.*"
+    - v*.*.*
+    - '*.*.*'
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Existing release tag to rebuild and republish"
+        description: Existing version tag to publish or resume
         required: true
         type: string
-
+      mode:
+        description: Candidate selection policy
+        type: choice
+        default: auto
+        options:
+        - auto
+        - require-ready
+        - rebuild
 permissions:
-  contents: write
-
+  contents: read
+  actions: read
+concurrency:
+  group: vocal-more-release-publication
+  cancel-in-progress: false
 jobs:
-  build-sign-notarize:
-    runs-on: macos-latest
+  resolve:
+    runs-on: ubuntu-24.04
     env:
-      DASHSCOPE_API_KEY: test-api-key
-      PYTHONUNBUFFERED: "1"
-      NOTARY_PROFILE: vocal-more-notary
-      VOCAL_MORE_RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      channel: ${{ steps.resolve.outputs.channel }}
+      route: ${{ steps.resolve.outputs.route }}
+      artifact_id: ${{ steps.resolve.outputs.artifact_id }}
+      reason: ${{ steps.resolve.outputs.reason }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/settings/package-lock.json
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v6
-
-      - name: Install packaging Python
-        run: |
-          set -euo pipefail
-          brew install python@3.12
-          echo "VOCAL_MORE_BUILD_PYTHON=$(brew --prefix python@3.12)/bin/python3.12" >> "$GITHUB_ENV"
-
-      - name: Install frontend and Python dependencies in parallel
-        run: |
-          set -uo pipefail
-          npm --prefix frontend/settings ci &
-          frontend_install_pid=$!
-          uv sync --locked --group dev --python "$VOCAL_MORE_BUILD_PYTHON" &
-          python_install_pid=$!
-
-          status=0
-          wait "$frontend_install_pid" || status=$?
-          wait "$python_install_pid" || status=$?
-          exit "$status"
-
-      - name: Run frontend and Python checks in parallel
-        run: |
-          set -uo pipefail
-          (
-            set -e
-            npm --prefix frontend/settings test
-            npm --prefix frontend/settings run typecheck
-            npm --prefix frontend/settings run lint
-          ) &
-          frontend_check_pid=$!
-          uv run python -m pytest -q &
-          python_check_pid=$!
-
-          check_exit=0
-          wait "$frontend_check_pid" || check_exit=$?
-          wait "$python_check_pid" || check_exit=$?
-          exit "$check_exit"
-
-      - name: Build frontend bundle
-        run: npm --prefix frontend/settings run build
-
-      - name: Prepare clean packaging environment
-        run: |
-          set -euo pipefail
-          packaging_env="$RUNNER_TEMP/vocal-more-packaging-venv"
-          UV_PROJECT_ENVIRONMENT="$packaging_env" \
-            uv sync --locked --no-dev --group packaging \
-              --python "$VOCAL_MORE_BUILD_PYTHON"
-          echo "VOCAL_MORE_BUILD_VENV=$packaging_env" >> "$GITHUB_ENV"
-
-      - name: Validate release tag
-        run: |
-          set -euo pipefail
-          version="$(python3 packaging/macos/read_version.py)"
-          tag_version="${VOCAL_MORE_RELEASE_TAG#v}"
-          if [[ "$tag_version" != "$version" ]]; then
-            echo "Tag version '$tag_version' does not match pyproject version '$version'." >&2
-            exit 1
+    - name: Check out exact source
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.release_tag || github.ref }}
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Resolve exact candidate or fallback
+      id: resolve
+      env:
+        RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        MODE: ${{ inputs.mode || 'auto' }}
+      run: python3 packaging/release_cli.py resolve --tag "$RELEASE_TAG" --mode "$MODE"
+  prepare:
+    needs: resolve
+    if: needs.resolve.outputs.route == 'full' || needs.resolve.outputs.route == 'refresh'
+    uses: ./.github/workflows/_release-candidate.yml
+    with:
+      source_sha: ${{ needs.resolve.outputs.source_sha }}
+      release_tag: ${{ needs.resolve.outputs.release_tag }}
+      refresh_artifact_id: ${{ needs.resolve.outputs.route == 'refresh' && needs.resolve.outputs.artifact_id || '0' }}
+    secrets: inherit
+  publish:
+    needs:
+    - resolve
+    - prepare
+    if: ${{ always() && needs.resolve.result == 'success' && (needs.prepare.result == 'success' || needs.prepare.result ==
+      'skipped') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+      SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+      ROUTE: ${{ needs.resolve.outputs.route }}
+      ROUTE_REASON: ${{ needs.resolve.outputs.reason }}
+      CANDIDATE_ID: ${{ needs.prepare.outputs.artifact_id || needs.resolve.outputs.artifact_id }}
+    steps:
+    - name: Record publication start
+      run: echo "PUBLISH_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+    - name: Check out exact source
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.resolve.outputs.source_sha }}
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Fetch verified candidate
+      run: |-
+        args=()
+        if [[ "$ROUTE" == "resume" ]]; then
+          args+=(--published)
+        else
+          args+=(--artifact-id "$CANDIDATE_ID")
+          if [[ "$ROUTE" == "full" || "$ROUTE" == "refresh" ]]; then
+            args+=(--current-run "$GITHUB_RUN_ID")
           fi
-          notes_path="$GITHUB_WORKSPACE/docs/releases/$version.md"
-          if [[ ! -s "$notes_path" ]]; then
-            echo "Release notes are missing or empty: $notes_path" >&2
-            exit 1
-          fi
-          echo "VOCAL_MORE_VERSION=$version" >> "$GITHUB_ENV"
-          echo "DMG_PATH=$GITHUB_WORKSPACE/dist/Vocal-More-$version.dmg" >> "$GITHUB_ENV"
-          echo "VOCAL_MORE_RELEASE_NOTES_PATH=$notes_path" >> "$GITHUB_ENV"
-
-      - name: Import signing certificate
-        env:
-          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
-          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-        run: |
-          set -euo pipefail
-          : "${MACOS_CERTIFICATE_P12_BASE64:?Missing MACOS_CERTIFICATE_P12_BASE64 secret}"
-          : "${MACOS_CERTIFICATE_PASSWORD:?Missing MACOS_CERTIFICATE_PASSWORD secret}"
-
-          keychain="$RUNNER_TEMP/vocal-more-signing.keychain-db"
-          keychain_password="$(uuidgen)"
-          certificate="$RUNNER_TEMP/developer-id-application.p12"
-
-          if ! printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate" 2>/dev/null; then
-            printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 -D > "$certificate"
-          fi
-
-          security create-keychain -p "$keychain_password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$certificate" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12
-          security list-keychains -d user -s "$keychain" login.keychain
-          security default-keychain -s "$keychain"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
-
-          identity="$(
-            security find-identity -p codesigning -v "$keychain" |
-              awk -F '"' '/Developer ID Application/ { print $2; exit }'
-          )"
-          if [[ -z "$identity" ]]; then
-            echo "Developer ID Application signing identity was not found in imported certificate." >&2
-            exit 1
-          fi
-
-          echo "VOCAL_MORE_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
-          echo "VOCAL_MORE_NOTARY_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
-
-      - name: Store notarization credentials
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        run: |
-          set -euo pipefail
-          : "${APPLE_ID:?Missing APPLE_ID secret}"
-          : "${APPLE_TEAM_ID:?Missing APPLE_TEAM_ID secret}"
-          : "${APPLE_APP_SPECIFIC_PASSWORD:?Missing APPLE_APP_SPECIFIC_PASSWORD secret}"
-
-          xcrun notarytool store-credentials "$NOTARY_PROFILE" \
-            --keychain "$VOCAL_MORE_NOTARY_KEYCHAIN" \
-            --apple-id "$APPLE_ID" \
-            --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD"
-          echo "VOCAL_MORE_NOTARY_PROFILE=$NOTARY_PROFILE" >> "$GITHUB_ENV"
-
-      - name: Build signed DMG
-        env:
-          VOCAL_MORE_USE_PREPARED_BUILD_VENV: "1"
-          VOCAL_MORE_SKIP_FRONTEND_BUILD: "1"
-          VOCAL_MORE_SKIP_ADHOC_SIGN: "1"
-          VOCAL_MORE_TARGET_ARCH: arm64
-        run: ./packaging/macos/build_dmg.sh
-
-      - name: Notarize and staple DMG
-        run: ./packaging/macos/notarize_dmg.sh "$DMG_PATH"
-
-      - name: Verify release artifact
-        run: |
-          set -euo pipefail
-          python3 packaging/macos/verify_release_artifact.py "$DMG_PATH"
-          ls -lh "$DMG_PATH"
-
-      - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Vocal-More-${{ env.VOCAL_MORE_VERSION }}.dmg
-          path: ${{ env.DMG_PATH }}
-          if-no-files-found: error
-
-      - name: Create GitHub release and upload DMG
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          tag="$VOCAL_MORE_RELEASE_TAG"
-          title="Vocal-More $VOCAL_MORE_VERSION"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release edit "$tag" \
-              --title "$title" \
-              --notes-file "$VOCAL_MORE_RELEASE_NOTES_PATH"
-            gh release upload "$tag" "$DMG_PATH" --clobber
-          else
-            gh release create "$tag" "$DMG_PATH" \
-              --title "$title" \
-              --notes-file "$VOCAL_MORE_RELEASE_NOTES_PATH"
-          fi
-
-      - name: Publish signed Sparkle appcast
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          : "${SPARKLE_PRIVATE_KEY:?Missing SPARKLE_PRIVATE_KEY secret}"
-
-          tag="$VOCAL_MORE_RELEASE_TAG"
-          archive_name="$(basename "$DMG_PATH")"
-          archive_stem="${archive_name%.dmg}"
-          updates_dir="$RUNNER_TEMP/sparkle-updates"
-          sparkle_root="$(./packaging/macos/install_sparkle.sh)"
-          maximum_deltas=1
-          previous_archives=0
-          mkdir -p "$updates_dir"
-
-          if gh release view sparkle-feed >/dev/null 2>&1; then
-            gh release download sparkle-feed \
-              --pattern appcast.xml \
-              --dir "$updates_dir" \
-              --clobber
-          fi
-
-          cp "$DMG_PATH" "$updates_dir/$archive_name"
-          gh release view "$tag" --json body --jq .body > "$updates_dir/$archive_stem.md"
-
-          while IFS= read -r previous_tag; do
-            [[ "$previous_tag" == "$tag" ]] && continue
-            [[ "$previous_tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
-
-            if gh release download "$previous_tag" \
-              --pattern "Vocal-More-*.dmg" \
-              --dir "$updates_dir"; then
-              previous_archives=$((previous_archives + 1))
-            fi
-
-            if (( previous_archives >= maximum_deltas )); then
-              break
-            fi
-          done < <(
-            gh release list --exclude-drafts --exclude-pre-releases \
-              --limit 20 \
-              --json tagName \
-              --jq '.[].tagName'
-          )
-
-          printf '%s' "$SPARKLE_PRIVATE_KEY" |
-            "$sparkle_root/bin/generate_appcast" \
-              --ed-key-file - \
-              --download-url-prefix "https://github.com/sm-yjr/vocal-more/releases/download/$tag/" \
-              --embed-release-notes \
-              --versions "$VOCAL_MORE_VERSION" \
-              --maximum-versions 5 \
-              --maximum-deltas "$maximum_deltas" \
-              --delta-compression lzfse \
-              --link "https://github.com/sm-yjr/vocal-more" \
-              -o "$updates_dir/appcast.xml" \
-              "$updates_dir"
-
-          shopt -s nullglob
-          delta_files=("$updates_dir"/*.delta)
-          shopt -u nullglob
-
-          for delta_path in "${delta_files[@]}"; do
-            delta_name="$(basename "$delta_path")"
-            normalized_name="${delta_name// /.}"
-            if [[ "$normalized_name" != "$delta_name" ]]; then
-              mv "$delta_path" "$updates_dir/$normalized_name"
-            fi
-          done
-          python3 packaging/macos/normalize_appcast_urls.py "$updates_dir/appcast.xml"
-          printf '%s' "$SPARKLE_PRIVATE_KEY" |
-            "$sparkle_root/bin/sign_update" \
-              --ed-key-file - \
-              "$updates_dir/appcast.xml"
-          printf '%s' "$SPARKLE_PRIVATE_KEY" |
-            "$sparkle_root/bin/sign_update" \
-              --verify \
-              --ed-key-file - \
-              "$updates_dir/appcast.xml"
-          shopt -s nullglob
-          delta_files=("$updates_dir"/*.delta)
-          shopt -u nullglob
-
-          if (( previous_archives > 0 && ${#delta_files[@]} == 0 )); then
-            echo "Historical DMGs were available, but Sparkle generated no delta updates." >&2
-            exit 1
-          fi
-
-          if (( ${#delta_files[@]} > 0 )); then
-            grep -q "<sparkle:deltas>" "$updates_dir/appcast.xml"
-            grep -q "sparkle:deltaFrom=" "$updates_dir/appcast.xml"
-            grep -q "/releases/download/$tag/$archive_name" "$updates_dir/appcast.xml"
-            if grep -q '%20' "$updates_dir/appcast.xml"; then
-              echo "Sparkle appcast contains a GitHub-normalized asset mismatch." >&2
-              exit 1
-            fi
-            gh release upload "$tag" "${delta_files[@]}" --clobber
-          fi
-
-          if gh release view sparkle-feed >/dev/null 2>&1; then
-            gh release upload sparkle-feed "$updates_dir/appcast.xml" --clobber
-          else
-            gh release create sparkle-feed "$updates_dir/appcast.xml" \
-              --target "$GITHUB_SHA" \
-              --title "Sparkle Update Feed" \
-              --notes "Signed update metadata consumed by Vocal-More." \
-              --prerelease
-          fi
+        fi
+        python3 packaging/release_cli.py fetch --tag "$RELEASE_TAG" --source-sha "$SOURCE_SHA" --directory "$RUNNER_TEMP/candidate" "${args[@]}"
+    - name: Stage and verify GitHub Release assets
+      run: python3 packaging/release_cli.py stage --tag "$RELEASE_TAG" --source-sha "$SOURCE_SHA" --directory "$RUNNER_TEMP/candidate"
+        --backup "$RUNNER_TEMP/release-backup"
+    - name: Persist feed recovery checkpoint
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-backup-${{ github.run_id }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/release-backup/*
+        if-no-files-found: error
+        retention-days: 30
+    - name: Publish release and signed channel feed
+      run: python3 packaging/release_cli.py commit --tag "$RELEASE_TAG" --source-sha "$SOURCE_SHA" --directory "$RUNNER_TEMP/candidate"
+    - name: Save publication receipt
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+        path: release-receipt.json
+        if-no-files-found: error
+        retention-days: 90

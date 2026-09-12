@@ -10,10 +10,15 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 
 sys.path.insert(0, str(SRC))
+sys.path.insert(0, str(ROOT / "packaging"))
 
 from vocal_more import __version__  # noqa: E402
+from release.model import Version  # noqa: E402
 
 BUILD_NUMBER = os.environ.get("VOCAL_MORE_BUILD_NUMBER", __version__)
+RELEASE_VERSION = Version.parse(__version__)
+if BUILD_NUMBER != __version__:
+    raise RuntimeError("CFBundleVersion must match the candidate product version")
 
 APP = [
     {
@@ -22,12 +27,11 @@ APP = [
             "CFBundleName": "Vocal More",
             "CFBundleDisplayName": "Vocal More",
             "CFBundleIdentifier": "com.sm-yjr.vocal-more",
-            "CFBundleShortVersionString": __version__,
+            "CFBundleShortVersionString": RELEASE_VERSION.base,
             "CFBundleVersion": BUILD_NUMBER,
-            "SUFeedURL": (
-                "https://github.com/sm-yjr/vocal-more/releases/download/"
-                "sparkle-feed/appcast.xml"
-            ),
+            "VocalMoreVersion": __version__,
+            "VocalMoreReleaseChannel": RELEASE_VERSION.channel,
+            "SUFeedURL": RELEASE_VERSION.feed_url,
             "SUPublicEDKey": "rX4Sp1huP0v763afpuPlVkpDuXYoMj/+2fNqnFFMHsk=",
             "SUVerifyUpdateBeforeExtraction": True,
             "SURequireSignedFeed": True,

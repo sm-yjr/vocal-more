@@ -53,7 +53,10 @@ xcrun --sdk macosx clang++ \
   -framework Foundation \
   -framework AVFoundation \
   -framework Accelerate \
+  -framework CoreAudio \
+  -framework AudioToolbox \
   "$ROOT/native/audio/src/VocalMoreAudio.mm" \
+  "$ROOT/native/audio/src/PlatformText.mm" \
   -o "$OUTPUT"
 
 echo "Built $OUTPUT"

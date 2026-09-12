@@ -14,7 +14,7 @@ def _main() -> None:
         print("Vocal More packaging smoke test passed")
         return
 
-    from vocal_more.app import main
+    from vocal_more.entrypoint import main
 
     main()
 

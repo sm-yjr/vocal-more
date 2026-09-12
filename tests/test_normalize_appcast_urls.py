@@ -35,3 +35,10 @@ def test_repairs_historical_dmg_rewritten_to_current_release():
     assert normalized.endswith(
         '/releases/download/v0.3.17/Vocal-More-0.3.17.dmg"/>'
     )
+
+
+def test_prerelease_and_bare_tags_preserve_exact_release_urls():
+    xml = ('<enclosure url="https://github.com/sm-yjr/vocal-more/releases/download/'
+           'v0.4.18-alpha.2/Vocal%20More0.4.18a2-0.4.18a1.delta"/>')
+    normalized = MODULE.normalize_appcast_urls(xml, tag_map={"0.4.18a2": "0.4.18-alpha.2"})
+    assert normalized.endswith('/releases/download/0.4.18-alpha.2/Vocal.More0.4.18a2-0.4.18a1.delta"/>')

@@ -64,7 +64,7 @@ export function GeneralSettings({
               className="h-8 w-52 font-mono text-xs"
               type={showKey ? "text" : "password"}
               value={config.api_key ?? ""}
-              placeholder="sk-…"
+              placeholder={config._api_key_set ? "••••••••" : "sk-…"}
               autoComplete="off"
               spellCheck={false}
               onChange={(event) =>
@@ -74,7 +74,12 @@ export function GeneralSettings({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setShowKey((value) => !value)}
+              onClick={() => {
+                if (!showKey && config._api_key_set && !config.api_key) {
+                  sendAction("revealApiKey")
+                }
+                setShowKey((value) => !value)
+              }}
             >
               {showKey ? "Hide" : "Show"}
             </Button>
@@ -87,7 +92,7 @@ export function GeneralSettings({
               size="sm"
               disabled={
                 modelCheck.state === "checking" ||
-                !(config.api_key ?? "").trim()
+                !(config._api_key_set || (config.api_key ?? "").trim())
               }
               onClick={() => sendAction("checkDashScopeModels")}
             >

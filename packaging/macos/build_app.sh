@@ -81,6 +81,13 @@ mkdir -p "$ROOT/dist"
 cp -R "$ROOT/packaging/macos/dist/Vocal More.app" "$ROOT/dist/"
 
 APP="$ROOT/dist/Vocal More.app"
+# The Rust service is part of the signed app, built from the locked workspace.
+export MACOSX_DEPLOYMENT_TARGET=14.0
+CARGO_TARGET_DIR="$ROOT/rust/target" cargo build --locked --release \
+  --manifest-path "$ROOT/rust/Cargo.toml" -p vocal-more-backend
+mkdir -p "$APP/Contents/Resources/rust-backend"
+ditto "$ROOT/rust/target/release/vocal-more-backend" \
+  "$APP/Contents/Resources/rust-backend/vocal-more-backend"
 NATIVE_LIBRARY="$ROOT/build/native/libvocal_more_audio.dylib"
 "$ROOT/scripts/build_native_audio.sh" --output "$NATIVE_LIBRARY"
 export VOCAL_MORE_NATIVE_AUDIO_LIBRARY="$NATIVE_LIBRARY"

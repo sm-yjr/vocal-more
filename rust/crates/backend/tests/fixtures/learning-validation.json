@@ -1,0 +1,711 @@
+[
+  {
+    "decision": {
+      "decision": "add",
+      "term": "阿里云百炼",
+      "aliases": [
+        "阿里云白练"
+      ],
+      "confidence": 0.98,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "今天用阿里云白练测试。",
+      "pasted_text": "今天用阿里云白练测试。",
+      "original_text": "",
+      "baseline_text": "今天用阿里云白练测试。",
+      "edited_text": "今天用阿里云百炼测试。",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "",
+      "candidate_index": 0,
+      "candidate_count": 1,
+      "candidate_before_text": "",
+      "candidate_after_text": "",
+      "candidate_before_change_start": null,
+      "candidate_before_change_end": null,
+      "candidate_after_change_start": null,
+      "candidate_after_change_end": null
+    },
+    "entries": [],
+    "expected": {
+      "action": "add",
+      "term": "阿里云百炼",
+      "aliases": [
+        "阿里云白练"
+      ],
+      "confidence": 0.98,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "阿里云百炼",
+      "aliases": [
+        "不存在的错误形式"
+      ],
+      "confidence": 0.98,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "今天用阿里云白练测试。",
+      "pasted_text": "今天用阿里云白练测试。",
+      "original_text": "",
+      "baseline_text": "今天用阿里云白练测试。",
+      "edited_text": "今天用阿里云百炼测试。",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "",
+      "candidate_index": 0,
+      "candidate_count": 1,
+      "candidate_before_text": "",
+      "candidate_after_text": "",
+      "candidate_before_change_start": null,
+      "candidate_before_change_end": null,
+      "candidate_after_change_start": null,
+      "candidate_after_change_end": null
+    },
+    "entries": [],
+    "expected": {
+      "action": "ignore",
+      "term": "",
+      "aliases": [],
+      "confidence": 0.0,
+      "reason_code": "alias_not_in_pasted_text",
+      "term_type": "other"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "四点",
+      "aliases": [
+        "三点"
+      ],
+      "confidence": 0.99,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "明天下午三点开会。",
+      "pasted_text": "明天下午三点开会。",
+      "original_text": "",
+      "baseline_text": "明天下午三点开会。",
+      "edited_text": "明天下午四点开会。",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "",
+      "candidate_index": 0,
+      "candidate_count": 1,
+      "candidate_before_text": "",
+      "candidate_after_text": "",
+      "candidate_before_change_start": null,
+      "candidate_before_change_end": null,
+      "candidate_after_change_start": null,
+      "candidate_after_change_end": null
+    },
+    "entries": [],
+    "expected": {
+      "action": "ignore",
+      "term": "",
+      "aliases": [],
+      "confidence": 0.0,
+      "reason_code": "numeric_or_date_change",
+      "term_type": "other"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "FanUI",
+      "aliases": [
+        "范UI"
+      ],
+      "confidence": 0.98,
+      "reason_code": "product_name_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "范UI是一定要符合Shadcn UI的。",
+      "pasted_text": "范UI是一定要符合Shadcn UI的。",
+      "original_text": "",
+      "baseline_text": "范UI是一定要符合Shadcn UI的。",
+      "edited_text": "FanUI是一定要符合Shadcn/ui的。",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "observation-1",
+      "candidate_index": 0,
+      "candidate_count": 2,
+      "candidate_before_text": "范UI是一定要符合",
+      "candidate_after_text": "FanUI是一定要符合",
+      "candidate_before_change_start": null,
+      "candidate_before_change_end": null,
+      "candidate_after_change_start": null,
+      "candidate_after_change_end": null
+    },
+    "entries": [],
+    "expected": {
+      "action": "add",
+      "term": "FanUI",
+      "aliases": [
+        "范UI"
+      ],
+      "confidence": 0.98,
+      "reason_code": "product_name_correction",
+      "term_type": "proper_name"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "Shadcn/ui",
+      "aliases": [
+        "Shadcn UI"
+      ],
+      "confidence": 0.98,
+      "reason_code": "technical_term_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "范UI是一定要符合Shadcn UI的。",
+      "pasted_text": "范UI是一定要符合Shadcn UI的。",
+      "original_text": "",
+      "baseline_text": "范UI是一定要符合Shadcn UI的。",
+      "edited_text": "FanUI是一定要符合Shadcn/ui的。",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "observation-1",
+      "candidate_index": 0,
+      "candidate_count": 2,
+      "candidate_before_text": "范UI是一定要符合",
+      "candidate_after_text": "FanUI是一定要符合",
+      "candidate_before_change_start": null,
+      "candidate_before_change_end": null,
+      "candidate_after_change_start": null,
+      "candidate_after_change_end": null
+    },
+    "entries": [],
+    "expected": {
+      "action": "ignore",
+      "term": "",
+      "aliases": [],
+      "confidence": 0.0,
+      "reason_code": "term_not_in_candidate",
+      "term_type": "other"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "Shadcn/ui",
+      "aliases": [
+        "范UI"
+      ],
+      "confidence": 0.98,
+      "reason_code": "technical_term_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "范UI是一定要符合Shadcn UI的。",
+      "pasted_text": "范UI是一定要符合Shadcn UI的。",
+      "original_text": "",
+      "baseline_text": "范UI是一定要符合Shadcn UI的。",
+      "edited_text": "FanUI是一定要符合Shadcn/ui的。",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "observation-1",
+      "candidate_index": 1,
+      "candidate_count": 2,
+      "candidate_before_text": "符合Shadcn UI的。",
+      "candidate_after_text": "符合Shadcn/ui的。",
+      "candidate_before_change_start": null,
+      "candidate_before_change_end": null,
+      "candidate_after_change_start": null,
+      "candidate_after_change_end": null
+    },
+    "entries": [],
+    "expected": {
+      "action": "ignore",
+      "term": "",
+      "aliases": [],
+      "confidence": 0.0,
+      "reason_code": "alias_not_in_candidate",
+      "term_type": "other"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "FanUI",
+      "aliases": [
+        "范UI"
+      ],
+      "confidence": 0.98,
+      "reason_code": "product_name_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "范UI----Shadcn UI",
+      "pasted_text": "范UI----Shadcn UI",
+      "original_text": "",
+      "baseline_text": "范UI----Shadcn UI",
+      "edited_text": "FanUI----Shadcn/ui",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "observation-overlap",
+      "candidate_index": 1,
+      "candidate_count": 2,
+      "candidate_before_text": "范UI----Shadcn UI",
+      "candidate_after_text": "FanUI----Shadcn/ui",
+      "candidate_before_change_start": 13,
+      "candidate_before_change_end": 16,
+      "candidate_after_change_start": 15,
+      "candidate_after_change_end": 18
+    },
+    "entries": [],
+    "expected": {
+      "action": "ignore",
+      "term": "",
+      "aliases": [],
+      "confidence": 0.0,
+      "reason_code": "term_not_in_candidate",
+      "term_type": "other"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "Shadcn/ui",
+      "aliases": [
+        "Shadcn UI"
+      ],
+      "confidence": 0.98,
+      "reason_code": "technical_term_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "范UI----Shadcn UI",
+      "pasted_text": "范UI----Shadcn UI",
+      "original_text": "",
+      "baseline_text": "范UI----Shadcn UI",
+      "edited_text": "FanUI----Shadcn/ui",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "observation-overlap",
+      "candidate_index": 0,
+      "candidate_count": 2,
+      "candidate_before_text": "范UI----Shadcn UI",
+      "candidate_after_text": "FanUI----Shadcn/ui",
+      "candidate_before_change_start": 0,
+      "candidate_before_change_end": 1,
+      "candidate_after_change_start": 0,
+      "candidate_after_change_end": 3
+    },
+    "entries": [],
+    "expected": {
+      "action": "ignore",
+      "term": "",
+      "aliases": [],
+      "confidence": 0.0,
+      "reason_code": "term_not_in_candidate",
+      "term_type": "other"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "阿里云百炼",
+      "aliases": [
+        "阿里云白练"
+      ],
+      "confidence": 0.82,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "今天用阿里云白练测试。",
+      "pasted_text": "今天用阿里云白练测试。",
+      "original_text": "",
+      "baseline_text": "今天用阿里云白练测试。",
+      "edited_text": "今天用阿里云百炼测试。",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "",
+      "candidate_index": 0,
+      "candidate_count": 1,
+      "candidate_before_text": "",
+      "candidate_after_text": "",
+      "candidate_before_change_start": null,
+      "candidate_before_change_end": null,
+      "candidate_after_change_start": null,
+      "candidate_after_change_end": null
+    },
+    "entries": [],
+    "expected": {
+      "action": "add",
+      "term": "阿里云百炼",
+      "aliases": [
+        "阿里云白练"
+      ],
+      "confidence": 0.82,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "阿里云百炼",
+      "aliases": [
+        "阿里云白练"
+      ],
+      "confidence": 0.28,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "今天用阿里云白练测试。",
+      "pasted_text": "今天用阿里云白练测试。",
+      "original_text": "",
+      "baseline_text": "今天用阿里云白练测试。",
+      "edited_text": "今天用阿里云百炼测试。",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "",
+      "candidate_index": 0,
+      "candidate_count": 1,
+      "candidate_before_text": "",
+      "candidate_after_text": "",
+      "candidate_before_change_start": null,
+      "candidate_before_change_end": null,
+      "candidate_after_change_start": null,
+      "candidate_after_change_end": null
+    },
+    "entries": [],
+    "expected": {
+      "action": "add",
+      "term": "阿里云百炼",
+      "aliases": [
+        "阿里云白练"
+      ],
+      "confidence": 0.28,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "Luna",
+      "aliases": [
+        "露那"
+      ],
+      "confidence": 0.98,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "露那",
+      "pasted_text": "露那",
+      "original_text": "",
+      "baseline_text": "露那",
+      "edited_text": "Luna",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "realtime_long",
+      "recording_id": null,
+      "observation_id": "",
+      "candidate_index": 0,
+      "candidate_count": 1,
+      "candidate_before_text": "",
+      "candidate_after_text": "",
+      "candidate_before_change_start": null,
+      "candidate_before_change_end": null,
+      "candidate_after_change_start": null,
+      "candidate_after_change_end": null
+    },
+    "entries": [],
+    "expected": {
+      "action": "add",
+      "term": "Luna",
+      "aliases": [
+        "露那"
+      ],
+      "confidence": 0.98,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "GitHub",
+      "aliases": [
+        "github"
+      ],
+      "confidence": 0.98,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "github",
+      "pasted_text": "github",
+      "original_text": "",
+      "baseline_text": "github",
+      "edited_text": "GitHub",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "realtime_long",
+      "recording_id": null,
+      "observation_id": "",
+      "candidate_index": 0,
+      "candidate_count": 1,
+      "candidate_before_text": "",
+      "candidate_after_text": "",
+      "candidate_before_change_start": null,
+      "candidate_before_change_end": null,
+      "candidate_after_change_start": null,
+      "candidate_after_change_end": null
+    },
+    "entries": [],
+    "expected": {
+      "action": "add",
+      "term": "GitHub",
+      "aliases": [
+        "github"
+      ],
+      "confidence": 0.98,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "可以",
+      "aliases": [
+        "我觉得可以"
+      ],
+      "confidence": 1.0,
+      "reason_code": "proper_noun_correction",
+      "term_type": "other"
+    },
+    "evidence": {
+      "raw_text": "我觉得可以",
+      "pasted_text": "我觉得可以",
+      "original_text": "",
+      "baseline_text": "我觉得可以",
+      "edited_text": "可以",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "guard",
+      "candidate_index": 0,
+      "candidate_count": 1,
+      "candidate_before_text": "我觉得可以",
+      "candidate_after_text": "可以",
+      "candidate_before_change_start": 0,
+      "candidate_before_change_end": 3,
+      "candidate_after_change_start": 0,
+      "candidate_after_change_end": 0
+    },
+    "entries": [],
+    "expected": {
+      "action": "ignore",
+      "term": "",
+      "aliases": [],
+      "confidence": 0.0,
+      "reason_code": "not_a_reusable_term",
+      "term_type": "other"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "请把这块去掉，然后继续",
+      "aliases": [
+        "请把这块换了，然后继续"
+      ],
+      "confidence": 1.0,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "请把这块换了，然后继续",
+      "pasted_text": "请把这块换了，然后继续",
+      "original_text": "",
+      "baseline_text": "请把这块换了，然后继续",
+      "edited_text": "请把这块去掉，然后继续",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "guard",
+      "candidate_index": 0,
+      "candidate_count": 1,
+      "candidate_before_text": "请把这块换了，然后继续",
+      "candidate_after_text": "请把这块去掉，然后继续",
+      "candidate_before_change_start": 4,
+      "candidate_before_change_end": 6,
+      "candidate_after_change_start": 4,
+      "candidate_after_change_end": 6
+    },
+    "entries": [],
+    "expected": {
+      "action": "ignore",
+      "term": "",
+      "aliases": [],
+      "confidence": 0.0,
+      "reason_code": "non_lexical_phrase",
+      "term_type": "other"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "qwen3.7",
+      "aliases": [
+        "qwen3.5"
+      ],
+      "confidence": 1.0,
+      "reason_code": "proper_noun_correction",
+      "term_type": "technical_term"
+    },
+    "evidence": {
+      "raw_text": "qwen3.5",
+      "pasted_text": "qwen3.5",
+      "original_text": "",
+      "baseline_text": "qwen3.5",
+      "edited_text": "qwen3.7",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "guard",
+      "candidate_index": 0,
+      "candidate_count": 1,
+      "candidate_before_text": "qwen3.5",
+      "candidate_after_text": "qwen3.7",
+      "candidate_before_change_start": 6,
+      "candidate_before_change_end": 7,
+      "candidate_after_change_start": 6,
+      "candidate_after_change_end": 7
+    },
+    "entries": [],
+    "expected": {
+      "action": "ignore",
+      "term": "",
+      "aliases": [],
+      "confidence": 0.0,
+      "reason_code": "numeric_identifier_change",
+      "term_type": "other"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "百",
+      "aliases": [
+        "白"
+      ],
+      "confidence": 1.0,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "阿里云白练",
+      "pasted_text": "阿里云白练",
+      "original_text": "",
+      "baseline_text": "阿里云白练",
+      "edited_text": "阿里云百炼",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "guard",
+      "candidate_index": 0,
+      "candidate_count": 1,
+      "candidate_before_text": "阿里云白练",
+      "candidate_after_text": "阿里云百炼",
+      "candidate_before_change_start": 3,
+      "candidate_before_change_end": 5,
+      "candidate_after_change_start": 3,
+      "candidate_after_change_end": 5
+    },
+    "entries": [],
+    "expected": {
+      "action": "ignore",
+      "term": "",
+      "aliases": [],
+      "confidence": 0.0,
+      "reason_code": "alias_too_broad",
+      "term_type": "other"
+    }
+  },
+  {
+    "decision": {
+      "decision": "add",
+      "term": "百炼",
+      "aliases": [
+        "阿里云白练"
+      ],
+      "confidence": 1.0,
+      "reason_code": "proper_noun_correction",
+      "term_type": "proper_name"
+    },
+    "evidence": {
+      "raw_text": "今天用阿里云白练",
+      "pasted_text": "今天用阿里云白练",
+      "original_text": "",
+      "baseline_text": "今天用阿里云白练",
+      "edited_text": "今天用阿里云百炼",
+      "app_bundle_id": "com.apple.Notes",
+      "app_name": "Notes",
+      "mode_name": "walkie_talkie",
+      "recording_id": "recording-1",
+      "observation_id": "guard",
+      "candidate_index": 0,
+      "candidate_count": 1,
+      "candidate_before_text": "今天用阿里云白练",
+      "candidate_after_text": "今天用阿里云百炼",
+      "candidate_before_change_start": 6,
+      "candidate_before_change_end": 8,
+      "candidate_after_change_start": 6,
+      "candidate_after_change_end": 8
+    },
+    "entries": [],
+    "expected": {
+      "action": "ignore",
+      "term": "",
+      "aliases": [],
+      "confidence": 0.0,
+      "reason_code": "mapping_does_not_explain_edit",
+      "term_type": "other"
+    }
+  }
+]

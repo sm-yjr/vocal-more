@@ -1,0 +1,4379 @@
+[
+  {
+    "key": "api_key",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "api_key",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "api_key",
+    "input": true,
+    "changes": {
+      "api_key": "True"
+    }
+  },
+  {
+    "key": "api_key",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "api_key",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "api_key",
+    "input": 1,
+    "changes": {
+      "api_key": "1"
+    }
+  },
+  {
+    "key": "api_key",
+    "input": -10,
+    "changes": {
+      "api_key": "-10"
+    }
+  },
+  {
+    "key": "api_key",
+    "input": 999999,
+    "changes": {
+      "api_key": "999999"
+    }
+  },
+  {
+    "key": "api_key",
+    "input": 0.25,
+    "changes": {
+      "api_key": "0.25"
+    }
+  },
+  {
+    "key": "api_key",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "api_key",
+    "input": "invalid",
+    "changes": {
+      "api_key": "invalid"
+    }
+  },
+  {
+    "key": "api_key",
+    "input": "false",
+    "changes": {
+      "api_key": "false"
+    }
+  },
+  {
+    "key": "api_key",
+    "input": "yes",
+    "changes": {
+      "api_key": "yes"
+    }
+  },
+  {
+    "key": "api_key",
+    "input": "42.5",
+    "changes": {
+      "api_key": "42.5"
+    }
+  },
+  {
+    "key": "api_key",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "api_key",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": 16000,
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "audio.sample_rate",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "audio.channels",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": 999999,
+    "changes": {
+      "audio.capture_channels": 3
+    }
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": "42.5",
+    "changes": {
+      "audio.capture_channels": 3
+    }
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_channels",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "audio.blocksize",
+    "input": 1280,
+    "changes": {}
+  },
+  {
+    "key": "audio.blocksize",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "audio.blocksize",
+    "input": true,
+    "changes": {
+      "audio.blocksize": 128
+    }
+  },
+  {
+    "key": "audio.blocksize",
+    "input": false,
+    "changes": {
+      "audio.blocksize": 128
+    }
+  },
+  {
+    "key": "audio.blocksize",
+    "input": 0,
+    "changes": {
+      "audio.blocksize": 128
+    }
+  },
+  {
+    "key": "audio.blocksize",
+    "input": 1,
+    "changes": {
+      "audio.blocksize": 128
+    }
+  },
+  {
+    "key": "audio.blocksize",
+    "input": -10,
+    "changes": {
+      "audio.blocksize": 128
+    }
+  },
+  {
+    "key": "audio.blocksize",
+    "input": 999999,
+    "changes": {
+      "audio.blocksize": 8192
+    }
+  },
+  {
+    "key": "audio.blocksize",
+    "input": 0.25,
+    "changes": {
+      "audio.blocksize": 128
+    }
+  },
+  {
+    "key": "audio.blocksize",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "audio.blocksize",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "audio.blocksize",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "audio.blocksize",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "audio.blocksize",
+    "input": "42.5",
+    "changes": {
+      "audio.blocksize": 128
+    }
+  },
+  {
+    "key": "audio.blocksize",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "audio.blocksize",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "audio.input_device",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "audio.input_device",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "audio.input_device",
+    "input": true,
+    "changes": {
+      "audio.input_device": "True"
+    }
+  },
+  {
+    "key": "audio.input_device",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "audio.input_device",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "audio.input_device",
+    "input": 1,
+    "changes": {
+      "audio.input_device": "1"
+    }
+  },
+  {
+    "key": "audio.input_device",
+    "input": -10,
+    "changes": {
+      "audio.input_device": "-10"
+    }
+  },
+  {
+    "key": "audio.input_device",
+    "input": 999999,
+    "changes": {
+      "audio.input_device": "999999"
+    }
+  },
+  {
+    "key": "audio.input_device",
+    "input": 0.25,
+    "changes": {
+      "audio.input_device": "0.25"
+    }
+  },
+  {
+    "key": "audio.input_device",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "audio.input_device",
+    "input": "invalid",
+    "changes": {
+      "audio.input_device": "invalid"
+    }
+  },
+  {
+    "key": "audio.input_device",
+    "input": "false",
+    "changes": {
+      "audio.input_device": "false"
+    }
+  },
+  {
+    "key": "audio.input_device",
+    "input": "yes",
+    "changes": {
+      "audio.input_device": "yes"
+    }
+  },
+  {
+    "key": "audio.input_device",
+    "input": "42.5",
+    "changes": {
+      "audio.input_device": "42.5"
+    }
+  },
+  {
+    "key": "audio.input_device",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "audio.input_device",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": "low_latency",
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "audio.capture_backend",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": "automatic",
+    "changes": {}
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": null,
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": true,
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": false,
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": 0,
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": 1,
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": -10,
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": 999999,
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": 0.25,
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": "",
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": "invalid",
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": "false",
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": "yes",
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": "42.5",
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": [],
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain_mode",
+    "input": {},
+    "changes": {
+      "audio.gain_mode": "manual"
+    }
+  },
+  {
+    "key": "audio.gain",
+    "input": 2.0,
+    "changes": {}
+  },
+  {
+    "key": "audio.gain",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "audio.gain",
+    "input": true,
+    "changes": {
+      "audio.gain": 1.0
+    }
+  },
+  {
+    "key": "audio.gain",
+    "input": false,
+    "changes": {
+      "audio.gain": 0.5011872336272722
+    }
+  },
+  {
+    "key": "audio.gain",
+    "input": 0,
+    "changes": {
+      "audio.gain": 0.5011872336272722
+    }
+  },
+  {
+    "key": "audio.gain",
+    "input": 1,
+    "changes": {
+      "audio.gain": 1.0
+    }
+  },
+  {
+    "key": "audio.gain",
+    "input": -10,
+    "changes": {
+      "audio.gain": 0.5011872336272722
+    }
+  },
+  {
+    "key": "audio.gain",
+    "input": 999999,
+    "changes": {
+      "audio.gain": 50.0
+    }
+  },
+  {
+    "key": "audio.gain",
+    "input": 0.25,
+    "changes": {
+      "audio.gain": 0.5011872336272722
+    }
+  },
+  {
+    "key": "audio.gain",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "audio.gain",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "audio.gain",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "audio.gain",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "audio.gain",
+    "input": "42.5",
+    "changes": {
+      "audio.gain": 42.5
+    }
+  },
+  {
+    "key": "audio.gain",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "audio.gain",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": false,
+    "changes": {
+      "audio.highpass_filter": false
+    }
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": 0,
+    "changes": {
+      "audio.highpass_filter": false
+    }
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": "",
+    "changes": {
+      "audio.highpass_filter": false
+    }
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": "false",
+    "changes": {
+      "audio.highpass_filter": false
+    }
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_filter",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": 200,
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": true,
+    "changes": {
+      "audio.highpass_freq": 50
+    }
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": false,
+    "changes": {
+      "audio.highpass_freq": 50
+    }
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": 0,
+    "changes": {
+      "audio.highpass_freq": 50
+    }
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": 1,
+    "changes": {
+      "audio.highpass_freq": 50
+    }
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": -10,
+    "changes": {
+      "audio.highpass_freq": 50
+    }
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": 999999,
+    "changes": {
+      "audio.highpass_freq": 500
+    }
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": 0.25,
+    "changes": {
+      "audio.highpass_freq": 50
+    }
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": "42.5",
+    "changes": {
+      "audio.highpass_freq": 50
+    }
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "audio.highpass_freq",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": false,
+    "changes": {
+      "audio.soft_limiter": false
+    }
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": 0,
+    "changes": {
+      "audio.soft_limiter": false
+    }
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": "",
+    "changes": {
+      "audio.soft_limiter": false
+    }
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": "false",
+    "changes": {
+      "audio.soft_limiter": false
+    }
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "audio.soft_limiter",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": -6.0,
+    "changes": {}
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": true,
+    "changes": {
+      "audio.waveform_ceiling_dbfs": 0.0
+    }
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": false,
+    "changes": {
+      "audio.waveform_ceiling_dbfs": 0.0
+    }
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": 0,
+    "changes": {
+      "audio.waveform_ceiling_dbfs": 0.0
+    }
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": 1,
+    "changes": {
+      "audio.waveform_ceiling_dbfs": 0.0
+    }
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": -10,
+    "changes": {
+      "audio.waveform_ceiling_dbfs": -10.0
+    }
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": 999999,
+    "changes": {
+      "audio.waveform_ceiling_dbfs": 0.0
+    }
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": 0.25,
+    "changes": {
+      "audio.waveform_ceiling_dbfs": 0.0
+    }
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": "42.5",
+    "changes": {
+      "audio.waveform_ceiling_dbfs": 0.0
+    }
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "audio.waveform_ceiling_dbfs",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": "realtime_ws",
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen3.5-omni-flash-realtime",
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": "auto",
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "asr.language",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": "manual",
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "asr.batch_mode",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": true,
+    "error": true
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": 1,
+    "error": true
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": -10,
+    "error": true
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": 999999,
+    "error": true
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": 0.25,
+    "error": true
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": "invalid",
+    "error": true
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": "false",
+    "error": true
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": "yes",
+    "error": true
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": "42.5",
+    "error": true
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": false,
+    "changes": {
+      "asr.use_dictionary_corpus": false
+    }
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": 0,
+    "changes": {
+      "asr.use_dictionary_corpus": false
+    }
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": "",
+    "changes": {
+      "asr.use_dictionary_corpus": false
+    }
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": "false",
+    "changes": {
+      "asr.use_dictionary_corpus": false
+    }
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "asr.use_dictionary_corpus",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "asr.extra_corpus_terms",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": "qwen3.5-plus",
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "llm.model",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "llm.temperature",
+    "input": 0.0,
+    "changes": {}
+  },
+  {
+    "key": "llm.temperature",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "llm.temperature",
+    "input": true,
+    "changes": {
+      "llm.temperature": 1.0
+    }
+  },
+  {
+    "key": "llm.temperature",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "llm.temperature",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "llm.temperature",
+    "input": 1,
+    "changes": {
+      "llm.temperature": 1.0
+    }
+  },
+  {
+    "key": "llm.temperature",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "llm.temperature",
+    "input": 999999,
+    "changes": {
+      "llm.temperature": 1.0
+    }
+  },
+  {
+    "key": "llm.temperature",
+    "input": 0.25,
+    "changes": {
+      "llm.temperature": 0.25
+    }
+  },
+  {
+    "key": "llm.temperature",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "llm.temperature",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "llm.temperature",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "llm.temperature",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "llm.temperature",
+    "input": "42.5",
+    "changes": {
+      "llm.temperature": 1.0
+    }
+  },
+  {
+    "key": "llm.temperature",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "llm.temperature",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": true,
+    "changes": {
+      "llm.enable_thinking": true
+    }
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": 1,
+    "changes": {
+      "llm.enable_thinking": true
+    }
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": -10,
+    "changes": {
+      "llm.enable_thinking": true
+    }
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": 999999,
+    "changes": {
+      "llm.enable_thinking": true
+    }
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": 0.25,
+    "changes": {
+      "llm.enable_thinking": true
+    }
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": "yes",
+    "changes": {
+      "llm.enable_thinking": true
+    }
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "llm.enable_thinking",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": 1024,
+    "changes": {}
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": true,
+    "changes": {
+      "llm.max_tokens": 1
+    }
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": false,
+    "changes": {
+      "llm.max_tokens": 1
+    }
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": 0,
+    "changes": {
+      "llm.max_tokens": 1
+    }
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": 1,
+    "changes": {
+      "llm.max_tokens": 1
+    }
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": -10,
+    "changes": {
+      "llm.max_tokens": 1
+    }
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": 999999,
+    "changes": {
+      "llm.max_tokens": 65536
+    }
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": 0.25,
+    "changes": {
+      "llm.max_tokens": 1
+    }
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": "42.5",
+    "changes": {
+      "llm.max_tokens": 42
+    }
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "llm.max_tokens",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": "dictation",
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "llm.polish_mode",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": "minimal",
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "llm.level",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "llm.structured",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "llm.structured",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "llm.structured",
+    "input": true,
+    "changes": {
+      "llm.structured": true
+    }
+  },
+  {
+    "key": "llm.structured",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "llm.structured",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "llm.structured",
+    "input": 1,
+    "changes": {
+      "llm.structured": true
+    }
+  },
+  {
+    "key": "llm.structured",
+    "input": -10,
+    "changes": {
+      "llm.structured": true
+    }
+  },
+  {
+    "key": "llm.structured",
+    "input": 999999,
+    "changes": {
+      "llm.structured": true
+    }
+  },
+  {
+    "key": "llm.structured",
+    "input": 0.25,
+    "changes": {
+      "llm.structured": true
+    }
+  },
+  {
+    "key": "llm.structured",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "llm.structured",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "llm.structured",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "llm.structured",
+    "input": "yes",
+    "changes": {
+      "llm.structured": true
+    }
+  },
+  {
+    "key": "llm.structured",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "llm.structured",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "llm.structured",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": "neutral",
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "llm.tone",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": "default",
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "llm.persona",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": "auto",
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "llm.output_language",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": "fn",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "hotkey.primary_key",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": "fn",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "hotkey.fallback_key",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": 0.3,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": true,
+    "changes": {
+      "hotkey.double_tap_threshold": 0.5
+    }
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": false,
+    "changes": {
+      "hotkey.double_tap_threshold": 0.15
+    }
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": 0,
+    "changes": {
+      "hotkey.double_tap_threshold": 0.15
+    }
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": 1,
+    "changes": {
+      "hotkey.double_tap_threshold": 0.5
+    }
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": -10,
+    "changes": {
+      "hotkey.double_tap_threshold": 0.15
+    }
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": 999999,
+    "changes": {
+      "hotkey.double_tap_threshold": 0.5
+    }
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": 0.25,
+    "changes": {
+      "hotkey.double_tap_threshold": 0.25
+    }
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": "42.5",
+    "changes": {
+      "hotkey.double_tap_threshold": 0.5
+    }
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "hotkey.double_tap_threshold",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": [
+      "fn"
+    ],
+    "changes": {}
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": null,
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": true,
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": false,
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": 0,
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": 1,
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": -10,
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": 999999,
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": 0.25,
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": "",
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": "invalid",
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": "false",
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": "yes",
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": "42.5",
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": [],
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": {},
+    "changes": {
+      "hotkey.active_hotkeys": []
+    }
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_key",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "ui.language",
+    "input": "zh",
+    "changes": {}
+  },
+  {
+    "key": "ui.language",
+    "input": null,
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": true,
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": false,
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": 0,
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": 1,
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": -10,
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": 999999,
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": 0.25,
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": "",
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": "invalid",
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": "false",
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": "yes",
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": "42.5",
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": [],
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.language",
+    "input": {},
+    "changes": {
+      "ui.language": "en"
+    }
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": true,
+    "changes": {
+      "ui.onboarding_completed": true
+    }
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": 1,
+    "changes": {
+      "ui.onboarding_completed": true
+    }
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": -10,
+    "changes": {
+      "ui.onboarding_completed": true
+    }
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": 999999,
+    "changes": {
+      "ui.onboarding_completed": true
+    }
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": 0.25,
+    "changes": {
+      "ui.onboarding_completed": true
+    }
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": "yes",
+    "changes": {
+      "ui.onboarding_completed": true
+    }
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_completed",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": true,
+    "changes": {
+      "ui.advanced_settings": true
+    }
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": 1,
+    "changes": {
+      "ui.advanced_settings": true
+    }
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": -10,
+    "changes": {
+      "ui.advanced_settings": true
+    }
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": 999999,
+    "changes": {
+      "ui.advanced_settings": true
+    }
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": 0.25,
+    "changes": {
+      "ui.advanced_settings": true
+    }
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": "yes",
+    "changes": {
+      "ui.advanced_settings": true
+    }
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "ui.advanced_settings",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": true,
+    "changes": {
+      "dictionary_learning.enabled": true
+    }
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": 1,
+    "changes": {
+      "dictionary_learning.enabled": true
+    }
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": -10,
+    "changes": {
+      "dictionary_learning.enabled": true
+    }
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": 999999,
+    "changes": {
+      "dictionary_learning.enabled": true
+    }
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": 0.25,
+    "changes": {
+      "dictionary_learning.enabled": true
+    }
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": "yes",
+    "changes": {
+      "dictionary_learning.enabled": true
+    }
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.enabled",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "dictionary_learning.excluded_bundle_ids",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "enable_polish",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "enable_polish",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "enable_polish",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "enable_polish",
+    "input": false,
+    "changes": {
+      "enable_polish": false
+    }
+  },
+  {
+    "key": "enable_polish",
+    "input": 0,
+    "changes": {
+      "enable_polish": false
+    }
+  },
+  {
+    "key": "enable_polish",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "enable_polish",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "enable_polish",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "enable_polish",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "enable_polish",
+    "input": "",
+    "changes": {
+      "enable_polish": false
+    }
+  },
+  {
+    "key": "enable_polish",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "enable_polish",
+    "input": "false",
+    "changes": {
+      "enable_polish": false
+    }
+  },
+  {
+    "key": "enable_polish",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "enable_polish",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "enable_polish",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "enable_polish",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "auto_paste",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "auto_paste",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "auto_paste",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "auto_paste",
+    "input": false,
+    "changes": {
+      "auto_paste": false
+    }
+  },
+  {
+    "key": "auto_paste",
+    "input": 0,
+    "changes": {
+      "auto_paste": false
+    }
+  },
+  {
+    "key": "auto_paste",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "auto_paste",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "auto_paste",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "auto_paste",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "auto_paste",
+    "input": "",
+    "changes": {
+      "auto_paste": false
+    }
+  },
+  {
+    "key": "auto_paste",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "auto_paste",
+    "input": "false",
+    "changes": {
+      "auto_paste": false
+    }
+  },
+  {
+    "key": "auto_paste",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "auto_paste",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "auto_paste",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "auto_paste",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "streaming_paste",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "streaming_paste",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "streaming_paste",
+    "input": true,
+    "changes": {
+      "streaming_paste": true
+    }
+  },
+  {
+    "key": "streaming_paste",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "streaming_paste",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "streaming_paste",
+    "input": 1,
+    "changes": {
+      "streaming_paste": true
+    }
+  },
+  {
+    "key": "streaming_paste",
+    "input": -10,
+    "changes": {
+      "streaming_paste": true
+    }
+  },
+  {
+    "key": "streaming_paste",
+    "input": 999999,
+    "changes": {
+      "streaming_paste": true
+    }
+  },
+  {
+    "key": "streaming_paste",
+    "input": 0.25,
+    "changes": {
+      "streaming_paste": true
+    }
+  },
+  {
+    "key": "streaming_paste",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "streaming_paste",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "streaming_paste",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "streaming_paste",
+    "input": "yes",
+    "changes": {
+      "streaming_paste": true
+    }
+  },
+  {
+    "key": "streaming_paste",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "streaming_paste",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "streaming_paste",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "native_fast_paste",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "native_fast_paste",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "native_fast_paste",
+    "input": true,
+    "changes": {
+      "native_fast_paste": true
+    }
+  },
+  {
+    "key": "native_fast_paste",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "native_fast_paste",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "native_fast_paste",
+    "input": 1,
+    "changes": {
+      "native_fast_paste": true
+    }
+  },
+  {
+    "key": "native_fast_paste",
+    "input": -10,
+    "changes": {
+      "native_fast_paste": true
+    }
+  },
+  {
+    "key": "native_fast_paste",
+    "input": 999999,
+    "changes": {
+      "native_fast_paste": true
+    }
+  },
+  {
+    "key": "native_fast_paste",
+    "input": 0.25,
+    "changes": {
+      "native_fast_paste": true
+    }
+  },
+  {
+    "key": "native_fast_paste",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "native_fast_paste",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "native_fast_paste",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "native_fast_paste",
+    "input": "yes",
+    "changes": {
+      "native_fast_paste": true
+    }
+  },
+  {
+    "key": "native_fast_paste",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "native_fast_paste",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "native_fast_paste",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "restore_clipboard",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "restore_clipboard",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "restore_clipboard",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "restore_clipboard",
+    "input": false,
+    "changes": {
+      "restore_clipboard": false
+    }
+  },
+  {
+    "key": "restore_clipboard",
+    "input": 0,
+    "changes": {
+      "restore_clipboard": false
+    }
+  },
+  {
+    "key": "restore_clipboard",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "restore_clipboard",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "restore_clipboard",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "restore_clipboard",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "restore_clipboard",
+    "input": "",
+    "changes": {
+      "restore_clipboard": false
+    }
+  },
+  {
+    "key": "restore_clipboard",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "restore_clipboard",
+    "input": "false",
+    "changes": {
+      "restore_clipboard": false
+    }
+  },
+  {
+    "key": "restore_clipboard",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "restore_clipboard",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "restore_clipboard",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "restore_clipboard",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": "realtime_long",
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "default_mode",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "asr.backend",
+    "input": "short_file",
+    "changes": {
+      "asr.backend": "short_file",
+      "asr.model": "qwen3-asr-flash"
+    }
+  },
+  {
+    "key": "asr.backend",
+    "input": "omni_offline",
+    "changes": {
+      "asr.backend": "omni_offline",
+      "asr.model": "qwen3.5-omni-plus"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen3.5-omni-flash-realtime",
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen3.5-omni-flash",
+    "changes": {
+      "asr.backend": "omni_offline",
+      "asr.model": "qwen3.5-omni-flash"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen3.5-omni-plus-realtime",
+    "changes": {
+      "asr.model": "qwen3.5-omni-plus-realtime"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen3.5-omni-plus",
+    "changes": {
+      "asr.backend": "omni_offline",
+      "asr.model": "qwen3.5-omni-plus"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen-audio-3.0-realtime-plus",
+    "changes": {
+      "asr.model": "qwen-audio-3.0-realtime-plus"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen-audio-3.0-realtime-flash",
+    "changes": {
+      "asr.model": "qwen-audio-3.0-realtime-flash"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "fun-asr-realtime",
+    "changes": {
+      "asr.model": "fun-asr-realtime"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen-audio-3.0-asr-flash-streaming",
+    "changes": {
+      "asr.model": "qwen-audio-3.0-asr-flash-streaming"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen3-asr-flash-realtime-2026-02-10",
+    "changes": {
+      "asr.model": "qwen3-asr-flash-realtime-2026-02-10"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen3-asr-flash",
+    "changes": {
+      "asr.backend": "short_file",
+      "asr.model": "qwen3-asr-flash"
+    }
+  },
+  {
+    "key": "llm.level",
+    "input": "structured",
+    "changes": {
+      "llm.level": "balanced"
+    }
+  },
+  {
+    "key": "audio.blocksize",
+    "input": 640,
+    "changes": {}
+  },
+  {
+    "key": "audio.blocksize",
+    "input": "1600",
+    "changes": {}
+  },
+  {
+    "key": "hotkey.custom_keys",
+    "input": [
+      {
+        "key_code": 55,
+        "display_name": "Left Command",
+        "is_modifier": true,
+        "flag_mask": 1048576
+      },
+      {
+        "key_code": 55,
+        "display_name": "Left Command",
+        "is_modifier": true,
+        "flag_mask": 1048576
+      }
+    ],
+    "changes": {
+      "hotkey.custom_key": {
+        "key_code": 55,
+        "display_name": "Left Command",
+        "is_modifier": true,
+        "flag_mask": 1048576
+      },
+      "hotkey.custom_keys": [
+        {
+          "key_code": 55,
+          "display_name": "Left Command",
+          "is_modifier": true,
+          "flag_mask": 1048576
+        }
+      ]
+    }
+  },
+  {
+    "key": "hotkey.active_hotkeys",
+    "input": [
+      "right_cmd",
+      "f13"
+    ],
+    "changes": {}
+  },
+  {
+    "key": "asr.realtime_url",
+    "input": "wss://example.maas.aliyuncs.com:443/api-ws/v1/realtime/",
+    "changes": {
+      "asr.realtime_url": "wss://example.maas.aliyuncs.com:443/api-ws/v1/realtime"
+    }
+  },
+  {
+    "key": "llm.prompt_overrides",
+    "input": {
+      "tone": {
+        "enabled": "yes",
+        "prompt": "测试"
+      }
+    },
+    "changes": {
+      "llm.prompt_overrides.tone": {
+        "enabled": true,
+        "prompt": "测试"
+      }
+    }
+  }
+]

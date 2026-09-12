@@ -1,0 +1,98 @@
+{
+  "date": "2026-09-11",
+  "host": {
+    "architecture": "arm64",
+    "macos": "27.0",
+    "hardware": "Apple M1 Pro",
+    "memory_gib": 16
+  },
+  "binary": {
+    "name": "vocal-more-backend",
+    "product_version": "0.4.17",
+    "sha256": "6d56df454dc4d2c2ddc8333c577176c6004464e00e36cd4e8583ab517231f54a"
+  },
+  "ui_with_native_library": {
+    "test_sources": "isolated config and dictionary; no microphone or cloud requests",
+    "measurements": {
+      "idle_ui": {
+        "pid": 7530,
+        "physical_footprint_mib": 35.3
+      },
+      "idle_backend": {
+        "pid": 7531,
+        "physical_footprint_mib": 4.8447265625
+      },
+      "settings_ui": {
+        "pid": 7530,
+        "physical_footprint_mib": 63.0
+      },
+      "settings_backend": {
+        "pid": 7531,
+        "physical_footprint_mib": 5.0634765625
+      },
+      "after_close_ui": {
+        "pid": 7530,
+        "physical_footprint_mib": 62.7
+      },
+      "after_close_backend": {
+        "pid": 7531,
+        "physical_footprint_mib": 5.0478515625
+      }
+    },
+    "initialize_ms": 599.2386249999981,
+    "appearances": {
+      "Aqua": {
+        "dark": false,
+        "classes": "light",
+        "theme": null,
+        "rendered_css_theme": "light"
+      },
+      "DarkAqua": {
+        "dark": false,
+        "classes": "light",
+        "theme": null,
+        "rendered_css_theme": "dark"
+      }
+    },
+    "forbidden_imports": [],
+    "checks": [
+      "seven existing tabs",
+      "WKWebView action -> Rust dictionary persistence",
+      "masked configured API key",
+      "light and dark CSS rendering (local override)",
+      "close flushes unsent form state",
+      "reopen onboarding",
+      "no Python provider/audio imports"
+    ],
+    "shutdown_ms": 40.59291699377354,
+    "backend_exit_code": 0,
+    "webkit_helpers": "The table reports the two owned main processes separately; shared WebKit helper processes are not attributed or included."
+  },
+  "service_without_native_library": {
+    "scope": "full Rust application service; synthetic PCM and loopback HTTP; controller excluded",
+    "rounds": 30,
+    "samples": [
+      {
+        "label": "idle",
+        "physical_footprint_mib": 2.828125
+      },
+      {
+        "label": "after-first-session",
+        "physical_footprint_mib": 3.78125
+      },
+      {
+        "label": "after-repeated-sessions",
+        "physical_footprint_mib": 4.65625
+      }
+    ],
+    "recordings": 30,
+    "http_requests": 30,
+    "state": "idle",
+    "exit_code": 0
+  },
+  "limitations": [
+    "Synthetic local services and isolated data only; no cloud or physical microphone acceptance.",
+    "Shared WebKit helper processes excluded.",
+    "One local run per scenario; no claim about other devices or OS versions."
+  ]
+}

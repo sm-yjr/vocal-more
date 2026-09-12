@@ -31,7 +31,9 @@
 
 ### macOS Releases
 
-- Official releases are built by `.github/workflows/release.yml` from a version tag (`vX.Y.Z` or `X.Y.Z`) that exactly matches `pyproject.toml`.
+- `.github/workflows/release-prepare.yml` 从 `main` 提前准备并验证 macOS 候选；`.github/workflows/release.yml` 按版本 tag 发布对应候选，必要时调用公共完整准备流程。遵循 `docs/release.md`，不得绕过候选来源或摘要校验。
+- tag 必须与 `pyproject.toml` 精确对应：stable `X.Y.Z` → `vX.Y.Z`，alpha `X.Y.ZaN` → `vX.Y.Z-alpha.N`，beta `X.Y.ZbN` → `vX.Y.Z-beta.N`。兼容裸 tag 和 PEP 440 别名，但同一版本只能发布一个 tag。
+- stable、alpha、beta 使用独立 Sparkle feed。alpha/beta 必须标记 GitHub prerelease 且不得替换 Latest stable。通过安装目标通道 DMG 切换通道，不得把预发布产物改名作为正式版。
 - Do not consider a release complete until the workflow has passed tests, Developer ID signing, notarization and stapling, artifact verification, GitHub Release upload, and signed Sparkle appcast publication.
 - Use `docs/release.md` for prerequisites and secret names. Never commit certificate material, notarization credentials, or the Sparkle private key.
 - `VOCAL_MORE_ALLOW_UNSIGNED_DMG=1` is for local packaging checks only; never publish that unsigned artifact as an official release.

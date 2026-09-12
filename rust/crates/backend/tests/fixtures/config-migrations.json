@@ -1,0 +1,572 @@
+[
+  {
+    "input": {},
+    "expected": {
+      "api_key": "",
+      "audio": {
+        "sample_rate": 16000,
+        "channels": 1,
+        "capture_channels": 1,
+        "blocksize": 1280,
+        "input_device": null,
+        "capture_backend": "low_latency",
+        "gain_mode": "automatic",
+        "gain": 2.0,
+        "highpass_filter": true,
+        "highpass_freq": 200,
+        "soft_limiter": true,
+        "waveform_ceiling_dbfs": -6.0
+      },
+      "asr": {
+        "backend": "realtime_ws",
+        "model": "qwen3.5-omni-flash-realtime",
+        "language": "auto",
+        "batch_mode": "manual",
+        "realtime_url": "",
+        "use_dictionary_corpus": true,
+        "extra_corpus_terms": []
+      },
+      "llm": {
+        "model": "qwen3.5-plus",
+        "temperature": 0.0,
+        "enable_thinking": false,
+        "max_tokens": 1024,
+        "polish_mode": "dictation",
+        "level": "minimal",
+        "structured": false,
+        "tone": "neutral",
+        "persona": "default",
+        "output_language": "auto",
+        "prompt_overrides": {}
+      },
+      "hotkey": {
+        "primary_key": "fn",
+        "fallback_key": "fn",
+        "double_tap_threshold": 0.3,
+        "active_hotkeys": [
+          "fn"
+        ],
+        "custom_key": null,
+        "custom_keys": []
+      },
+      "ui": {
+        "language": "zh",
+        "onboarding_completed": false,
+        "advanced_settings": false
+      },
+      "dictionary_learning": {
+        "enabled": false,
+        "excluded_bundle_ids": []
+      },
+      "enable_polish": true,
+      "auto_paste": true,
+      "streaming_paste": false,
+      "native_fast_paste": false,
+      "restore_clipboard": true,
+      "default_mode": "realtime_long"
+    }
+  },
+  {
+    "input": {
+      "api_key": "synthetic-test-key"
+    },
+    "expected": {
+      "api_key": "synthetic-test-key",
+      "audio": {
+        "sample_rate": 16000,
+        "channels": 1,
+        "capture_channels": 1,
+        "blocksize": 1280,
+        "input_device": null,
+        "capture_backend": "low_latency",
+        "gain_mode": "manual",
+        "gain": 2.0,
+        "highpass_filter": true,
+        "highpass_freq": 200,
+        "soft_limiter": true,
+        "waveform_ceiling_dbfs": -6.0
+      },
+      "asr": {
+        "backend": "realtime_ws",
+        "model": "qwen3.5-omni-flash-realtime",
+        "language": "auto",
+        "batch_mode": "manual",
+        "realtime_url": "",
+        "use_dictionary_corpus": true,
+        "extra_corpus_terms": []
+      },
+      "llm": {
+        "model": "qwen3.5-plus",
+        "temperature": 0.0,
+        "enable_thinking": false,
+        "max_tokens": 1024,
+        "polish_mode": "dictation",
+        "level": "minimal",
+        "structured": false,
+        "tone": "neutral",
+        "persona": "default",
+        "output_language": "auto",
+        "prompt_overrides": {}
+      },
+      "hotkey": {
+        "primary_key": "fn",
+        "fallback_key": "fn",
+        "double_tap_threshold": 0.3,
+        "active_hotkeys": [
+          "fn"
+        ],
+        "custom_key": null,
+        "custom_keys": []
+      },
+      "ui": {
+        "language": "zh",
+        "onboarding_completed": true,
+        "advanced_settings": true
+      },
+      "dictionary_learning": {
+        "enabled": false,
+        "excluded_bundle_ids": []
+      },
+      "enable_polish": true,
+      "auto_paste": true,
+      "streaming_paste": false,
+      "native_fast_paste": false,
+      "restore_clipboard": true,
+      "default_mode": "realtime_long"
+    }
+  },
+  {
+    "input": {
+      "audio": {
+        "channels": 2,
+        "gain": 4
+      }
+    },
+    "expected": {
+      "api_key": "",
+      "audio": {
+        "sample_rate": 16000,
+        "channels": 1,
+        "capture_channels": 2,
+        "blocksize": 1280,
+        "input_device": null,
+        "capture_backend": "low_latency",
+        "gain_mode": "manual",
+        "gain": 4.0,
+        "highpass_filter": true,
+        "highpass_freq": 200,
+        "soft_limiter": true,
+        "waveform_ceiling_dbfs": -6.0
+      },
+      "asr": {
+        "backend": "realtime_ws",
+        "model": "qwen3.5-omni-flash-realtime",
+        "language": "auto",
+        "batch_mode": "manual",
+        "realtime_url": "",
+        "use_dictionary_corpus": true,
+        "extra_corpus_terms": []
+      },
+      "llm": {
+        "model": "qwen3.5-plus",
+        "temperature": 0.0,
+        "enable_thinking": false,
+        "max_tokens": 1024,
+        "polish_mode": "dictation",
+        "level": "minimal",
+        "structured": false,
+        "tone": "neutral",
+        "persona": "default",
+        "output_language": "auto",
+        "prompt_overrides": {}
+      },
+      "hotkey": {
+        "primary_key": "fn",
+        "fallback_key": "fn",
+        "double_tap_threshold": 0.3,
+        "active_hotkeys": [
+          "fn"
+        ],
+        "custom_key": null,
+        "custom_keys": []
+      },
+      "ui": {
+        "language": "zh",
+        "onboarding_completed": true,
+        "advanced_settings": true
+      },
+      "dictionary_learning": {
+        "enabled": false,
+        "excluded_bundle_ids": []
+      },
+      "enable_polish": true,
+      "auto_paste": true,
+      "streaming_paste": false,
+      "native_fast_paste": false,
+      "restore_clipboard": true,
+      "default_mode": "realtime_long"
+    }
+  },
+  {
+    "input": {
+      "asr": {
+        "model": "fun-asr-realtime",
+        "backend": "omni_offline"
+      }
+    },
+    "expected": {
+      "api_key": "",
+      "audio": {
+        "sample_rate": 16000,
+        "channels": 1,
+        "capture_channels": 1,
+        "blocksize": 1280,
+        "input_device": null,
+        "capture_backend": "low_latency",
+        "gain_mode": "manual",
+        "gain": 2.0,
+        "highpass_filter": true,
+        "highpass_freq": 200,
+        "soft_limiter": true,
+        "waveform_ceiling_dbfs": -6.0
+      },
+      "asr": {
+        "backend": "realtime_ws",
+        "model": "fun-asr-realtime",
+        "language": "auto",
+        "batch_mode": "manual",
+        "realtime_url": "",
+        "use_dictionary_corpus": true,
+        "extra_corpus_terms": []
+      },
+      "llm": {
+        "model": "qwen3.5-plus",
+        "temperature": 0.0,
+        "enable_thinking": false,
+        "max_tokens": 1024,
+        "polish_mode": "dictation",
+        "level": "minimal",
+        "structured": false,
+        "tone": "neutral",
+        "persona": "default",
+        "output_language": "auto",
+        "prompt_overrides": {}
+      },
+      "hotkey": {
+        "primary_key": "fn",
+        "fallback_key": "fn",
+        "double_tap_threshold": 0.3,
+        "active_hotkeys": [
+          "fn"
+        ],
+        "custom_key": null,
+        "custom_keys": []
+      },
+      "ui": {
+        "language": "zh",
+        "onboarding_completed": true,
+        "advanced_settings": true
+      },
+      "dictionary_learning": {
+        "enabled": false,
+        "excluded_bundle_ids": []
+      },
+      "enable_polish": true,
+      "auto_paste": true,
+      "streaming_paste": false,
+      "native_fast_paste": false,
+      "restore_clipboard": true,
+      "default_mode": "realtime_long"
+    }
+  },
+  {
+    "input": {
+      "ui": {
+        "onboarding_completed": false
+      }
+    },
+    "expected": {
+      "api_key": "",
+      "audio": {
+        "sample_rate": 16000,
+        "channels": 1,
+        "capture_channels": 1,
+        "blocksize": 1280,
+        "input_device": null,
+        "capture_backend": "low_latency",
+        "gain_mode": "manual",
+        "gain": 2.0,
+        "highpass_filter": true,
+        "highpass_freq": 200,
+        "soft_limiter": true,
+        "waveform_ceiling_dbfs": -6.0
+      },
+      "asr": {
+        "backend": "realtime_ws",
+        "model": "qwen3.5-omni-flash-realtime",
+        "language": "auto",
+        "batch_mode": "manual",
+        "realtime_url": "",
+        "use_dictionary_corpus": true,
+        "extra_corpus_terms": []
+      },
+      "llm": {
+        "model": "qwen3.5-plus",
+        "temperature": 0.0,
+        "enable_thinking": false,
+        "max_tokens": 1024,
+        "polish_mode": "dictation",
+        "level": "minimal",
+        "structured": false,
+        "tone": "neutral",
+        "persona": "default",
+        "output_language": "auto",
+        "prompt_overrides": {}
+      },
+      "hotkey": {
+        "primary_key": "fn",
+        "fallback_key": "fn",
+        "double_tap_threshold": 0.3,
+        "active_hotkeys": [
+          "fn"
+        ],
+        "custom_key": null,
+        "custom_keys": []
+      },
+      "ui": {
+        "language": "zh",
+        "onboarding_completed": false,
+        "advanced_settings": true
+      },
+      "dictionary_learning": {
+        "enabled": false,
+        "excluded_bundle_ids": []
+      },
+      "enable_polish": true,
+      "auto_paste": true,
+      "streaming_paste": false,
+      "native_fast_paste": false,
+      "restore_clipboard": true,
+      "default_mode": "realtime_long"
+    }
+  },
+  {
+    "input": {
+      "unknown": 1
+    },
+    "expected": {
+      "api_key": "",
+      "audio": {
+        "sample_rate": 16000,
+        "channels": 1,
+        "capture_channels": 1,
+        "blocksize": 1280,
+        "input_device": null,
+        "capture_backend": "low_latency",
+        "gain_mode": "manual",
+        "gain": 2.0,
+        "highpass_filter": true,
+        "highpass_freq": 200,
+        "soft_limiter": true,
+        "waveform_ceiling_dbfs": -6.0
+      },
+      "asr": {
+        "backend": "realtime_ws",
+        "model": "qwen3.5-omni-flash-realtime",
+        "language": "auto",
+        "batch_mode": "manual",
+        "realtime_url": "",
+        "use_dictionary_corpus": true,
+        "extra_corpus_terms": []
+      },
+      "llm": {
+        "model": "qwen3.5-plus",
+        "temperature": 0.0,
+        "enable_thinking": false,
+        "max_tokens": 1024,
+        "polish_mode": "dictation",
+        "level": "minimal",
+        "structured": false,
+        "tone": "neutral",
+        "persona": "default",
+        "output_language": "auto",
+        "prompt_overrides": {}
+      },
+      "hotkey": {
+        "primary_key": "fn",
+        "fallback_key": "fn",
+        "double_tap_threshold": 0.3,
+        "active_hotkeys": [
+          "fn"
+        ],
+        "custom_key": null,
+        "custom_keys": []
+      },
+      "ui": {
+        "language": "zh",
+        "onboarding_completed": true,
+        "advanced_settings": true
+      },
+      "dictionary_learning": {
+        "enabled": false,
+        "excluded_bundle_ids": []
+      },
+      "enable_polish": true,
+      "auto_paste": true,
+      "streaming_paste": false,
+      "native_fast_paste": false,
+      "restore_clipboard": true,
+      "default_mode": "realtime_long"
+    }
+  },
+  {
+    "input": {
+      "audio": {
+        "sample_rate": 48000,
+        "unknown": 1,
+        "gain_mode": "automatic"
+      }
+    },
+    "expected": {
+      "api_key": "",
+      "audio": {
+        "sample_rate": 16000,
+        "channels": 1,
+        "capture_channels": 1,
+        "blocksize": 1280,
+        "input_device": null,
+        "capture_backend": "low_latency",
+        "gain_mode": "automatic",
+        "gain": 2.0,
+        "highpass_filter": true,
+        "highpass_freq": 200,
+        "soft_limiter": true,
+        "waveform_ceiling_dbfs": -6.0
+      },
+      "asr": {
+        "backend": "realtime_ws",
+        "model": "qwen3.5-omni-flash-realtime",
+        "language": "auto",
+        "batch_mode": "manual",
+        "realtime_url": "",
+        "use_dictionary_corpus": true,
+        "extra_corpus_terms": []
+      },
+      "llm": {
+        "model": "qwen3.5-plus",
+        "temperature": 0.0,
+        "enable_thinking": false,
+        "max_tokens": 1024,
+        "polish_mode": "dictation",
+        "level": "minimal",
+        "structured": false,
+        "tone": "neutral",
+        "persona": "default",
+        "output_language": "auto",
+        "prompt_overrides": {}
+      },
+      "hotkey": {
+        "primary_key": "fn",
+        "fallback_key": "fn",
+        "double_tap_threshold": 0.3,
+        "active_hotkeys": [
+          "fn"
+        ],
+        "custom_key": null,
+        "custom_keys": []
+      },
+      "ui": {
+        "language": "zh",
+        "onboarding_completed": true,
+        "advanced_settings": true
+      },
+      "dictionary_learning": {
+        "enabled": false,
+        "excluded_bundle_ids": []
+      },
+      "enable_polish": true,
+      "auto_paste": true,
+      "streaming_paste": false,
+      "native_fast_paste": false,
+      "restore_clipboard": true,
+      "default_mode": "realtime_long"
+    }
+  },
+  {
+    "input": {
+      "hotkey": {
+        "custom_keys": [],
+        "custom_key": {
+          "key_code": 55,
+          "display_name": "Left Command",
+          "is_modifier": true,
+          "flag_mask": 1048576
+        }
+      }
+    },
+    "expected": {
+      "api_key": "",
+      "audio": {
+        "sample_rate": 16000,
+        "channels": 1,
+        "capture_channels": 1,
+        "blocksize": 1280,
+        "input_device": null,
+        "capture_backend": "low_latency",
+        "gain_mode": "manual",
+        "gain": 2.0,
+        "highpass_filter": true,
+        "highpass_freq": 200,
+        "soft_limiter": true,
+        "waveform_ceiling_dbfs": -6.0
+      },
+      "asr": {
+        "backend": "realtime_ws",
+        "model": "qwen3.5-omni-flash-realtime",
+        "language": "auto",
+        "batch_mode": "manual",
+        "realtime_url": "",
+        "use_dictionary_corpus": true,
+        "extra_corpus_terms": []
+      },
+      "llm": {
+        "model": "qwen3.5-plus",
+        "temperature": 0.0,
+        "enable_thinking": false,
+        "max_tokens": 1024,
+        "polish_mode": "dictation",
+        "level": "minimal",
+        "structured": false,
+        "tone": "neutral",
+        "persona": "default",
+        "output_language": "auto",
+        "prompt_overrides": {}
+      },
+      "hotkey": {
+        "primary_key": "fn",
+        "fallback_key": "fn",
+        "double_tap_threshold": 0.3,
+        "active_hotkeys": [
+          "fn"
+        ],
+        "custom_key": null,
+        "custom_keys": []
+      },
+      "ui": {
+        "language": "zh",
+        "onboarding_completed": true,
+        "advanced_settings": true
+      },
+      "dictionary_learning": {
+        "enabled": false,
+        "excluded_bundle_ids": []
+      },
+      "enable_polish": true,
+      "auto_paste": true,
+      "streaming_paste": false,
+      "native_fast_paste": false,
+      "restore_clipboard": true,
+      "default_mode": "realtime_long"
+    }
+  }
+]

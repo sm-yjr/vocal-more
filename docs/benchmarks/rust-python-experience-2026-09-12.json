@@ -1,0 +1,1090 @@
+{
+  "date": "2026-09-12",
+  "environment": {
+    "os": "macOS 27.0 (26A428)",
+    "cpu": "Apple M1 Pro",
+    "architecture": "arm64",
+    "python": "3.13.2",
+    "cargo": "1.90.0",
+    "baseline_git_commit": "084d1a86f45e6c7f8a94a9a2356561a71ed2c990",
+    "worktree_dirty": true,
+    "rust_executable_sha256": "52b9cb2ea03c1bddc73c8fb89af2b082eca57810bf352cbb38d439e141923d03"
+  },
+  "controlled_backend": {
+    "scope": "production backend, loopback ASR, paced PCM, no GUI/microphone/system paste",
+    "pcm_sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+    "seconds": 1,
+    "runs": [
+      {
+        "kind": "python",
+        "rounds": 20,
+        "handshake_ms": 100,
+        "python_prewarm": true,
+        "startup_ms": 615.0889580021612,
+        "idle_mib": 62.1,
+        "sessions": [
+          {
+            "feedback_ms": 1.6402089968323708,
+            "first_audio_event_ms": 4.0474170236848295,
+            "first_partial_ms": 115.91666701133363,
+            "finish_to_result_ms": 31.17208299227059,
+            "finish_to_wire_commit_ms": 1.8387080053798854,
+            "wire_commit_to_result_ms": 29.333374986890703
+          },
+          {
+            "feedback_ms": 1.2203330115880817,
+            "first_audio_event_ms": 3.316624992294237,
+            "first_partial_ms": 109.90445798961446,
+            "finish_to_result_ms": 29.98666698113084,
+            "finish_to_wire_commit_ms": 2.5364589819218963,
+            "wire_commit_to_result_ms": 27.450207999208942
+          },
+          {
+            "feedback_ms": 1.6930409765336663,
+            "first_audio_event_ms": 3.288957988843322,
+            "first_partial_ms": 116.3176659902092,
+            "finish_to_result_ms": 29.88774998812005,
+            "finish_to_wire_commit_ms": 1.9326659967191517,
+            "wire_commit_to_result_ms": 27.955083991400898
+          },
+          {
+            "feedback_ms": 1.2142909981776029,
+            "first_audio_event_ms": 3.730458003701642,
+            "first_partial_ms": 114.46195800090209,
+            "finish_to_result_ms": 27.882958005648106,
+            "finish_to_wire_commit_ms": 1.5123750199563801,
+            "wire_commit_to_result_ms": 26.370582985691726
+          },
+          {
+            "feedback_ms": 1.537584001198411,
+            "first_audio_event_ms": 3.4578749909996986,
+            "first_partial_ms": 212.5047919980716,
+            "finish_to_result_ms": 30.400749994441867,
+            "finish_to_wire_commit_ms": 2.0392500155139714,
+            "wire_commit_to_result_ms": 28.361499978927895
+          },
+          {
+            "feedback_ms": 1.6626249998807907,
+            "first_audio_event_ms": 3.5222919832449406,
+            "first_partial_ms": 116.9281670008786,
+            "finish_to_result_ms": 30.930084001738578,
+            "finish_to_wire_commit_ms": 2.016334008658305,
+            "wire_commit_to_result_ms": 28.913749993080273
+          },
+          {
+            "feedback_ms": 1.7730419931467623,
+            "first_audio_event_ms": 3.8558749947696924,
+            "first_partial_ms": 116.34141698596068,
+            "finish_to_result_ms": 30.307749984785914,
+            "finish_to_wire_commit_ms": 1.4494579809252173,
+            "wire_commit_to_result_ms": 28.858292003860697
+          },
+          {
+            "feedback_ms": 1.5979169984348118,
+            "first_audio_event_ms": 3.360249975230545,
+            "first_partial_ms": 115.58199999853969,
+            "finish_to_result_ms": 31.984874978661537,
+            "finish_to_wire_commit_ms": 1.6922919894568622,
+            "wire_commit_to_result_ms": 30.292582989204675
+          },
+          {
+            "feedback_ms": 1.3799579755868763,
+            "first_audio_event_ms": 3.150249976897612,
+            "first_partial_ms": 115.49891697359271,
+            "finish_to_result_ms": 29.588208009954542,
+            "finish_to_wire_commit_ms": 1.8434160156175494,
+            "wire_commit_to_result_ms": 27.744791994336993
+          },
+          {
+            "feedback_ms": 1.6181669780053198,
+            "first_audio_event_ms": 4.470791987841949,
+            "first_partial_ms": 113.84854197967798,
+            "finish_to_result_ms": 31.176584016066045,
+            "finish_to_wire_commit_ms": 2.1779999951831996,
+            "wire_commit_to_result_ms": 28.998584020882845
+          },
+          {
+            "feedback_ms": 1.6755000106059015,
+            "first_audio_event_ms": 3.67241699132137,
+            "first_partial_ms": 112.13429199415259,
+            "finish_to_result_ms": 30.47704100026749,
+            "finish_to_wire_commit_ms": 2.7545410266611725,
+            "wire_commit_to_result_ms": 27.72249997360632
+          },
+          {
+            "feedback_ms": 1.420249987859279,
+            "first_audio_event_ms": 3.1014999840408564,
+            "first_partial_ms": 112.69349997746758,
+            "finish_to_result_ms": 28.583541978150606,
+            "finish_to_wire_commit_ms": 1.1704589996952564,
+            "wire_commit_to_result_ms": 27.41308297845535
+          },
+          {
+            "feedback_ms": 1.0997909994330257,
+            "first_audio_event_ms": 2.370208007050678,
+            "first_partial_ms": 115.03483299748041,
+            "finish_to_result_ms": 25.898583000525832,
+            "finish_to_wire_commit_ms": 1.733374985633418,
+            "wire_commit_to_result_ms": 24.165208014892414
+          },
+          {
+            "feedback_ms": 1.5251660079229623,
+            "first_audio_event_ms": 3.8669159985147417,
+            "first_partial_ms": 228.67779099033214,
+            "finish_to_result_ms": 31.16708400193602,
+            "finish_to_wire_commit_ms": 2.2859589953441173,
+            "wire_commit_to_result_ms": 28.8811250065919
+          },
+          {
+            "feedback_ms": 2.0139999978709966,
+            "first_audio_event_ms": 4.074416996445507,
+            "first_partial_ms": 114.96833400451578,
+            "finish_to_result_ms": 30.837667000014335,
+            "finish_to_wire_commit_ms": 1.8071670201607049,
+            "wire_commit_to_result_ms": 29.03049997985363
+          },
+          {
+            "feedback_ms": 1.6105420072562993,
+            "first_audio_event_ms": 2.997584000695497,
+            "first_partial_ms": 120.25304199778475,
+            "finish_to_result_ms": 31.4710000238847,
+            "finish_to_wire_commit_ms": 2.4792080221232027,
+            "wire_commit_to_result_ms": 28.991792001761496
+          },
+          {
+            "feedback_ms": 1.7243329784832895,
+            "first_audio_event_ms": 5.093790998216718,
+            "first_partial_ms": 215.5584159772843,
+            "finish_to_result_ms": 31.135875004110858,
+            "finish_to_wire_commit_ms": 1.7853750032372773,
+            "wire_commit_to_result_ms": 29.35050000087358
+          },
+          {
+            "feedback_ms": 1.6441670013591647,
+            "first_audio_event_ms": 3.6988750216551125,
+            "first_partial_ms": 117.54870900767855,
+            "finish_to_result_ms": 30.27950000250712,
+            "finish_to_wire_commit_ms": 2.828416007105261,
+            "wire_commit_to_result_ms": 27.45108399540186
+          },
+          {
+            "feedback_ms": 1.7368330154567957,
+            "first_audio_event_ms": 3.8319580198731273,
+            "first_partial_ms": 110.14595802407712,
+            "finish_to_result_ms": 29.43208400392905,
+            "finish_to_wire_commit_ms": 1.5799590037204325,
+            "wire_commit_to_result_ms": 27.852125000208616
+          },
+          {
+            "feedback_ms": 1.1064170103054494,
+            "first_audio_event_ms": 3.3908339974004775,
+            "first_partial_ms": 221.85441700275987,
+            "finish_to_result_ms": 27.534249995369464,
+            "finish_to_wire_commit_ms": 1.3134579930920154,
+            "wire_commit_to_result_ms": 26.22079200227745
+          }
+        ],
+        "fixture_tcp_nodelay": true,
+        "after_first_mib": 62.6,
+        "after_repeated_mib": 63.0,
+        "feedback_ms": {
+          "p50": 1.6143544926308095,
+          "p95": 1.7730419931467623,
+          "min": 1.0997909994330257,
+          "max": 2.0139999978709966
+        },
+        "first_audio_event_ms": {
+          "p50": 3.5973544872831553,
+          "p95": 4.470791987841949,
+          "min": 2.370208007050678,
+          "max": 5.093790998216718
+        },
+        "first_partial_ms": {
+          "p50": 115.74933350493666,
+          "p95": 221.85441700275987,
+          "min": 109.90445798961446,
+          "max": 228.67779099033214
+        },
+        "finish_to_result_ms": {
+          "p50": 30.35424998961389,
+          "p95": 31.4710000238847,
+          "min": 25.898583000525832,
+          "max": 31.984874978661537
+        },
+        "finish_to_wire_commit_ms": {
+          "p50": 1.8410620104987174,
+          "p95": 2.7545410266611725,
+          "min": 1.1704589996952564,
+          "max": 2.828416007105261
+        },
+        "wire_commit_to_result_ms": {
+          "p50": 28.158291985164396,
+          "p95": 29.35050000087358,
+          "min": 24.165208014892414,
+          "max": 30.292582989204675
+        },
+        "wire_audio": [
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190603.601372708
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190605.79800475
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190607.008476541
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190608.215406708
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190609.416858375
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190610.620826375
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190611.830795166
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190613.034774125
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190614.239439666
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190615.444068041
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190616.651637416
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190617.85385375
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190619.062715833
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190620.263897
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190621.472978625
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190622.680104833
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190623.886878791
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190625.098665666
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190626.306205375
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190627.515972458
+          }
+        ],
+        "pcm_verified": true,
+        "fixture_errors": [],
+        "shutdown_ms": 76.33787501254119
+      },
+      {
+        "kind": "rust",
+        "rounds": 20,
+        "handshake_ms": 100,
+        "python_prewarm": true,
+        "startup_ms": 52.09295800887048,
+        "idle_mib": 2.828125,
+        "sessions": [
+          {
+            "feedback_ms": 16.189832997042686,
+            "first_audio_event_ms": 17.421416006982327,
+            "first_partial_ms": 124.1540829942096,
+            "finish_to_result_ms": 104.3569169996772,
+            "finish_to_wire_commit_ms": 38.83495900663547,
+            "wire_commit_to_result_ms": 65.52195799304172
+          },
+          {
+            "feedback_ms": 16.173499985598028,
+            "first_audio_event_ms": 16.817124997032806,
+            "first_partial_ms": 123.37112499517389,
+            "finish_to_result_ms": 104.31320799398236,
+            "finish_to_wire_commit_ms": 42.933624994475394,
+            "wire_commit_to_result_ms": 61.379582999506965
+          },
+          {
+            "feedback_ms": 14.603707997594029,
+            "first_audio_event_ms": 15.215457999147475,
+            "first_partial_ms": 121.60254098125733,
+            "finish_to_result_ms": 98.67879099329002,
+            "finish_to_wire_commit_ms": 39.69775000587106,
+            "wire_commit_to_result_ms": 58.981040987418965
+          },
+          {
+            "feedback_ms": 13.195374980568886,
+            "first_audio_event_ms": 14.27245797822252,
+            "first_partial_ms": 119.4006250007078,
+            "finish_to_result_ms": 97.22125000553206,
+            "finish_to_wire_commit_ms": 41.33066601934843,
+            "wire_commit_to_result_ms": 55.89058398618363
+          },
+          {
+            "feedback_ms": 19.19054100289941,
+            "first_audio_event_ms": 19.730666012037545,
+            "first_partial_ms": 122.59570800233632,
+            "finish_to_result_ms": 97.20808299607597,
+            "finish_to_wire_commit_ms": 41.039957985049114,
+            "wire_commit_to_result_ms": 56.16812501102686
+          },
+          {
+            "feedback_ms": 15.333250019466504,
+            "first_audio_event_ms": 15.875041019171476,
+            "first_partial_ms": 122.39175001741387,
+            "finish_to_result_ms": 95.72145799756981,
+            "finish_to_wire_commit_ms": 37.59100000024773,
+            "wire_commit_to_result_ms": 58.13045799732208
+          },
+          {
+            "feedback_ms": 14.239874988561496,
+            "first_audio_event_ms": 14.859499991871417,
+            "first_partial_ms": 121.2518340034876,
+            "finish_to_result_ms": 97.588624979835,
+            "finish_to_wire_commit_ms": 43.61654198146425,
+            "wire_commit_to_result_ms": 53.97208299837075
+          },
+          {
+            "feedback_ms": 13.608458015369251,
+            "first_audio_event_ms": 14.18816699879244,
+            "first_partial_ms": 117.30237500160001,
+            "finish_to_result_ms": 96.1798339849338,
+            "finish_to_wire_commit_ms": 35.820749995764345,
+            "wire_commit_to_result_ms": 60.35908398916945
+          },
+          {
+            "feedback_ms": 11.662417004117742,
+            "first_audio_event_ms": 12.333332997513935,
+            "first_partial_ms": 118.83420799858868,
+            "finish_to_result_ms": 111.37779097771272,
+            "finish_to_wire_commit_ms": 39.126040996052325,
+            "wire_commit_to_result_ms": 72.2517499816604
+          },
+          {
+            "feedback_ms": 17.066166998120025,
+            "first_audio_event_ms": 17.840374988736585,
+            "first_partial_ms": 124.50854197959416,
+            "finish_to_result_ms": 106.48604098241776,
+            "finish_to_wire_commit_ms": 37.35450000385754,
+            "wire_commit_to_result_ms": 69.13154097856022
+          },
+          {
+            "feedback_ms": 17.889624985400587,
+            "first_audio_event_ms": 18.626000004587695,
+            "first_partial_ms": 121.02812499506399,
+            "finish_to_result_ms": 113.15208300948143,
+            "finish_to_wire_commit_ms": 40.51070800051093,
+            "wire_commit_to_result_ms": 72.6413750089705
+          },
+          {
+            "feedback_ms": 20.94716698047705,
+            "first_audio_event_ms": 21.674749994417652,
+            "first_partial_ms": 127.94629199197516,
+            "finish_to_result_ms": 101.29150000284426,
+            "finish_to_wire_commit_ms": 40.82845902303234,
+            "wire_commit_to_result_ms": 60.46304097981192
+          },
+          {
+            "feedback_ms": 17.031541996402666,
+            "first_audio_event_ms": 17.84833299461752,
+            "first_partial_ms": 122.37754199304618,
+            "finish_to_result_ms": 101.69904099893756,
+            "finish_to_wire_commit_ms": 41.37237500981428,
+            "wire_commit_to_result_ms": 60.326665989123285
+          },
+          {
+            "feedback_ms": 17.05366699025035,
+            "first_audio_event_ms": 17.79683300992474,
+            "first_partial_ms": 123.60108300345019,
+            "finish_to_result_ms": 99.11779098911211,
+            "finish_to_wire_commit_ms": 37.958000000799075,
+            "wire_commit_to_result_ms": 61.159790988313034
+          },
+          {
+            "feedback_ms": 15.20237501244992,
+            "first_audio_event_ms": 15.79266699263826,
+            "first_partial_ms": 118.78387501928955,
+            "finish_to_result_ms": 95.38608300499618,
+            "finish_to_wire_commit_ms": 39.27079201093875,
+            "wire_commit_to_result_ms": 56.11529099405743
+          },
+          {
+            "feedback_ms": 13.74195798416622,
+            "first_audio_event_ms": 14.342624985147268,
+            "first_partial_ms": 116.99574999511242,
+            "finish_to_result_ms": 103.29720898880623,
+            "finish_to_wire_commit_ms": 40.74770899023861,
+            "wire_commit_to_result_ms": 62.549499998567626
+          },
+          {
+            "feedback_ms": 14.431958989007398,
+            "first_audio_event_ms": 15.3610419947654,
+            "first_partial_ms": 122.25824999040924,
+            "finish_to_result_ms": 102.30841601151042,
+            "finish_to_wire_commit_ms": 41.78158301510848,
+            "wire_commit_to_result_ms": 60.526832996401936
+          },
+          {
+            "feedback_ms": 16.242457990301773,
+            "first_audio_event_ms": 17.181165982037783,
+            "first_partial_ms": 119.72533297375776,
+            "finish_to_result_ms": 103.76833300688304,
+            "finish_to_wire_commit_ms": 34.339041012572125,
+            "wire_commit_to_result_ms": 69.42929199431092
+          },
+          {
+            "feedback_ms": 16.272124979877844,
+            "first_audio_event_ms": 17.21525000175461,
+            "first_partial_ms": 121.45570799475536,
+            "finish_to_result_ms": 104.33479200582951,
+            "finish_to_wire_commit_ms": 41.02466700715013,
+            "wire_commit_to_result_ms": 63.310124998679385
+          },
+          {
+            "feedback_ms": 16.973542020423338,
+            "first_audio_event_ms": 18.159917002776638,
+            "first_partial_ms": 119.75325000821613,
+            "finish_to_result_ms": 103.2018749974668,
+            "finish_to_wire_commit_ms": 44.52908399980515,
+            "wire_commit_to_result_ms": 58.67279099766165
+          }
+        ],
+        "fixture_tcp_nodelay": true,
+        "after_first_mib": 3.984375,
+        "after_repeated_mib": 4.671875,
+        "feedback_ms": {
+          "p50": 16.181666491320357,
+          "p95": 19.19054100289941,
+          "min": 11.662417004117742,
+          "max": 20.94716698047705
+        },
+        "first_audio_event_ms": {
+          "p50": 16.999145489535294,
+          "p95": 19.730666012037545,
+          "min": 12.333332997513935,
+          "max": 21.674749994417652
+        },
+        "first_partial_ms": {
+          "p50": 121.52912448800635,
+          "p95": 124.50854197959416,
+          "min": 116.99574999511242,
+          "max": 127.94629199197516
+        },
+        "finish_to_result_ms": {
+          "p50": 102.00372850522399,
+          "p95": 111.37779097771272,
+          "min": 95.38608300499618,
+          "max": 113.15208300948143
+        },
+        "finish_to_wire_commit_ms": {
+          "p50": 40.62920849537477,
+          "p95": 43.61654198146425,
+          "min": 34.339041012572125,
+          "max": 44.52908399980515
+        },
+        "wire_commit_to_result_ms": {
+          "p50": 60.49493698810693,
+          "p95": 72.2517499816604,
+          "min": 53.97208299837075,
+          "max": 72.6413750089705
+        },
+        "wire_audio": [
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190630.806424375
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190632.660969875
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190633.832265875
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190634.993778166
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190636.152075333
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190637.321401083
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190638.483138708
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190639.647642791
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190640.810023416
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190641.979813125
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190643.157678833
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190644.36504875
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190645.539193
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190646.714201375
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190647.87883925
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190649.040051875
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190650.210671208
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190651.385559666
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190652.593677583
+          },
+          {
+            "pcm_bytes": 32000,
+            "sha256": "4784374ba320551feccb6d35d8ebb2200649a9f5750d57992910e971ddfd927e",
+            "commit_received_at": 190653.787923
+          }
+        ],
+        "pcm_verified": true,
+        "fixture_errors": [],
+        "shutdown_ms": 4.031916003441438
+      }
+    ]
+  },
+  "desktop": [
+    {
+      "kind": "python",
+      "initialize_including_imports_ms": 639.4419590069447,
+      "scope": "owned main processes; no hotkeys, microphone or ASR; excludes WebKit helpers",
+      "measurements": {
+        "idle": {
+          "main_process_mib": [
+            64.0
+          ],
+          "sum_mib": 64.0
+        },
+        "settings_open": {
+          "main_process_mib": [
+            81.1
+          ],
+          "sum_mib": 81.1
+        },
+        "after_three_open_close": {
+          "main_process_mib": [
+            84.4
+          ],
+          "sum_mib": 84.4
+        }
+      },
+      "idle_cpu_percent_one_core": 0.999184773536791,
+      "settings_ready_ms": [
+        536.6670829826035,
+        197.3171250137966,
+        185.26483300956897
+      ]
+    },
+    {
+      "kind": "rust",
+      "initialize_including_imports_ms": 326.11987501149997,
+      "scope": "owned main processes; no hotkeys, microphone or ASR; excludes WebKit helpers",
+      "measurements": {
+        "idle": {
+          "main_process_mib": [
+            33.4,
+            2.8125
+          ],
+          "sum_mib": 36.2125
+        },
+        "settings_open": {
+          "main_process_mib": [
+            49.4,
+            2.859375
+          ],
+          "sum_mib": 52.259375
+        },
+        "after_three_open_close": {
+          "main_process_mib": [
+            50.8,
+            3.015625
+          ],
+          "sum_mib": 53.815625
+        }
+      },
+      "idle_cpu_percent_one_core": 1.0981689268571297,
+      "settings_ready_ms": [
+        434.7283340175636,
+        167.03062498709187,
+        196.8930000148248
+      ]
+    }
+  ],
+  "regression_probes": {
+    "rust_pending_paste_lost_on_next_recording": {
+      "idle_before_os_paste": true,
+      "pending_before_next_start": 1,
+      "claim_after_next_start": {
+        "cancelled": true
+      },
+      "previous_text_retained": "这是 rust 集成测试。",
+      "boundary": "production Rust actor; simulated delayed OS executor; no real paste"
+    },
+    "rust_missing_device_after_refresh": {
+      "devices": [],
+      "selected_device": "unplugged-test-microphone",
+      "boundary": "empty native device provider; physical unplug not exercised"
+    },
+    "python_missing_device_after_resolve": {
+      "resolved": null,
+      "selected_device": null,
+      "persisted": true
+    },
+    "python_failed_streaming_paste": {
+      "streaming_active": false,
+      "acknowledged_raw_parts": []
+    },
+    "completion_ui_actions": {
+      "python": [
+        "refresh_copy_item",
+        "result_notification"
+      ],
+      "rust": [],
+      "rust_retains_last_text": true
+    },
+    "first_connection_rejected": {
+      "python": {
+        "connection_attempts_by_7_5s": 2,
+        "state": "recording",
+        "partial_results": [
+          "性能测试"
+        ],
+        "captured_bytes": 6400
+      },
+      "rust": {
+        "connection_attempts_by_7_5s": 1,
+        "state": "recording",
+        "partial_results": [],
+        "captured_bytes": 6400
+      }
+    },
+    "rust_failed_streaming_paste": {
+      "simulated_failed_text": "性能测试 Rust Python。",
+      "final_text": "性能测试 Rust Python。",
+      "final_paste_requests": [],
+      "boundary": "production actor; replayed the UI failure RPC path; no actual OS paste"
+    }
+  },
+  "additional_slow_admission": {
+    "scope": "production backend, loopback ASR, paced PCM, no GUI/microphone/system paste",
+    "pcm_sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815",
+    "seconds": 2.0,
+    "runs": [
+      {
+        "kind": "python",
+        "rounds": 10,
+        "handshake_ms": 500,
+        "python_prewarm": true,
+        "startup_ms": 512.9551249847282,
+        "idle_mib": 61.8,
+        "sessions": [
+          {
+            "feedback_ms": 2.2859580058138818,
+            "first_audio_event_ms": 4.1864580125547945,
+            "first_partial_ms": 528.6242080037482,
+            "finish_to_result_ms": 292.8470410115551
+          },
+          {
+            "feedback_ms": 1.5673750021960586,
+            "first_audio_event_ms": 3.25504201464355,
+            "first_partial_ms": 516.6124580136966,
+            "finish_to_result_ms": 30.951958004152402
+          },
+          {
+            "feedback_ms": 1.43012500484474,
+            "first_audio_event_ms": 3.671957994811237,
+            "first_partial_ms": 614.7984169947449,
+            "finish_to_result_ms": 31.79649999947287
+          },
+          {
+            "feedback_ms": 1.988959003938362,
+            "first_audio_event_ms": 4.60812498931773,
+            "first_partial_ms": 629.3032919929828,
+            "finish_to_result_ms": 33.82904198952019
+          },
+          {
+            "feedback_ms": 1.1468750017229468,
+            "first_audio_event_ms": 2.8719580150209367,
+            "first_partial_ms": 622.4301670154091,
+            "finish_to_result_ms": 34.20270900824107
+          },
+          {
+            "feedback_ms": 1.4627499913331121,
+            "first_audio_event_ms": 4.226333985570818,
+            "first_partial_ms": 616.0371250007302,
+            "finish_to_result_ms": 30.192417005309835
+          },
+          {
+            "feedback_ms": 1.3702500145882368,
+            "first_audio_event_ms": 2.8201250243000686,
+            "first_partial_ms": 526.9676250172779,
+            "finish_to_result_ms": 31.10495797591284
+          },
+          {
+            "feedback_ms": 1.6352920210920274,
+            "first_audio_event_ms": 4.020375024992973,
+            "first_partial_ms": 633.5978750139475,
+            "finish_to_result_ms": 27.412334020482376
+          },
+          {
+            "feedback_ms": 2.20454199006781,
+            "first_audio_event_ms": 4.549584002234042,
+            "first_partial_ms": 636.1001250043046,
+            "finish_to_result_ms": 30.49608299625106
+          },
+          {
+            "feedback_ms": 4.956583987222984,
+            "first_audio_event_ms": 7.21041698125191,
+            "first_partial_ms": 521.3523749844171,
+            "finish_to_result_ms": 37.205416010692716
+          }
+        ],
+        "after_first_mib": 62.4,
+        "after_repeated_mib": 62.7,
+        "feedback_ms": {
+          "p50": 1.601333511644043,
+          "p95": 4.956583987222984,
+          "min": 1.1468750017229468,
+          "max": 4.956583987222984
+        },
+        "first_audio_event_ms": {
+          "p50": 4.103416518773884,
+          "p95": 7.21041698125191,
+          "min": 2.8201250243000686,
+          "max": 7.21041698125191
+        },
+        "first_partial_ms": {
+          "p50": 615.4177709977375,
+          "p95": 636.1001250043046,
+          "min": 516.6124580136966,
+          "max": 636.1001250043046
+        },
+        "finish_to_result_ms": {
+          "p50": 31.450728987692855,
+          "p95": 292.8470410115551,
+          "min": 27.412334020482376,
+          "max": 292.8470410115551
+        },
+        "wire_audio": [
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          }
+        ],
+        "pcm_verified": true,
+        "fixture_errors": [],
+        "shutdown_ms": 83.0411670031026
+      },
+      {
+        "kind": "rust",
+        "rounds": 10,
+        "handshake_ms": 500,
+        "python_prewarm": true,
+        "startup_ms": 47.26199997821823,
+        "idle_mib": 2.796875,
+        "sessions": [
+          {
+            "feedback_ms": 16.79175000754185,
+            "first_audio_event_ms": 17.324915999779478,
+            "first_partial_ms": 528.7261659977958,
+            "finish_to_result_ms": 99.83000002102926
+          },
+          {
+            "feedback_ms": 22.914250002941117,
+            "first_audio_event_ms": 23.547999997390434,
+            "first_partial_ms": 533.3203339832835,
+            "finish_to_result_ms": 109.33924998971634
+          },
+          {
+            "feedback_ms": 15.162124997004867,
+            "first_audio_event_ms": 15.781374997459352,
+            "first_partial_ms": 520.8562079933472,
+            "finish_to_result_ms": 108.04883297532797
+          },
+          {
+            "feedback_ms": 26.03750000707805,
+            "first_audio_event_ms": 26.728249998996034,
+            "first_partial_ms": 540.2281249989755,
+            "finish_to_result_ms": 122.7341250050813
+          },
+          {
+            "feedback_ms": 18.944583018310368,
+            "first_audio_event_ms": 20.461958018131554,
+            "first_partial_ms": 534.8413750180043,
+            "finish_to_result_ms": 121.58341699978337
+          },
+          {
+            "feedback_ms": 19.477584020933136,
+            "first_audio_event_ms": 20.748125010868534,
+            "first_partial_ms": 536.4774590125307,
+            "finish_to_result_ms": 135.7885419856757
+          },
+          {
+            "feedback_ms": 30.187458993168548,
+            "first_audio_event_ms": 32.66741699189879,
+            "first_partial_ms": 549.5467089931481,
+            "finish_to_result_ms": 105.03408298245631
+          },
+          {
+            "feedback_ms": 14.46404101443477,
+            "first_audio_event_ms": 15.092916000867262,
+            "first_partial_ms": 531.5841659903526,
+            "finish_to_result_ms": 98.30354200676084
+          },
+          {
+            "feedback_ms": 13.029499998083338,
+            "first_audio_event_ms": 13.70362500892952,
+            "first_partial_ms": 532.6441249926575,
+            "finish_to_result_ms": 107.29170800186694
+          },
+          {
+            "feedback_ms": 16.927459015278146,
+            "first_audio_event_ms": 18.83404201362282,
+            "first_partial_ms": 521.4502500020899,
+            "finish_to_result_ms": 111.29858400090598
+          }
+        ],
+        "after_first_mib": 3.734375,
+        "after_repeated_mib": 4.7197265625,
+        "feedback_ms": {
+          "p50": 17.936021016794257,
+          "p95": 30.187458993168548,
+          "min": 13.029499998083338,
+          "max": 30.187458993168548
+        },
+        "first_audio_event_ms": {
+          "p50": 19.648000015877187,
+          "p95": 32.66741699189879,
+          "min": 13.70362500892952,
+          "max": 32.66741699189879
+        },
+        "first_partial_ms": {
+          "p50": 532.9822294879705,
+          "p95": 549.5467089931481,
+          "min": 520.8562079933472,
+          "max": 549.5467089931481
+        },
+        "finish_to_result_ms": {
+          "p50": 108.69404148252215,
+          "p95": 135.7885419856757,
+          "min": 98.30354200676084,
+          "max": 135.7885419856757
+        },
+        "wire_audio": [
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          },
+          {
+            "pcm_bytes": 64000,
+            "sha256": "41c2f23891f711a270cc1571ee0016dd6d54b16ab9091a4e78f0d79338cbf815"
+          }
+        ],
+        "pcm_verified": true,
+        "fixture_errors": [],
+        "shutdown_ms": 1.7682500183582306
+      }
+    ]
+  },
+  "additional_slow_admission_caveat": "Older fixture with TCP_NODELAY unset; 10 rounds; do not merge with controlled run percentiles.",
+  "validation": {
+    "rust_passed": 52,
+    "python_passed": 989,
+    "frontend_passed": 72,
+    "python_command": "PYTHONPATH=packaging:src VOCAL_MORE_TEST_RUST_BACKEND=.build/rust-host/vocal-more-backend uv run python -m pytest -q",
+    "python_default_command": "Collection failed for concurrent release tests: ModuleNotFoundError release; no product code changed for workaround."
+  },
+  "history_after_20_sessions": {
+    "python": {
+      "wav_count": 3,
+      "flac_count": 17,
+      "audio_file_bytes": 429876
+    },
+    "rust": {
+      "wav_count": 20,
+      "flac_count": 0,
+      "audio_file_bytes": 640880
+    }
+  },
+  "audit_source_sha256": {
+    "rust/tools/compare_backends.py": "aa648e6530b401871eb6016c2bda02573d71141895432f2b15b1b5773d89a01a",
+    "rust/tools/compare_desktop.py": "82970fff05f3bde72e8973fe6fa5254305cfc68f6b0efcfeaf685f3df1aa9ea2",
+    "rust/tools/probe_experience.py": "51cf11d40f2891534b6efe1220842d929ed44244dd16e9ed2e913df2bc5ae1c9",
+    "rust/crates/backend/src/application.rs": "4ef1279087e65259f1c9354f54947b440c442efb440839184d15a2a08aec496f",
+    "rust/crates/backend/src/provider.rs": "416e9fdd2affbf56132890ae5fbc4d4c0c8622c308d85290aaefbdc710542c18",
+    "rust/crates/backend/src/workflow.rs": "cc2755395b743031b779392663f3a114b12133dd2936e23c26d60fd91e226155",
+    "src/vocal_more/rust_ui.py": "c37a1696eca660ed400785f5cb6aea8d88cc984bc99e8bcb4115581deae15ee9",
+    "src/vocal_more/app.py": "582c214b2f81924bb390385a79306c4b2af4bda46b2002d6cdac2a0131a409d8",
+    "src/vocal_more/core/asr_engine.py": "e90eeb9757e97b54f719e048829fe18d03cb69dc547f0010cae0e9f138e0f407"
+  }
+}

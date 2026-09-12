@@ -4,6 +4,8 @@ from pathlib import Path
 import sys
 import types
 
+import pytest
+
 import vocal_more
 from vocal_more import __version__
 from tests.project_metadata import read_project_license, read_project_version
@@ -23,7 +25,8 @@ def test_project_uses_gpl_v3_only():
     )
 
 
-def test_bundle_version_takes_precedence_for_packaged_app(monkeypatch):
+@pytest.mark.parametrize("product_version", [None, "9.8.7a2", "9.8.7b3"])
+def test_bundle_version_takes_precedence_for_packaged_app(monkeypatch, product_version):
     """py2app builds should display the Info.plist version even without dist metadata."""
 
     class FakeInfo:
@@ -31,6 +34,7 @@ def test_bundle_version_takes_precedence_for_packaged_app(monkeypatch):
             return {
                 "CFBundleIdentifier": "com.sm-yjr.vocal-more",
                 "CFBundleShortVersionString": "9.8.7",
+                "VocalMoreVersion": product_version,
             }.get(key)
 
     class FakeBundle:
@@ -42,4 +46,4 @@ def test_bundle_version_takes_precedence_for_packaged_app(monkeypatch):
     foundation.NSBundle = types.SimpleNamespace(mainBundle=lambda: FakeBundle())
     monkeypatch.setitem(sys.modules, "Foundation", foundation)
 
-    assert vocal_more._version_from_bundle() == "9.8.7"
+    assert vocal_more._version_from_bundle() == (product_version or "9.8.7")

@@ -138,6 +138,9 @@ class SettingsWindow:
         on_open_external: Optional[Callable[[str], None]] = None,
         recording_store: Optional[object] = None,
         recording_retry: Optional[object] = None,
+        message_dispatcher: Optional[Callable[[dict], None]] = None,
+        mic_test_controller: Optional[object] = None,
+        audio_status_provider: Optional[Callable[[], dict]] = None,
     ):
         self._closed = False
         self._recording_player = None
@@ -160,6 +163,8 @@ class SettingsWindow:
         self._on_open_external = on_open_external
         self._recording_store = recording_store
         self._recording_retry = recording_retry
+        self._external_message_dispatcher = message_dispatcher
+        self._audio_status_provider = audio_status_provider
 
         self._window: Optional[NSWindow] = None
         self._webview: Optional[WKWebView] = None
@@ -183,7 +188,10 @@ class SettingsWindow:
             thread_name_prefix="vocal-more-recording-maintenance",
         )
         self._bridge = SettingsBridge()
-        self._mic_test_controller = self._build_mic_test_controller()
+        self._mic_test_controller = (
+            mic_test_controller if mic_test_controller is not None
+            else self._build_mic_test_controller()
+        )
         self._dispatcher = self._build_action_dispatcher()
 
         self._setup()
@@ -340,6 +348,10 @@ class SettingsWindow:
 
     def _on_js_message(self, body: dict) -> None:
         """Handle messages from JavaScript (user interactions)."""
+        external = getattr(self, "_external_message_dispatcher", None)
+        if external is not None:
+            external(body)
+            return
         message = self._bridge.parse(body)
         if message is None:
             return
@@ -532,8 +544,10 @@ class SettingsWindow:
         """Refresh the actual/planned microphone processing path."""
         self._eval_js(f"loadAudioInputStatus({json.dumps(status)})")
 
-    @staticmethod
-    def _current_audio_input_status() -> dict:
+    def _current_audio_input_status(self) -> dict:
+        provider = getattr(self, "_audio_status_provider", None)
+        if provider is not None:
+            return provider()
         from ..core.audio_recorder import AudioRecorder
 
         try:

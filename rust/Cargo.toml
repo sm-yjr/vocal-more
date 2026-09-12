@@ -1,0 +1,32 @@
+[workspace]
+members = ["crates/core", "crates/backend", "crates/host"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "GPL-3.0-only"
+
+[workspace.dependencies]
+anyhow = "1.0"
+base64 = "0.22"
+bytes = "1.10"
+futures-util = { version = "0.3", features = ["sink"] }
+hound = "3.5.1"
+libloading = "0.9"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
+webpki-roots = "1.0"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "fs", "io-util", "signal", "process"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+url = "2.5"
+uuid = { version = "1.18", features = ["v4", "serde"] }
+tempfile = "3.23"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+debug = 1
+strip = "debuginfo"

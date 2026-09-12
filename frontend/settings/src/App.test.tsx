@@ -880,3 +880,17 @@ it("shows unfinished legacy meeting records without an active generation state",
   expect(screen.queryByText("生成纪要中…")).not.toBeInTheDocument()
   expect(screen.getByRole("button", { name: "播放 Hello Vocal More." })).toBeEnabled()
 })
+
+it("keeps configured Rust credentials usable while requiring an explicit reveal", async () => {
+  const data = makeInitData()
+  data.config!.api_key = ""
+  data.config!._api_key_set = true
+  data.initial_tab = "general"
+  data.config!.ui = { language: "zh", onboarding_completed: true, advanced_settings: true }
+  const { postMessage } = renderApp(data)
+  expect(screen.getByLabelText("API Key")).toHaveValue("")
+  expect(screen.getByRole("button", { name: "检查 Pro 和 Lite" })).toBeEnabled()
+  expect(postMessage).not.toHaveBeenCalledWith({ action: "revealApiKey" })
+  await userEvent.click(screen.getByRole("button", { name: "Show" }))
+  expect(postMessage).toHaveBeenCalledWith({ action: "revealApiKey" })
+})

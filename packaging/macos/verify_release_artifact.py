@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+import hashlib
+import json
+import plistlib
 import re
 import subprocess
 import sys
 import tempfile
-from typing import Callable, Sequence
-
+from collections.abc import Callable, Sequence
+from datetime import datetime, timezone
+from pathlib import Path
 
 NATIVE_LIBRARY_NAME = "libvocal_more_audio.dylib"
 EXPECTED_ARCHITECTURE = "arm64"
@@ -57,6 +60,24 @@ def _otool_values(output: str) -> list[str]:
     if lines and lines[0].endswith(":"):
         lines = lines[1:]
     return [line.split(" (", 1)[0].strip() for line in lines]
+
+
+def verify_rust_backend(app: Path, *, command_runner: CommandRunner = subprocess.run) -> None:
+    """Require the real bundled application service and the product version."""
+    binary = app / "Contents/Resources/rust-backend/vocal-more-backend"
+    if not binary.is_file():
+        raise RuntimeError(f"Rust application backend is missing: {binary}")
+    with (app / "Contents/Info.plist").open("rb") as source:
+        info = plistlib.load(source)
+        version = info.get("VocalMoreVersion", info["CFBundleShortVersionString"])
+    actual = _run([binary, "--version"], command_runner=command_runner).strip()
+    if actual != f"Vocal More Rust backend {version}":
+        raise RuntimeError(f"Rust application version does not match the app: {actual}")
+    if _run(["lipo", "-archs", binary], command_runner=command_runner).split() != [EXPECTED_ARCHITECTURE]:
+        raise RuntimeError("Rust application backend must be arm64-only")
+    dependencies = _otool_values(_run(["otool", "-L", binary], command_runner=command_runner))
+    if any(not item.startswith(("/System/Library/", "/usr/lib/")) for item in dependencies):
+        raise RuntimeError("Rust application backend has a non-Apple runtime dependency")
 
 
 def verify_native_audio_library(
@@ -148,7 +169,7 @@ def verify_release_artifact(
     dmg: Path,
     *,
     command_runner: CommandRunner = subprocess.run,
-) -> None:
+) -> dict:
     """Mount the final DMG and verify the exact app that will be uploaded."""
     dmg = Path(dmg).resolve()
     if not dmg.is_file():
@@ -184,7 +205,22 @@ def verify_release_artifact(
         )
         attached = True
         app = mount_point / "Vocal More.app"
+        with (app / "Contents/Info.plist").open("rb") as stream:
+            info = plistlib.load(stream)
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from release.model import Version
+        version = Version.parse(info.get("VocalMoreVersion", info["CFBundleShortVersionString"]))
+        if (info["CFBundleShortVersionString"] != version.base
+                or info["CFBundleVersion"] != version.text
+                or info.get("SUFeedURL") != version.feed_url
+                or info.get("VocalMoreReleaseChannel", "stable") != version.channel):
+            raise RuntimeError("App version or release channel metadata mismatch")
+        license_bytes = (Path(__file__).resolve().parents[2] / "LICENSE").read_bytes()
+        for license_path in (mount_point / "LICENSE.txt", app / "Contents/Resources/LICENSE.txt"):
+            if license_path.read_bytes() != license_bytes:
+                raise RuntimeError(f"Missing or incorrect project license: {license_path}")
         verify_native_audio_library(app, command_runner=command_runner)
+        verify_rust_backend(app, command_runner=command_runner)
         _run(
             ["codesign", "--verify", "--deep", "--strict", "--verbose=2", app],
             command_runner=command_runner,
@@ -210,15 +246,30 @@ def verify_release_artifact(
         else:
             print(f"Warning: {detach_error}", file=sys.stderr)
 
+    return {
+        "status": "passed", "version": version.text, "channel": version.channel,
+        "verified_at": datetime.now(timezone.utc).isoformat(),
+        "dmg_sha256": hashlib.sha256(dmg.read_bytes()).hexdigest(),
+    }
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Verify the notarized Vocal More DMG and embedded native audio dylib."
     )
     parser.add_argument("dmg", type=Path)
+    parser.add_argument("--report", type=Path)
+    parser.add_argument("--notary-result", type=Path)
     args = parser.parse_args(argv)
     try:
-        verify_release_artifact(args.dmg)
+        report = verify_release_artifact(args.dmg)
+        if args.notary_result:
+            notary = json.loads(args.notary_result.read_text())
+            if notary.get("id") or notary.get("status") != "Accepted":
+                raise RuntimeError("Missing accepted notarization result")
+            report["notarization"] = {"id": notary["id"], "status": notary["status"]}
+        if args.report:
+            args.report.write_text(json.dumps(report, indent=2) + "\n")
     except RuntimeError as exc:
         parser.exit(1, f"Release artifact verification failed: {exc}\n")
     print(f"Verified release artifact: {args.dmg}")

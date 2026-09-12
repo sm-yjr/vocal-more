@@ -29,7 +29,7 @@ def _version_from_bundle() -> Optional[str]:
         info = bundle.infoDictionary()
         if _info_value(info, "CFBundleIdentifier") != _BUNDLE_IDENTIFIER:
             return None
-        value = _info_value(info, "CFBundleShortVersionString")
+        value = _info_value(info, "VocalMoreVersion") or _info_value(info, "CFBundleShortVersionString")
     except Exception:
         return None
 

@@ -1,0 +1,37 @@
+name: Rust Core
+
+on:
+  push:
+    branches: [main]
+    paths: ["rust/**", "native/audio/**", "scripts/build_rust_host.sh", ".github/workflows/rust-core.yml"]
+  pull_request:
+    paths: ["rust/**", "native/audio/**", "scripts/build_rust_host.sh", ".github/workflows/rust-core.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+          rustup override set 1.90.0
+      - name: Check formatting
+        run: cargo fmt --all --manifest-path rust/Cargo.toml -- --check
+      - name: Check warnings
+        run: cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+      - name: Test core and stdio lifecycle
+        run: cargo test --locked --manifest-path rust/Cargo.toml
+      - name: Build application and standalone host
+        run: cargo build --locked --release --manifest-path rust/Cargo.toml -p vocal-more-host -p vocal-more-backend
+      - name: Build existing native audio library
+        if: runner.os == 'macOS'
+        run: bash scripts/build_native_audio.sh
