@@ -24,7 +24,10 @@ class GitHub:
     def api(self, path: str, *, method: str = "GET", data=None, binary: bool = False):
         endpoint = path if path.startswith("https://") else f"repos/{self.repository}/{path}"
         command = ["gh", "api", endpoint, "--method", method]
-        if binary:
+        # Release assets require octet-stream to select the file. Actions ZIP
+        # downloads instead require the default JSON Accept header, then redirect
+        # to archive storage; `binary` only controls decoding of that response.
+        if binary and re.fullmatch(r"releases/assets/\d+", path):
             command += ["-H", "Accept: application/octet-stream"]
         body = None
         if data is not None:

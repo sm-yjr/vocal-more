@@ -12,10 +12,25 @@ from types import SimpleNamespace
 
 import pytest
 from release import candidate
+from release.github import GitHub
 from release.model import ReleaseError, Version, read_context, sha256, write_json
 from release.state import feed_versions
 
 from tests.release_helpers import SOURCE, FakeGitHub, make_candidate, xml_for
+
+
+@pytest.mark.parametrize("endpoint,octet_stream", [
+    ("actions/artifacts/123/zip", False),
+    ("releases/assets/123", True),
+])
+def test_binary_download_selects_the_endpoint_media_type(monkeypatch, endpoint, octet_stream):
+    def run(command, **kwargs):
+        assert command[:3] == ["gh", "api", f"repos/sm-yjr/vocal-more/{endpoint}"]
+        assert ("Accept: application/octet-stream" in command) is octet_stream
+        return SimpleNamespace(returncode=0, stdout=b"binary archive", stderr=b"")
+
+    monkeypatch.setattr("release.github.subprocess.run", run)
+    assert GitHub().api(endpoint, binary=True) == b"binary archive"
 
 
 @pytest.mark.parametrize("text,tag,channel", [("0.4.18", "v0.4.18", "stable"), ("0.4.18a1", "v0.4.18-alpha.1", "alpha"), ("0.4.18b12", "v0.4.18-beta.12", "beta")])
