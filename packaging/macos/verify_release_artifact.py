@@ -265,7 +265,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = verify_release_artifact(args.dmg)
         if args.notary_result:
             notary = json.loads(args.notary_result.read_text())
-            if notary.get("id") or notary.get("status") != "Accepted":
+            if not notary.get("id") or notary.get("status") != "Accepted":
                 raise RuntimeError("Missing accepted notarization result")
             report["notarization"] = {"id": notary["id"], "status": notary["status"]}
         if args.report:

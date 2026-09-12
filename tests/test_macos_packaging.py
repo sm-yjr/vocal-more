@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import json
 import plistlib
 import subprocess
 import sys
@@ -431,6 +432,30 @@ def _load_release_artifact_verifier():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.mark.parametrize("notary,accepted", [
+    ({"id": "submission-id", "status": "Accepted"}, True),
+    ({"id": "submission-id", "status": "Invalid"}, False),
+    ({"status": "Accepted"}, False),
+    ({"id": "", "status": "Accepted"}, False),
+    ({"id": "submission-id"}, False),
+])
+def test_verifier_records_only_accepted_notarization(tmp_path, monkeypatch, notary, accepted):
+    verifier = _load_release_artifact_verifier()
+    monkeypatch.setattr(verifier, "verify_release_artifact", lambda _: {"status": "passed"})
+    result = tmp_path / "notary-result.json"
+    report = tmp_path / "verification.json"
+    result.write_text(json.dumps(notary))
+    args = [str(tmp_path / "app.dmg"), "--report", str(report), "--notary-result", str(result)]
+    if accepted:
+        assert verifier.main(args) == 0
+        assert json.loads(report.read_text())["notarization"] == notary
+    else:
+        with pytest.raises(SystemExit) as error:
+            verifier.main(args)
+        assert error.value.code == 1
+        assert not report.exists()
 
 
 def test_release_artifact_verifier_enforces_native_library_contract(tmp_path):
