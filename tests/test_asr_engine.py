@@ -2961,6 +2961,10 @@ def test_streaming_engine_replaces_consumed_session_with_clean_warm_session(
         "update_calls": 0,
         "committed_instance_ids": [],
     }
+    # A keeper from another test can still finish while this module-level
+    # provider fake is installed. Count only callbacks established by this
+    # engine so the assertion measures its ownership, not global thread timing.
+    owned_callback_ids = set()
 
     class ImmediateThread:
         def __init__(self, target=None, daemon=None):
@@ -2971,23 +2975,29 @@ def test_streaming_engine_replaces_consumed_session_with_clean_warm_session(
 
     class FakeConversation:
         def __init__(self, model, url, callback):
-            self.instance_id = len(captured["instances"]) + 1
+            self.owned = id(callback) in owned_callback_ids
+            self.instance_id = (
+                len(captured["instances"]) + 1 if self.owned else 0
+            )
             self.callback = callback
             self.closed = False
-            captured["instances"].append(self)
+            if self.owned:
+                captured["instances"].append(self)
 
         def connect(self):
             return None
 
         def update_session(self, **kwargs):
-            captured["update_calls"] += 1
+            if self.owned:
+                captured["update_calls"] += 1
             self.callback.on_event({"type": "session.updated"})
 
         def append_audio(self, _audio):
             return None
 
         def commit(self):
-            captured["committed_instance_ids"].append(self.instance_id)
+            if self.owned:
+                captured["committed_instance_ids"].append(self.instance_id)
             self.callback.on_event(
                 {
                     "type": "conversation.item.input_audio_transcription.completed",
@@ -3002,6 +3012,23 @@ def test_streaming_engine_replaces_consumed_session_with_clean_warm_session(
     monkeypatch.setattr(asr_engine, "OmniRealtimeConversation", FakeConversation)
 
     engine = asr_engine.ASREngine()
+    establish_conversation = engine._establish_conversation
+
+    def establish_owned_conversation(model_id, model_info, callback, *args, **kwargs):
+        owned_callback_ids.add(id(callback))
+        return establish_conversation(
+            model_id,
+            model_info,
+            callback,
+            *args,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        engine,
+        "_establish_conversation",
+        establish_owned_conversation,
+    )
     try:
         engine.start()
         engine.send_audio(b"\x01\x00" * 1600)
