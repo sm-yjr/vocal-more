@@ -150,6 +150,27 @@ def test_macos_native_fast_paste_skips_compatibility_delay(monkeypatch):
     assert keyboard.events == []
 
 
+def test_macos_native_fast_paste_does_not_construct_pynput_controller(monkeypatch):
+    constructed = []
+
+    def controller():
+        constructed.append(True)
+        raise AssertionError("native paste must not construct pynput Controller")
+
+    monkeypatch.setattr(keyboard_sim, "Controller", controller)
+    monkeypatch.setattr(keyboard_sim, "Key", _keys())
+
+    simulator = keyboard_sim.KeyboardSimulator(
+        platform_name="darwin",
+        clipboard=_FakeClipboard(),
+        native_fast_paste=True,
+        native_paster=SimpleNamespace(paste_text=lambda _text: True),
+    )
+    simulator.paste_text("hello")
+
+    assert constructed == []
+
+
 def test_macos_native_fast_paste_falls_back_when_dispatch_fails(monkeypatch):
     keyboard = _FakeKeyboard()
     clipboard = _FakeClipboard()
@@ -168,6 +189,37 @@ def test_macos_native_fast_paste_falls_back_when_dispatch_fails(monkeypatch):
     )
     simulator.paste_text("fallback")
 
+    assert clipboard.value == "fallback"
+    assert ("press", "v") in keyboard.events
+
+
+def test_macos_native_fallback_constructs_controller_only_when_needed(monkeypatch):
+    keyboard = _FakeKeyboard()
+    clipboard = _FakeClipboard()
+    constructed_on = []
+
+    def controller():
+        constructed_on.append(keyboard_sim.threading.current_thread())
+        return keyboard
+
+    monkeypatch.setattr(keyboard_sim, "Controller", controller)
+    monkeypatch.setattr(keyboard_sim, "Key", _keys())
+    monkeypatch.setattr(keyboard_sim.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(keyboard_sim.threading, "Timer", _TimerRecorder())
+
+    simulator = keyboard_sim.KeyboardSimulator(
+        platform_name="darwin",
+        clipboard=clipboard,
+        native_fast_paste=True,
+        native_paster=SimpleNamespace(paste_text=lambda _text: False),
+        restore_clipboard=False,
+    )
+
+    assert constructed_on == []
+
+    simulator.paste_text("fallback")
+
+    assert constructed_on == [keyboard_sim.threading.main_thread()]
     assert clipboard.value == "fallback"
     assert ("press", "v") in keyboard.events
 

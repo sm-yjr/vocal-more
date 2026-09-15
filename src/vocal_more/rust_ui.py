@@ -6,14 +6,14 @@ live here. The child service owns settings, audio, providers and persistence.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import fields
 import json
-from pathlib import Path
 import queue
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import fields
+from pathlib import Path
 from types import SimpleNamespace
 
 import rumps
@@ -142,7 +142,7 @@ class RustVocalMoreApp(rumps.App):
         def complete(result):
             try:
                 value = result.result()
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - async request boundary
                 self._enqueue({"method": "request_failed", "params": {"message": str(error),
                     "method": method, "action": (params or {}).get("action", "")}})
             else:
@@ -182,7 +182,7 @@ class RustVocalMoreApp(rumps.App):
                 break
             try:
                 self._event(event["method"], event.get("params", {}))
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - UI event boundary
                 self._notify(str(error))
         if not self._events.empty():
             self._schedule_drain()
@@ -313,6 +313,8 @@ class RustVocalMoreApp(rumps.App):
             self._last_text = data["text"]
         elif method == "paste_requested":
             self._submit_os(self._paste, data)
+        elif method == "_deliver_paste":
+            self._deliver_paste(data)
         elif method == "observation_poll":
             if not self._observing:
                 self._observing = self._submit_os(self._observe, data)
@@ -428,12 +430,27 @@ class RustVocalMoreApp(rumps.App):
                 return
             if prepared.get("observation_id"):
                 self._retained[prepared["observation_id"]] = before
+            # KeyboardSimulator may fall back to pynput, whose macOS Controller
+            # constructor queries HIToolbox and must run on the AppKit main
+            # queue.  Re-enter through the UI event queue for final delivery.
+            self._enqueue({"method": "_deliver_paste", "params": paste})
+        except Exception as error:  # noqa: BLE001 - platform operation boundary
+            self.request("cancel_observation")
+            self._enqueue({"method": "error", "params": {"message": str(error)}})
+
+    def _deliver_paste(self, paste):
+        try:
             from .core.keyboard_sim import KeyboardSimulator
             from .core.macos_native_paste import MacOSNativePaste
-            KeyboardSimulator(native_fast_paste=paste["native_fast_paste"],
-                native_paster=MacOSNativePaste(restore_clipboard=paste["restore_clipboard"]),
-                restore_clipboard=paste["restore_clipboard"]).paste_text(paste["text"])
-        except Exception as error:
+
+            KeyboardSimulator(
+                native_fast_paste=paste["native_fast_paste"],
+                native_paster=MacOSNativePaste(
+                    restore_clipboard=paste["restore_clipboard"]
+                ),
+                restore_clipboard=paste["restore_clipboard"],
+            ).paste_text(paste["text"])
+        except Exception as error:  # noqa: BLE001 - platform operation boundary
             self.request("cancel_observation")
             self._enqueue({"method": "error", "params": {"message": str(error)}})
 

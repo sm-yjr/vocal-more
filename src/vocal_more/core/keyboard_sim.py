@@ -26,10 +26,23 @@ class KeyboardSimulator:
         restore_clipboard: bool | None = None,
         restore_delay: float = _RESTORE_DELAY_SECONDS,
     ) -> None:
-        self._keyboard = keyboard if keyboard is not None else Controller()
-        self._clipboard = clipboard if clipboard is not None else pyperclip
         current_platform = (platform_name or sys.platform).casefold()
         self._platform_name = current_platform
+        # pynput's macOS Controller constructor queries the current input source
+        # through HIToolbox. macOS 27 asserts when that query runs away from the
+        # main queue, while the native fast-paste path does not need pynput at
+        # all. Keep the established eager construction for existing callers,
+        # but defer it for an explicitly selected macOS native path.
+        defer_native_controller = (
+            current_platform == "darwin" and native_fast_paste is True
+        )
+        if keyboard is not None:
+            self._keyboard = keyboard
+        elif defer_native_controller:
+            self._keyboard = None
+        else:
+            self._keyboard = Controller()
+        self._clipboard = clipboard if clipboard is not None else pyperclip
         self._native_fast_paste = native_fast_paste
         self._native_paster = native_paster
         self._restore_clipboard = restore_clipboard
@@ -44,8 +57,9 @@ class KeyboardSimulator:
 
     def type_text(self, text: str, delay: float = 0.01) -> None:
         """Type text character by character."""
+        keyboard = self._keyboard_controller()
         for char in text:
-            self._keyboard.type(char)
+            keyboard.type(char)
             if delay > 0:
                 time.sleep(delay)
 
@@ -83,19 +97,20 @@ class KeyboardSimulator:
         return bool(self._native_paster.paste_text(text))
 
     def _paste_text_compatible(self, text: str) -> None:
+        keyboard = self._keyboard_controller()
         snapshot = None
         restore_enabled = self._should_restore_clipboard()
         try:
             snapshot = self._clipboard.paste()
-        except Exception:  # noqa: BLE001,S110 - optional clipboard probe
+        except Exception:  # noqa: BLE001 - optional clipboard probe
             snapshot = None
 
         self._clipboard.copy(text)
         time.sleep(0.05)
 
-        with self._keyboard.pressed(self._shortcut_modifier):
-            self._keyboard.press("v")
-            self._keyboard.release("v")
+        with keyboard.pressed(self._shortcut_modifier):
+            keyboard.press("v")
+            keyboard.release("v")
 
         time.sleep(0.05)
 
@@ -136,30 +151,38 @@ class KeyboardSimulator:
 
     def delete_chars(self, count: int, delay: float = 0.01) -> None:
         """Delete characters using Backspace."""
+        keyboard = self._keyboard_controller()
         for _ in range(count):
-            self._keyboard.press(Key.backspace)
-            self._keyboard.release(Key.backspace)
+            keyboard.press(Key.backspace)
+            keyboard.release(Key.backspace)
             if delay > 0:
                 time.sleep(delay)
 
     def select_all_and_replace(self, text: str) -> None:
         """Select all text in the current field and replace it."""
-        with self._keyboard.pressed(self._shortcut_modifier):
-            self._keyboard.press("a")
-            self._keyboard.release("a")
+        keyboard = self._keyboard_controller()
+        with keyboard.pressed(self._shortcut_modifier):
+            keyboard.press("a")
+            keyboard.release("a")
 
         time.sleep(0.05)
         self.paste_text(text)
 
     def replace_last_n_chars(self, n: int, new_text: str) -> None:
         """Replace the last ``n`` characters with new text."""
+        keyboard = self._keyboard_controller()
         for _ in range(n):
-            with self._keyboard.pressed(Key.shift):
-                self._keyboard.press(Key.left)
-                self._keyboard.release(Key.left)
+            with keyboard.pressed(Key.shift):
+                keyboard.press(Key.left)
+                keyboard.release(Key.left)
 
         time.sleep(0.02)
         self.paste_text(new_text)
+
+    def _keyboard_controller(self):
+        if self._keyboard is None:
+            self._keyboard = Controller()
+        return self._keyboard
 
 
 if __name__ == "__main__":

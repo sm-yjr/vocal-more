@@ -1,9 +1,9 @@
 """The thin UI must wake on events, retain ordering and stop after close."""
-import queue
 import importlib.util
-from pathlib import Path
+import queue
 import sys
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -60,3 +60,62 @@ def test_queued_wakeup_cannot_touch_closed_ui(monkeypatch):
     app._enqueue({"method": "state_changed", "params": {"state": "idle"}})
     app._event.assert_not_called()
     assert not scheduled
+
+
+def test_rust_paste_constructs_keyboard_on_main_thread(monkeypatch):
+    app, _scheduled = dispatcher(monkeypatch)
+    app._retained = {}
+    app._text_provider = SimpleNamespace(capture_focused=lambda: None)
+    app.client = SimpleNamespace(
+        call=lambda method, _params: {
+            "claim_paste": {
+                "token": "paste-token",
+                "text": "hello",
+                "cancelled": False,
+                "observe_correction": False,
+                "native_fast_paste": True,
+                "restore_clipboard": True,
+            },
+            "prepare_paste_observation": {
+                "token": "paste-token",
+                "cancelled": False,
+                "observation_id": None,
+            },
+        }[method]
+    )
+    app.request = Mock()
+
+    from vocal_more.core import keyboard_sim, macos_native_paste
+
+    constructed_on = []
+    pasted = []
+
+    class FakeKeyboardSimulator:
+        def __init__(self, **_kwargs):
+            constructed_on.append(threading.current_thread())
+
+        def paste_text(self, text):
+            pasted.append(text)
+
+    monkeypatch.setattr(keyboard_sim, "KeyboardSimulator", FakeKeyboardSimulator)
+    monkeypatch.setattr(
+        macos_native_paste,
+        "MacOSNativePaste",
+        lambda **_kwargs: object(),
+    )
+
+    worker = threading.Thread(
+        target=app._paste,
+        args=({"token": "paste-token"},),
+    )
+    worker.start()
+    worker.join()
+
+    queued = app._events.get_nowait()
+    assert queued["method"] == "_deliver_paste"
+    assert constructed_on == []
+
+    type(app)._event(app, queued["method"], queued["params"])
+
+    assert constructed_on == [threading.main_thread()]
+    assert pasted == ["hello"]
