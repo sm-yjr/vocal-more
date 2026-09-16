@@ -570,7 +570,7 @@ class VocalMoreApp(rumps.App):
 
         from .infrastructure.sparkle_updater import SparkleUpdater
 
-        updater = SparkleUpdater()
+        updater = SparkleUpdater(update_channel=self.config.update_channel)
         self._sparkle_updater = updater
         return updater
 
@@ -608,8 +608,14 @@ class VocalMoreApp(rumps.App):
             # window perform its explicit live capability inspection instead of
             # displaying that constructor-only placeholder as observed fact.
             audio_input_status = None
+        settings_config = self.config.to_dict()
+        from .infrastructure.sparkle_updater import effective_update_channel
+
+        settings_config["update_channel"] = effective_update_channel(
+            self.config.update_channel
+        )
         self._settings_window.show(
-            config=self.config.to_dict(),
+            config=settings_config,
             asr_models=ASR_MODEL_CATALOG,
             llm_models=LLM_MODEL_CATALOG,
             devices=devices,
@@ -695,6 +701,12 @@ class VocalMoreApp(rumps.App):
             return
 
         self.config.save()
+        if key == "network.proxy_url":
+            _configure_network_for_config(self.config)
+        if key == "update_channel":
+            updater = getattr(self, "_sparkle_updater", None)
+            if updater is not None:
+                updater.set_update_channel(self.config.update_channel)
         if key == "audio.gain_mode":
             self._refresh_microphone_status_menu(update_settings_window=True)
         else:
@@ -724,8 +736,16 @@ class VocalMoreApp(rumps.App):
 
     def _on_settings_sync_form_state(self, form_state: dict) -> None:
         """Persist the full form state when the settings window closes."""
+        previous_update_channel = self.config.update_channel
+        previous_proxy_url = self.config.network.proxy_url
         self._get_runtime().apply_form_state(form_state)
         self.config.save()
+        if self.config.network.proxy_url != previous_proxy_url:
+            _configure_network_for_config(self.config)
+        if self.config.update_channel != previous_update_channel:
+            updater = getattr(self, "_sparkle_updater", None)
+            if updater is not None:
+                updater.set_update_channel(self.config.update_channel)
         self._refresh_quick_settings_menu()
 
     def _on_settings_set_hotkeys(self, hotkeys: list[str]) -> None:
@@ -1972,24 +1992,20 @@ def main() -> None:
 
     install_timestamped_stream("stdout")
     install_timestamped_stream("stderr")
-    proxy_bypass_hosts = ["dashscope.aliyuncs.com"]
-    realtime_host = urlsplit(get_config().asr.realtime_url).hostname
-    if realtime_host:
-        proxy_bypass_hosts.append(realtime_host)
-    _ensure_no_proxy(*proxy_bypass_hosts)
+    config = get_config()
+    _configure_network_for_config(config)
     app = build_menu_app(app_factory=VocalMoreApp)
     app.run()
 
 
-def _ensure_no_proxy(*hosts: str) -> None:
-    """Add hosts to no_proxy/NO_PROXY so WebSocket/HTTPS bypasses local proxies."""
-    for var in ("no_proxy", "NO_PROXY"):
-        existing = os.environ.get(var, "")
-        entries = [e.strip() for e in existing.split(",") if e.strip()]
-        for host in hosts:
-            if host not in entries:
-                entries.append(host)
-        os.environ[var] = ",".join(entries)
+def _configure_network_for_config(config) -> None:
+    from .infrastructure.network_proxy import configure_network_proxy
+
+    direct_hosts = ["dashscope.aliyuncs.com"]
+    realtime_host = urlsplit(config.asr.realtime_url).hostname
+    if realtime_host:
+        direct_hosts.append(realtime_host)
+    configure_network_proxy(config.network.proxy_url, direct_hosts)
 
 
 if __name__ == "__main__":

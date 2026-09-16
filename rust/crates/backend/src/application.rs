@@ -16,6 +16,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
+use futures_util::{StreamExt, stream};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -1184,14 +1185,32 @@ impl State {
         let cancel = self.shutdown.child_token();
         let internal = self.internal.clone();
         self.tasks.spawn(async move {
-            let check=|family:&'static str,model:&'static str| {let provider=provider.clone();let cancel=cancel.clone();async move {
+            let models = CONTRACT["asr_models"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|model| ("asr".to_string(), model["id"].as_str().unwrap().to_string(), model["display_name"].as_str().unwrap().to_string()))
+                .chain(
+                    CONTRACT["llm_models"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|model| ("llm".to_string(), model["id"].as_str().unwrap().to_string(), model["display_name"].as_str().unwrap().to_string())),
+                )
+                .collect::<Vec<_>>();
+            let results = stream::iter(models).map(|(family, model, display_name)| {let provider=provider.clone();let cancel=cancel.clone();async move {
                 let start=Instant::now();
-                let result=tokio::time::timeout(Duration::from_secs(10),provider.probe_model(model,&cancel)).await;
+                let result=tokio::time::timeout(Duration::from_secs(12), async {
+                    if family == "asr" {
+                        provider.probe_realtime_model(&model, &cancel).await
+                    } else {
+                        provider.probe_model(&model, &cancel).await
+                    }
+                }).await;
                 let error=match result{Ok(Ok(_))=>String::new(),Ok(Err(e))=>e.to_string(),Err(_)=>"Model check timed out".into()};
-                json!({"family":family,"model":model,"status":if error.is_empty(){"ok"}else{"error"},"latency_ms":start.elapsed().as_millis(),"error":error})
-            }};
-            let (pro,lite)=tokio::join!(check("pro","qwen3.5-omni-plus"),check("lite","qwen3.5-omni-flash"));
-            let _=internal.send(Internal::Models(json!([pro,lite]))).await;
+                json!({"family":family,"model":model,"display_name":display_name,"status":if error.is_empty(){"ok"}else{"error"},"latency_ms":start.elapsed().as_millis(),"error":error})
+            }}).buffered(4).collect::<Vec<_>>().await;
+            let _=internal.send(Internal::Models(json!(results))).await;
         });
     }
     fn schedule_learning(&mut self, delay: Duration) {

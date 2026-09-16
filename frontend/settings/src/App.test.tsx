@@ -194,14 +194,14 @@ describe("settings application", () => {
     })
   })
 
-  it("checks DashScope Pro and Lite access independently", async () => {
+  it("checks every available DashScope model and shows its name", async () => {
     const user = userEvent.setup()
     const data = makeInitData()
     data.initial_tab = "general"
     const { postMessage, store } = renderApp(data)
 
     await user.click(
-      screen.getByRole("button", { name: "检查 Pro 和 Lite" }),
+      screen.getByRole("button", { name: "检查全部模型" }),
     )
     expect(postMessage).toHaveBeenCalledWith({
       action: "checkDashScopeModels",
@@ -217,14 +217,16 @@ describe("settings application", () => {
     act(() => {
       store.dashscopeModelCheckComplete([
         {
-          family: "pro",
-          model: "qwen3.5-omni-plus",
+          family: "asr",
+          model: "qwen3.5-omni-plus-realtime",
+          display_name: "Qwen3.5 Omni Plus Realtime",
           status: "ok",
           latency_ms: 240,
         },
         {
-          family: "lite",
-          model: "qwen3.5-omni-flash",
+          family: "llm",
+          model: "qwen3.7-flash",
+          display_name: "Qwen 3.7 Flash",
           status: "error",
           latency_ms: 160,
           error: "ModelAccessDenied",
@@ -232,8 +234,8 @@ describe("settings application", () => {
       ])
     })
 
-    expect(screen.getByText("Pro · 可用 · 240 ms")).toBeVisible()
-    expect(screen.getByText("Lite · 不可用 · 160 ms")).toBeVisible()
+    expect(screen.getByText("Qwen3.5 Omni Plus Realtime · 可用 · 240 ms")).toBeVisible()
+    expect(screen.getByText("Qwen 3.7 Flash · 不可用 · 160 ms")).toBeVisible()
   })
 
   it("renders all seven accessible tabs and honors the injected initial tab", () => {
@@ -889,8 +891,49 @@ it("keeps configured Rust credentials usable while requiring an explicit reveal"
   data.config!.ui = { language: "zh", onboarding_completed: true, advanced_settings: true }
   const { postMessage } = renderApp(data)
   expect(screen.getByLabelText("API Key")).toHaveValue("")
-  expect(screen.getByRole("button", { name: "检查 Pro 和 Lite" })).toBeEnabled()
+  expect(screen.getByRole("button", { name: "检查全部模型" })).toBeEnabled()
   expect(postMessage).not.toHaveBeenCalledWith({ action: "revealApiKey" })
   await userEvent.click(screen.getByRole("button", { name: "Show" }))
   expect(postMessage).toHaveBeenCalledWith({ action: "revealApiKey" })
+})
+
+it("switches the automatic update channel to Nightly Alpha", async () => {
+  const user = userEvent.setup()
+  const data = makeInitData()
+  data.initial_tab = "general"
+  data.config!.update_channel = "stable"
+  const { postMessage } = renderApp(data)
+
+  await user.selectOptions(screen.getByLabelText("更新渠道"), "nightly")
+
+  expect(postMessage).toHaveBeenCalledWith({
+    action: "setConfig",
+    key: "update_channel",
+    value: "nightly",
+  })
+})
+
+it("validates and saves an application network proxy on blur", async () => {
+  const user = userEvent.setup()
+  const data = makeInitData()
+  data.initial_tab = "general"
+  const { postMessage } = renderApp(data)
+  const input = screen.getByLabelText("网络代理")
+
+  await user.type(input, "https://127.0.0.1:7890")
+  fireEvent.blur(input)
+  expect(input).toHaveAttribute("aria-invalid", "true")
+  expect(postMessage).not.toHaveBeenCalledWith(
+    expect.objectContaining({ key: "network.proxy_url" }),
+  )
+
+  await user.clear(input)
+  await user.type(input, "socks5://127.0.0.1:1080")
+  fireEvent.blur(input)
+
+  expect(postMessage).toHaveBeenCalledWith({
+    action: "setConfig",
+    key: "network.proxy_url",
+    value: "socks5://127.0.0.1:1080",
+  })
 })

@@ -34,6 +34,8 @@ def test_config_load(tmp_path, monkeypatch):
     assert config.asr.realtime_url == ""
     assert config.native_fast_paste is False
     assert config.restore_clipboard is True
+    assert config.update_channel is None
+    assert config.network.proxy_url == ""
     assert config.asr.use_dictionary_corpus is True
     assert config.asr.extra_corpus_terms == []
     assert config.llm.model == "qwen3.5-plus"
@@ -75,6 +77,41 @@ def test_config_accepts_explicit_public_realtime_url():
     assert config.asr.realtime_url == (
         "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
     )
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (" http://LOCALHOST:7890/ ", "http://localhost:7890"),
+        ("socks5://127.0.0.1:1080", "socks5://127.0.0.1:1080"),
+        ("http://[::1]:8080", "http://[::1]:8080"),
+        ("", ""),
+    ],
+)
+def test_config_normalizes_application_proxy(raw, expected):
+    from vocal_more.config import Config
+
+    config = Config()
+    config.apply_update("network.proxy_url", raw)
+
+    assert config.network.proxy_url == expected
+    assert config.to_dict()["network"]["proxy_url"] == expected
+
+
+@pytest.mark.parametrize(
+    "proxy_url",
+    [
+        "https://127.0.0.1:7890",
+        "http://127.0.0.1",
+        "http://user:pass@127.0.0.1:7890",
+        "socks5://127.0.0.1:1080/path",
+    ],
+)
+def test_config_rejects_unsupported_application_proxy(proxy_url):
+    from vocal_more.config import Config
+
+    with pytest.raises(ValueError, match="Proxy URL"):
+        Config().apply_update("network.proxy_url", proxy_url)
 
 
 @pytest.mark.parametrize(
@@ -365,6 +402,21 @@ def test_retired_meeting_default_migrates_to_realtime_dictation():
     saved = config.to_dict()
     assert "context_personalization" not in saved
     assert "command_key" not in saved["hotkey"]
+
+
+def test_update_channel_accepts_stable_and_nightly_only():
+    from vocal_more.domain.config_models import AppConfig
+
+    config = AppConfig()
+    config.apply_update("update_channel", "nightly")
+    assert config.update_channel == "nightly"
+    assert config.to_dict()["update_channel"] == "nightly"
+
+    config.apply_update("update_channel", "stable")
+    assert config.update_channel == "stable"
+
+    config.apply_update("update_channel", "beta")
+    assert config.update_channel is None
 
 
 def test_config_repository_round_trips_app_config(tmp_path):

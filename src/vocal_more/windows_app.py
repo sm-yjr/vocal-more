@@ -662,19 +662,6 @@ def _enable_windows_dpi_awareness() -> None:
         pass
 
 
-def _ensure_no_proxy(*hosts: str) -> None:
-    for variable in ("no_proxy", "NO_PROXY"):
-        entries = [
-            item.strip()
-            for item in os.environ.get(variable, "").split(",")
-            if item.strip()
-        ]
-        for host in hosts:
-            if host not in entries:
-                entries.append(host)
-        os.environ[variable] = ",".join(entries)
-
-
 def _install_windows_output() -> None:
     """Give a windowed PyInstaller build a persistent target for print logs."""
     global _LOG_STREAM
@@ -722,7 +709,12 @@ def main() -> None:
 
     _enable_windows_dpi_awareness()
     _install_windows_output()
-    _ensure_no_proxy("dashscope.aliyuncs.com")
+    from .infrastructure.network_proxy import configure_network_proxy
+
+    configure_network_proxy(
+        get_config().network.proxy_url,
+        ["dashscope.aliyuncs.com"],
+    )
     print(f"[Startup] Vocal More {__version__} Windows host")
 
     instance = _SingleInstance()

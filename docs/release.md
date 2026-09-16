@@ -18,9 +18,9 @@
 
 预发布序号为 1～255。也接受裸 tag、PEP 440 tag，例如 `0.4.18`、`v0.4.18a1`、`0.4.18-beta.1`；同一版本只能发布一次，不能用多个别名重复发布。推荐从准备到发布始终使用同一 tag 拼写，否则必须重新签署下载 URL。
 
-App 的 `SUFeedURL` 固定到所属通道，稳定版不会接收 alpha/beta；alpha 和 beta 也分别只接收本通道更新。首次发布某通道时没有 delta；从第二版开始生成该通道上一版到当前版的 delta。各通道均需完成相同的签名、公证和验证。
+App 的 `SUFeedURL` 仍记录构建所属通道，作为未显式选择时的兼容默认值。设置中的 **Stable** 使用稳定 feed，**Nightly** 使用 alpha feed；beta feed 继续用于既有 beta 构建，但不作为新的用户可选渠道。首次发布某通道时没有 delta；从第二版开始生成该通道上一版到当前版的 delta。各通道均需完成相同的签名、公证和验证。
 
-本次没有增加运行时通道切换 UI。换通道需要退出应用、安装目标通道 DMG；三个通道使用相同 bundle ID 和用户配置，按同一个应用替换安装。稳定版发布不会自动把 alpha/beta 安装迁移到 stable。正式版必须修改为无后缀版本、生成新的正式候选，不能把 alpha/beta DMG 改名后直接发布。
+用户可在“设置 → 通用 → 更新渠道”切换 Stable / Nightly，切换后 Sparkle 会立即重置自动检查周期；Nightly 对应 alpha feed。旧版配置没有该字段时沿用安装包内嵌通道，因此已有 Alpha 安装会继续跟随 Nightly。正式版必须修改为无后缀版本、生成新的正式候选，不能把 alpha/beta DMG 改名后直接发布。
 
 `CFBundleShortVersionString` 保持三段数字；`CFBundleVersion` 和 `VocalMoreVersion` 保留完整产品版本，`VocalMoreReleaseChannel` 保存通道。应用版本显示和 Sparkle feed 的显示版本保留 alpha/beta 后缀。
 

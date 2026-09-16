@@ -42,6 +42,13 @@ def test_settings_bridge_rejects_unknown_config_keys():
         "value": False,
     }
     assert bridge.parse(
+        {"action": "setConfig", "key": "update_channel", "value": "nightly"}
+    ) == {
+        "action": "set_config",
+        "key": "update_channel",
+        "value": "nightly",
+    }
+    assert bridge.parse(
         {"action": "setConfig", "key": "restore_clipboard", "value": False}
     ) == {
         "action": "set_config",
@@ -157,6 +164,10 @@ def test_settings_bridge_sanitizes_sync_form_state_payload():
                     "excluded_bundle_ids": ["com.1password.1password"],
                     "unknown": "ignored",
                 },
+                "network": {
+                    "proxy_url": "http://127.0.0.1:7890",
+                    "unknown": "ignored",
+                },
             },
         }
     )
@@ -176,6 +187,7 @@ def test_settings_bridge_sanitizes_sync_form_state_payload():
                 "enabled": True,
                 "excluded_bundle_ids": ["com.1password.1password"],
             },
+            "network": {"proxy_url": "http://127.0.0.1:7890"},
         },
     }
 

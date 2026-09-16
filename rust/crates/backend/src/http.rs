@@ -28,10 +28,26 @@ pub struct Completion {
 }
 
 impl Provider {
-    pub async fn probe_model(&self, model: &str, cancel: &CancellationToken) -> Result<()> {
-        let client = reqwest::Client::builder()
+    fn http_client_builder(&self) -> Result<reqwest::ClientBuilder> {
+        let mut builder = reqwest::Client::builder()
             .use_preconfigured_tls(vocal_more_core::protocol::tls_config()?)
-            .redirect(reqwest::redirect::Policy::none())
+            .redirect(reqwest::redirect::Policy::none());
+        if self.endpoints.fixture {
+            builder = builder.no_proxy();
+        } else if let Some(proxy_url) = self
+            .config
+            .get("network.proxy_url")
+            .as_str()
+            .filter(|value| !value.is_empty())
+        {
+            builder = builder.proxy(reqwest::Proxy::all(proxy_url)?);
+        }
+        Ok(builder)
+    }
+
+    pub async fn probe_model(&self, model: &str, cancel: &CancellationToken) -> Result<()> {
+        let client = self
+            .http_client_builder()?
             .timeout(Duration::from_secs(10))
             .build()?;
         let payload = json!({"model":model,"input":{"messages":[{"role":"user","content":[{"text":"Reply with OK."}]}]},
@@ -211,9 +227,8 @@ impl Provider {
             matches!(path, MULTIMODAL | "/compatible-mode/v1/chat/completions"),
             "unsupported provider API path"
         );
-        let client = reqwest::Client::builder()
-            .use_preconfigured_tls(vocal_more_core::protocol::tls_config()?)
-            .redirect(reqwest::redirect::Policy::none())
+        let client = self
+            .http_client_builder()?
             .connect_timeout(Duration::from_secs(10))
             .read_timeout(Duration::from_secs(90))
             .timeout(Duration::from_secs(120))

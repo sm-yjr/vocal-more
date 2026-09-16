@@ -611,6 +611,27 @@ def test_gain_mode_change_immediately_refreshes_the_planned_audio_status(monkeyp
     )
 
 
+def test_update_channel_change_resets_sparkle_cycle(monkeypatch):
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._get_runtime = MagicMock(
+        return_value=SimpleNamespace(apply_update=app.config.apply_update)
+    )
+    app._sparkle_updater = MagicMock()
+    app._refresh_quick_settings_menu = MagicMock()
+
+    app._on_settings_config_change("update_channel", "nightly")
+
+    assert app.config.update_channel == "nightly"
+    app._sparkle_updater.set_update_channel.assert_called_once_with("nightly")
+
+
 def test_build_menu_adds_quick_settings_and_marks_current_config(
     tmp_path, monkeypatch
 ):

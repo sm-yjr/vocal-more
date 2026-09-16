@@ -120,7 +120,7 @@ describe("WKWebView settings bridge", () => {
     })
   })
 
-  it("routes DashScope family checks into state", () => {
+  it("routes DashScope model checks into state", () => {
     const store = createSettingsStore(makeInitData())
     installPythonApi(store)
 
@@ -132,14 +132,14 @@ describe("WKWebView settings bridge", () => {
 
     window.dashscopeModelCheckComplete([
       {
-        family: "pro",
-        model: "qwen3.5-omni-plus",
+        family: "asr",
+        model: "qwen3.5-omni-plus-realtime",
         status: "ok",
         latency_ms: 320,
       },
       {
-        family: "lite",
-        model: "qwen3.5-omni-flash",
+        family: "llm",
+        model: "qwen3.7-flash",
         status: "error",
         latency_ms: 180,
         error: "ModelAccessDenied",
@@ -149,8 +149,8 @@ describe("WKWebView settings bridge", () => {
     expect(store.getSnapshot().dashscopeModelCheck).toMatchObject({
       state: "done",
       results: [
-        { family: "pro", status: "ok" },
-        { family: "lite", status: "error" },
+        { family: "asr", status: "ok" },
+        { family: "llm", status: "error" },
       ],
     })
   })

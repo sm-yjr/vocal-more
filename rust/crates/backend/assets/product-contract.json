@@ -1,5 +1,5 @@
 {
-  "source_version": "0.5.0a2",
+  "source_version": "0.5.0a3",
   "defaults": {
     "api_key": "",
     "audio": {
@@ -57,12 +57,16 @@
       "enabled": false,
       "excluded_bundle_ids": []
     },
+    "network": {
+      "proxy_url": ""
+    },
     "enable_polish": true,
     "auto_paste": true,
     "streaming_paste": false,
     "native_fast_paste": false,
     "restore_clipboard": true,
-    "default_mode": "realtime_long"
+    "default_mode": "realtime_long",
+    "update_channel": null
   },
   "all_asr_models": [
     {
@@ -184,18 +188,6 @@
   ],
   "asr_models": [
     {
-      "id": "qwen-audio-3.0-asr-flash-streaming",
-      "display_name": "Qwen Audio 3.0 ASR Flash Streaming",
-      "transport": "realtime_ws",
-      "protocol": "audio_recognition",
-      "fallback_model": "qwen3-asr-flash",
-      "supports_transcription_params": false,
-      "input_audio_transcription_model": null,
-      "handles_inline_polish": false,
-      "supports_instant_hotwords": true,
-      "pipeline": "native_asr"
-    },
-    {
       "id": "qwen3.5-omni-plus-realtime",
       "display_name": "Qwen3.5 Omni Plus Realtime",
       "transport": "realtime_ws",
@@ -216,6 +208,18 @@
       "protocol": "omni_realtime",
       "supports_instant_hotwords": false,
       "pipeline": "inline_generation"
+    },
+    {
+      "id": "qwen-audio-3.0-asr-flash-streaming",
+      "display_name": "Qwen Audio 3.0 ASR Flash Streaming",
+      "transport": "realtime_ws",
+      "protocol": "audio_recognition",
+      "fallback_model": "qwen3-asr-flash",
+      "supports_transcription_params": false,
+      "input_audio_transcription_model": null,
+      "handles_inline_polish": false,
+      "supports_instant_hotwords": true,
+      "pipeline": "native_asr"
     },
     {
       "id": "qwen-audio-3.0-realtime-plus",

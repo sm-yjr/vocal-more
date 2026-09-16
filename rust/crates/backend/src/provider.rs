@@ -226,6 +226,79 @@ impl Provider {
         json!({"header":{"action":"run-task","task_id":task,"streaming":"duplex"},"payload":{"task_group":"audio","task":"asr","function":"recognition","model":self.model(),"parameters":parameters,"input":input}})
     }
 
+    pub async fn probe_realtime_model(
+        &self,
+        model: &str,
+        cancel: &CancellationToken,
+    ) -> Result<()> {
+        let mut provider = self.clone();
+        provider.config.apply_update("asr.model", &json!(model))?;
+        ensure!(
+            provider.model_info()["transport"] == "realtime_ws",
+            "model does not use realtime transport"
+        );
+        let recognition = provider.model_info()["protocol"] == "audio_recognition";
+        let endpoint = if recognition {
+            &provider.endpoints.recognition
+        } else {
+            provider.endpoints.realtime.as_deref().unwrap_or_else(|| {
+                provider
+                    .config
+                    .get("asr.realtime_url")
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("wss://dashscope.aliyuncs.com/api-ws/v1/realtime")
+            })
+        };
+        let mut url = url::Url::parse(endpoint)?;
+        if !recognition {
+            url.query_pairs_mut().append_pair("model", model);
+        }
+        let proxy = provider
+            .config
+            .get("network.proxy_url")
+            .as_str()
+            .filter(|value| !value.is_empty());
+        let mut socket = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => bail!("model check cancelled"),
+            result = timeout(
+                CONNECT_TIMEOUT,
+                protocol::connect_url_with_proxy(url, provider.api_key()?, proxy),
+            ) => result.context("model check timed out")??,
+        };
+        let task = uuid::Uuid::new_v4().simple().to_string();
+        send_json(
+            &mut socket,
+            if recognition {
+                provider.recognition_start(&task)
+            } else {
+                provider.session_update()
+            },
+        )
+        .await?;
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => bail!("model check cancelled"),
+            result = timeout(CONNECT_TIMEOUT, async {
+                loop {
+                    let event = protocol::receive(&mut socket).await?;
+                    check_error(&event)?;
+                    if (recognition
+                        && event["header"]["event"] == "task-started"
+                        && event["header"]["task_id"] == task)
+                        || (!recognition && event["type"] == "session.updated")
+                    {
+                        break;
+                    }
+                }
+                Ok::<_, anyhow::Error>(())
+            }) => result.context("model check timed out")??,
+        }
+        let _ = socket.close(None).await;
+        Ok(())
+    }
+
     async fn realtime(
         self,
         mut input: mpsc::Receiver<NetworkInput>,
@@ -244,7 +317,8 @@ impl Provider {
                 };
                 let mut url = url::Url::parse(endpoint)?;
                 if !recognition { url.query_pairs_mut().append_pair("model",self.model()); }
-                let mut socket = timeout(CONNECT_TIMEOUT, protocol::connect_url(url,self.api_key()?)).await.context("ASR connection timed out")??;
+                let proxy = self.config.get("network.proxy_url").as_str().filter(|value| !value.is_empty());
+                let mut socket = timeout(CONNECT_TIMEOUT, protocol::connect_url_with_proxy(url,self.api_key()?,proxy)).await.context("ASR connection timed out")??;
                 let task = uuid::Uuid::new_v4().simple().to_string();
                 send_json(&mut socket, if recognition { self.recognition_start(&task) } else { self.session_update() }).await?;
                 timeout(CONNECT_TIMEOUT, async {

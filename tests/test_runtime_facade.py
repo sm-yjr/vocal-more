@@ -220,6 +220,16 @@ def test_runtime_facade_refreshes_asr_runtime_for_asr_and_llm_changes():
     realtime._asr.refresh_runtime_config.assert_called_once_with(drop_idle_session=True)
 
 
+def test_runtime_facade_refreshes_idle_asr_sessions_when_proxy_changes():
+    facade, _, walkie, realtime, _, _ = _build_runtime_facade()
+
+    result = facade.apply_update("network.proxy_url", "http://127.0.0.1:7890")
+
+    assert result.refresh_asr_runtime is True
+    walkie._asr.refresh_runtime_config.assert_called_once_with(drop_idle_session=True)
+    realtime._asr.refresh_runtime_config.assert_called_once_with(drop_idle_session=True)
+
+
 def test_runtime_facade_wakes_dictionary_learning_for_privacy_or_key_changes():
     facade, config, walkie, realtime, current_mode, callbacks = _build_runtime_facade()
 

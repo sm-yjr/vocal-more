@@ -58,12 +58,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     }
   },
   {
@@ -127,12 +131,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     }
   },
   {
@@ -199,12 +207,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     }
   },
   {
@@ -271,12 +283,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     }
   },
   {
@@ -342,12 +358,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     }
   },
   {
@@ -411,12 +431,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     }
   },
   {
@@ -484,12 +508,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     }
   },
   {
@@ -561,12 +589,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     }
   }
 ]

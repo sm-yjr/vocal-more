@@ -10,6 +10,7 @@ describe("settings store", () => {
     expect(store.collectFormState()).toEqual({
       api_key: "sk-test",
       default_mode: "realtime_long",
+      update_channel: "stable",
       auto_paste: true,
       native_fast_paste: true,
       restore_clipboard: true,
@@ -57,6 +58,9 @@ describe("settings store", () => {
       dictionary_learning: {
         enabled: true,
         excluded_bundle_ids: ["com.example.private"],
+      },
+      network: {
+        proxy_url: "",
       },
     })
     expect(store.getSnapshot().recordingStorage).toEqual({
@@ -134,7 +138,7 @@ describe("settings store", () => {
     })
   })
 
-  it("tracks DashScope Pro and Lite checks separately", () => {
+  it("tracks per-model DashScope checks separately", () => {
     const store = createSettingsStore(makeInitData())
 
     store.dashscopeModelCheckStarted()
@@ -142,14 +146,14 @@ describe("settings store", () => {
 
     store.dashscopeModelCheckComplete([
       {
-        family: "pro",
-        model: "qwen3.5-omni-plus",
+        family: "asr",
+        model: "qwen3.5-omni-plus-realtime",
         status: "ok",
         latency_ms: 200,
       },
       {
-        family: "lite",
-        model: "qwen3.5-omni-flash",
+        family: "llm",
+        model: "qwen3.7-flash",
         status: "error",
         latency_ms: 100,
         error: "denied",
@@ -159,8 +163,8 @@ describe("settings store", () => {
     expect(store.getSnapshot().dashscopeModelCheck).toMatchObject({
       state: "done",
       results: [
-        { family: "pro", status: "ok" },
-        { family: "lite", status: "error" },
+        { family: "asr", status: "ok" },
+        { family: "llm", status: "error" },
       ],
     })
   })

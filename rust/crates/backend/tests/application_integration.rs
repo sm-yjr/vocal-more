@@ -306,8 +306,32 @@ async fn settings_restart_model_check_and_learning_use_only_rust_services() -> R
     app.call("ui_action", json!({"action":"checkDashScopeModels"}))
         .await?;
     let models = event(&mut events, "model_check_complete").await?;
-    assert_eq!(models[0]["status"], "ok");
-    assert_eq!(models[1]["status"], "ok");
+    assert_eq!(models.as_array().unwrap().len(), 9);
+    assert!(
+        models
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|model| model["status"] == "ok")
+    );
+    assert_eq!(
+        models
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|model| model["family"] == "asr")
+            .count(),
+        5
+    );
+    assert_eq!(
+        models
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|model| model["family"] == "llm")
+            .count(),
+        4
+    );
     app.call("submit_correction",json!({"evidence":{"raw_text":"github","pasted_text":"github","baseline_text":"github","edited_text":"GitHub","recording_id":"r1","observation_id":"o1"}})).await?;
     timeout(Duration::from_secs(4), async {
         loop {

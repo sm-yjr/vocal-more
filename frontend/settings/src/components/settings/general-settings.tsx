@@ -20,6 +20,58 @@ import type { SettingsCopy } from "@/settings/i18n"
 import type { SettingsStore } from "@/settings/store"
 import type { SettingsSnapshot } from "@/settings/types"
 
+function validProxyUrl(value: string): boolean {
+  if (!value) return true
+  const match = /^(http|socks5):\/\/(\[[^\]]+\]|[^/:?#]+):(\d{1,5})\/?$/i.exec(value)
+  if (!match) return false
+  const port = Number(match[3])
+  return port >= 1 && port <= 65535
+}
+
+function ProxySetting({
+  initialValue,
+  store,
+  copy,
+}: {
+  initialValue: string
+  store: SettingsStore
+  copy: SettingsCopy
+}) {
+  const [draft, setDraft] = useState(initialValue)
+  const normalized = draft.trim()
+  const valid = validProxyUrl(normalized)
+
+  const commit = () => {
+    if (valid && normalized !== initialValue) {
+      setConfig(store, "network.proxy_url", normalized)
+    }
+  }
+
+  return (
+    <SettingsRow
+      label={copy.networkProxy}
+      description={valid ? copy.networkProxyHint : copy.networkProxyInvalid}
+      htmlFor="network-proxy"
+    >
+      <Input
+        id="network-proxy"
+        className="h-8 w-64 font-mono text-xs"
+        value={draft}
+        placeholder="http://127.0.0.1:7890"
+        autoComplete="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        aria-invalid={!valid}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur()
+        }}
+      />
+    </SettingsRow>
+  )
+}
+
 export function GeneralSettings({
   store,
   snapshot,
@@ -119,13 +171,13 @@ export function GeneralSettings({
             <div className="flex flex-wrap items-center gap-2">
               {modelCheck.results.map((result) => (
                 <Badge
-                  key={result.family}
+                  key={result.model}
                   variant={
                     result.status === "ok" ? "secondary" : "destructive"
                   }
                   title={result.error || result.model}
                 >
-                  {result.family === "pro" ? "Pro" : "Lite"} ·{" "}
+                  {result.display_name || result.model} ·{" "}
                   {result.status === "ok"
                     ? copy.modelAvailable
                     : copy.modelUnavailable}
@@ -178,6 +230,33 @@ export function GeneralSettings({
             <NativeSelectOption value="zh">{copy.chinese}</NativeSelectOption>
           </NativeSelect>
         </SettingsRow>
+        <SettingsRow
+          label={copy.updateChannel}
+          description={copy.updateChannelHint}
+          htmlFor="update-channel"
+        >
+          <NativeSelect
+            id="update-channel"
+            className="h-8 w-40"
+            value={config.update_channel ?? "stable"}
+            onChange={(event) =>
+              setConfig(store, "update_channel", event.target.value)
+            }
+          >
+            <NativeSelectOption value="stable">
+              {copy.stableChannel}
+            </NativeSelectOption>
+            <NativeSelectOption value="nightly">
+              {copy.nightlyChannel}
+            </NativeSelectOption>
+          </NativeSelect>
+        </SettingsRow>
+        <ProxySetting
+          key={config.network?.proxy_url ?? ""}
+          initialValue={config.network?.proxy_url ?? ""}
+          store={store}
+          copy={copy}
+        />
         <SettingsRow
           label={copy.autoPaste}
           description={copy.autoPasteHint}

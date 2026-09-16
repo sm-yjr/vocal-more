@@ -134,6 +134,7 @@ impl Config {
         for key in [
             "api_key",
             "default_mode",
+            "update_channel",
             "auto_paste",
             "streaming_paste",
             "native_fast_paste",
@@ -144,7 +145,15 @@ impl Config {
                 self.apply_update(key, v)?;
             }
         }
-        for section in ["audio", "asr", "llm", "hotkey", "ui", "dictionary_learning"] {
+        for section in [
+            "audio",
+            "asr",
+            "llm",
+            "hotkey",
+            "ui",
+            "dictionary_learning",
+            "network",
+        ] {
             let Some(fields) = value[section].as_object() else {
                 continue;
             };
@@ -194,6 +203,10 @@ impl Config {
                 json!(boolean(value, current.as_bool().unwrap_or(false)))
             }
             "default_mode" => choice(value, &["walkie_talkie", "realtime_long"], "realtime_long"),
+            "update_channel" => value
+                .as_str()
+                .filter(|channel| ["stable", "nightly"].contains(channel))
+                .map_or(Value::Null, |channel| json!(channel)),
             "audio.sample_rate" => json!(16000),
             "audio.channels" => json!(1),
             "audio.capture_channels"
@@ -271,6 +284,7 @@ impl Config {
             ),
             "asr.batch_mode" => json!("manual"),
             "asr.realtime_url" => json!(normalize_realtime_url(value)?),
+            "network.proxy_url" => json!(normalize_proxy_url(value)?),
             "asr.extra_corpus_terms" => json!(
                 value
                     .as_array()
@@ -432,6 +446,54 @@ fn normalize_realtime_url(value: &Value) -> Result<String> {
         } else {
             ""
         }
+    ))
+}
+
+fn normalize_proxy_url(value: &Value) -> Result<String> {
+    let raw = if truthy(value) {
+        py_string(value).trim().to_string()
+    } else {
+        String::new()
+    };
+    if raw.is_empty() {
+        return Ok(raw);
+    }
+    let url = url::Url::parse(&raw).map_err(|_| anyhow::anyhow!("invalid proxy URL"))?;
+    let host = url.host_str().unwrap_or("");
+    let authority = raw
+        .split_once("://")
+        .map(|(_, value)| value)
+        .unwrap_or("")
+        .trim_end_matches('/');
+    let explicit_port = if authority.starts_with('[') {
+        authority
+            .split_once(']')
+            .and_then(|(_, tail)| tail.strip_prefix(':'))
+    } else {
+        authority.rsplit_once(':').map(|(_, port)| port)
+    }
+    .and_then(|port| port.parse::<u16>().ok());
+    ensure!(
+        matches!(url.scheme(), "http" | "socks5")
+            && !host.is_empty()
+            && explicit_port.is_some_and(|port| port > 0)
+            && url.username().is_empty()
+            && url.password().is_none()
+            && matches!(url.path(), "" | "/")
+            && url.query().is_none()
+            && url.fragment().is_none(),
+        "Proxy URL must be http://host:port or socks5://host:port without credentials"
+    );
+    let host = host.to_lowercase();
+    let host = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
+    Ok(format!(
+        "{}://{host}:{}",
+        url.scheme(),
+        explicit_port.unwrap()
     ))
 }
 

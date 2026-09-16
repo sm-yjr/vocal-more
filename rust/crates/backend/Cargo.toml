@@ -23,7 +23,7 @@ serde-saphyr = "1.2"
 regex = "1.11"
 fancy-regex = "0.16"
 fs2 = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "socks"] }
 sha2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 tempfile.workspace = true

@@ -401,6 +401,7 @@ export class SettingsStore {
     const llm = config.llm ?? {}
     const hotkey = config.hotkey ?? {}
     const learning = config.dictionary_learning ?? {}
+    const network = config.network ?? {}
     const selectedModel = this.snapshot.asrModels.find(
       (model) => model.id === asr.model,
     )
@@ -408,6 +409,8 @@ export class SettingsStore {
     return {
       api_key: config.api_key ?? "",
       default_mode: config.default_mode ?? "realtime_long",
+      update_channel:
+        config.update_channel === "nightly" ? "nightly" : "stable",
       auto_paste: config.auto_paste !== false,
       native_fast_paste: config.native_fast_paste === true,
       restore_clipboard: config.restore_clipboard !== false,
@@ -475,6 +478,9 @@ export class SettingsStore {
         excluded_bundle_ids: [
           ...(learning.excluded_bundle_ids ?? []),
         ],
+      },
+      network: {
+        proxy_url: network.proxy_url ?? "",
       },
     }
   }

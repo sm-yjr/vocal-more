@@ -5,9 +5,12 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::net::TcpStream;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
 use tokio_tungstenite::{
-    Connector, MaybeTlsStream, WebSocketStream, connect_async_tls_with_config,
+    Connector, MaybeTlsStream, WebSocketStream, client_async_tls_with_config,
     tungstenite::{Message, client::IntoClientRequest, protocol::WebSocketConfig},
 };
 use url::Url;
@@ -102,6 +105,16 @@ pub async fn connect(config: &RealtimeConfig, api_key: Option<&str>) -> Result<S
 /// Shared transport for application protocol adapters. The caller selects the
 /// endpoint/model; credential and plaintext restrictions remain here.
 pub async fn connect_url(url: Url, api_key: Option<&str>) -> Result<Socket> {
+    connect_url_with_proxy(url, api_key, None).await
+}
+
+/// Connect through an explicit application proxy. Loopback fixtures always
+/// remain direct so local test servers never leak through a configured proxy.
+pub async fn connect_url_with_proxy(
+    url: Url,
+    api_key: Option<&str>,
+    proxy_url: Option<&str>,
+) -> Result<Socket> {
     ensure!(
         url.username().is_empty() && url.password().is_none() && url.fragment().is_none(),
         "invalid WebSocket endpoint"
@@ -131,11 +144,99 @@ pub async fn connect_url(url: Url, api_key: Option<&str>) -> Result<Socket> {
         .max_frame_size(Some(MAX_EVENT_BYTES))
         .write_buffer_size(0)
         .max_write_buffer_size(512 * 1024);
+    let host = url.host_str().context("WebSocket endpoint has no host")?;
+    let port = url
+        .port_or_known_default()
+        .context("WebSocket endpoint has no port")?;
+    let stream_result: Result<TcpStream> = if local {
+        TcpStream::connect((host, port)).await.map_err(Into::into)
+    } else if let Some(proxy_url) = proxy_url.filter(|value| !value.is_empty()) {
+        connect_proxy(proxy_url, host, port).await
+    } else {
+        TcpStream::connect((host, port)).await.map_err(Into::into)
+    };
+    let stream = stream_result.map_err(|_| anyhow::anyhow!("WebSocket connection failed"))?;
+    stream
+        .set_nodelay(true)
+        .map_err(|_| anyhow::anyhow!("WebSocket connection failed"))?;
     // Do not include the request or authorization header in error strings.
-    let (socket, _) = connect_async_tls_with_config(request, Some(wire_config), true, connector)
+    let (socket, _) = client_async_tls_with_config(request, stream, Some(wire_config), connector)
         .await
         .map_err(|_| anyhow::anyhow!("WebSocket connection or TLS handshake failed"))?;
     Ok(socket)
+}
+
+async fn connect_proxy(proxy_url: &str, host: &str, port: u16) -> Result<TcpStream> {
+    let proxy = Url::parse(proxy_url).context("invalid proxy URL")?;
+    ensure!(
+        proxy.username().is_empty() && proxy.password().is_none(),
+        "proxy credentials are not supported"
+    );
+    let proxy_host = proxy.host_str().context("proxy URL has no host")?;
+    let proxy_port = proxy.port().context("proxy URL has no port")?;
+    match proxy.scheme() {
+        "socks5" => Ok(tokio_socks::tcp::Socks5Stream::connect(
+            (proxy_host, proxy_port),
+            (host, port),
+        )
+        .await
+        .context("SOCKS5 proxy connection failed")?
+        .into_inner()),
+        "http" => connect_http_tunnel(proxy_host, proxy_port, host, port).await,
+        _ => bail!("unsupported proxy scheme"),
+    }
+}
+
+async fn connect_http_tunnel(
+    proxy_host: &str,
+    proxy_port: u16,
+    target_host: &str,
+    target_port: u16,
+) -> Result<TcpStream> {
+    let mut stream = TcpStream::connect((proxy_host, proxy_port))
+        .await
+        .context("HTTP proxy connection failed")?;
+    let target = if target_host.contains(':') {
+        format!("[{target_host}]:{target_port}")
+    } else {
+        format!("{target_host}:{target_port}")
+    };
+    stream
+        .write_all(
+            format!(
+                "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\nProxy-Connection: Keep-Alive\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .await
+        .context("HTTP proxy request failed")?;
+
+    let mut response = Vec::with_capacity(512);
+    let mut byte = [0_u8; 1];
+    while response.len() < 16 * 1024 {
+        ensure!(
+            stream.read_exact(&mut byte).await.is_ok(),
+            "HTTP proxy closed the tunnel response"
+        );
+        response.push(byte[0]);
+        if response.ends_with(b"\r\n\r\n") {
+            break;
+        }
+    }
+    ensure!(
+        response.ends_with(b"\r\n\r\n"),
+        "HTTP proxy response is too large"
+    );
+    let status = response
+        .split(|byte| *byte == b'\n')
+        .next()
+        .unwrap_or_default();
+    let accepted = std::str::from_utf8(status)
+        .ok()
+        .and_then(|line| line.split_whitespace().nth(1))
+        == Some("200");
+    ensure!(accepted, "HTTP proxy rejected the tunnel");
+    Ok(stream)
 }
 
 pub fn session_update(config: &RealtimeConfig) -> Value {
@@ -266,6 +367,35 @@ impl Transcript {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn http_proxy_opens_a_connect_tunnel() -> Result<()> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let proxy = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0_u8; 1];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).await.unwrap();
+                request.push(byte[0]);
+            }
+            assert!(request.starts_with(b"CONNECT example.com:443 HTTP/1.1\r\n"));
+            stream
+                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                .await
+                .unwrap();
+            let mut marker = [0_u8; 4];
+            stream.read_exact(&mut marker).await.unwrap();
+            marker
+        });
+
+        let mut stream =
+            connect_http_tunnel("127.0.0.1", address.port(), "example.com", 443).await?;
+        stream.write_all(b"ping").await?;
+        assert_eq!(proxy.await?, *b"ping");
+        Ok(())
+    }
 
     #[test]
     fn explicit_tls_provider_constructs_a_verified_client_without_global_state() -> Result<()> {

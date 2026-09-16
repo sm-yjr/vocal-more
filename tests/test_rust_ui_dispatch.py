@@ -62,6 +62,48 @@ def test_queued_wakeup_cannot_touch_closed_ui(monkeypatch):
     assert not scheduled
 
 
+def test_config_event_switches_sparkle_update_channel(monkeypatch):
+    app, _scheduled = dispatcher(monkeypatch)
+    app.snapshot = {"config": {}}
+    app.capsule = SimpleNamespace(set_interface_language=Mock())
+    app._updater = Mock()
+    app._hotkeys = None
+    app._js = Mock()
+    app._build_menu = Mock()
+    config = {
+        "api_key": "",
+        "update_channel": "nightly",
+        "ui": {"language": "zh"},
+        "hotkey": {"custom_key": None, "custom_keys": []},
+    }
+
+    type(app)._event(
+        app,
+        "config_changed",
+        {"config": config, "api_key_set": False},
+    )
+
+    app._updater.set_update_channel.assert_called_once_with("nightly")
+
+
+def test_watchdog_starts_sparkle_with_configured_channel(monkeypatch):
+    from vocal_more.infrastructure import sparkle_updater
+
+    app, _scheduled = dispatcher(monkeypatch)
+    updater = Mock()
+    updater_factory = Mock(return_value=updater)
+    monkeypatch.setattr(sparkle_updater, "SparkleUpdater", updater_factory)
+    app._updater = None
+    app.config = SimpleNamespace(update_channel="nightly")
+    app._hotkeys = None
+    app._schedule_drain = Mock()
+
+    type(app)._watchdog(app)
+
+    assert app._updater is updater
+    updater_factory.assert_called_once_with(update_channel="nightly")
+
+
 def test_rust_paste_constructs_keyboard_on_main_thread(monkeypatch):
     app, _scheduled = dispatcher(monkeypatch)
     app._retained = {}

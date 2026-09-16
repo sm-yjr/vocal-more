@@ -654,7 +654,7 @@ class SettingsWindow:
 
 
     def _handle_check_dashscope_models(self) -> None:
-        """Check Pro and Lite model access without blocking the WebView."""
+        """Check every displayed model without blocking the WebView."""
         with self._dashscope_check_lock:
             if self._dashscope_check_running:
                 return
@@ -668,23 +668,23 @@ class SettingsWindow:
         def _check() -> None:
             try:
                 from ..application.dashscope_model_check import (
-                    check_dashscope_model_families,
+                    check_dashscope_models,
                 )
 
-                results = check_dashscope_model_families(api_key)
+                results = check_dashscope_models(api_key)
             except Exception as exc:
+                from ..application.dashscope_model_check import DASHSCOPE_MODELS
+
                 results = [
                     {
                         "family": family,
                         "model": model,
+                        "display_name": display_name,
                         "status": "error",
                         "latency_ms": 0,
                         "error": str(exc)[:300],
                     }
-                    for family, model in (
-                        ("pro", "qwen3.5-omni-plus"),
-                        ("lite", "qwen3.5-omni-flash"),
-                    )
+                    for family, model, display_name in DASHSCOPE_MODELS
                 ]
             finally:
                 with self._dashscope_check_lock:

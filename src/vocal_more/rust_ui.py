@@ -161,6 +161,11 @@ class RustVocalMoreApp(rumps.App):
     def _watchdog(self):
         if self._closing:
             return
+        if self._updater is None:
+            from .infrastructure.sparkle_updater import SparkleUpdater
+            self._updater = SparkleUpdater(
+                update_channel=getattr(self.config, "update_channel", None)
+            )
         if self._hotkeys and not self._hotkeys.diagnostics()["running"] and time.monotonic() >= self._hotkey_retry_at:
             self._hotkey_retry_at = time.monotonic() + 2
             from ApplicationServices import AXIsProcessTrusted
@@ -258,7 +263,14 @@ class RustVocalMoreApp(rumps.App):
         keys = ("config", "asr_models", "llm_models", "devices", "dictionary", "polish_prompt_presets", "version",
                 "dictionary_learning_records", "environment_checks", "audio_input_status")
         values = {key: data[key] for key in keys}
-        values["config"] = {**data["config"], "_api_key_set": data["api_key_set"]}
+        from .infrastructure.sparkle_updater import effective_update_channel
+        values["config"] = {
+            **data["config"],
+            "update_channel": effective_update_channel(
+                data["config"].get("update_channel")
+            ),
+            "_api_key_set": data["api_key_set"],
+        }
         self._settings.show(**values, initial_tab=initial_tab)
 
     def _js(self, function, *args):
@@ -328,6 +340,8 @@ class RustVocalMoreApp(rumps.App):
             self.snapshot["config"] = data["config"]
             self.config = namespace(data["config"])
             self.capsule.set_interface_language(self.config.ui.language)
+            if self._updater is not None and data["config"].get("update_channel"):
+                self._updater.set_update_channel(data["config"]["update_channel"])
             if self._hotkeys:
                 self._hotkeys.config = self.config
                 self._hotkeys.set_active_hotkeys(self.config.hotkey.active_hotkeys)
@@ -481,9 +495,11 @@ class RustVocalMoreApp(rumps.App):
         rumps.notification("Vocal More", "", message)
 
     def _check_updates(self):
-        from .infrastructure.sparkle_updater import SparkleUpdater
         if self._updater is None:
-            self._updater = SparkleUpdater()
+            from .infrastructure.sparkle_updater import SparkleUpdater
+            self._updater = SparkleUpdater(
+                update_channel=getattr(self.config, "update_channel", None)
+            )
         if not self._updater.check_for_updates():
             subprocess.Popen(["/usr/bin/open", "https://github.com/sm-yjr/vocal-more/releases/latest"])
 

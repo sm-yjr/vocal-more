@@ -67,6 +67,7 @@ export interface SettingsConfig {
   api_key?: string
   _api_key_set?: boolean
   default_mode?: string
+  update_channel?: "stable" | "nightly"
   auto_paste?: boolean
   native_fast_paste?: boolean
   restore_clipboard?: boolean
@@ -85,6 +86,10 @@ export interface SettingsConfig {
   dictionary_learning?: {
     enabled?: boolean
     excluded_bundle_ids?: string[]
+    [key: string]: unknown
+  }
+  network?: {
+    proxy_url?: string
     [key: string]: unknown
   }
   [key: string]: unknown
@@ -260,8 +265,9 @@ export interface EnvironmentCheck {
 }
 
 export interface DashScopeModelCheckResult {
-  family: "pro" | "lite"
+  family: "asr" | "llm"
   model: string
+  display_name?: string
   status: "ok" | "error"
   latency_ms: number
   error?: string
@@ -336,6 +342,7 @@ export interface SettingsSnapshot {
 export interface FormState {
   api_key: string
   default_mode: string
+  update_channel: "stable" | "nightly"
   auto_paste: boolean
   native_fast_paste: boolean
   restore_clipboard: boolean
@@ -383,6 +390,9 @@ export interface FormState {
   dictionary_learning: {
     enabled: boolean
     excluded_bundle_ids: string[]
+  }
+  network: {
+    proxy_url: string
   }
 }
 

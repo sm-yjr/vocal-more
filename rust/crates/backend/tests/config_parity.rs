@@ -63,3 +63,39 @@ fn persisted_config_reload_and_failed_form_are_transactional() -> anyhow::Result
     assert_eq!(reload.config.get("api_key"), "synthetic-secret");
     Ok(())
 }
+
+#[test]
+fn update_channel_accepts_stable_and_nightly() -> anyhow::Result<()> {
+    let mut config = Config::default();
+    assert!(config.get("update_channel").is_null());
+
+    config.apply_update("update_channel", &json!("nightly"))?;
+    assert_eq!(config.get("update_channel"), "nightly");
+
+    config.apply_update("update_channel", &json!("stable"))?;
+    assert_eq!(config.get("update_channel"), "stable");
+
+    config.apply_update("update_channel", &json!("beta"))?;
+    assert!(config.get("update_channel").is_null());
+    Ok(())
+}
+
+#[test]
+fn proxy_url_is_validated_and_normalized() -> anyhow::Result<()> {
+    let mut config = Config::default();
+    config.apply_update("network.proxy_url", &json!("socks5://LOCALHOST:1080/"))?;
+    assert_eq!(config.get("network.proxy_url"), "socks5://localhost:1080");
+
+    for invalid in [
+        "https://localhost:7890",
+        "http://localhost",
+        "http://user:pass@localhost:7890",
+    ] {
+        assert!(
+            config
+                .apply_update("network.proxy_url", &json!(invalid))
+                .is_err()
+        );
+    }
+    Ok(())
+}

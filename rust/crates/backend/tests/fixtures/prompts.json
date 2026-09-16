@@ -66,12 +66,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "",
@@ -137,12 +141,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "开发工具，保护代码",
@@ -208,12 +216,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "开发工具，保护代码",
@@ -279,12 +291,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "",
@@ -350,12 +366,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "开发工具，保护代码",
@@ -421,12 +441,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "开发工具，保护代码",
@@ -501,12 +525,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "",
@@ -572,12 +600,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "开发工具，保护代码",
@@ -643,12 +675,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "开发工具，保护代码",
@@ -714,12 +750,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "",
@@ -785,12 +825,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "开发工具，保护代码",
@@ -856,12 +900,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "开发工具，保护代码",
@@ -936,12 +984,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "",
@@ -1007,12 +1059,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "开发工具，保护代码",
@@ -1078,12 +1134,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "开发工具，保护代码",
@@ -1149,12 +1209,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "",
@@ -1220,12 +1284,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "开发工具，保护代码",
@@ -1291,12 +1359,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "开发工具，保护代码",
@@ -1371,12 +1443,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "",
@@ -1442,12 +1518,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "开发工具，保护代码",
@@ -1513,12 +1593,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "开发工具，保护代码",
@@ -1584,12 +1668,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "",
@@ -1655,12 +1743,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "开发工具，保护代码",
@@ -1726,12 +1818,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "开发工具，保护代码",
@@ -1806,12 +1902,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "",
@@ -1877,12 +1977,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "开发工具，保护代码",
@@ -1948,12 +2052,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "开发工具，保护代码",
@@ -2019,12 +2127,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "",
@@ -2090,12 +2202,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "开发工具，保护代码",
@@ -2161,12 +2277,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "开发工具，保护代码",
@@ -2241,12 +2361,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "",
@@ -2312,12 +2436,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "开发工具，保护代码",
@@ -2383,12 +2511,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "开发工具，保护代码",
@@ -2454,12 +2586,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "",
@@ -2525,12 +2661,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "",
     "context": "开发工具，保护代码",
@@ -2596,12 +2736,16 @@
         "enabled": false,
         "excluded_bundle_ids": []
       },
+      "network": {
+        "proxy_url": ""
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
-      "default_mode": "realtime_long"
+      "default_mode": "realtime_long",
+      "update_channel": null
     },
     "dictionary": "5. 专有名词修正：以下是用户定义的专有名词词典，语音转写中可能出现这些词的错误识别，请修正为正确的写法：\n   - Rust（可能被误识别为：拉斯特、rustlang）\n   - Vocal More（可能被误识别为：vocalmore）",
     "context": "开发工具，保护代码",

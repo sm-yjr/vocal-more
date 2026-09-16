@@ -3682,6 +3682,86 @@
     "changes": {}
   },
   {
+    "key": "network.proxy_url",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "network.proxy_url",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "network.proxy_url",
+    "input": true,
+    "error": true
+  },
+  {
+    "key": "network.proxy_url",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "network.proxy_url",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "network.proxy_url",
+    "input": 1,
+    "error": true
+  },
+  {
+    "key": "network.proxy_url",
+    "input": -10,
+    "error": true
+  },
+  {
+    "key": "network.proxy_url",
+    "input": 999999,
+    "error": true
+  },
+  {
+    "key": "network.proxy_url",
+    "input": 0.25,
+    "error": true
+  },
+  {
+    "key": "network.proxy_url",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "network.proxy_url",
+    "input": "invalid",
+    "error": true
+  },
+  {
+    "key": "network.proxy_url",
+    "input": "false",
+    "error": true
+  },
+  {
+    "key": "network.proxy_url",
+    "input": "yes",
+    "error": true
+  },
+  {
+    "key": "network.proxy_url",
+    "input": "42.5",
+    "error": true
+  },
+  {
+    "key": "network.proxy_url",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "network.proxy_url",
+    "input": {},
+    "changes": {}
+  },
+  {
     "key": "enable_polish",
     "input": true,
     "changes": {}
@@ -4206,6 +4286,86 @@
   },
   {
     "key": "default_mode",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "update_channel",
     "input": {},
     "changes": {}
   },

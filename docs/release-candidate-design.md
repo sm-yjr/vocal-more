@@ -275,6 +275,6 @@ GitHub Actions Summary 使用简体中文展示：`候选已就绪`、`快速发
 
 ## 12. alpha / beta 扩展
 
-三个通道分别使用 `sparkle-feed`、`sparkle-feed-alpha` 和 `sparkle-feed-beta`。App 构建时固定 `SUFeedURL`，不会在不同通道间自动迁移；切换通道通过安装目标 DMG 完成。通道内按数值比较版本、选择前一版 delta，首次通道没有 delta。alpha/beta 均使用 GitHub prerelease 且不更新 Latest stable。
+三个发布通道分别使用 `sparkle-feed`、`sparkle-feed-alpha` 和 `sparkle-feed-beta`。App 构建时的 `SUFeedURL` 作为旧配置兼容默认值；运行时设置提供 Stable 与 Nightly，分别映射 stable 与 alpha feed。通道内按数值比较版本、选择前一版 delta，首次通道没有 delta。alpha/beta 均使用 GitHub prerelease 且不更新 Latest stable。
 
 产品版本采用 `X.Y.ZaN` / `X.Y.ZbN`，推荐 tag 采用 `vX.Y.Z-alpha.N` / `vX.Y.Z-beta.N`。预发布必须与正式版执行相同的签名、公证、许可证和产物验证，不能通过改名复用预发布 DMG 作为正式版。Sparkle feed 不设置 `sparkle:channel`，由独立 URL 隔离；这样与当前未提供 allowed-channels delegate 的 updater 保持兼容。[Sparkle 通道机制](https://sparkle-project.org/documentation/publishing/#channels)

@@ -143,12 +143,12 @@ for _model in ALL_ASR_MODELS:
         "cascade"
     )
 
-# Official ASR recommendation first for dictation; Omni Plus precedes Flash
-# within the Omni family. See docs/dictation-models.md for sources and scope.
+# Keep the Qwen3.5 Omni family first in the user-facing selector, with Plus
+# before Flash. See docs/dictation-models.md for sources and scope.
 _DICTATION_MODEL_ORDER = (
-    "qwen-audio-3.0-asr-flash-streaming",
     "qwen3.5-omni-plus-realtime",
     "qwen3.5-omni-flash-realtime",
+    "qwen-audio-3.0-asr-flash-streaming",
     "qwen-audio-3.0-realtime-plus",
     "qwen-audio-3.0-realtime-flash",
 )

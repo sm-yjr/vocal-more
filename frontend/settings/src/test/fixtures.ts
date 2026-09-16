@@ -52,6 +52,9 @@ export function makeInitData(): SettingsInitData {
         enabled: true,
         excluded_bundle_ids: ["com.example.private"],
       },
+      network: {
+        proxy_url: "",
+      },
     },
     asr_models: [
       {

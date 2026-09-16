@@ -12,6 +12,7 @@ _ASR_RUNTIME_REFRESH_KEYS = {
 _ASR_RUNTIME_REFRESH_PREFIXES = (
     "asr.",
     "llm.",
+    "network.",
 )
 
 

@@ -61,6 +61,9 @@ LEGACY_BUILT_IN_HOTKEYS = (
     "f20",
 )
 VALID_DEFAULT_MODES = ("walkie_talkie", "realtime_long")
+VALID_UPDATE_CHANNELS = ("stable", "nightly")
+VALID_PROXY_SCHEMES = ("http", "socks5")
+UpdateChannel = Literal["stable", "nightly"]
 ASRLanguage = Literal["zh", "en", "auto"]
 PolishMode = Literal["dictation", "prompt"]
 PolishOutputLanguage = Literal["auto", "zh", "en"]
@@ -107,6 +110,37 @@ def _parse_realtime_url(value: object) -> str:
         )
     netloc = hostname if parsed.port is None else f"{hostname}:{parsed.port}"
     return urlunsplit(("wss", netloc, "/api-ws/v1/realtime", "", ""))
+
+
+def _parse_proxy_url(value: object) -> str:
+    """Normalize an optional application proxy without persisting credentials."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlsplit(raw)
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("Proxy URL has an invalid port") from exc
+    scheme = parsed.scheme.casefold()
+    hostname = (parsed.hostname or "").casefold()
+    if (
+        scheme not in VALID_PROXY_SCHEMES
+        or not hostname
+        or port is None
+        or port == 0
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(
+            "Proxy URL must be http://host:port or socks5://host:port "
+            "without credentials"
+        )
+    host = f"[{hostname}]" if ":" in hostname else hostname
+    return urlunsplit((scheme, f"{host}:{port}", "", "", ""))
 
 
 @dataclass
@@ -206,6 +240,13 @@ class DictionaryLearningConfig:
 
     enabled: bool = False
     excluded_bundle_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class NetworkConfig:
+    """Application-level outbound network settings."""
+
+    proxy_url: str = ""
 
 
 def _validate_custom_key(raw: object) -> Optional[dict]:
@@ -394,12 +435,17 @@ class AppConfig:
     dictionary_learning: DictionaryLearningConfig = field(
         default_factory=DictionaryLearningConfig
     )
+    network: NetworkConfig = field(default_factory=NetworkConfig)
     enable_polish: bool = True
     auto_paste: bool = True
     streaming_paste: bool = False
     native_fast_paste: bool = False
     restore_clipboard: bool = True
     default_mode: str = "realtime_long"
+    # None follows the release channel embedded in the app bundle. This keeps
+    # existing Alpha installations on their Alpha feed until the user makes an
+    # explicit Stable/Nightly choice.
+    update_channel: UpdateChannel | None = None
 
     @classmethod
     def _from_dict(cls, data: dict) -> "AppConfig":
@@ -419,6 +465,7 @@ class AppConfig:
             "native_fast_paste",
             "restore_clipboard",
             "default_mode",
+            "update_channel",
         ):
             if key in data:
                 config.apply_update(key, data[key])
@@ -430,6 +477,7 @@ class AppConfig:
             "hotkey",
             "ui",
             "dictionary_learning",
+            "network",
         ):
             section_data = data.get(section)
             if not isinstance(section_data, dict):
@@ -502,6 +550,7 @@ class AppConfig:
             "native_fast_paste",
             "restore_clipboard",
             "enable_polish",
+            "update_channel",
         ):
             if key in form_state:
                 self.apply_update(key, form_state[key])
@@ -513,6 +562,7 @@ class AppConfig:
             "hotkey",
             "ui",
             "dictionary_learning",
+            "network",
         ):
             section_data = form_state.get(section)
             if not isinstance(section_data, dict):
@@ -556,6 +606,11 @@ class AppConfig:
             self.restore_clipboard = parse_bool(value, self.restore_clipboard)
         elif field_name == "default_mode":
             self.default_mode = _parse_default_mode(value)
+        elif field_name == "update_channel":
+            channel = str(value or "").strip().lower()
+            self.update_channel = (
+                channel if channel in VALID_UPDATE_CHANNELS else None
+            )
         else:
             raise ValueError(f"Unknown config key: {field_name}")
 
@@ -572,6 +627,10 @@ class AppConfig:
             self._apply_ui_update(field_name, value)
         elif section == "dictionary_learning":
             self._apply_dictionary_learning_update(field_name, value)
+        elif section == "network":
+            if field_name != "proxy_url":
+                raise ValueError(f"Unknown config key: network.{field_name}")
+            self.network.proxy_url = _parse_proxy_url(value)
         else:
             raise ValueError(f"Unknown config section: {section}")
 
@@ -777,10 +836,7 @@ class AppConfig:
                 _parse_excluded_bundle_ids(value)
             )
         else:
-            raise ValueError(
-                f"Unknown config key: dictionary_learning.{field_name}"
-            )
-
+            raise ValueError(f"Unknown config key: dictionary_learning.{field_name}")
 
     def to_dict(self) -> dict:
         return {
@@ -851,6 +907,9 @@ class AppConfig:
                     self.dictionary_learning.excluded_bundle_ids
                 ),
             },
+            "network": {
+                "proxy_url": self.network.proxy_url,
+            },
 
             "enable_polish": self.enable_polish,
             "auto_paste": self.auto_paste,
@@ -858,6 +917,7 @@ class AppConfig:
             "native_fast_paste": self.native_fast_paste,
             "restore_clipboard": self.restore_clipboard,
             "default_mode": self.default_mode,
+            "update_channel": self.update_channel,
         }
 
     def to_public_dict(self) -> dict:
@@ -888,11 +948,15 @@ __all__ = [
     "LEGACY_BUILT_IN_HOTKEYS",
     "LLMConfig",
     "MAX_CUSTOM_POLISH_PROMPT_LENGTH",
+    "NetworkConfig",
     "POLISH_PROMPT_OVERRIDE_CATEGORIES",
     "PolishOutputLanguage",
     "UIConfig",
     "VALID_DEFAULT_MODES",
     "VALID_HOTKEYS",
+    "VALID_PROXY_SCHEMES",
+    "VALID_UPDATE_CHANNELS",
+    "UpdateChannel",
     "_parse_asr_language",
     "_parse_asr_model",
     "_parse_hotkeys",

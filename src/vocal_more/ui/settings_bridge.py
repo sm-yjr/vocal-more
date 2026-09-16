@@ -11,6 +11,7 @@ from ..domain.model_catalog import ASR_MODEL_IDS
 _ALLOWED_TOP_LEVEL_CONFIG_KEYS = {
     "api_key",
     "default_mode",
+    "update_channel",
     "auto_paste",
     "native_fast_paste",
     "restore_clipboard",
@@ -72,6 +73,7 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
         "enabled",
         "excluded_bundle_ids",
     },
+    "network": {"proxy_url"},
 }
 
 _ALLOWED_CONFIG_KEYS = set(_ALLOWED_TOP_LEVEL_CONFIG_KEYS)
