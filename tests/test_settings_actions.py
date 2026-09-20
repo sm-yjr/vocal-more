@@ -626,3 +626,35 @@ def test_retired_settings_actions_are_rejected():
     assert bridge.parse({"action": "resetContextProfile"}) is None
     for key in ("hotkey.command_key", "context_personalization.enabled"):
         assert bridge.parse({"action": "setConfig", "key": key, "value": True}) is None
+
+
+def test_settings_bridge_and_dispatcher_route_open_microphone_settings():
+    from vocal_more.ui.settings_actions import SettingsActionDispatcher
+    from vocal_more.ui.settings_bridge import SettingsBridge
+
+    calls = []
+    dispatcher = SettingsActionDispatcher(
+        on_open_microphone_settings=lambda: calls.append("microphone")
+    )
+
+    message = SettingsBridge().parse({"action": "openMicrophoneSettings"})
+    dispatcher.dispatch(message)
+
+    assert message == {"action": "open_microphone_settings"}
+    assert calls == ["microphone"]
+
+
+def test_settings_dispatcher_ignores_open_microphone_settings_without_callback():
+    from vocal_more.ui.settings_actions import SettingsActionDispatcher
+
+    dispatcher = SettingsActionDispatcher()
+
+    dispatcher.dispatch({"action": "open_microphone_settings"})
+
+
+def test_settings_bridge_accepts_onboarding_skipped():
+    from vocal_more.ui.settings_bridge import SettingsBridge
+
+    assert SettingsBridge().parse({
+        "action": "setConfig", "key": "ui.onboarding_skipped", "value": True,
+    }) == {"action": "set_config", "key": "ui.onboarding_skipped", "value": True}

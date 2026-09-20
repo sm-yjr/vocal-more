@@ -479,7 +479,12 @@ def test_walkie_talkie_emits_explicit_lifecycle_states(tmp_path, monkeypatch):
 
 
 def test_walkie_talkie_start_failure_marks_failed_then_idle(tmp_path, monkeypatch):
-    """Microphone startup failures should pass through FAILED before returning idle."""
+    """Startup failures enter FAILED before the error, then return to IDLE.
+
+    The app arms its capsule failure slot on the FAILED transition and
+    consumes it with the next error callback, so the error must be delivered
+    after FAILED and before IDLE.
+    """
     from vocal_more.config import Config, reload_config
 
     WalkieTalkieMode = importlib.import_module("vocal_more.modes.walkie_talkie").WalkieTalkieMode
@@ -518,17 +523,19 @@ def test_walkie_talkie_start_failure_marks_failed_then_idle(tmp_path, monkeypatc
         lambda: SimpleNamespace(paste_text=lambda text: None),
     )
 
-    states = []
-    errors = []
-    mode = WalkieTalkieMode(on_state_change=states.append, on_error=errors.append)
+    events = []
+    mode = WalkieTalkieMode(
+        on_state_change=lambda state: events.append(state.value),
+        on_error=lambda message: events.append(f"error:{message}"),
+    )
     mode.on_hotkey_pressed()
 
-    assert states == [
-        ModeState.STARTING,
-        ModeState.FAILED,
-        ModeState.IDLE,
+    assert events == [
+        ModeState.STARTING.value,
+        ModeState.FAILED.value,
+        "error:无法启动麦克风：mic missing",
+        ModeState.IDLE.value,
     ]
-    assert errors == ["无法启动麦克风：mic missing"]
 
 
 def test_walkie_talkie_skips_second_stage_polisher_for_omni(tmp_path, monkeypatch):

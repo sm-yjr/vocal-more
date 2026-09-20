@@ -3418,6 +3418,98 @@
     "changes": {}
   },
   {
+    "key": "ui.onboarding_skipped",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": true,
+    "changes": {
+      "ui.onboarding_skipped": true
+    }
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": 1,
+    "changes": {
+      "ui.onboarding_skipped": true
+    }
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": -10,
+    "changes": {
+      "ui.onboarding_skipped": true
+    }
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": 999999,
+    "changes": {
+      "ui.onboarding_skipped": true
+    }
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": 0.25,
+    "changes": {
+      "ui.onboarding_skipped": true
+    }
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": "yes",
+    "changes": {
+      "ui.onboarding_skipped": true
+    }
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "ui.onboarding_skipped",
+    "input": {},
+    "changes": {}
+  },
+  {
     "key": "ui.advanced_settings",
     "input": false,
     "changes": {}

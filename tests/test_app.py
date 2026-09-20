@@ -2190,3 +2190,242 @@ def test_copy_last_result_item_localized_in_chinese(tmp_path, monkeypatch):
     app._refresh_menu_localization()
     assert app._copy_last_result_item.title == "复制最近结果"
     assert app._copy_last_result_item.callback is None
+
+
+def test_failed_state_echoes_error_on_capsule(tmp_path, monkeypatch):
+    """A FAILED dictation must show its reason on the capsule, not vanish."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._state_item = SimpleNamespace(title="")
+    app._capsule = MagicMock()
+    app._get_icon_path = lambda _name: None
+    app._current_mode = SimpleNamespace(audio_input_status=None)
+    app._settings_window = None
+    app._select_default_mode_when_safe = lambda: None
+    app._failure_pending = False
+
+    app._apply_state_change(app_module.ModeState.FAILED)
+    assert app._failure_pending is True
+    app._capsule.update_state.assert_called_once_with("hidden")
+
+    app._show_error_notification("识别失败")
+    app._capsule.show_failure.assert_called_once_with("识别失败")
+    assert app._failure_pending is False
+
+    # Warnings without a FAILED transition stay notification-only.
+    app._show_error_notification("润色失败，已粘贴原文")
+    app._capsule.show_failure.assert_called_once_with("识别失败")
+
+    # A new session clears the pending flag.
+    app._apply_state_change(app_module.ModeState.RECORDING)
+    assert app._failure_pending is False
+    app._show_error_notification("识别失败")
+    app._capsule.show_failure.assert_called_once_with("识别失败")
+
+    # A stale armed flag must not leak past IDLE into notification-only
+    # errors of the next session.
+    app._apply_state_change(app_module.ModeState.FAILED)
+    assert app._failure_pending is True
+    app._apply_state_change(app_module.ModeState.IDLE)
+    assert app._failure_pending is False
+    app._show_error_notification("下一个会话的警告")
+    app._capsule.show_failure.assert_called_once_with("识别失败")
+
+
+def test_settings_config_change_reports_rejected_write(tmp_path, monkeypatch):
+    """A host-rejected config write must revert the UI and surface the reason."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._settings_window = MagicMock()
+
+    runtime = MagicMock()
+    runtime.apply_update.side_effect = ValueError("gain out of range")
+    app._get_runtime = lambda: runtime
+
+    app._on_settings_config_change("audio.gain", 999)
+
+    expected = app.config.to_dict()["audio"]["gain"]
+    app._settings_window.notify_config_error.assert_called_once_with(
+        "audio.gain",
+        "gain out of range",
+        revert_value=expected,
+    )
+
+
+def test_settings_config_change_reports_save_failure_without_revert(
+    tmp_path,
+    monkeypatch,
+):
+    """A failed disk save is reported while the in-memory value stays applied."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    def _raise_save(_self):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Config, "save", _raise_save)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._settings_window = MagicMock()
+
+    runtime = MagicMock()
+    app._get_runtime = lambda: runtime
+    app._refresh_quick_settings_menu = MagicMock()
+
+    app._on_settings_config_change("audio.gain", 12)
+
+    runtime.apply_update.assert_called_once_with("audio.gain", 12)
+    app._settings_window.notify_config_error.assert_called_once_with(
+        "audio.gain",
+        "disk full",
+    )
+
+
+def test_result_notification_skipped_when_auto_paste(tmp_path, monkeypatch):
+    """Auto paste already delivered the text, so no notification is posted."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    notifications = []
+    monkeypatch.setattr(
+        app_module.rumps,
+        "notification",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+
+    app.config.auto_paste = True
+    app._show_result_notification("已自动粘贴的文本")
+    assert notifications == []
+
+    app.config.auto_paste = False
+    app._show_result_notification("只进剪贴板的文本")
+    assert len(notifications) == 1
+
+
+def test_result_notification_preview_never_splits_surrogate_pair(
+    tmp_path, monkeypatch
+):
+    """A 50-unit truncation must not orphan the half of an emoji pair."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    notifications = []
+    monkeypatch.setattr(
+        app_module.rumps,
+        "notification",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app.config.auto_paste = False
+
+    # 1 + 52 UTF-16 units: a cut at 50 units would split the 25th emoji.
+    app._show_result_notification("a" + "😀" * 26)
+    preview = notifications[0][0][2]
+    assert preview == "a" + "😀" * 24 + "..."
+    assert not any(0xD800 <= ord(ch) <= 0xDFFF for ch in preview)
+
+    # BMP-only text keeps the original 50-character behavior.
+    app._show_result_notification("b" * 60)
+    assert notifications[1][0][2] == "b" * 50 + "..."
+
+    # Short text is passed through untouched.
+    app._show_result_notification("hello")
+    assert notifications[2][0][2] == "hello"
+
+
+def test_escape_cancels_recording_state(tmp_path, monkeypatch):
+    """Esc during RECORDING aborts the take instead of being ignored."""
+    from vocal_more.config import Config
+
+    _install_rumps_stub(monkeypatch)
+    monkeypatch.setattr(Config, "get_config_dir", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        Config,
+        "get_config_path",
+        classmethod(lambda cls: tmp_path / "config.yaml"),
+    )
+
+    app_module = importlib.import_module("vocal_more.app")
+    app_module = importlib.reload(app_module)
+
+    app = app_module.VocalMoreApp.__new__(app_module.VocalMoreApp)
+    app.config = Config()
+    app._capsule = MagicMock()
+
+    recording = MagicMock()
+    recording.state = app_module.ModeState.RECORDING
+    app._current_mode = recording
+
+    app._handle_escape_pressed_command()
+    app._capsule.hide.assert_called_once()
+    recording.cancel.assert_called_once_with(reason="escape_cancel")
+
+    # Idle is not an Esc-cancellable state.
+    idle = MagicMock()
+    idle.state = app_module.ModeState.IDLE
+    app._current_mode = idle
+    app._handle_escape_pressed_command()
+    idle.cancel.assert_not_called()
+    app._capsule.hide.assert_called_once()

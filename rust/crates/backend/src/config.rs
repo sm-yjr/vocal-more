@@ -198,6 +198,7 @@ impl Config {
             | "llm.enable_thinking"
             | "llm.structured"
             | "ui.onboarding_completed"
+            | "ui.onboarding_skipped"
             | "ui.advanced_settings"
             | "dictionary_learning.enabled" => {
                 json!(boolean(value, current.as_bool().unwrap_or(false)))

@@ -195,6 +195,10 @@ class WalkieTalkieMode(BaseMode):
             self._on_connection_update(self._active_session_token, ConnectionStatus(
                 "failed", str(sanitize_diagnostic_value(str(exc))),
             ))
+        # Enter FAILED before delivering the error: the app arms the capsule
+        # failure slot on the FAILED transition and consumes it with the next
+        # error, so the error must arrive after FAILED and before IDLE.
+        self._set_state(ModeState.FAILED)
         if self.on_error:
             if stage == "microphone":
                 self.on_error(
@@ -202,7 +206,6 @@ class WalkieTalkieMode(BaseMode):
                 )
             else:
                 self.on_error(t(self.config.ui.language, "mode_asr_error", details=str(exc)))
-        self._set_state(ModeState.FAILED)
         self._set_state(ModeState.IDLE)
 
     def on_hotkey_released(self) -> None:

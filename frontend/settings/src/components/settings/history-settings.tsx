@@ -1,4 +1,5 @@
 import {
+  Check,
   Clipboard,
   FileText,
   Play,
@@ -6,7 +7,7 @@ import {
   Trash2,
   Volume2,
 } from "lucide-react"
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import {
   InlineValue,
@@ -230,7 +231,7 @@ function MeetingView({
                 </span>
                 <div>
                   <span className="font-medium">
-                    {segment.speaker_label ?? segment.speaker ?? "Speaker"}
+                    {segment.speaker_label ?? segment.speaker ?? copy.speakerFallback}
                   </span>
                   <p className="mt-0.5 leading-relaxed">{segment.text}</p>
                 </div>
@@ -280,17 +281,48 @@ function RecordingCard({
     store.stageRecordingDeletion(recording.id)
   }
 
-  function copyTranscript() {
-    if (!recording.transcript) return
+  const [copyFailed, setCopyFailed] = useState(false)
+
+  function copyViaExecCommand(text: string) {
     const textarea = document.createElement("textarea")
-    textarea.value = recording.transcript
+    textarea.value = text
     textarea.style.position = "fixed"
     textarea.style.opacity = "0"
+    const previousFocus = document.activeElement
     document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand?.("copy")
-    textarea.remove()
-    store.copiedFeedback(recording.id)
+    try {
+      textarea.select()
+      return Boolean(document.execCommand?.("copy"))
+    } catch {
+      return false
+    } finally {
+      textarea.remove()
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+        previousFocus.focus({ preventScroll: true })
+      }
+    }
+  }
+
+  async function copyTranscript() {
+    if (!recording.transcript) return
+    const text = recording.transcript
+    setCopyFailed(false)
+    let copied = false
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text)
+        copied = true
+      } catch {
+        // Rejections fall back to the legacy path; WKWebView file:// pages
+        // may lack a secure context, so execCommand must stay available.
+        copied = copyViaExecCommand(text)
+      }
+    } else {
+      copied = copyViaExecCommand(text)
+    }
+    // A failed copy must not render as the green "copied" confirmation.
+    if (copied) store.copiedFeedback(recording.id)
+    else setCopyFailed(true)
   }
 
   return (
@@ -366,10 +398,18 @@ function RecordingCard({
             <Button
               size="icon-sm"
               variant="ghost"
-              aria-label={`${copy.copy} ${accessibleText}`}
+              aria-label={
+                snapshot.copiedRecordingId === recording.id
+                  ? `${copy.copied} ${accessibleText}`
+                  : `${copy.copy} ${accessibleText}`
+              }
               onClick={copyTranscript}
             >
-              <Clipboard />
+              {snapshot.copiedRecordingId === recording.id ? (
+                <Check />
+              ) : (
+                <Clipboard />
+              )}
             </Button>
           ) : null}
           <Button
@@ -400,6 +440,11 @@ function RecordingCard({
             {recording.transcript || copy.pending}
           </p>
         )}
+        {copyFailed ? (
+          <p role="alert" className="mt-2 text-xs text-destructive">
+            {copy.copyFailed}
+          </p>
+        ) : null}
         {recording.billing &&
         Number(recording.billing.total_cost_cny ?? 0) > 0 ? (
           <div className="mt-2 text-[10px] text-muted-foreground">

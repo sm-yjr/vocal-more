@@ -231,6 +231,7 @@ class UIConfig:
 
     language: UILanguage = "zh"
     onboarding_completed: bool = False
+    onboarding_skipped: bool = False
     advanced_settings: bool = False
 
 
@@ -813,6 +814,11 @@ class AppConfig:
                 value,
                 self.ui.onboarding_completed,
             )
+        elif field_name == "onboarding_skipped":
+            self.ui.onboarding_skipped = parse_bool(
+                value,
+                self.ui.onboarding_skipped,
+            )
         elif field_name == "advanced_settings":
             self.ui.advanced_settings = parse_bool(
                 value,
@@ -899,6 +905,7 @@ class AppConfig:
             "ui": {
                 "language": self.ui.language,
                 "onboarding_completed": self.ui.onboarding_completed,
+                "onboarding_skipped": self.ui.onboarding_skipped,
                 "advanced_settings": self.ui.advanced_settings,
             },
             "dictionary_learning": {

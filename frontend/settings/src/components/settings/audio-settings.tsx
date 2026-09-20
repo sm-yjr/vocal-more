@@ -237,6 +237,16 @@ export function AudioSettings({
         {inputStatus.microphone_permission && (
           <SettingsRow label={copy.microphonePermission}>
             <InlineValue>{permissionLabel}</InlineValue>
+            {(inputStatus.microphone_permission === "denied" ||
+              inputStatus.microphone_permission === "restricted") && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => sendAction("openMicrophoneSettings")}
+              >
+                {copy.openMicrophoneSettings}
+              </Button>
+            )}
           </SettingsRow>
         )}
         {inputStatus.phase && (

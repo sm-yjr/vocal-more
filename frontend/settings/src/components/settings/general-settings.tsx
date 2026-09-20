@@ -1,5 +1,5 @@
 import { ExternalLink } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import {
   InlineValue,
@@ -84,7 +84,41 @@ export function GeneralSettings({
   const config = snapshot.config
   const advanced = config.ui?.advanced_settings === true
   const [showKey, setShowKey] = useState(false)
+  const [confirmRerun, setConfirmRerun] = useState(false)
+  const confirmRerunRef = useRef<HTMLDivElement | null>(null)
+  const confirmRerunButtonRef = useRef<HTMLElement | null>(null)
+  const rerunButtonRef = useRef<HTMLElement | null>(null)
+  const wasConfirmingRef = useRef(false)
   const modelCheck = snapshot.dashscopeModelCheck
+
+  // The armed confirmation replaces the button that held focus, so move
+  // focus onto the confirm action instead of dropping it to <body>.
+  useEffect(() => {
+    if (confirmRerun) confirmRerunButtonRef.current?.focus()
+    else if (wasConfirmingRef.current && document.activeElement === document.body) {
+      rerunButtonRef.current?.focus()
+    }
+    wasConfirmingRef.current = confirmRerun
+  }, [confirmRerun])
+
+  useEffect(() => {
+    if (!confirmRerun) return
+    let timer = 0
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        // Keep the confirm controls reachable while the user interacts
+        // with them; dismissing from under focus would strand the caret on
+        // <body>. Re-arm until focus leaves the confirm pair.
+        if (confirmRerunRef.current?.contains(document.activeElement)) {
+          schedule()
+          return
+        }
+        setConfirmRerun(false)
+      }, 5000)
+    }
+    schedule()
+    return () => window.clearTimeout(timer)
+  }, [confirmRerun])
 
   return (
     <SettingsPage title={copy.general}>
@@ -133,7 +167,7 @@ export function GeneralSettings({
                 setShowKey((value) => !value)
               }}
             >
-              {showKey ? "Hide" : "Show"}
+              {showKey ? copy.hide : copy.show}
             </Button>
           </div>
         </SettingsRow>
@@ -322,15 +356,42 @@ export function GeneralSettings({
           </Button>
         </SettingsRow> : null}
         <SettingsRow label="">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              setConfig(store, "ui.onboarding_completed", false)
-            }
-          >
-            {copy.rerunSetup}
-          </Button>
+          <div className="flex items-center gap-2" role="status">
+            {confirmRerun ? (
+              <div className="flex items-center gap-2" ref={confirmRerunRef}>
+                <Button
+                  ref={(node) => {
+                    confirmRerunButtonRef.current = node
+                  }}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setConfirmRerun(false)
+                    setConfig(store, "ui.onboarding_completed", false)
+                    setConfig(store, "ui.onboarding_skipped", false)
+                  }}
+                >
+                  {copy.rerunSetupConfirm}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setConfirmRerun(false)}
+                >
+                  {copy.cancel}
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                ref={(node) => { rerunButtonRef.current = node }}
+                onClick={() => setConfirmRerun(true)}
+              >
+                {copy.rerunSetup}
+              </Button>
+            )}
+          </div>
         </SettingsRow>
       </SettingsCard>
     </SettingsPage>

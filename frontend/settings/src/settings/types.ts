@@ -76,6 +76,7 @@ export interface SettingsConfig {
   ui?: {
     language?: string
     onboarding_completed?: boolean
+    onboarding_skipped?: boolean
     advanced_settings?: boolean
     [key: string]: unknown
   }
@@ -337,6 +338,12 @@ export interface SettingsSnapshot {
   playingRecordingId: string | null
   playbackBase64: string | null
   copiedRecordingId: string | null
+  configError: ConfigErrorNotice | null
+}
+
+export interface ConfigErrorNotice {
+  key: string
+  message: string
 }
 
 export interface FormState {

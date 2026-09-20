@@ -26,6 +26,7 @@ class SettingsActionDispatcher:
         on_refresh_environment: Optional[Callable[[], None]] = None,
         on_check_dashscope_models: Optional[Callable[[], None]] = None,
         on_open_accessibility_settings: Optional[Callable[[], None]] = None,
+        on_open_microphone_settings: Optional[Callable[[], None]] = None,
         on_open_config_file: Optional[Callable[[], None]] = None,
         on_open_dict_file: Optional[Callable[[], None]] = None,
         on_open_external: Optional[Callable[[str], None]] = None,
@@ -53,6 +54,7 @@ class SettingsActionDispatcher:
         self._on_refresh_environment = on_refresh_environment
         self._on_check_dashscope_models = on_check_dashscope_models
         self._on_open_accessibility_settings = on_open_accessibility_settings
+        self._on_open_microphone_settings = on_open_microphone_settings
         self._on_open_config_file = on_open_config_file
         self._on_open_dict_file = on_open_dict_file
         self._on_open_external = on_open_external
@@ -81,6 +83,7 @@ class SettingsActionDispatcher:
             "refresh_environment": self._dispatch_refresh_environment,
             "check_dashscope_models": self._dispatch_check_dashscope_models,
             "open_accessibility_settings": self._dispatch_open_accessibility_settings,
+            "open_microphone_settings": self._dispatch_open_microphone_settings,
             "open_config_file": self._dispatch_open_config_file,
             "open_dict_file": self._dispatch_open_dict_file,
             "open_external": self._dispatch_open_external,
@@ -187,6 +190,13 @@ class SettingsActionDispatcher:
     ) -> None:
         if self._on_open_accessibility_settings is not None:
             self._on_open_accessibility_settings()
+
+    def _dispatch_open_microphone_settings(
+        self,
+        message: dict[str, Any],
+    ) -> None:
+        if self._on_open_microphone_settings is not None:
+            self._on_open_microphone_settings()
 
     def _dispatch_open_config_file(self, message: dict[str, Any]) -> None:
         if self._on_open_config_file is not None:

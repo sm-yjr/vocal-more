@@ -212,15 +212,15 @@ export function ShortcutsSettings({
     [hotkey.custom_key, hotkey.custom_keys],
   )
   const [capturing, setCapturing] = useState(false)
+  const [pendingModifier, setPendingModifier] = useState<CustomHotkey | null>(
+    null,
+  )
 
   useEffect(() => {
     if (!capturing) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      event.preventDefault()
-      event.stopPropagation()
-      const next = hotkeyForEvent(event)
+    const commit = (next: CustomHotkey) => {
       setCapturing(false)
-      if (!next) return
+      setPendingModifier(null)
       if (
         customKeys.length < 8 &&
         !customKeys.some((item) => item.key_code === next.key_code)
@@ -228,9 +228,39 @@ export function ShortcutsSettings({
         setCustomKeys(store, [...customKeys, next])
       }
     }
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      // Held-key auto-repeat must not land as the second press of the
+      // double-press confirmation for a bare modifier.
+      if (event.repeat) return
+      if (event.code === "Escape") {
+        setCapturing(false)
+        setPendingModifier(null)
+        return
+      }
+      const next = hotkeyForEvent(event)
+      if (!next) {
+        setCapturing(false)
+        setPendingModifier(null)
+        return
+      }
+      if (next.is_modifier) {
+        if (
+          pendingModifier &&
+          pendingModifier.key_code === next.key_code
+        ) {
+          commit(next)
+        } else {
+          setPendingModifier(next)
+        }
+        return
+      }
+      commit(next)
+    }
     document.addEventListener("keydown", onKeyDown, true)
     return () => document.removeEventListener("keydown", onKeyDown, true)
-  }, [capturing, customKeys, store])
+  }, [capturing, customKeys, pendingModifier, store])
 
   return (
     <SettingsPage title={copy.shortcuts}>
@@ -291,17 +321,25 @@ export function ShortcutsSettings({
             </div>
           )}
           <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-muted-foreground">
-              {copy.customKeyLimit}
+            <span
+              role="status"
+              className="text-xs text-muted-foreground"
+            >
+              {capturing
+                ? pendingModifier
+                  ? copy.confirmModifierHint
+                  : copy.capturingKeyHint
+                : copy.customKeyLimit}
             </span>
             <Button
               disabled={!capturing && customKeys.length >= 8}
               variant={capturing ? "secondary" : "default"}
-              onClick={() =>
+              onClick={() => {
+                setPendingModifier(null)
                 setCapturing((value) =>
                   !value,
                 )
-              }
+              }}
             >
               {capturing ? copy.pressKey : copy.addKey}
             </Button>

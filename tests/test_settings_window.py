@@ -280,3 +280,55 @@ def test_background_js_uses_one_shot_event_driven_queue_drain(monkeypatch):
         "loadRecordings([])",
         None,
     )
+
+
+def test_config_error_notifies_frontend_and_reverts_optimistic_value():
+    """Rejected writes roll the UI back before surfacing the error."""
+    calls = []
+
+    window = SettingsWindow.__new__(SettingsWindow)
+    window._eval_js = lambda script: calls.append(script)
+
+    window.notify_config_error("audio.gain", "gain out of range", revert_value=17)
+    window.notify_config_error("update_channel", "disk full")
+
+    assert calls == [
+        'updateConfig("audio.gain", 17)',
+        'configError("audio.gain", "gain out of range")',
+        'configError("update_channel", "disk full")',
+    ]
+
+
+def test_action_dispatcher_wires_open_microphone_settings_callback():
+    """The settings shell forwards open_microphone_settings to the host."""
+    calls = []
+
+    window = SettingsWindow.__new__(SettingsWindow)
+    for name in (
+        "_on_set_config",
+        "_on_preview_config",
+        "_on_set_asr_model",
+        "_on_sync_form_state",
+        "_on_set_device",
+        "_on_set_active_hotkeys",
+        "_on_add_dict_entry",
+        "_on_remove_dict_entry",
+        "_on_approve_dictionary_learning",
+        "_on_reject_dictionary_learning",
+        "_on_undo_dictionary_learning",
+        "_on_refresh_devices",
+        "_on_refresh_environment",
+        "_on_open_accessibility_settings",
+        "_on_open_config_file",
+        "_on_open_dict_file",
+        "_on_open_external",
+    ):
+        setattr(window, name, None)
+    window._on_open_microphone_settings = lambda: calls.append("microphone")
+    window._mic_test_controller = None
+
+    window._build_action_dispatcher().dispatch(
+        {"action": "open_microphone_settings"}
+    )
+
+    assert calls == ["microphone"]

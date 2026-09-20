@@ -370,14 +370,19 @@ class BaseMode(ABC):
 
     def _emit_workflow_result(self, result) -> None:
         """Forward shared workflow output to mode callbacks."""
+        # The caller enters FAILED before this runs, so the app arms its
+        # capsule failure slot for exactly one error delivery. Deliver the
+        # real error first: a warning must never consume that slot and be
+        # shown on the capsule as the dictation-failure reason.
+        error_message = getattr(result, "error_message", None)
+        if error_message and self.on_error:
+            self.on_error(error_message)
+
         for warning in getattr(result, "warnings", []):
             if self.on_error:
                 self.on_error(warning)
 
-        error_message = getattr(result, "error_message", None)
         if error_message:
-            if self.on_error:
-                self.on_error(error_message)
             return
 
         final_text = getattr(result, "final_text", "")

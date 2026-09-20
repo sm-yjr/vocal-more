@@ -250,6 +250,28 @@ describe("settings application", () => {
     ).toBeVisible()
   })
 
+  it("marks the General tab when onboarding was skipped", () => {
+    const data = makeInitData()
+    data.config!.ui!.onboarding_skipped = true
+    renderApp(data)
+
+    // The badge joins the tab's accessible name.
+    const generalTab = screen.getByRole("tab", { name: /通用/ })
+    expect(
+      generalTab.querySelector('[aria-label="设置未完成"]'),
+    ).toBeVisible()
+  })
+
+  it("keeps the General tab unmarked after a completed onboarding", () => {
+    renderApp()
+
+    expect(
+      screen
+        .getByRole("tab", { name: "通用" })
+        .querySelector('[aria-label="设置未完成"]'),
+    ).toBeNull()
+  })
+
   it("preserves setConfig and setDevice message contracts", async () => {
     const user = userEvent.setup()
     const { postMessage } = renderApp()
@@ -589,9 +611,7 @@ describe("settings application", () => {
 
   it("preserves recording recovery, playback, and copy contracts", async () => {
     const user = userEvent.setup()
-    const execCommand = vi.fn(() => true)
-    const originalExecCommand = document.execCommand
-    document.execCommand = execCommand
+    const writeText = vi.spyOn(navigator.clipboard, "writeText")
     try {
       const { postMessage, store } = renderApp()
 
@@ -615,7 +635,7 @@ describe("settings application", () => {
           name: "复制 Hello Vocal More.",
         }),
       )
-      expect(execCommand).toHaveBeenCalledWith("copy")
+      expect(writeText).toHaveBeenCalledWith("Hello Vocal More.")
       expect(store.getSnapshot().copiedRecordingId).toBe("rec-1")
 
       expect(screen.queryByRole("button", { name: "会议记录 Hello Vocal More." })).not.toBeInTheDocument()
@@ -631,7 +651,7 @@ describe("settings application", () => {
       })
       expect(screen.getAllByText("重试中…")).toHaveLength(2)
     } finally {
-      document.execCommand = originalExecCommand
+      writeText.mockRestore()
     }
   })
 
@@ -893,7 +913,7 @@ it("keeps configured Rust credentials usable while requiring an explicit reveal"
   expect(screen.getByLabelText("API Key")).toHaveValue("")
   expect(screen.getByRole("button", { name: "检查全部模型" })).toBeEnabled()
   expect(postMessage).not.toHaveBeenCalledWith({ action: "revealApiKey" })
-  await userEvent.click(screen.getByRole("button", { name: "Show" }))
+  await userEvent.click(screen.getByRole("button", { name: "显示" }))
   expect(postMessage).toHaveBeenCalledWith({ action: "revealApiKey" })
 })
 
@@ -936,4 +956,73 @@ it("validates and saves an application network proxy on blur", async () => {
     key: "network.proxy_url",
     value: "socks5://127.0.0.1:1080",
   })
+})
+
+it("surfaces a rejected config write as a dismissible toast", async () => {
+  const user = userEvent.setup()
+  const { store } = renderApp()
+
+  act(() => store.configError("audio.gain", "gain out of range"))
+
+  const alert = screen.getByRole("alert")
+  expect(screen.getByText("设置未保存")).toBeVisible()
+  // Unmapped host errors fall back to localized copy, never raw exception
+  // text or dotted keys.
+  expect(alert).toHaveTextContent("设置值未通过校验，请检查后重新保存。")
+  expect(alert).not.toHaveTextContent("audio.gain")
+
+  await user.click(screen.getByRole("button", { name: "知道了" }))
+
+  expect(screen.queryByRole("alert")).toBeNull()
+  expect(store.getSnapshot().configError).toBeNull()
+})
+
+it("maps known config validation errors to localized toast detail", () => {
+  const { store } = renderApp()
+
+  act(() =>
+    store.configError("network.proxy_url", "Proxy URL has an invalid port"),
+  )
+  expect(screen.getByRole("alert")).toHaveTextContent("代理端口无效。")
+
+  act(() => store.clearConfigError())
+  act(() =>
+    store.configError(
+      "asr.realtime_url",
+      "ASR realtime_url must be the official public endpoint or a " +
+        "wss://*.maas.aliyuncs.com/api-ws/v1/realtime workspace endpoint",
+    ),
+  )
+  expect(screen.getByRole("alert")).not.toHaveTextContent("realtime_url")
+  expect(screen.getByRole("alert")).toHaveTextContent("识别端点")
+
+  act(() => store.clearConfigError())
+  act(() => store.configError("ui.language", "Unknown config key: ui.language"))
+  expect(screen.getByRole("alert")).toHaveTextContent("无法识别的设置项。")
+})
+
+
+it("shows configuration failures during onboarding", () => {
+  const data = makeInitData()
+  data.config!.ui!.onboarding_completed = false
+  const { store } = renderApp(data)
+
+  act(() => store.configError("audio.gain", "gain out of range"))
+
+  expect(screen.getByRole("alert")).toHaveTextContent("设置未保存")
+  fireEvent.click(screen.getByRole("button", { name: "知道了" }))
+  expect(store.getSnapshot().configError).toBeNull()
+})
+
+it("stops the microphone test before skipping onboarding", () => {
+  const data = makeInitData()
+  data.config!.ui!.onboarding_completed = false
+  const { store, postMessage } = renderApp(data)
+  act(() => store.micTestStarted())
+
+  fireEvent.click(screen.getByRole("button", { name: "跳过设置" }))
+
+  expect(postMessage).toHaveBeenCalledWith({ action: "stopMicTest" })
+  expect(store.getSnapshot().micTest.state).toBe("idle")
+  expect(screen.getAllByRole("tab").length).toBeGreaterThan(0)
 })

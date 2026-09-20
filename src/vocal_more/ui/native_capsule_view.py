@@ -34,6 +34,7 @@ _TRANSLATIONS = {
         "understanding": "Understanding",
         "searching": "Searching",
         "generating": "Generating",
+        "failure": "Dictation failed",
     },
     "zh": {
         "prompt": "提示词",
@@ -42,6 +43,7 @@ _TRANSLATIONS = {
         "understanding": "理解中",
         "searching": "搜索中",
         "generating": "生成中",
+        "failure": "听写失败",
     },
 }
 
@@ -299,6 +301,10 @@ class NativeCapsuleRenderer:
         self.set_expanded(True)
         self.set_streaming_text(detail)
         self._layout()
+
+    def set_failure_message(self, detail: str) -> None:
+        """Show a terminal dictation failure with a localized title."""
+        self.set_connection_message(self._translation("failure"), detail)
 
     def set_processing_stage(self, stage: str) -> None:
         value = stage or "transcribing"

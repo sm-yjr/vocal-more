@@ -144,7 +144,8 @@ class RustVocalMoreApp(rumps.App):
                 value = result.result()
             except Exception as error:  # noqa: BLE001 - async request boundary
                 self._enqueue({"method": "request_failed", "params": {"message": str(error),
-                    "method": method, "action": (params or {}).get("action", "")}})
+                    "method": method, "action": (params or {}).get("action", ""),
+                    "key": (params or {}).get("key", "")}})
             else:
                 if callback:
                     self._enqueue({"method": "_callback", "params": (callback, value)})
@@ -256,7 +257,7 @@ class RustVocalMoreApp(rumps.App):
         self.snapshot = data
         if self._settings is None:
             from .ui.settings_window import SettingsWindow
-            self._settings = SettingsWindow(message_dispatcher=lambda message: self.request("ui_action", message),
+            self._settings = SettingsWindow(message_dispatcher=self._dispatch_settings_message,
                 on_sync_form_state=lambda state: self.request("sync_form_state", {"state": state}),
                 recording_store=_RemoteHistory(self), mic_test_controller=_RemoteMic(self),
                 audio_status_provider=lambda: self.snapshot.get("audio_input_status", {}))
@@ -273,6 +274,42 @@ class RustVocalMoreApp(rumps.App):
         }
         self._settings.show(**values, initial_tab=initial_tab)
 
+    def _dispatch_settings_message(self, message):
+        if message.get("action") == "openMicrophoneSettings":
+            subprocess.Popen([
+                "/usr/bin/open",
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+            ])
+        else:
+            self.request("ui_action", message)
+
+    def _config_request_failed(self, data):
+        keys = {
+            "setAsrModel": "asr.model", "set_asr_model": "asr.model",
+            "setDevice": "audio.input_device", "set_device": "audio.input_device",
+            "setActiveHotkeys": "hotkey.active_hotkeys", "set_active_hotkeys": "hotkey.active_hotkeys",
+            "setConfig": data.get("key", ""), "set_config": data.get("key", ""),
+            "syncFormState": "", "sync_form_state": "",
+        }
+        operation = data.get("action") or data.get("method")
+        if operation not in keys:
+            return False
+        key = keys[operation]
+        self._js("configError", key, data["message"])
+        # Read the authoritative state after the rejected write. A persistence
+        # failure may differ from a validation failure; never guess a rollback.
+        def restore(snapshot):
+            from .infrastructure.sparkle_updater import effective_update_channel
+            self.snapshot["config"] = snapshot["config"]
+            for name, value in snapshot["config"].items():
+                if name == "update_channel":
+                    value = effective_update_channel(value)
+                if name != "api_key":
+                    self._js("updateConfig", name, value)
+            self._js("updateConfig", "_api_key_set", snapshot["api_key_set"])
+        self.request("snapshot", callback=restore)
+        return True
+
     def _js(self, function, *args):
         if self._settings is not None:
             self._settings._eval_js(function + "(" + ",".join(json.dumps(arg, ensure_ascii=False) for arg in args) + ")")
@@ -288,10 +325,14 @@ class RustVocalMoreApp(rumps.App):
                 self._hotkeys = None
             self._notify("Rust 服务已退出，请重新启动 Vocal More。" + data["message"])
         elif method in ("error", "warning", "request_failed"):
+            if method == "request_failed" and self._config_request_failed(data):
+                return
             action = data.get("action", "")
             if action in ("startMicTest", "playMicTest"):
                 self._js("micTestError", data["message"])
-            if method != "warning":
+            if method == "error" and data.get("generation") == self.snapshot.get("generation") and "generation" in data:
+                self.capsule.show_failure(data["message"])
+            elif method != "warning" and getattr(self.capsule, "_current_state", "") != "failure":
                 self.capsule.hide()
             self._notify(data["message"])
         elif method == "state_changed":
@@ -305,7 +346,10 @@ class RustVocalMoreApp(rumps.App):
             if state == "starting":
                 self.capsule.show("handsFree" if data["current_mode"] == "realtime_long" else "pushToTalk")
             elif state == "idle":
-                self.capsule.hide()
+                # Rust emits idle immediately after a terminal error. Let the
+                # capsule's failure timer keep the reason visible for reading.
+                if getattr(self.capsule, "_current_state", "") != "failure":
+                    self.capsule.hide()
             else:
                 self.capsule.update_state("processing" if state == "cancelling" else state)
         elif method == "gesture_changed":
@@ -323,6 +367,9 @@ class RustVocalMoreApp(rumps.App):
             self.capsule.set_processing_stage(data["stage"])
         elif method == "final_result":
             self._last_text = data["text"]
+            if not self.config.auto_paste and self._last_text:
+                self._copy(self._last_text)
+                self._notify(self._t("notification_transcription_complete_title"))
         elif method == "paste_requested":
             self._submit_os(self._paste, data)
         elif method == "_deliver_paste":

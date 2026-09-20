@@ -90,3 +90,16 @@ class LazySettingsWindow:
         instance = self._instance
         if instance is not None:
             instance.update_dictionary_learning(records)
+
+    def notify_config_error(
+        self,
+        key: str,
+        message: str,
+        revert_value: object = _UNSET,
+    ) -> None:
+        instance = self._instance
+        if instance is not None:
+            if revert_value is _UNSET:
+                instance.notify_config_error(key, message)
+            else:
+                instance.notify_config_error(key, message, revert_value)

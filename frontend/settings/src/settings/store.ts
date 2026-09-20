@@ -61,6 +61,7 @@ const EMPTY_SNAPSHOT: SettingsSnapshot = {
   playingRecordingId: null,
   playbackBase64: null,
   copiedRecordingId: null,
+  configError: null,
 }
 
 function clone<T>(value: T): T {
@@ -336,6 +337,15 @@ export class SettingsStore {
 
   clearCopiedFeedback(): void {
     this.patch({ copiedRecordingId: null })
+  }
+
+  configError(key: string, message: string): void {
+    this.patch({ configError: { key, message } })
+  }
+
+  clearConfigError(): void {
+    if (this.snapshot.configError === null) return
+    this.patch({ configError: null })
   }
 
   micTestStarted(): void {

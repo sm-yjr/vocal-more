@@ -9,6 +9,7 @@ import argparse
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from AppKit import NSApplication, NSBitmapImageFileTypePNG, NSPanel
 from Foundation import NSDate, NSRunLoop
@@ -151,6 +152,9 @@ def main() -> None:
         failed = ConnectionStatus("failed", "403：没有该模型的访问权限", retry=5)
         capsule._show_connection_status_on_main_thread(failed)
         capsule._update_state_on_main_thread("hidden")
+        capsule._show_failure_on_main_thread("generic failure")
+        assert capsule._connection_notice is failed
+        assert capsule._failure_notice is None
         assert renderer._state == "connection_error"
         assert not renderer._cancel_button.isHidden()
         snapshot(f"connection-failed-{mode}")
@@ -161,6 +165,41 @@ def main() -> None:
         if capsule._hide_timer:
             capsule._hide_timer.invalidate()
             capsule._hide_timer = None
+
+    # Terminal dictation failure: the notice survives the FAILED→IDLE state
+    # churn around it and is dismissed only by its own auto-dismiss timer.
+    capsule._current_state = "processing"
+    capsule._current_mode = "handsFree"
+    capsule._failure_notice = None
+    capsule._interface_language = "zh"
+    renderer.set_interface_language("zh")
+    renderer.set_mode("handsFree")
+    renderer.set_state("processing")
+    capsule._show_failure_on_main_thread("识别服务返回 403")
+    assert capsule._failure_notice == "识别服务返回 403"
+    assert capsule._current_state == "failure"
+    assert renderer._state == "connection_error"
+    assert str(renderer._thinking_label.stringValue()) == "听写失败"
+    assert panel.ignoresMouseEvents()
+    snapshot("failure-notice")
+    capsule._update_state_on_main_thread("hidden")
+    assert renderer._state == "connection_error"
+    assert capsule._failure_notice == "识别服务返回 403"
+    # Stale connection callbacks must not replace the failure notice.
+    capsule._show_connection_status_on_main_thread(notice)
+    assert renderer._state == "connection_error"
+    assert str(renderer._thinking_label.stringValue()) == "听写失败"
+    capsule._dismiss_failure_on_main_thread()
+    assert capsule._failure_notice is None
+    assert renderer._state == "hidden"
+    # A new dictation session clears any leftover failure state.
+    capsule._config_provider = lambda: SimpleNamespace(
+        enable_polish=False,
+        llm=SimpleNamespace(polish_mode="dictation"),
+    )
+    capsule._show_on_main_thread("handsFree")
+    assert capsule._failure_notice is None
+    assert renderer._state == "recording"
 
     renderer._cancel_button.performClick_(None)
     renderer._finish_button.performClick_(None)

@@ -1,5 +1,5 @@
 {
-  "source_version": "0.5.0a3",
+  "source_version": "0.5.0a4",
   "defaults": {
     "api_key": "",
     "audio": {
@@ -51,6 +51,7 @@
     "ui": {
       "language": "zh",
       "onboarding_completed": false,
+      "onboarding_skipped": false,
       "advanced_settings": false
     },
     "dictionary_learning": {

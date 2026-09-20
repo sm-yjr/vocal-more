@@ -154,4 +154,16 @@ describe("WKWebView settings bridge", () => {
       ],
     })
   })
+  it("registers the config-error callback pushed by Python", () => {
+    window._initData = makeInitData()
+    const store = createSettingsStore()
+
+    installPythonApi(store)
+
+    window.configError("audio.gain", "gain out of range")
+    expect(store.getSnapshot().configError).toEqual({
+      key: "audio.gain",
+      message: "gain out of range",
+    })
+  })
 })

@@ -168,4 +168,21 @@ describe("settings store", () => {
       ],
     })
   })
+  it("tracks config write errors from Python and clears them", () => {
+    const store = createSettingsStore(makeInitData())
+
+    store.configError("audio.gain", "gain out of range")
+    expect(store.getSnapshot().configError).toEqual({
+      key: "audio.gain",
+      message: "gain out of range",
+    })
+
+    store.clearConfigError()
+    const afterFirstClear = store.getSnapshot()
+    expect(afterFirstClear.configError).toBeNull()
+
+    // Clearing again is a no-op, not a new snapshot.
+    store.clearConfigError()
+    expect(store.getSnapshot()).toBe(afterFirstClear)
+  })
 })

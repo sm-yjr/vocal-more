@@ -386,3 +386,43 @@ def test_prompt_input_promotion_disables_streaming_paste(tmp_path, monkeypatch):
     assert observed["pasted"] == ["帮我开发 0.4.3，提交 PR。"]
     assert observed["polish_calls"] == ["帮我开发 0.4.3，提交 PR。"]
     mode.close()
+
+def test_workflow_result_error_precedes_warnings():
+    """The capsule failure slot must carry the real error, not a warning.
+
+    The mode enters FAILED before emitting a workflow result, and the app
+    arms its capsule failure slot for exactly one error delivery: the real
+    error_message must therefore be delivered before any warnings.
+    """
+    from vocal_more.modes.base_mode import BaseMode
+
+    events = []
+
+    class Recorder(BaseMode):
+        def on_hotkey_pressed(self):
+            return None
+
+        def on_hotkey_released(self):
+            return None
+
+        def cancel(self, reason="user_cancel"):
+            return None
+
+        @property
+        def name(self):
+            return "recorder"
+
+        @property
+        def description(self):
+            return "recorder"
+
+    mode = Recorder(on_error=events.append, on_result=events.append)
+    mode._emit_workflow_result(
+        SimpleNamespace(
+            warnings=["流式粘贴与最终文本不一致"],
+            error_message="识别失败",
+            final_text="",
+        )
+    )
+
+    assert events == ["识别失败", "流式粘贴与最终文本不一致"]

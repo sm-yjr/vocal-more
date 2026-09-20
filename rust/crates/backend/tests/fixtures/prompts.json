@@ -60,6 +60,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -135,6 +136,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -210,6 +212,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -285,6 +288,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -360,6 +364,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -435,6 +440,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -519,6 +525,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -594,6 +601,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -669,6 +677,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -744,6 +753,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -819,6 +829,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -894,6 +905,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -978,6 +990,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -1053,6 +1066,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -1128,6 +1142,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -1203,6 +1218,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -1278,6 +1294,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -1353,6 +1370,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -1437,6 +1455,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -1512,6 +1531,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -1587,6 +1607,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -1662,6 +1683,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -1737,6 +1759,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -1812,6 +1835,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -1896,6 +1920,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -1971,6 +1996,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -2046,6 +2072,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -2121,6 +2148,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -2196,6 +2224,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -2271,6 +2300,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -2355,6 +2385,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -2430,6 +2461,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -2505,6 +2537,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -2580,6 +2613,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -2655,6 +2689,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {
@@ -2730,6 +2765,7 @@
       "ui": {
         "language": "zh",
         "onboarding_completed": false,
+        "onboarding_skipped": false,
         "advanced_settings": false
       },
       "dictionary_learning": {

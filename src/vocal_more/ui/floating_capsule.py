@@ -32,6 +32,9 @@ CAPSULE_AUDIO_PUSH_INTERVAL_SECONDS = 1.0 / CAPSULE_AUDIO_PUSH_HZ
 CAPSULE_PROGRESS_HZ = 60
 CAPSULE_PROGRESS_INTERVAL_SECONDS = 1.0 / CAPSULE_PROGRESS_HZ
 CAPSULE_SILENCE_THRESHOLD = 0.005
+# A terminal dictation failure stays readable for a few seconds before the
+# capsule fades. The system notification remains the durable fallback.
+CAPSULE_FAILURE_NOTICE_SECONDS = 4.0
 
 
 class FloatingCapsule:
@@ -69,6 +72,8 @@ class FloatingCapsule:
         self._interface_language: str = "en"
         self._connection_notice = None
         self._recovery_timer: NSTimer | None = None
+        self._failure_notice: str | None = None
+        self._failure_timer: NSTimer | None = None
         self._latest_transcript_text = ""
         self._latest_prompt_text: str = ""
         self._main_thread_timers: set[NSTimer] = set()
@@ -175,6 +180,7 @@ class FloatingCapsule:
     ) -> None:
         self._ensure_setup()
         self._connection_notice = None
+        self._clear_failure_notice()
         self._stop_recovery_timer()
         self._latest_transcript_text = ""
         self._set_capsule_size_on_main_thread(False)
@@ -249,7 +255,71 @@ class FloatingCapsule:
         """Hide the capsule."""
         self._run_on_main_thread(self._hide_on_main_thread)
 
+    def show_failure(self, message: str) -> None:
+        """Show a terminal dictation failure on the capsule surface.
+
+        The notice is non-interactive and auto-dismisses after
+        ``CAPSULE_FAILURE_NOTICE_SECONDS``; the system notification
+        remains the durable record.
+        """
+        value = str(message or "")
+        self._run_on_main_thread(
+            lambda: self._show_failure_on_main_thread(value)
+        )
+
+    def _show_failure_on_main_thread(self, message: str) -> None:
+        # Keep actionable connection errors and microphone recovery probes.
+        if self._connection_notice is not None:
+            return
+        self._ensure_setup()
+        self._connection_notice = None
+        self._stop_recovery_timer()
+        self._stop_push_timer()
+        self._stop_progress_timer()
+        self._clear_failure_notice()
+
+        # Cancel any pending hide from the FAILED→hidden state mapping so
+        # the notice can reuse the still-visible panel.
+        if self._hide_timer:
+            self._hide_timer.invalidate()
+            self._hide_timer = None
+
+        self._failure_notice = message
+        self._current_state = "failure"
+        self._latest_prompt_text = ""
+        self._set_capsule_size_on_main_thread(bool(message.strip()), message)
+        if self._renderer is not None:
+            self._renderer.set_failure_message(message)
+        if self._panel is not None:
+            self._panel.setIgnoresMouseEvents_(True)
+            self._panel.orderFront_(None)
+
+        self._failure_timer = NSTimer.timerWithTimeInterval_repeats_block_(
+            CAPSULE_FAILURE_NOTICE_SECONDS,
+            False,
+            lambda _: self._dismiss_failure_on_main_thread(),
+        )
+        NSRunLoop.mainRunLoop().addTimer_forMode_(
+            self._failure_timer, NSRunLoopCommonModes
+        )
+
+    def _clear_failure_notice(self) -> None:
+        timer = getattr(self, "_failure_timer", None)
+        if timer is not None:
+            timer.invalidate()
+            self._failure_timer = None
+        self._failure_notice = None
+
+    def _dismiss_failure_on_main_thread(self) -> None:
+        if getattr(self, "_failure_notice", None) is None:
+            return
+        self._clear_failure_notice()
+        self._hide_on_main_thread()
+
     def _hide_on_main_thread(self) -> None:
+        if self._failure_notice is not None:
+            # The auto-dismiss timer owns hiding while a failure is shown.
+            return
         self._connection_notice = None
         self._stop_recovery_timer()
         self._stop_push_timer()
@@ -284,6 +354,13 @@ class FloatingCapsule:
         self._run_on_main_thread(lambda: self._update_state_on_main_thread(state))
 
     def _update_state_on_main_thread(self, state: str) -> None:
+        if getattr(self, "_failure_notice", None) is not None:
+            # A terminal failure stays readable until its auto-dismiss
+            # timer fires; later mode states (IDLE after FAILED) must not
+            # pull the notice away.
+            if state != "hidden":
+                self._current_state = state
+            return
         if getattr(self, "_connection_notice", None) is not None:
             # Terminal failure remains visible until explicitly dismissed.
             if state != "hidden":
@@ -358,6 +435,10 @@ class FloatingCapsule:
         self._run_on_main_thread(lambda: self._show_connection_status_on_main_thread(status))
 
     def _show_connection_status_on_main_thread(self, status) -> None:
+        if getattr(self, "_failure_notice", None) is not None:
+            # The session already ended in a terminal failure; stale
+            # connection callbacks must not replace the failure notice.
+            return
         if self._current_state == "hidden":
             return
         # Ordinary first connection stays on the recording surface. Only an

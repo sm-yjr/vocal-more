@@ -118,6 +118,16 @@ def copy_text_to_clipboard(text: str) -> None:
     pasteboard.setString_forType_(text, NSStringPboardType)
 
 
+def _current_config_value(config: object, key: str) -> Any:
+    """Resolve a dotted config key against the config's current snapshot."""
+    value: Any = config.to_dict()
+    for part in key.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(part)
+    return value
+
+
 def ensure_runtime_debug_dir_env():
     from .diagnostics import ensure_runtime_debug_dir_env as implementation
 
@@ -187,6 +197,10 @@ class VocalMoreApp(rumps.App):
         self._dependencies_ready = dependencies is not None
         self._is_quitting = False
         self._pending_settings_request: Optional[dict[str, str]] = None
+        # Set when a mode transitions to FAILED; the next error callback that
+        # arrives with this flag shows the reason on the capsule itself
+        # instead of relying on the system notification alone.
+        self._failure_pending = False
         if dependencies is None:
             self._apply_starting_dependencies()
         else:
@@ -698,9 +712,21 @@ class VocalMoreApp(rumps.App):
             self._get_runtime().apply_update(key, value)
         except ValueError as exc:
             print(f"[Settings] {exc}")
+            self._notify_settings_config_error(key, str(exc), revert=True)
+            return
+        except Exception as exc:
+            print(f"[Settings] Unexpected config update failure: {exc}")
+            self._notify_settings_config_error(key, str(exc), revert=True)
             return
 
-        self.config.save()
+        try:
+            self.config.save()
+        except Exception as exc:
+            # Applied in memory but not persisted: report it, keep the new
+            # value on screen, and still refresh dependent UI.
+            print(f"[Settings] Config save failed: {exc}")
+            self._notify_settings_config_error(key, str(exc), revert=False)
+
         if key == "network.proxy_url":
             _configure_network_for_config(self.config)
         if key == "update_channel":
@@ -712,6 +738,23 @@ class VocalMoreApp(rumps.App):
         else:
             self._refresh_quick_settings_menu()
         print(f"[Settings] Config updated: {key} = {value}")
+
+    def _notify_settings_config_error(
+        self,
+        key: str,
+        message: str,
+        *,
+        revert: bool,
+    ) -> None:
+        """Surface a rejected config write to the open settings UI."""
+        settings_window = getattr(self, "_settings_window", None)
+        notify = getattr(settings_window, "notify_config_error", None)
+        if not callable(notify):
+            return
+        if revert:
+            notify(key, message, revert_value=_current_config_value(self.config, key))
+        else:
+            notify(key, message)
 
     def _on_settings_preview_config(self, key: str, value: Any) -> None:
         """Apply an audio slider preview without writing config to disk."""
@@ -891,6 +934,17 @@ class VocalMoreApp(rumps.App):
                 "open",
                 "x-apple.systempreferences:com.apple.preference.security"
                 "?Privacy_Accessibility",
+            ],
+            check=False,
+        )
+
+    def _on_settings_open_microphone_settings(self) -> None:
+        """Open the exact macOS privacy pane needed by microphone capture."""
+        subprocess.run(
+            [
+                "open",
+                "x-apple.systempreferences:com.apple.preference.security"
+                "?Privacy_Microphone",
             ],
             check=False,
         )
@@ -1657,6 +1711,7 @@ class VocalMoreApp(rumps.App):
     def _handle_escape_pressed_command(self) -> None:
         if self._current_mode.state in (
             ModeState.STARTING,
+            ModeState.RECORDING,
             ModeState.STOPPING,
             ModeState.PROCESSING,
             ModeState.CANCELLING,
@@ -1700,10 +1755,19 @@ class VocalMoreApp(rumps.App):
         }.get(state, "hidden")
         self._capsule.update_state(capsule_state)
         if state in (ModeState.STARTING, ModeState.RECORDING):
+            self._failure_pending = False
             self._mark_live_benchmark_trace("first_feedback")
         elif state == ModeState.FAILED:
+            # The mode's error callback follows on the same worker; keep the
+            # flag so _show_error_notification can echo the reason on the
+            # capsule instead of only posting a system notification.
+            self._failure_pending = True
             self._finish_live_benchmark_trace(status="failed")
         elif state == ModeState.IDLE:
+            # The FAILED transition's error has either been consumed or never
+            # arrived; IDLE must not leak an armed failure slot that would
+            # swallow the next session's notification-only warnings.
+            self._failure_pending = False
             trace = getattr(self, "_benchmark_trace", None)
             if trace is not None and trace.active:
                 self._finish_live_benchmark_trace(status="failed")
@@ -1815,7 +1879,12 @@ class VocalMoreApp(rumps.App):
         self._run_on_main_thread(lambda: self._show_result_notification(text))
 
     def _show_result_notification(self, text: str) -> None:
-        display_text = text[:50] + "..." if len(text) > 50 else text
+        if self.config.auto_paste:
+            # Auto paste already delivered the text to the user's cursor; a
+            # notification on top of that only competes for attention. Announce
+            # the result only when it reached the clipboard alone.
+            return
+        display_text = self._notification_preview(text)
         try:
             rumps.notification(
                 "Vocal-More",
@@ -1825,6 +1894,25 @@ class VocalMoreApp(rumps.App):
             )
         except RuntimeError:
             print(f"[Result] {display_text}")
+
+    @staticmethod
+    def _notification_preview(text: str, limit: int = 50) -> str:
+        """Truncate to ``limit`` UTF-16 code units without splitting a pair.
+
+        The system notification bridge measures strings in UTF-16 units, so a
+        plain code-point slice can still land between the halves of an emoji
+        once encoded. Back off one unit when the cut would orphan a surrogate.
+        """
+        encoded = text.encode("utf-16-be")
+        if len(encoded) <= limit * 2:
+            return text
+        units = encoded[: limit * 2]
+        last_unit = int.from_bytes(units[-2:], "big")
+        if 0xD800 <= last_unit <= 0xDBFF:
+            # The cut separated this high surrogate from its low half; drop
+            # the orphan so an astral pair is never split.
+            units = units[:-2]
+        return units.decode("utf-16-be", errors="ignore") + "..."
 
     def _on_partial_result(self, text: str) -> None:
         """Handle partial result — show streaming text in capsule."""
@@ -1897,6 +1985,11 @@ class VocalMoreApp(rumps.App):
         self._run_on_main_thread(lambda: self._show_error_notification(error))
 
     def _show_error_notification(self, error: str) -> None:
+        if self._failure_pending:
+            self._failure_pending = False
+            capsule = getattr(self, "_capsule", None)
+            if capsule is not None:
+                capsule.show_failure(error)
         try:
             rumps.notification(
                 "Vocal-More",

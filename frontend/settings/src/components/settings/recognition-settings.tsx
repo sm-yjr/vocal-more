@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react"
+
 import {
   InlineValue,
   SettingsCard,
@@ -172,4 +174,3 @@ export function RecognitionSettings({
     </SettingsPage>
   )
 }
-import { useEffect, useState } from "react"

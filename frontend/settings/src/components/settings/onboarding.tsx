@@ -3,6 +3,7 @@ import {
   CircleCheck,
   ExternalLink,
   KeyRound,
+  Mic,
   Mic2,
   RefreshCw,
   ShieldCheck,
@@ -89,6 +90,10 @@ export function Onboarding({
   const deviceReady =
     snapshot.devices.length > 0 && readiness(snapshot, "input_device")
   const accessibilityReady = readiness(snapshot, "accessibility")
+  const microphonePermissionReady = readiness(
+    snapshot,
+    "microphone_permission",
+  )
   const hotkeyReady = readiness(snapshot, "hotkey_listener")
   const firstRecordingReady = mic.state === "done"
   const canFinish =
@@ -199,6 +204,39 @@ export function Onboarding({
             </div>
           </div>
 
+          <div className="rounded-xl border bg-card p-4 shadow-sm">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="flex items-center gap-1.5 text-sm font-medium">
+                  <Mic className="size-4" />
+                  {copy.setupMicrophonePermission}
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {copy.setupMicrophonePermissionHint}
+                </p>
+              </div>
+              <Status ready={microphonePermissionReady} copy={copy} />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => sendAction("openMicrophoneSettings")}
+              >
+                <Mic data-icon="inline-start" />
+                {copy.openMicrophoneSettings}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => sendAction("refreshEnvironment")}
+              >
+                <RefreshCw data-icon="inline-start" />
+                {copy.refreshStatus}
+              </Button>
+            </div>
+          </div>
+
           <div className="rounded-xl border bg-card p-4 shadow-sm md:col-span-2">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
@@ -285,14 +323,34 @@ export function Onboarding({
           <p className="text-xs text-muted-foreground">
             {copy.setupCompleteHint}
           </p>
-          <Button
-            disabled={!canFinish}
-            onClick={() =>
-              setConfig(store, "ui.onboarding_completed", true)
-            }
-          >
-            {copy.finishSetup}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => {
+                if (store.getSnapshot().micTest.state === "recording") {
+                  sendAction("stopMicTest")
+                  store.resetMicTest()
+                }
+                setConfig(store, "ui.onboarding_completed", true)
+                // Keep a marker so the General row can remind the user the
+                // setup items are still unfinished (UX-11).
+                setConfig(store, "ui.onboarding_skipped", true)
+              }}
+            >
+              {copy.skipSetup}
+            </Button>
+            <Button
+              disabled={!canFinish}
+              onClick={() => {
+                setConfig(store, "ui.onboarding_completed", true)
+                setConfig(store, "ui.onboarding_skipped", false)
+              }}
+            >
+              {copy.finishSetup}
+            </Button>
+          </div>
         </footer>
       </div>
     </main>

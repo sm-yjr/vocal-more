@@ -10,6 +10,7 @@ import {
 import { useEffect } from "react"
 
 import { AudioSettings } from "@/components/settings/audio-settings"
+import { ConfigErrorToast } from "@/components/settings/config-error-toast"
 import { DictionarySettings } from "@/components/settings/dictionary-settings"
 import { GeneralSettings } from "@/components/settings/general-settings"
 import { HistorySettings } from "@/components/settings/history-settings"
@@ -72,7 +73,14 @@ export function App({ store }: { store: SettingsStore }) {
   ])
 
   if (snapshot.config.ui?.onboarding_completed !== true) {
-    return <Onboarding store={store} snapshot={snapshot} copy={copy} />
+    return (
+      <div className="relative">
+        <Onboarding store={store} snapshot={snapshot} copy={copy} />
+        {snapshot.configError !== null && (
+          <ConfigErrorToast store={store} error={snapshot.configError} copy={copy} />
+        )}
+      </div>
+    )
   }
 
   function changeTab(value: string | number) {
@@ -92,7 +100,7 @@ export function App({ store }: { store: SettingsStore }) {
       orientation="vertical"
       value={snapshot.activeTab}
       onValueChange={changeTab}
-      className="h-svh min-h-[380px] w-full min-w-[520px] gap-0 overflow-hidden bg-background"
+      className="relative h-svh min-h-[380px] w-full min-w-[520px] gap-0 overflow-hidden bg-background"
     >
       <aside className="flex w-40 shrink-0 flex-col border-r bg-sidebar/70 p-2 max-[600px]:w-32">
         <div className="flex h-11 items-center px-2.5 text-[13px] font-semibold tracking-tight">
@@ -111,6 +119,14 @@ export function App({ store }: { store: SettingsStore }) {
             >
               <Icon className="size-4" />
               {copy[tab]}
+              {tab === "general" &&
+              snapshot.config.ui?.onboarding_skipped === true ? (
+                <span
+                  aria-label={copy.onboardingIncompleteBadge}
+                  title={copy.onboardingIncompleteBadge}
+                  className="ml-auto inline-flex size-1.5 flex-none rounded-full bg-amber-500"
+                />
+              ) : null}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -170,6 +186,14 @@ export function App({ store }: { store: SettingsStore }) {
           />
         </TabsContent>
       </main>
+
+      {snapshot.configError !== null && (
+        <ConfigErrorToast
+          store={store}
+          error={snapshot.configError}
+          copy={copy}
+        />
+      )}
     </Tabs>
   )
 }

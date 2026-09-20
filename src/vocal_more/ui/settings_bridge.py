@@ -67,6 +67,7 @@ _ALLOWED_CONFIG_SECTION_FIELDS = {
     "ui": {
         "language",
         "onboarding_completed",
+        "onboarding_skipped",
         "advanced_settings",
     },
     "dictionary_learning": {
@@ -267,6 +268,12 @@ class SettingsBridge:
         body: dict[str, Any],
     ) -> dict[str, Any]:
         return {"action": "open_accessibility_settings"}
+
+    def _normalize_openMicrophoneSettings(
+        self,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {"action": "open_microphone_settings"}
 
     def _normalize_openConfigFile(self, body: dict[str, Any]) -> dict[str, Any]:
         return {"action": "open_config_file"}

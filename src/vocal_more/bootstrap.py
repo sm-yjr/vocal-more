@@ -199,6 +199,7 @@ def build_menu_app_dependencies(
         on_refresh_devices=app._on_settings_refresh_devices,
         on_refresh_environment=app._on_settings_refresh_environment,
         on_open_accessibility_settings=app._on_settings_open_accessibility_settings,
+        on_open_microphone_settings=app._on_settings_open_microphone_settings,
         on_open_config_file=app._on_settings_open_config,
         on_open_dict_file=app._on_settings_open_dict,
         on_open_external=app._on_settings_open_external,

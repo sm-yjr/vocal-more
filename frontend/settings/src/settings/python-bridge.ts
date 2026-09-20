@@ -39,6 +39,7 @@ export const PYTHON_API_NAMES = [
   "playAudio",
   "recordingPlaybackEnded",
   "copiedFeedback",
+  "configError",
 ] as const
 
 export function postSettingsMessage(message: SettingsMessage): void {
@@ -89,6 +90,7 @@ export function installPythonApi(store: SettingsStore): void {
     if (store.getSnapshot().playingRecordingId === id) store.stopAudio()
   }
   window.copiedFeedback = (id) => store.copiedFeedback(id)
+  window.configError = (key, message) => store.configError(key, message)
 
   if (window._initData) {
     store.loadAll(window._initData)
@@ -145,5 +147,6 @@ declare global {
     playAudio: (id: string, base64Data: string | null) => void
     recordingPlaybackEnded: (id: string) => void
     copiedFeedback: (id: string) => void
+    configError: (key: string, message: string) => void
   }
 }

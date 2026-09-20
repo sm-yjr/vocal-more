@@ -99,3 +99,15 @@ fn proxy_url_is_validated_and_normalized() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn skipped_onboarding_survives_reload() -> anyhow::Result<()> {
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("config.yaml");
+    let mut repo = ConfigRepository::open(&path)?;
+    repo.update("ui.onboarding_skipped", &json!(true))?;
+    let reload = ConfigRepository::open(&path)?;
+    assert_eq!(reload.config.get("ui.onboarding_skipped"), &json!(true));
+    assert_eq!(reload.config.get("ui.onboarding_completed"), &json!(false));
+    Ok(())
+}

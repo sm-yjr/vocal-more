@@ -133,6 +133,7 @@ class SettingsWindow:
         on_refresh_devices: Optional[Callable[[], None]] = None,
         on_refresh_environment: Optional[Callable[[], None]] = None,
         on_open_accessibility_settings: Optional[Callable[[], None]] = None,
+        on_open_microphone_settings: Optional[Callable[[], None]] = None,
         on_open_config_file: Optional[Callable[[], None]] = None,
         on_open_dict_file: Optional[Callable[[], None]] = None,
         on_open_external: Optional[Callable[[str], None]] = None,
@@ -158,6 +159,7 @@ class SettingsWindow:
         self._on_refresh_devices = on_refresh_devices
         self._on_refresh_environment = on_refresh_environment
         self._on_open_accessibility_settings = on_open_accessibility_settings
+        self._on_open_microphone_settings = on_open_microphone_settings
         self._on_open_config_file = on_open_config_file
         self._on_open_dict_file = on_open_dict_file
         self._on_open_external = on_open_external
@@ -580,6 +582,27 @@ class SettingsWindow:
         json_str = json.dumps(records)
         self._eval_js(f"loadDictionaryLearning({json_str})")
 
+    def notify_config_error(
+        self,
+        key: str,
+        message: str,
+        revert_value: object = _UNSET,
+    ) -> None:
+        """Echo a rejected or failed config write back to the settings UI.
+
+        When ``revert_value`` is provided, the UI's optimistic value is
+        rolled back to the authoritative config value before the error is
+        surfaced, so the controls never show a state the host rejected.
+        """
+        if revert_value is not _UNSET:
+            self._eval_js(
+                f"updateConfig({json.dumps(key)}, "
+                f"{json.dumps(revert_value)})"
+            )
+        self._eval_js(
+            f"configError({json.dumps(key)}, {json.dumps(message)})"
+        )
+
     def _build_action_dispatcher(self) -> SettingsActionDispatcher:
         return SettingsActionDispatcher(
             on_set_config=self._on_set_config,
@@ -597,6 +620,7 @@ class SettingsWindow:
             on_refresh_environment=self._on_refresh_environment,
             on_check_dashscope_models=self._handle_check_dashscope_models,
             on_open_accessibility_settings=self._on_open_accessibility_settings,
+            on_open_microphone_settings=self._on_open_microphone_settings,
             on_open_config_file=self._on_open_config_file,
             on_open_dict_file=self._on_open_dict_file,
             on_open_external=self._on_open_external,
