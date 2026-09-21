@@ -4479,6 +4479,21 @@
   },
   {
     "key": "asr.model",
+    "input": "qwen3.8-omni-flash-realtime",
+    "changes": {
+      "asr.model": "qwen3.8-omni-flash-realtime"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen3.8-omni-flash",
+    "changes": {
+      "asr.backend": "omni_offline",
+      "asr.model": "qwen3.8-omni-flash"
+    }
+  },
+  {
+    "key": "asr.model",
     "input": "qwen3.5-omni-flash-realtime",
     "changes": {}
   },

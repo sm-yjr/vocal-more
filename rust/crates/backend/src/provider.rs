@@ -354,8 +354,13 @@ impl Provider {
                         },
                         Event::Input(Some(NetworkInput::Pcm(pcm))) => {
                             total_bytes += pcm.len() as u64;
-                            if !self.endpoints.fixture && self.model().starts_with("qwen3.5-omni") {
-                                let seconds = if self.model().contains("flash") { 480 } else { 600 };
+                            let is_omni_realtime = self.model().starts_with("qwen3.5-omni")
+                                || self.model().starts_with("qwen3.8-omni");
+                            if !self.endpoints.fixture && is_omni_realtime {
+                                // Mirrors protocol::RealtimeConfig::cloud_audio_limit_bytes:
+                                // Qwen3.5 Flash holds 480s; Plus and Qwen3.8 hold 600s.
+                                let seconds =
+                                    if self.model() == "qwen3.5-omni-flash-realtime" { 480 } else { 600 };
                                 ensure!(total_bytes <= seconds * 32000, "ASR context duration exceeded; recover from recorded audio");
                             }
                             pending_pcm.extend_from_slice(&pcm);

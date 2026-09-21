@@ -217,7 +217,7 @@ async fn every_shipped_model_runs_through_application_dictionary_history_and_pas
             .as_array()
             .unwrap()
             .len(),
-        10
+        CONTRACT["all_asr_models"].as_array().unwrap().len()
     );
     app.call("shutdown", json!({})).await?;
     Ok(())
@@ -306,7 +306,11 @@ async fn settings_restart_model_check_and_learning_use_only_rust_services() -> R
     app.call("ui_action", json!({"action":"checkDashScopeModels"}))
         .await?;
     let models = event(&mut events, "model_check_complete").await?;
-    assert_eq!(models.as_array().unwrap().len(), 9);
+    assert_eq!(
+        models.as_array().unwrap().len(),
+        CONTRACT["asr_models"].as_array().unwrap().len()
+            + CONTRACT["llm_models"].as_array().unwrap().len()
+    );
     assert!(
         models
             .as_array()
@@ -321,7 +325,7 @@ async fn settings_restart_model_check_and_learning_use_only_rust_services() -> R
             .iter()
             .filter(|model| model["family"] == "asr")
             .count(),
-        5
+        CONTRACT["asr_models"].as_array().unwrap().len()
     );
     assert_eq!(
         models
@@ -330,7 +334,7 @@ async fn settings_restart_model_check_and_learning_use_only_rust_services() -> R
             .iter()
             .filter(|model| model["family"] == "llm")
             .count(),
-        4
+        CONTRACT["llm_models"].as_array().unwrap().len()
     );
     app.call("submit_correction",json!({"evidence":{"raw_text":"github","pasted_text":"github","baseline_text":"github","edited_text":"GitHub","recording_id":"r1","observation_id":"o1"}})).await?;
     timeout(Duration::from_secs(4), async {

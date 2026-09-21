@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Qwen 3.5 Omni Realtime, manual commit, text-only response.
+//! Qwen 3.5/3.8 Omni Realtime, manual commit, text-only response.
 use anyhow::{Context, Result, bail, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
@@ -37,10 +37,13 @@ fn default_instructions() -> String {
 }
 
 impl RealtimeConfig {
-    /// Cloud context retains at most 600s (Plus) / 480s (Flash) of audio.
-    /// Loopback fixtures deliberately allow long transport/storage stress runs.
+    /// Cloud context retains at most 600s (Plus / Qwen3.8, cumulative history)
+    /// or 480s (Qwen3.5 Flash) of audio. Loopback fixtures deliberately allow
+    /// long transport/storage stress runs.
     pub fn cloud_audio_limit_bytes(&self) -> Option<u64> {
         (Url::parse(&self.endpoint).ok()?.scheme() == "wss").then(|| {
+            // Qwen3.8 keeps a 600s cumulative audio-history window and drops
+            // older media server-side; only Qwen3.5 Flash holds less context.
             let seconds = if self.model == "qwen3.5-omni-flash-realtime" {
                 480
             } else {
@@ -54,9 +57,11 @@ impl RealtimeConfig {
         ensure!(
             matches!(
                 self.model.as_str(),
-                "qwen3.5-omni-plus-realtime" | "qwen3.5-omni-flash-realtime"
+                "qwen3.5-omni-plus-realtime"
+                    | "qwen3.5-omni-flash-realtime"
+                    | "qwen3.8-omni-flash-realtime"
             ),
-            "this milestone supports Qwen 3.5 Omni Realtime only"
+            "this milestone supports Qwen 3.5/3.8 Omni Realtime only"
         );
         ensure!(
             self.instructions.len() <= 64 * 1024,
@@ -455,6 +460,8 @@ mod tests {
         assert_eq!(config.cloud_audio_limit_bytes(), Some(19_200_000));
         config.model = "qwen3.5-omni-flash-realtime".into();
         assert_eq!(config.cloud_audio_limit_bytes(), Some(15_360_000));
+        config.model = "qwen3.8-omni-flash-realtime".into();
+        assert_eq!(config.cloud_audio_limit_bytes(), Some(19_200_000));
         config.endpoint = "ws://127.0.0.1/realtime".into();
         assert_eq!(config.cloud_audio_limit_bytes(), None);
     }

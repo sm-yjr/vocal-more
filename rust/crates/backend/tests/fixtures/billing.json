@@ -2237,6 +2237,426 @@
   },
   {
     "stage": "asr",
+    "model": "qwen3.8-omni-flash",
+    "seconds": 8.275,
+    "usage": null,
+    "expected": {
+      "stage": "asr",
+      "model": "qwen3.8-omni-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 4.6e-05,
+      "estimated": true,
+      "usage": {
+        "input_tokens": 58,
+        "output_tokens": 0,
+        "total_tokens": 58,
+        "input_tokens_details": {
+          "audio_tokens": 58
+        },
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 4.6e-05,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen3.8-omni-flash",
+    "seconds": 8.275,
+    "usage": {},
+    "expected": {
+      "stage": "asr",
+      "model": "qwen3.8-omni-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.0,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen3.8-omni-flash",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 50,
+      "input_tokens_details": {
+        "audio_tokens": 80,
+        "text_tokens": 20
+      },
+      "output_tokens_details": {
+        "text_tokens": 49,
+        "audio_tokens": 1
+      }
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen3.8-omni-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.000212,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+        "prompt_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "completion_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        },
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "input_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "output_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        }
+      },
+      "cost_breakdown_cny": {
+        "input_text": 1.6e-05,
+        "input_audio": 6.4e-05,
+        "output_text": 0.000132,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen3.8-omni-flash",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 130000,
+      "completion_tokens": 120
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen3.8-omni-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 130000,
+        "completion_tokens": 120,
+        "total_tokens": 130120,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.0,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen3.8-omni-flash",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 900000,
+      "completion_tokens": 1500
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen3.8-omni-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 900000,
+        "completion_tokens": 1500,
+        "total_tokens": 901500,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.0,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen3.8-omni-flash",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": "7",
+      "output_tokens": -4
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen3.8-omni-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 0,
+        "total_tokens": 7,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {},
+        "input_tokens": 7,
+        "output_tokens": 0,
+        "input_tokens_details": {},
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.0,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen3.8-omni-flash-realtime",
+    "seconds": 8.275,
+    "usage": null,
+    "expected": {
+      "stage": "asr",
+      "model": "qwen3.8-omni-flash-realtime",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.000348,
+      "estimated": true,
+      "usage": {
+        "input_tokens": 58,
+        "output_tokens": 0,
+        "total_tokens": 58,
+        "input_tokens_details": {
+          "audio_tokens": 58
+        },
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.000348,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen3.8-omni-flash-realtime",
+    "seconds": 8.275,
+    "usage": {},
+    "expected": {
+      "stage": "asr",
+      "model": "qwen3.8-omni-flash-realtime",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.0,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen3.8-omni-flash-realtime",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 50,
+      "input_tokens_details": {
+        "audio_tokens": 80,
+        "text_tokens": 20
+      },
+      "output_tokens_details": {
+        "text_tokens": 49,
+        "audio_tokens": 1
+      }
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen3.8-omni-flash-realtime",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.000742,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+        "prompt_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "completion_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        },
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "input_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "output_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        }
+      },
+      "cost_breakdown_cny": {
+        "input_text": 3e-05,
+        "input_audio": 0.00048,
+        "output_text": 0.00022,
+        "output_audio": 1.2e-05
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen3.8-omni-flash-realtime",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 130000,
+      "completion_tokens": 120
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen3.8-omni-flash-realtime",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 130000,
+        "completion_tokens": 120,
+        "total_tokens": 130120,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.0,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen3.8-omni-flash-realtime",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 900000,
+      "completion_tokens": 1500
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen3.8-omni-flash-realtime",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 900000,
+        "completion_tokens": 1500,
+        "total_tokens": 901500,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.0,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen3.8-omni-flash-realtime",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": "7",
+      "output_tokens": -4
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen3.8-omni-flash-realtime",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 0,
+        "total_tokens": 7,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {},
+        "input_tokens": 7,
+        "output_tokens": 0,
+        "input_tokens_details": {},
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.0,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
     "model": "unknown",
     "seconds": 8.275,
     "usage": null,
