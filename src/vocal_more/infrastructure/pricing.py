@@ -56,6 +56,21 @@ _OMNI_PRICING = {
         "output_text": 20.0,
         "output_audio": 107.0,
     },
+    # 2026-09-21 核对自 help.aliyun.com/zh/model-studio/model-pricing（华北 2 北京，原价）。
+    # qwen3.8-omni-flash 输入单价不分模态（音频同价计费），纯文本输出，无音频输出价。
+    "qwen3.8-omni-flash": {
+        "input_text": 0.8,
+        "input_audio": 0.8,
+        "output_text": 2.7,
+        "output_audio": 0.0,
+    },
+    # qwen3.8-omni-flash-realtime 输出语音时音频及对应文本分别计费（与 3.5 系列仅音频计费不同）。
+    "qwen3.8-omni-flash-realtime": {
+        "input_text": 1.5,
+        "input_audio": 6.0,
+        "output_text": 4.5,
+        "output_audio": 12.0,
+    },
 }
 
 _TEXT_TIERED_PRICING = {

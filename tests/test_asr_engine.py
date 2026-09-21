@@ -530,6 +530,7 @@ def test_adaptive_response_timeouts_scale_with_audio_duration():
 @pytest.mark.parametrize(
     ("realtime_model", "offline_model"),
     [
+        ("qwen3.8-omni-flash-realtime", "qwen3.8-omni-flash"),
         ("qwen3.5-omni-flash-realtime", "qwen3.5-omni-flash"),
         ("qwen3.5-omni-plus-realtime", "qwen3.5-omni-plus"),
     ],

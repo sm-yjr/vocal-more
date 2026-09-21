@@ -36,6 +36,24 @@ LLM_MODEL_CATALOG = [
 
 ALL_ASR_MODELS = [
     {
+        # 2026-09-21 实测：session.update 需显式 voice="Tina"；服务端默认
+        # Chelsie 提交音频时报 "Voice 'Chelsie' is not supported"。
+        "id": "qwen3.8-omni-flash-realtime",
+        "display_name": "Qwen3.8 Omni Flash Realtime",
+        "transport": "realtime_ws",
+        "supports_transcription_params": False,
+        "input_audio_transcription_model": "gummy-realtime-v1",
+        "handles_inline_polish": True,
+    },
+    {
+        "id": "qwen3.8-omni-flash",
+        "display_name": "Lite",
+        "transport": "omni_offline",
+        "supports_transcription_params": False,
+        "input_audio_transcription_model": None,
+        "handles_inline_polish": True,
+    },
+    {
         "id": "qwen3.5-omni-flash-realtime",
         "display_name": "Qwen3.5 Omni Flash Realtime",
         "transport": "realtime_ws",
@@ -143,9 +161,11 @@ for _model in ALL_ASR_MODELS:
         "cascade"
     )
 
-# Keep the Qwen3.5 Omni family first in the user-facing selector, with Plus
-# before Flash. See docs/dictation-models.md for sources and scope.
+# Keep the Omni realtime family first in the user-facing selector, newest
+# generation before older, Plus before Flash within a generation. See
+# docs/dictation-models.md for sources and scope.
 _DICTATION_MODEL_ORDER = (
+    "qwen3.8-omni-flash-realtime",
     "qwen3.5-omni-plus-realtime",
     "qwen3.5-omni-flash-realtime",
     "qwen-audio-3.0-asr-flash-streaming",

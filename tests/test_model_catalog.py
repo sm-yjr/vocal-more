@@ -11,6 +11,7 @@ from vocal_more.domain.model_catalog import (
 def test_dictation_choices_are_realtime_and_single_pass():
     ids = [model["id"] for model in ASR_MODEL_CATALOG]
     assert ids == [
+        "qwen3.8-omni-flash-realtime",
         "qwen3.5-omni-plus-realtime",
         "qwen3.5-omni-flash-realtime",
         "qwen-audio-3.0-asr-flash-streaming",
@@ -19,7 +20,7 @@ def test_dictation_choices_are_realtime_and_single_pass():
     ]
     assert all(model["transport"] == "realtime_ws" for model in ASR_MODEL_CATALOG)
     assert all(asr_model_uses_single_pass(model_id) for model_id in ids)
-    assert not asr_model_handles_inline_polish(ids[2])
+    assert not asr_model_handles_inline_polish(ids[3])
     assert all(model["protocol"] for model in ASR_MODEL_CATALOG)
 
 
@@ -28,3 +29,11 @@ def test_hidden_models_remain_readable_for_saved_configs_and_recovery():
         assert get_asr_model_info(model_id) is not None
         assert model_id not in {model["id"] for model in ASR_MODEL_CATALOG}
     assert not asr_model_uses_single_pass("unknown-model")
+
+
+def test_qwen38_realtime_routes_to_offline_sibling_for_long_audio():
+    """The realtime model's offline fallback is derived by suffix removal."""
+    from vocal_more.infrastructure.asr.routing import omni_offline_fallback_model
+
+    assert omni_offline_fallback_model("qwen3.8-omni-flash-realtime") == "qwen3.8-omni-flash"
+    assert get_asr_model_info("qwen3.8-omni-flash")["transport"] == "omni_offline"

@@ -1,16 +1,19 @@
 # 听写模型与通信分类
 
-核对日期：2026-09-07。`domain/model_catalog.py` 保存模型通信协议和输出能力；`ASR_MODEL_CATALOG` 是设置页、菜单、RPC 初始化和 Windows 共用的可选听写列表。`ALL_ASR_MODELS` 保留旧配置解析、历史录音与失败恢复需要的模型资料。此次下架范围是可选列表，旧配置不会被静默改写，兼容后端及失败时的降级仍保留。
+核对日期：2026-09-21。`domain/model_catalog.py` 保存模型通信协议和输出能力；`ASR_MODEL_CATALOG` 是设置页、菜单、RPC 初始化和 Windows 共用的可选听写列表。`ALL_ASR_MODELS` 保留旧配置解析、历史录音与失败恢复需要的模型资料。此次下架范围是可选列表，旧配置不会被静默改写，兼容后端及失败时的降级仍保留。
 
 | 选择顺序 | 模型 | 通信协议 | 正常听写链路 |
 | --- | --- | --- | --- |
-| 1 | Qwen Audio 3.0 ASR Flash Streaming | WebSocket / audio recognition，二进制 PCM | 原生热词、上下文、标点，直接输出转写 |
+| 1 | Qwen3.8 Omni Flash Realtime | WebSocket / Omni realtime，Base64 PCM | 同一会话内按指令输出润色文本；本次新增 |
 | 2 | Qwen3.5 Omni Plus Realtime | WebSocket / Omni realtime，Base64 PCM | 同一会话内按指令输出润色文本 |
 | 3 | Qwen3.5 Omni Flash Realtime | WebSocket / Omni realtime，Base64 PCM | 同上 |
-| 4 | Qwen Audio 3.0 Realtime Plus | WebSocket / realtime conversation，Base64 PCM | 按听写指令返回文本响应 |
-| 5 | Qwen Audio 3.0 Realtime Flash | WebSocket / realtime conversation，Base64 PCM | 同上，本次新增 |
+| 4 | Qwen Audio 3.0 ASR Flash Streaming | WebSocket / audio recognition，二进制 PCM | 原生热词、上下文、标点，直接输出转写 |
+| 5 | Qwen Audio 3.0 Realtime Plus | WebSocket / realtime conversation，Base64 PCM | 按听写指令返回文本响应 |
+| 6 | Qwen Audio 3.0 Realtime Flash | WebSocket / realtime conversation，Base64 PCM | 同上 |
 
-排序采用官方语音识别推荐作为听写入口，Omni 家族按官方 Plus、Flash 顺序排列，然后是语音对话 Plus、Flash。这是结合听写场景的产品排序；官方没有提供跨 ASR、Omni、语音对话三类模型的统一排名。现有默认模型仍为 Omni Flash Realtime，避免改变新建配置的指令润色能力。官方提供的日期快照没有逐一重复列出；此次核对未发现比现有 Qwen3.5 Omni 家族更新的通用 Omni 家族。专用翻译、电话 8 kHz 与非实时文件模型不加入普通听写菜单。
+排序采用官方语音识别推荐作为听写入口，Omni 家族按官方最新一代优先、同代 Plus、Flash 顺序排列，然后是语音对话 Plus、Flash。这是结合听写场景的产品排序；官方没有提供跨 ASR、Omni、语音对话三类模型的统一排名。现有默认模型仍为 Qwen3.5 Omni Flash Realtime，避免改变新建配置的指令润色能力；Qwen3.8 Omni Flash Realtime 已于 2026-09-21 用真实音频端到端验证（转写完整准确），但服务端 `session.created` 默认 voice `Chelsie` 提交音频会被拒（`Voice 'Chelsie' is not supported`），必须显式 `voice="Tina"`——现有 `asr_engine` 对 Omni realtime 系列的默认值恰好是 Tina，无需适配。`qwen3.8-omni-plus-realtime` 尚未开放（WebSocket 握手后即被静默断开），未加入目录。官方提供的日期快照没有逐一重复列出。专用翻译、电话 8 kHz 与非实时文件模型不加入普通听写菜单。
+
+Qwen3.8 Omni Flash Realtime 长音频离线降级走 `qwen3.8-omni-flash`（按目录后缀规则推导，HTTP 通道已实测可用）。费用按 2026-09-21 官方原价接入：realtime 输入音频 6 元/百万 Token（约为 3.5 Flash Realtime 的 22%），输出语音时音频及对应文本分别计费；离线版输入不分模态统一 0.8 元/百万 Token，纯文本输出。
 
 `transport`、`protocol`、`pipeline` 分别表示传输后端、报文协议和输出处理方式。`supports_instant_hotwords` 与 `handles_inline_polish` 是独立能力。原生热词提高识别准确率，不能据此宣称模型支持任意指令润色。`native_asr` 和 `inline_generation` 都跳过听写完成阶段的独立文本 LLM；`cascade` 保留兼容实现但从菜单隐藏。
 
