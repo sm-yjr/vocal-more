@@ -570,11 +570,11 @@ impl State {
         } else {
             self.host.start(StartRequest { source, asr: None }).await?
         };
-        if let Some(jpeg) = initial_screen_frame {
-            if let Err(error) = self.host.append_image(core.generation, jpeg.into()) {
-                let _ = self.host.cancel(core.generation);
-                return Err(error);
-            }
+        if let Some(jpeg) = initial_screen_frame
+            && let Err(error) = self.host.append_image(core.generation, jpeg.into())
+        {
+            let _ = self.host.cancel(core.generation);
+            return Err(error);
         }
         self.active = Some(Active {
             generation,
