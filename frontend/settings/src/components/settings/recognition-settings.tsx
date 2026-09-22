@@ -119,6 +119,30 @@ export function RecognitionSettings({
             <NativeSelectOption value="en">{copy.english}</NativeSelectOption>
           </NativeSelect>
         </SettingsRow>
+        {selected?.language_count ? (
+          <SettingsRow
+            label={copy.modelCapabilities}
+            description={copy.semanticTranscription}
+          >
+            <div className="max-w-80 space-y-1 text-right text-xs text-muted-foreground">
+              <div>
+                {copy.multilingualRecognition
+                  .replace("{languages}", String(selected.language_count))
+                  .replace("{dialects}", String(selected.chinese_dialect_count ?? 0))}
+              </div>
+              {selected.supports_screen_context ? (
+                <div>{copy.screenContextAvailable}</div>
+              ) : null}
+              {selected.max_input_tokens && selected.max_audio_seconds ? (
+                <div>
+                  {copy.contextCapacity
+                    .replace("{tokens}", selected.max_input_tokens.toLocaleString())
+                    .replace("{seconds}", String(selected.max_audio_seconds))}
+                </div>
+              ) : null}
+            </div>
+          </SettingsRow>
+        ) : null}
         <SettingsRow
           label={copy.realtimeEndpoint}
           description={copy.realtimeEndpointHint}

@@ -28,6 +28,7 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "menu_microphone_system_default": "System Default",
         "menu_microphone_settings": "Microphone Settings...",
         "menu_asr_model": "ASR Model",
+        "menu_screen_dictation": "Talk About Screen",
         "menu_asr_model_title": "ASR Model: {value}",
         "menu_enable_polishing": "Enable Polishing",
         "menu_polish_strength": "Polish Strength",
@@ -39,6 +40,7 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "notification_configuration_error_title": "Configuration Error",
         "notification_transcription_complete_title": "Transcription Complete",
         "notification_error_title": "Error",
+        "screen_context_started": "Screen context is active. Screen frames stay in memory and are sent only during this dictation.",
         "notification_permissions_required_title": "Permissions Required",
         "notification_permissions_required_body": (
             "Please grant Accessibility permissions in System Settings → "
@@ -147,6 +149,7 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "menu_microphone_system_default": "系统默认",
         "menu_microphone_settings": "麦克风设置...",
         "menu_asr_model": "识别模型",
+        "menu_screen_dictation": "看屏幕说话",
         "menu_asr_model_title": "识别模型：{value}",
         "menu_enable_polishing": "启用润色",
         "menu_polish_strength": "润色强度",
@@ -158,6 +161,7 @@ UI_TEXT: dict[UILanguage, dict[str, str]] = {
         "notification_configuration_error_title": "配置错误",
         "notification_transcription_complete_title": "识别完成",
         "notification_error_title": "错误",
+        "screen_context_started": "已启用屏幕上下文；画面仅在内存中处理，并只用于本次听写。",
         "notification_permissions_required_title": "需要权限",
         "notification_permissions_required_body": (
             "请在 系统设置 → 隐私与安全性 → 辅助功能 中授予辅助功能权限"

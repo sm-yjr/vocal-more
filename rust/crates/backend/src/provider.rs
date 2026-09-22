@@ -7,12 +7,14 @@ use crate::{
     text::{self, PromptKind},
 };
 use anyhow::{Context, Result, bail, ensure};
+use base64::Engine;
 use bytes::Bytes;
 use futures_util::SinkExt;
 use serde_json::{Value, json};
-use std::{future::pending, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, future::pending, sync::Arc, time::Duration};
 use tokio::{
     sync::mpsc,
+    task::JoinSet,
     time::{Instant, timeout},
 };
 use tokio_util::sync::CancellationToken;
@@ -31,6 +33,7 @@ pub struct Endpoints {
     realtime: Option<String>,
     recognition: String,
     pub(crate) fixture: bool,
+    rollover_audio_bytes: Option<u64>,
 }
 impl Default for Endpoints {
     fn default() -> Self {
@@ -39,6 +42,7 @@ impl Default for Endpoints {
             realtime: None,
             recognition: "wss://dashscope.aliyuncs.com/api-ws/v1/inference".into(),
             fixture: false,
+            rollover_audio_bytes: None,
         }
     }
 }
@@ -62,7 +66,15 @@ impl Endpoints {
             realtime: Some(websocket.into()),
             recognition: websocket.into(),
             fixture: true,
+            rollover_audio_bytes: None,
         })
+    }
+    #[doc(hidden)]
+    pub fn with_fixture_rollover_bytes(mut self, bytes: u64) -> Result<Self> {
+        ensure!(self.fixture, "rollover override is fixture-only");
+        ensure!(bytes >= 3_200, "rollover override is too small");
+        self.rollover_audio_bytes = Some(bytes);
+        Ok(self)
     }
 }
 
@@ -72,6 +84,7 @@ pub struct Provider {
     pub entries: Vec<Entry>,
     pub context: String,
     pub endpoints: Endpoints,
+    screen_context: bool,
     key: Arc<str>,
 }
 
@@ -95,6 +108,7 @@ impl Provider {
             entries,
             context: context.trim().to_string(),
             endpoints,
+            screen_context: false,
             key: Arc::from(key),
         }
     }
@@ -108,6 +122,17 @@ impl Provider {
         self.model_info()["always_request_response"] == true
             || (self.config.get("enable_polish") == true
                 && self.model_info()["handles_inline_polish"] == true)
+    }
+    pub fn supports_screen_context(&self) -> bool {
+        self.model_info()["supports_screen_context"] == true
+    }
+    pub fn enable_screen_context(&mut self) -> Result<()> {
+        ensure!(
+            self.supports_screen_context(),
+            "selected model does not support screen context"
+        );
+        self.screen_context = true;
+        Ok(())
     }
     pub fn corpus(&self) -> String {
         if self.config.get("asr.use_dictionary_corpus") != true {
@@ -151,6 +176,9 @@ impl Provider {
         let info = self.model_info();
         let mut session = json!({"modalities":["text"], "voice":null,"input_audio_format":"pcm16", "output_audio_format":"pcm16", "input_audio_transcription":{"model":null},"turn_detection":null});
         let dict = dictionary::format_prompt(&self.entries);
+        if self.screen_context {
+            session["video"] = json!({"input":{"representation_compact":"normal"}});
+        }
         if info["protocol"] == "realtime_conversation" {
             session["voice"] = info
                 .get("voice")
@@ -173,12 +201,13 @@ impl Provider {
                 json!({"model":info["input_audio_transcription_model"]});
             session["enable_search"] = json!(false);
             if self.wants_response() {
-                session["instructions"] = json!(text::build_prompt(
-                    &self.config,
-                    PromptKind::Inline,
-                    &dict,
-                    &self.context
-                ));
+                let kind = if self.config.get("enable_polish") == true {
+                    PromptKind::Inline
+                } else {
+                    PromptKind::Native
+                };
+                session["instructions"] =
+                    json!(text::build_prompt(&self.config, kind, &dict, &self.context));
             }
         } else {
             let mut params = json!({});
@@ -301,10 +330,129 @@ impl Provider {
 
     async fn realtime(
         self,
+        input: mpsc::Receiver<NetworkInput>,
+        cancel: CancellationToken,
+        reporter: NetworkReporter,
+    ) -> Result<String> {
+        if self.model_info()["rollover_audio_seconds"]
+            .as_u64()
+            .is_some_and(|seconds| seconds > 0)
+        {
+            self.realtime_segmented(input, cancel, reporter).await
+        } else {
+            Ok(self.realtime_once(input, cancel, reporter).await?.text)
+        }
+    }
+
+    async fn realtime_segmented(
+        self,
         mut input: mpsc::Receiver<NetworkInput>,
         cancel: CancellationToken,
         reporter: NetworkReporter,
     ) -> Result<String> {
+        let rollover_bytes = self.endpoints.rollover_audio_bytes.unwrap_or(
+            self.model_info()["rollover_audio_seconds"]
+                .as_u64()
+                .context("rollover duration missing")?
+                * 32_000,
+        );
+        let mut segments = JoinSet::new();
+        let mut results = BTreeMap::new();
+        let mut index = 0_usize;
+        let mut segment_bytes = 0_u64;
+        let mut input_finished = false;
+        let (mut segment_tx, segment_rx) = mpsc::channel(vocal_more_core::AUDIO_QUEUE_BLOCKS);
+        let provider = self.clone();
+        let segment_cancel = cancel.clone();
+        let segment_reporter = reporter.segment(0);
+        segments.spawn(async move {
+            (
+                0,
+                provider
+                    .realtime_once(segment_rx, segment_cancel, segment_reporter)
+                    .await,
+            )
+        });
+
+        loop {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => bail!("ASR cancelled"),
+                completed = segments.join_next(), if !segments.is_empty() => {
+                    let Some(completed) = completed else { continue };
+                    let (completed_index, result) = completed.context("realtime segment worker failed")?;
+                    let result = result?;
+                    results.insert(completed_index, result);
+                    if input_finished && segments.is_empty() {
+                        break;
+                    }
+                },
+                next = input.recv(), if !input_finished => {
+                    match next {
+                        Some(NetworkInput::Pcm(pcm)) => {
+                            if should_rollover(segment_bytes, pcm.len(), rollover_bytes) {
+                                segment_tx.send(NetworkInput::Finish).await
+                                    .context("realtime rollover segment closed")?;
+                                index += 1;
+                                let (next_tx, next_rx) = mpsc::channel(vocal_more_core::AUDIO_QUEUE_BLOCKS);
+                                segment_tx = next_tx;
+                                segment_bytes = 0;
+                                let provider = self.clone();
+                                let segment_cancel = cancel.clone();
+                                let segment_reporter = reporter.segment(index);
+                                let segment_index = index;
+                                segments.spawn(async move {
+                                    (segment_index, provider.realtime_once(next_rx, segment_cancel, segment_reporter).await)
+                                });
+                            }
+                            segment_bytes += pcm.len() as u64;
+                            segment_tx.send(NetworkInput::Pcm(pcm)).await
+                                .context("realtime segment audio queue closed")?;
+                        }
+                        Some(NetworkInput::Image(jpeg)) => {
+                            segment_tx.send(NetworkInput::Image(jpeg)).await
+                                .context("realtime segment image queue closed")?;
+                        }
+                        Some(NetworkInput::Finish) => {
+                            segment_tx.send(NetworkInput::Finish).await
+                                .context("realtime final segment closed")?;
+                            input_finished = true;
+                        }
+                        None => bail!("audio source closed before commit"),
+                    }
+                },
+            }
+        }
+        let mut text = String::new();
+        let mut raw = String::new();
+        let mut usage = json!({});
+        for (_, result) in results {
+            if !text.is_empty() && !result.text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(result.text.trim());
+            if !raw.is_empty() && !result.raw.is_empty() {
+                raw.push('\n');
+            }
+            raw.push_str(result.raw.trim());
+            merge_usage(&mut usage, &result.usage);
+        }
+        ensure!(
+            !text.trim().is_empty(),
+            "ASR returned an empty segmented response"
+        );
+        let final_reporter = reporter.segment(index);
+        final_reporter.transcript(&raw);
+        final_reporter.usage(usage);
+        Ok(text)
+    }
+
+    async fn realtime_once(
+        self,
+        mut input: mpsc::Receiver<NetworkInput>,
+        cancel: CancellationToken,
+        reporter: NetworkReporter,
+    ) -> Result<RealtimeResult> {
         tokio::select! {
             biased;
             _ = cancel.cancelled() => bail!("ASR cancelled"),
@@ -334,6 +482,8 @@ impl Provider {
                 reporter.ready();
                 let mut accumulator = RealtimeText::new(self.wants_response(),recognition);
                 let mut pending_pcm = Vec::with_capacity(3200);
+                let mut pending_image: Option<Bytes> = None;
+                let mut audio_event_sent = false;
                 let mut committed = false; let mut total_bytes = 0_u64;
                 let mut completion_deadline = None;
                 let mut response_start_deadline = None;
@@ -367,6 +517,21 @@ impl Provider {
                             while pending_pcm.len() >= 3200 {
                                 send_pcm(&mut socket,&pending_pcm[..3200],recognition).await?;
                                 pending_pcm.drain(..3200);
+                                audio_event_sent = true;
+                                if let Some(jpeg) = pending_image.take() {
+                                    send_image(&mut socket, &jpeg, recognition, self.supports_screen_context()).await?;
+                                }
+                            }
+                        },
+                        Event::Input(Some(NetworkInput::Image(jpeg))) => {
+                            ensure!(self.supports_screen_context(), "selected model does not support screen context");
+                            ensure!(!recognition, "screen context is unavailable for recognition protocol models");
+                            if audio_event_sent {
+                                send_image(&mut socket, &jpeg, recognition, true).await?;
+                            } else {
+                                // The provider requires at least one audio append before
+                                // an image append. Keep only the newest pre-audio frame.
+                                pending_image = Some(jpeg);
                             }
                         },
                         Event::Input(Some(NetworkInput::Finish)) => {
@@ -400,13 +565,72 @@ impl Provider {
                                 let result = accumulator.result().to_owned();
                                 let _timing = vocal_more_core::diagnostics::Timing::new("provider_close");
                                 let _ = timeout(Duration::from_millis(250),socket.close(None)).await;
-                                return Ok(result);
+                                return Ok(RealtimeResult {
+                                    text: result,
+                                    raw: accumulator.raw,
+                                    usage: accumulator.usage,
+                                });
                             }
                         },
                     }
                 }
             } => result,
         }
+    }
+}
+
+struct RealtimeResult {
+    text: String,
+    raw: String,
+    usage: Value,
+}
+
+fn merge_usage(total: &mut Value, next: &Value) {
+    let (Some(total), Some(next)) = (total.as_object_mut(), next.as_object()) else {
+        return;
+    };
+    for (key, value) in next {
+        if let Some(number) = value.as_u64() {
+            let current = total.get(key).and_then(Value::as_u64).unwrap_or(0);
+            total.insert(key.clone(), json!(current.saturating_add(number)));
+        } else if value.is_object() {
+            let target = total.entry(key.clone()).or_insert_with(|| json!({}));
+            merge_usage(target, value);
+        }
+    }
+}
+
+fn should_rollover(current_bytes: u64, incoming_bytes: usize, limit_bytes: u64) -> bool {
+    current_bytes > 0 && current_bytes.saturating_add(incoming_bytes as u64) > limit_bytes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{merge_usage, should_rollover};
+    use serde_json::json;
+
+    #[test]
+    fn rollover_preserves_the_exact_safe_boundary() {
+        assert!(!should_rollover(0, 1280, 17_280_000));
+        assert!(!should_rollover(17_278_720, 1280, 17_280_000));
+        assert!(should_rollover(17_280_000, 1280, 17_280_000));
+    }
+
+    #[test]
+    fn segmented_usage_is_summed_recursively() {
+        let mut total = json!({});
+        merge_usage(
+            &mut total,
+            &json!({"input_tokens":10,"input_tokens_details":{"audio_tokens":8}}),
+        );
+        merge_usage(
+            &mut total,
+            &json!({"input_tokens":12,"output_tokens":3,"input_tokens_details":{"audio_tokens":9}}),
+        );
+        assert_eq!(
+            total,
+            json!({"input_tokens":22,"output_tokens":3,"input_tokens_details":{"audio_tokens":17}})
+        );
     }
 }
 
@@ -432,6 +656,30 @@ async fn send_pcm(socket: &mut Socket, pcm: &[u8], binary: bool) -> Result<()> {
     } else {
         send_json(socket, protocol::append_event(pcm)).await
     }
+}
+async fn send_image(
+    socket: &mut Socket,
+    jpeg: &[u8],
+    recognition: bool,
+    supported: bool,
+) -> Result<()> {
+    ensure!(
+        supported && !recognition,
+        "screen context is unsupported by this model"
+    );
+    ensure!(
+        !jpeg.is_empty() && jpeg.len() <= 190 * 1024 && jpeg.starts_with(&[0xff, 0xd8, 0xff]),
+        "screen frame must be a JPEG no larger than 190 KiB"
+    );
+    send_json(
+        socket,
+        json!({
+            "event_id": event_id(),
+            "type": "input_image_buffer.append",
+            "image": base64::engine::general_purpose::STANDARD.encode(jpeg),
+        }),
+    )
+    .await
 }
 
 pub(crate) fn safe_code(value: &Value) -> String {

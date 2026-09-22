@@ -6,6 +6,7 @@ live here. The child service owns settings, audio, providers and persistence.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import queue
 import subprocess
@@ -78,6 +79,11 @@ class RustVocalMoreApp(rumps.App):
         self._prompt_hint = ""
         self._retained = {}
         self._updater = None
+        self._screen_context_active = False
+        self._screen_context_pending = False
+        self._screen_capture_inflight = False
+        self._screen_context_generation = None
+        self._screen_context_started_at = 0.0
         args = ("--import-python", str(import_from)) if import_from else ()
         self.client = RustBackendClient(binary, data_dir, native_library=native_library,
                                         on_event=self._enqueue, extra_args=args)
@@ -110,6 +116,12 @@ class RustVocalMoreApp(rumps.App):
         # watchdog needs an idle timer; do not poll all UI traffic at 25 Hz.
         self._timer = NSTimer.timerWithTimeInterval_repeats_block_(2.0, True, lambda _: self._watchdog())
         NSRunLoop.mainRunLoop().addTimer_forMode_(self._timer, NSRunLoopCommonModes)
+        self._screen_timer = NSTimer.timerWithTimeInterval_repeats_block_(
+            2.0, True, lambda _: self._screen_tick()
+        )
+        NSRunLoop.mainRunLoop().addTimer_forMode_(
+            self._screen_timer, NSRunLoopCommonModes
+        )
 
     def _enqueue(self, event):
         if self._closing:
@@ -145,7 +157,9 @@ class RustVocalMoreApp(rumps.App):
             except Exception as error:  # noqa: BLE001 - async request boundary
                 self._enqueue({"method": "request_failed", "params": {"message": str(error),
                     "method": method, "action": (params or {}).get("action", ""),
-                    "key": (params or {}).get("key", "")}})
+                    "key": (params or {}).get("key", ""),
+                    "screen_context": (params or {}).get("screen_context", False),
+                    "screen_frame": method == "append_screen_frame"}})
             else:
                 if callback:
                     self._enqueue({"method": "_callback", "params": (callback, value)})
@@ -227,6 +241,12 @@ class RustVocalMoreApp(rumps.App):
         polish = self._item(self._t("menu_enable_polishing"), "set_config", {"key": "enable_polish", "value": not self.config.enable_polish})
         polish.state = self.config.enable_polish
         self.menu.add(polish)
+        self.menu.add(
+            rumps.MenuItem(
+                self._t("menu_screen_dictation"),
+                callback=lambda _: self._toggle_screen_dictation(),
+            )
+        )
         levels = rumps.MenuItem(self._t("menu_polish_strength"))
         for level in ("minimal", "balanced", "strong"):
             item = self._item(self._t("polish_level_" + level), "set_config", {"key": "llm.level", "value": level})
@@ -247,6 +267,70 @@ class RustVocalMoreApp(rumps.App):
         running = bool(self._hotkeys and self._hotkeys.diagnostics().get("running"))
         self.request("platform_status", {"accessibility": bool(AXIsProcessTrusted()), "hotkey_listener": running})
         self.request("refresh_environment")
+
+    def _toggle_screen_dictation(self):
+        if self.snapshot.get("state") != "idle":
+            self.request("finish")
+            return
+        if self._screen_context_pending:
+            return
+        self._screen_context_pending = True
+        self._capture_screen(initial=True, request_permission=True)
+
+    def _capture_screen(self, *, initial, request_permission=False):
+        if self._screen_capture_inflight or self._closing:
+            return
+        self._screen_capture_inflight = True
+        generation = self._screen_context_generation
+
+        def capture(data):
+            try:
+                from .core.macos_screen_capture import capture_main_display_jpeg
+
+                jpeg = capture_main_display_jpeg(
+                    request_permission=data["request_permission"]
+                )
+                result = {
+                    "initial": data["initial"],
+                    "generation": data["generation"],
+                    "jpeg_base64": base64.b64encode(jpeg).decode("ascii"),
+                }
+                self._enqueue({"method": "_screen_frame", "params": result})
+            except Exception as error:  # noqa: BLE001 - platform capture boundary
+                self._enqueue(
+                    {
+                        "method": "_screen_capture_failed",
+                        "params": {
+                            "initial": data["initial"],
+                            "message": str(error),
+                        },
+                    }
+                )
+
+        if not self._submit_os(
+            capture,
+            {
+                "initial": initial,
+                "generation": generation,
+                "request_permission": request_permission,
+            },
+        ):
+            self._screen_capture_inflight = False
+            self._screen_context_pending = False
+
+    def _screen_tick(self):
+        if (
+            not self._screen_context_active
+            or self.snapshot.get("state") not in ("starting", "recording")
+            or time.monotonic() - self._screen_context_started_at >= 230
+        ):
+            return
+        self._capture_screen(initial=False)
+
+    def _screen_started(self, data):
+        self._screen_context_generation = data["generation"]
+        self._screen_context_started_at = time.monotonic()
+        self._notify(self._t("screen_context_started"))
 
     def show_settings(self, initial_tab=""):
         self.request("refresh_devices")
@@ -325,6 +409,15 @@ class RustVocalMoreApp(rumps.App):
                 self._hotkeys = None
             self._notify("Rust 服务已退出，请重新启动 Vocal More。" + data["message"])
         elif method in ("error", "warning", "request_failed"):
+            if method == "request_failed" and data.get("screen_frame"):
+                # A periodic visual frame is best-effort. Audio and the last
+                # accepted screen frame remain valid when this bounded queue
+                # drops one update.
+                return
+            if method == "request_failed" and data.get("screen_context"):
+                self._screen_context_active = False
+                self._screen_context_pending = False
+                self._screen_context_generation = None
             if method == "request_failed" and self._config_request_failed(data):
                 return
             action = data.get("action", "")
@@ -346,6 +439,9 @@ class RustVocalMoreApp(rumps.App):
             if state == "starting":
                 self.capsule.show("handsFree" if data["current_mode"] == "realtime_long" else "pushToTalk")
             elif state == "idle":
+                self._screen_context_active = False
+                self._screen_context_pending = False
+                self._screen_context_generation = None
                 # Rust emits idle immediately after a terminal error. Let the
                 # capsule's failure timer keep the reason visible for reading.
                 if getattr(self.capsule, "_current_state", "") != "failure":
@@ -355,6 +451,37 @@ class RustVocalMoreApp(rumps.App):
         elif method == "gesture_changed":
             if data.get("latched"):
                 self.capsule.show("handsFree")
+        elif method == "_screen_frame":
+            self._screen_capture_inflight = False
+            if data["initial"]:
+                self._screen_context_pending = False
+                self._screen_context_active = True
+                self.request(
+                    "start",
+                    {
+                        "screen_context": True,
+                        "screen_frame_base64": data["jpeg_base64"],
+                    },
+                    callback=self._screen_started,
+                )
+            elif (
+                self._screen_context_active
+                and data["generation"] == self._screen_context_generation
+                and self.snapshot.get("state") in ("starting", "recording")
+            ):
+                self.request(
+                    "append_screen_frame",
+                    {
+                        "generation": data["generation"],
+                        "jpeg_base64": data["jpeg_base64"],
+                    },
+                )
+        elif method == "_screen_capture_failed":
+            self._screen_capture_inflight = False
+            self._screen_context_pending = False
+            self._screen_context_active = False
+            self._screen_context_generation = None
+            self._notify(data["message"])
         elif method == "audio_level":
             self.capsule.update_audio_level(data["waveform_level"])
         elif method == "partial_result":
@@ -565,6 +692,7 @@ class RustVocalMoreApp(rumps.App):
         self._stop_player()
         self._closing = True
         self._timer.invalidate()
+        self._screen_timer.invalidate()
         if self._hotkeys:
             self._hotkeys.stop()
         self.capsule.hide()

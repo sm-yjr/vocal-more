@@ -104,6 +104,15 @@ export interface AsrModel {
   pipeline?: "native_asr" | "inline_generation" | "cascade"
   supports_instant_hotwords?: boolean
   handles_inline_polish?: boolean
+  always_request_response?: boolean
+  supports_screen_context?: boolean
+  language_count?: number
+  chinese_dialect_count?: number
+  max_input_tokens?: number
+  max_audio_turns?: number
+  max_audio_seconds?: number
+  max_video_seconds?: number
+  rollover_audio_seconds?: number
   separator?: boolean
   [key: string]: unknown
 }

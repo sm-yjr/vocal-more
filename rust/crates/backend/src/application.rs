@@ -93,6 +93,7 @@ struct Active {
     prepared: Option<(Outcome, PreparedHistory)>,
     streamed: String,
     partial: String,
+    screen_context: bool,
 }
 struct State {
     cached_devices: Value,
@@ -514,6 +515,36 @@ impl State {
         );
         let source = self.source(params)?;
         let mut provider = self.provider(params["context"].as_str().unwrap_or(""));
+        let screen_context = !microphone_test && params["screen_context"] == true;
+        let initial_screen_frame = if screen_context {
+            provider
+                .config
+                .apply_update("asr.model", &json!("qwen3.8-omni-flash-realtime"))?;
+            provider.enable_screen_context()?;
+            provider.context = [
+                provider.context.as_str(),
+                "屏幕图像仅用于理解当前听写场景、专有名词、代码和界面文本；仍只输出用户所说内容，不描述或复述屏幕。",
+            ]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+            let encoded = required(params, "screen_frame_base64")?;
+            ensure!(
+                encoded.len() <= 260 * 1024,
+                "encoded screen frame exceeds size limit"
+            );
+            let jpeg = STANDARD.decode(encoded)?;
+            ensure!(
+                !jpeg.is_empty()
+                    && jpeg.len() <= 190 * 1024
+                    && jpeg.starts_with(&[0xff, 0xd8, 0xff]),
+                "screen frame must be a JPEG no larger than 190 KiB"
+            );
+            Some(jpeg)
+        } else {
+            None
+        };
         if let Some(intent) = params["intent"]
             .as_str()
             .filter(|s| ["dictation", "prompt"].contains(s))
@@ -539,6 +570,12 @@ impl State {
         } else {
             self.host.start(StartRequest { source, asr: None }).await?
         };
+        if let Some(jpeg) = initial_screen_frame {
+            if let Err(error) = self.host.append_image(core.generation, jpeg.into()) {
+                let _ = self.host.cancel(core.generation);
+                return Err(error);
+            }
+        }
         self.active = Some(Active {
             generation,
             core_generation: core.generation,
@@ -551,6 +588,7 @@ impl State {
             prepared: None,
             streamed: String::new(),
             partial: String::new(),
+            screen_context,
         });
         self.change_state("starting");
         let active = self.active.as_ref().unwrap();
@@ -856,6 +894,23 @@ impl State {
                 );
                 self.active_host()
                     .append(generation, STANDARD.decode(encoded)?.into())?;
+                Ok(json!({"accepted":true}))
+            }
+            "append_screen_frame" => {
+                let active = self.active.as_ref().context("no active session")?;
+                ensure!(active.screen_context, "screen context is not active");
+                ensure!(
+                    params["generation"].as_u64() == Some(active.generation),
+                    "stale session generation"
+                );
+                let encoded = required(&params, "jpeg_base64")?;
+                ensure!(
+                    encoded.len() <= 260 * 1024,
+                    "encoded screen frame exceeds size limit"
+                );
+                let jpeg = STANDARD.decode(encoded)?;
+                let generation = active.core_generation;
+                self.active_host().append_image(generation, jpeg.into())?;
                 Ok(json!({"accepted":true}))
             }
             "claim_paste" => {

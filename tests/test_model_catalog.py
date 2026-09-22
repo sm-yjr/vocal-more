@@ -37,3 +37,16 @@ def test_qwen38_realtime_routes_to_offline_sibling_for_long_audio():
 
     assert omni_offline_fallback_model("qwen3.8-omni-flash-realtime") == "qwen3.8-omni-flash"
     assert get_asr_model_info("qwen3.8-omni-flash")["transport"] == "omni_offline"
+
+
+def test_qwen38_exposes_verified_multimodal_context_capabilities():
+    model = get_asr_model_info("qwen3.8-omni-flash-realtime")
+
+    assert model["always_request_response"] is True
+    assert model["supports_screen_context"] is True
+    assert model["language_count"] == 74
+    assert model["chinese_dialect_count"] == 39
+    assert model["max_input_tokens"] == 196_608
+    assert model["max_audio_turns"] == 100
+    assert model["max_audio_seconds"] == 600
+    assert model["rollover_audio_seconds"] == 540

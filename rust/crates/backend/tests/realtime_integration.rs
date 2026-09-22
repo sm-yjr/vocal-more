@@ -268,3 +268,142 @@ async fn degraded_transport_retains_subsequent_audio_until_user_finishes() -> Re
     host.shutdown().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn qwen38_screen_context_sends_jpeg_after_audio_and_uses_semantic_response() -> Result<()> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let endpoint = format!("ws://{}", listener.local_addr()?);
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await?;
+        let mut socket =
+            accept_hdr_async(stream, |_: &Request, response: Response| Ok(response)).await?;
+        let update: Value = serde_json::from_str(next(&mut socket).await?.to_text()?)?;
+        ensure!(update["type"] == "session.update");
+        ensure!(update["session"]["video"]["input"]["representation_compact"] == "normal");
+        ensure!(
+            update["session"]["instructions"]
+                .as_str()
+                .is_some_and(|text| text.contains("实时语音听写引擎"))
+        );
+        send(&mut socket, json!({"type":"session.updated"})).await?;
+        let mut audio_seen = false;
+        let mut observed_image = Vec::new();
+        loop {
+            let event: Value = serde_json::from_str(next(&mut socket).await?.to_text()?)?;
+            match event["type"].as_str().unwrap_or("") {
+                "input_audio_buffer.append" => audio_seen = true,
+                "input_image_buffer.append" => {
+                    ensure!(audio_seen, "image arrived before the first audio append");
+                    observed_image = STANDARD.decode(event["image"].as_str().unwrap())?;
+                }
+                "input_audio_buffer.commit" => {
+                    send(&mut socket, json!({"type":"conversation.item.input_audio_transcription.completed","item_id":"input_1","transcript":"旁路文本"})).await?;
+                }
+                "response.create" => {
+                    send(&mut socket, json!({"type":"response.done","response":{"status":"completed","output":[{"content":[{"type":"text","text":"结合屏幕后的语义听写"}]}],"usage":{"input_tokens":20,"output_tokens":8}}})).await?;
+                    break;
+                }
+                _ => {}
+            }
+        }
+        Ok::<_, anyhow::Error>(observed_image)
+    });
+
+    let mut config = Config::default();
+    config.apply_update("asr.model", &json!("qwen3.8-omni-flash-realtime"))?;
+    config.apply_update("enable_polish", &json!(false))?;
+    let mut provider = provider(config, &endpoint);
+    provider.enable_screen_context()?;
+    let dir = tempfile::tempdir()?;
+    let mut host = Host::new(RecordingStore::open(dir.path()).await?, None, None);
+    let generation = host
+        .start_external(Source::Stream, provider.external()?)
+        .await?
+        .generation;
+    let jpeg = vec![0xff, 0xd8, 0xff, 0xdb, 1, 2, 3, 0xff, 0xd9];
+    // Queueing the screen first exercises the provider's audio-before-image guard.
+    host.append_image(generation, jpeg.clone().into())?;
+    for _ in 0..3 {
+        host.append(generation, vec![1; 1280].into())?;
+    }
+    host.finish(generation)?;
+    let status = wait_terminal(&host, Duration::from_secs(3)).await?;
+    assert_eq!(status.phase, Phase::Completed, "{:?}", status.error);
+    assert_eq!(status.transcript, "结合屏幕后的语义听写");
+    assert_eq!(status.raw_transcript, "旁路文本");
+    assert_eq!(server.await??, jpeg);
+    host.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn qwen38_rolls_over_before_the_context_limit_and_merges_results() -> Result<()> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let endpoint = format!("ws://{}", listener.local_addr()?);
+    let server = tokio::spawn(async move {
+        let mut received = Vec::new();
+        for index in 1..=2 {
+            let (stream, _) = listener.accept().await?;
+            let mut socket =
+                accept_hdr_async(stream, |_: &Request, response: Response| Ok(response)).await?;
+            let update: Value = serde_json::from_str(next(&mut socket).await?.to_text()?)?;
+            ensure!(update["type"] == "session.update");
+            send(&mut socket, json!({"type":"session.updated"})).await?;
+            let mut pcm = Vec::new();
+            loop {
+                let event: Value = serde_json::from_str(next(&mut socket).await?.to_text()?)?;
+                match event["type"].as_str().unwrap_or("") {
+                    "input_audio_buffer.append" => {
+                        pcm.extend(STANDARD.decode(event["audio"].as_str().unwrap())?);
+                    }
+                    "input_audio_buffer.commit" => {
+                        send(&mut socket, json!({"type":"conversation.item.input_audio_transcription.completed","item_id":format!("input_{index}"),"transcript":format!("旁路{index}")})).await?;
+                    }
+                    "response.create" => {
+                        send(&mut socket, json!({"type":"response.done","response":{"status":"completed","output":[{"content":[{"type":"text","text":format!("第{index}段")}]}],"usage":{"input_tokens":10 * index,"output_tokens":index}}})).await?;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            received.push(pcm);
+        }
+        Ok::<_, anyhow::Error>(received)
+    });
+
+    let mut config = Config::default();
+    config.apply_update("asr.model", &json!("qwen3.8-omni-flash-realtime"))?;
+    config.apply_update("enable_polish", &json!(false))?;
+    let endpoints =
+        Endpoints::loopback("http://127.0.0.1:1", &endpoint)?.with_fixture_rollover_bytes(6_400)?;
+    let provider = Provider::new(config, vec![], "", endpoints, Some("fixture-key"));
+    let dir = tempfile::tempdir()?;
+    let mut host = Host::new(RecordingStore::open(dir.path()).await?, None, None);
+    let generation = host
+        .start_external(Source::Stream, provider.external()?)
+        .await?
+        .generation;
+    for value in 1..=8 {
+        loop {
+            match host.append(generation, vec![value; 1280].into()) {
+                Ok(()) => break,
+                Err(error) if error.to_string().contains("input queue full") => {
+                    sleep(Duration::from_millis(1)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    host.finish(generation)?;
+    let status = wait_terminal(&host, Duration::from_secs(3)).await?;
+    assert_eq!(status.phase, Phase::Completed, "{:?}", status.error);
+    assert_eq!(status.transcript, "第1段\n第2段");
+    assert_eq!(status.raw_transcript, "旁路1\n旁路2");
+    assert_eq!(status.usage["input_tokens"], 30);
+    assert_eq!(status.usage["output_tokens"], 3);
+    let received = server.await??;
+    assert_eq!(received[0].len(), 6_400);
+    assert_eq!(received[1].len(), 3_840);
+    host.shutdown().await?;
+    Ok(())
+}

@@ -99,6 +99,7 @@ pub(crate) enum Input {
 }
 pub enum NetworkInput {
     Pcm(Bytes),
+    Image(Bytes),
     Finish,
 }
 
@@ -123,6 +124,8 @@ pub struct ExternalAsr {
 pub struct NetworkReporter {
     started_at: Instant,
     ready: Arc<AtomicBool>,
+    active_epoch: Arc<AtomicUsize>,
+    epoch: usize,
     state: watch::Sender<Status>,
 }
 
@@ -136,18 +139,33 @@ impl NetworkReporter {
                 .get_or_insert(self.started_at.elapsed().as_secs_f64() * 1000.0);
         });
     }
+    pub fn segment(&self, epoch: usize) -> Self {
+        self.active_epoch.store(epoch, Ordering::Release);
+        Self {
+            started_at: self.started_at,
+            ready: self.ready.clone(),
+            active_epoch: self.active_epoch.clone(),
+            epoch,
+            state: self.state.clone(),
+        }
+    }
+    fn publishes_text(&self) -> bool {
+        self.active_epoch.load(Ordering::Acquire) == self.epoch
+    }
     pub fn partial(&self, text: &str) {
-        if text.len() <= 256 * 1024 {
+        if self.publishes_text() && text.len() <= 256 * 1024 {
             self.state.send_modify(|s| s.partial_text = text.into());
         }
     }
     pub fn transcript(&self, text: &str) {
-        if text.len() <= 256 * 1024 {
+        if self.publishes_text() && text.len() <= 256 * 1024 {
             self.state.send_modify(|s| s.raw_transcript = text.into());
         }
     }
     pub fn usage(&self, usage: serde_json::Value) {
-        self.state.send_modify(|s| s.usage = usage);
+        if self.publishes_text() {
+            self.state.send_modify(|s| s.usage = usage);
+        }
     }
 }
 
@@ -155,6 +173,7 @@ struct Active {
     generation: u64,
     source: Source,
     input: mpsc::Sender<Input>,
+    visual: mpsc::Sender<Bytes>,
     cancel: CancellationToken,
     stop: CancellationToken,
     // The acceptance barrier makes "cancel accepted" mutually exclusive with
@@ -297,6 +316,7 @@ impl Host {
         };
         let (state_tx, state_rx) = watch::channel(initial);
         let (input_tx, input_rx) = mpsc::channel(crate::AUDIO_QUEUE_BLOCKS);
+        let (visual_tx, visual_rx) = mpsc::channel(2);
         let cancel = CancellationToken::new();
         let stop = CancellationToken::new();
         let committing = Arc::new(Mutex::new(false));
@@ -311,6 +331,7 @@ impl Host {
             native: self.native.clone(),
             input_tx: input_tx.clone(),
             input_rx,
+            visual_rx,
             cancel: cancel.clone(),
             stop: stop.clone(),
             committing: committing.clone(),
@@ -324,6 +345,7 @@ impl Host {
             generation,
             source: request.source,
             input: input_tx,
+            visual: visual_tx,
             cancel,
             stop,
             committing,
@@ -374,6 +396,24 @@ impl Host {
             crate::AUDIO_QUEUE_BLOCKS - active.input.capacity(),
             Ordering::Relaxed,
         );
+        Ok(())
+    }
+
+    pub fn append_image(&mut self, generation: u64, jpeg: Bytes) -> Result<()> {
+        ensure!(
+            !jpeg.is_empty() && jpeg.len() <= 190 * 1024 && jpeg.starts_with(&[0xff, 0xd8, 0xff]),
+            "screen frame must be a JPEG no larger than 190 KiB"
+        );
+        let active = self.active_for(generation)?;
+        ensure!(!active.finishing, "session input is already finished");
+        active.visual.try_send(jpeg).map_err(|error| match error {
+            mpsc::error::TrySendError::Full(_) => {
+                anyhow::anyhow!("screen frame queue full; frame was not accepted")
+            }
+            mpsc::error::TrySendError::Closed(_) => {
+                anyhow::anyhow!("session input is closed")
+            }
+        })?;
         Ok(())
     }
 
@@ -450,6 +490,7 @@ struct Session {
     native: Option<NativeAudio>,
     input_tx: mpsc::Sender<Input>,
     input_rx: mpsc::Receiver<Input>,
+    visual_rx: mpsc::Receiver<Bytes>,
     cancel: CancellationToken,
     stop: CancellationToken,
     committing: Arc<Mutex<bool>>,
@@ -477,6 +518,8 @@ impl Session {
         let reporter = NetworkReporter {
             started_at: self.started_at,
             ready: self.asr_ready.clone(),
+            active_epoch: Arc::new(AtomicUsize::new(0)),
+            epoch: 0,
             state: self.state.clone(),
         };
         let mut network = if let Some(external) = self.external.take() {
@@ -520,6 +563,7 @@ impl Session {
         source_cancel.cancel();
         self.stop.cancel();
         self.input_rx.close();
+        self.visual_rx.close();
         network_cancel.cancel();
         if let Some(network) = network {
             network.abort();
@@ -603,6 +647,7 @@ impl Session {
         loop {
             enum Event {
                 Input(Option<Input>),
+                Image(Option<Bytes>),
                 Network(Result<String>),
                 Stop,
                 Timeout,
@@ -613,6 +658,7 @@ impl Session {
                 biased;
                 _ = self.cancel.cancelled() => Event::Cancel,
                 _ = tokio::time::sleep_until(audio_deadline), if native && ready && !finished && stop_deadline.is_none() => Event::Stalled,
+                value = self.visual_rx.recv(), if !finished => Event::Image(value),
                 value = self.input_rx.recv(), if !finished => Event::Input(value),
                 value = async {
                     match network.as_mut() { Some(task) => task.await.context("realtime worker failed")?, None => pending().await }
@@ -740,6 +786,13 @@ impl Session {
                         });
                     }
                 }
+                Event::Image(Some(jpeg)) => {
+                    if network.is_some() {
+                        self.send_network(network_tx, NetworkInput::Image(jpeg))
+                            .await?;
+                    }
+                }
+                Event::Image(None) => {}
                 Event::Input(Some(Input::Finish)) => {
                     finished = true;
                     stop_deadline = None;
@@ -827,6 +880,9 @@ async fn run_network(
                                 pending_pcm.clear();
                             }
                         }
+                    },
+                    Event::Input(Some(NetworkInput::Image(_))) => {
+                        bail!("screen frames are unsupported by the core realtime protocol")
                     },
                     Event::Input(Some(NetworkInput::Finish)) => {
                         if !pending_pcm.is_empty() {

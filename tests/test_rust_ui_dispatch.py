@@ -161,3 +161,33 @@ def test_rust_paste_constructs_keyboard_on_main_thread(monkeypatch):
 
     assert constructed_on == [threading.main_thread()]
     assert pasted == ["hello"]
+
+
+def test_screen_frame_starts_explicit_screen_context_session(monkeypatch):
+    app, _scheduled = dispatcher(monkeypatch)
+    app.request = Mock()
+    app._screen_capture_inflight = True
+    app._screen_context_pending = True
+    app._screen_context_active = False
+    app._screen_context_generation = None
+
+    type(app)._event(
+        app,
+        "_screen_frame",
+        {
+            "initial": True,
+            "generation": None,
+            "jpeg_base64": "/9j/2Q==",
+        },
+    )
+
+    assert app._screen_capture_inflight is False
+    assert app._screen_context_pending is False
+    assert app._screen_context_active is True
+    app.request.assert_called_once()
+    method, params = app.request.call_args.args[:2]
+    assert method == "start"
+    assert params == {
+        "screen_context": True,
+        "screen_frame_base64": "/9j/2Q==",
+    }

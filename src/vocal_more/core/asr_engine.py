@@ -218,6 +218,10 @@ def _build_session_kwargs(
                 config.llm,
                 context_instruction=context_instruction,
             )
+        elif model_info.get("always_request_response"):
+            session_kwargs["instructions"] = build_native_dictation_instructions(
+                context_instruction=context_instruction,
+            )
     else:
         session_kwargs["transcription_params"] = _build_transcription_params(
             config=config,

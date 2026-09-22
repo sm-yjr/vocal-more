@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Literal
 
-
 ASRBackend = Literal["realtime_ws", "short_file", "omni_offline"]
 
 LLM_MODEL_CATALOG = [
@@ -44,6 +43,18 @@ ALL_ASR_MODELS = [
         "supports_transcription_params": False,
         "input_audio_transcription_model": "gummy-realtime-v1",
         "handles_inline_polish": True,
+        # Qwen3.8 is the semantic transcription owner even when the optional
+        # Vocal More polish switch is off.  The sidecar transcript remains a
+        # diagnostic/fallback stream, not the user-visible result.
+        "always_request_response": True,
+        "supports_screen_context": True,
+        "language_count": 74,
+        "chinese_dialect_count": 39,
+        "max_input_tokens": 196_608,
+        "max_audio_turns": 100,
+        "max_audio_seconds": 600,
+        "max_video_seconds": 240,
+        "rollover_audio_seconds": 540,
     },
     {
         "id": "qwen3.8-omni-flash",

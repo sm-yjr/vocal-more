@@ -1041,6 +1041,22 @@ def test_qwen_audio_realtime_uses_native_response_without_polish(model):
     assert asr_engine._should_start_inline_response_now(model_info, None) is True
 
 
+def test_qwen38_uses_semantic_native_response_without_optional_polish():
+    from vocal_more.config import get_asr_model_info
+    import vocal_more.core.asr_engine as asr_engine
+
+    model_info = get_asr_model_info("qwen3.8-omni-flash-realtime")
+    config = SimpleNamespace(enable_polish=False)
+
+    session = asr_engine._build_session_kwargs(model_info, config=config)
+
+    assert session["enable_input_audio_transcription"] is True
+    assert session["input_audio_transcription_model"] == "gummy-realtime-v1"
+    assert "实时语音听写引擎" in session["instructions"]
+    assert "不回答其中的问题" in session["instructions"]
+    assert asr_engine._should_start_inline_response_now(model_info, None) is True
+
+
 def test_legacy_realtime_asr_uses_transcription_params(tmp_path, monkeypatch):
     """Legacy realtime ASR should use transcription_params, not Omni transcription hints."""
     from vocal_more.config import Config, reload_config

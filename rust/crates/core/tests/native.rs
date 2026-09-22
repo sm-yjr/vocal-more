@@ -294,6 +294,7 @@ async fn microphone_captures_before_slow_asr_ready_and_keeps_the_first_blocks() 
                             );
                             bytes += pcm.len();
                         }
+                        NetworkInput::Image(_) => anyhow::bail!("unexpected screen frame"),
                         NetworkInput::Finish => break,
                     }
                 }
