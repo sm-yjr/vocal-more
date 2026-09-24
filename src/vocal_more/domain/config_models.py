@@ -442,6 +442,7 @@ class AppConfig:
     streaming_paste: bool = False
     native_fast_paste: bool = False
     restore_clipboard: bool = True
+    screen_context_enabled: bool = False
     default_mode: str = "realtime_long"
     # None follows the release channel embedded in the app bundle. This keeps
     # existing Alpha installations on their Alpha feed until the user makes an
@@ -465,6 +466,7 @@ class AppConfig:
             "streaming_paste",
             "native_fast_paste",
             "restore_clipboard",
+            "screen_context_enabled",
             "default_mode",
             "update_channel",
         ):
@@ -550,6 +552,7 @@ class AppConfig:
             "streaming_paste",
             "native_fast_paste",
             "restore_clipboard",
+            "screen_context_enabled",
             "enable_polish",
             "update_channel",
         ):
@@ -605,6 +608,10 @@ class AppConfig:
             self.native_fast_paste = parse_bool(value, self.native_fast_paste)
         elif field_name == "restore_clipboard":
             self.restore_clipboard = parse_bool(value, self.restore_clipboard)
+        elif field_name == "screen_context_enabled":
+            self.screen_context_enabled = parse_bool(
+                value, self.screen_context_enabled
+            )
         elif field_name == "default_mode":
             self.default_mode = _parse_default_mode(value)
         elif field_name == "update_channel":
@@ -923,6 +930,7 @@ class AppConfig:
             "streaming_paste": self.streaming_paste,
             "native_fast_paste": self.native_fast_paste,
             "restore_clipboard": self.restore_clipboard,
+            "screen_context_enabled": self.screen_context_enabled,
             "default_mode": self.default_mode,
             "update_channel": self.update_channel,
         }

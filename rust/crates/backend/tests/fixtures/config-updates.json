@@ -4302,6 +4302,98 @@
     "changes": {}
   },
   {
+    "key": "screen_context_enabled",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": true,
+    "changes": {
+      "screen_context_enabled": true
+    }
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": 1,
+    "changes": {
+      "screen_context_enabled": true
+    }
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": -10,
+    "changes": {
+      "screen_context_enabled": true
+    }
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": 999999,
+    "changes": {
+      "screen_context_enabled": true
+    }
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": 0.25,
+    "changes": {
+      "screen_context_enabled": true
+    }
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": "yes",
+    "changes": {
+      "screen_context_enabled": true
+    }
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "screen_context_enabled",
+    "input": {},
+    "changes": {}
+  },
+  {
     "key": "default_mode",
     "input": "realtime_long",
     "changes": {}

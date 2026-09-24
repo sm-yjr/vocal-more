@@ -15,6 +15,7 @@ _ALLOWED_TOP_LEVEL_CONFIG_KEYS = {
     "auto_paste",
     "native_fast_paste",
     "restore_clipboard",
+    "screen_context_enabled",
     "streaming_paste",
     "enable_polish",
 }

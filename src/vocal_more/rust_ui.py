@@ -84,6 +84,7 @@ class RustVocalMoreApp(rumps.App):
         self._screen_capture_inflight = False
         self._screen_context_generation = None
         self._screen_context_started_at = 0.0
+        self._pending_screen_start = None
         args = ("--import-python", str(import_from)) if import_from else ()
         self.client = RustBackendClient(binary, data_dir, native_library=native_library,
                                         on_event=self._enqueue, extra_args=args)
@@ -150,6 +151,49 @@ class RustVocalMoreApp(rumps.App):
     def request(self, method, params=None, callback=None):
         if self._closing:
             return
+        params = params or {}
+        start_methods = {"start", "toggle_recording", "hotkey_pressed"}
+        pending_screen_start = getattr(self, "_pending_screen_start", None)
+        if pending_screen_start is not None and method in (
+            "cancel",
+            "toggle_recording",
+        ):
+            pending_screen_start["cancel_requested"] = True
+        screen_start = None
+        if (
+            pending_screen_start is None
+            and method in start_methods
+            and self.snapshot.get("state") == "idle"
+            and not self._screen_context_active
+            and not self._screen_context_pending
+            and getattr(self.config, "screen_context_enabled", False)
+            and params.get("screen_context") is not True
+        ):
+            screen_start = {
+                "generation": None,
+                "jpeg_base64": None,
+                "cancel_requested": False,
+            }
+            self._pending_screen_start = screen_start
+            self._screen_context_pending = True
+            self._capture_screen(initial=True, request_permission=True)
+            params = dict(params)
+            params["screen_context"] = True
+            original_callback = callback
+
+            def screen_started(result):
+                if (
+                    self._pending_screen_start is screen_start
+                    and not screen_start["cancel_requested"]
+                    and getattr(self.config, "screen_context_enabled", False)
+                ):
+                    self._screen_started(result)
+                    screen_start["generation"] = result["generation"]
+                    self._send_initial_screen_frame(screen_start)
+                if original_callback:
+                    original_callback(result)
+
+            callback = screen_started
         future = self.client.request(method, params)
         def complete(result):
             try:
@@ -241,12 +285,18 @@ class RustVocalMoreApp(rumps.App):
         polish = self._item(self._t("menu_enable_polishing"), "set_config", {"key": "enable_polish", "value": not self.config.enable_polish})
         polish.state = self.config.enable_polish
         self.menu.add(polish)
-        self.menu.add(
-            rumps.MenuItem(
-                self._t("menu_screen_dictation"),
-                callback=lambda _: self._toggle_screen_dictation(),
-            )
+        screen_context = self._item(
+            self._t("menu_screen_context"),
+            "set_config",
+            {
+                "key": "screen_context_enabled",
+                "value": not getattr(self.config, "screen_context_enabled", False),
+            },
         )
+        screen_context.state = getattr(
+            self.config, "screen_context_enabled", False
+        )
+        self.menu.add(screen_context)
         levels = rumps.MenuItem(self._t("menu_polish_strength"))
         for level in ("minimal", "balanced", "strong"):
             item = self._item(self._t("polish_level_" + level), "set_config", {"key": "llm.level", "value": level})
@@ -267,15 +317,6 @@ class RustVocalMoreApp(rumps.App):
         running = bool(self._hotkeys and self._hotkeys.diagnostics().get("running"))
         self.request("platform_status", {"accessibility": bool(AXIsProcessTrusted()), "hotkey_listener": running})
         self.request("refresh_environment")
-
-    def _toggle_screen_dictation(self):
-        if self.snapshot.get("state") != "idle":
-            self.request("finish")
-            return
-        if self._screen_context_pending:
-            return
-        self._screen_context_pending = True
-        self._capture_screen(initial=True, request_permission=True)
 
     def _capture_screen(self, *, initial, request_permission=False):
         if self._screen_capture_inflight or self._closing:
@@ -317,6 +358,8 @@ class RustVocalMoreApp(rumps.App):
         ):
             self._screen_capture_inflight = False
             self._screen_context_pending = False
+            if initial:
+                self._pending_screen_start = None
 
     def _screen_tick(self):
         if (
@@ -330,7 +373,23 @@ class RustVocalMoreApp(rumps.App):
     def _screen_started(self, data):
         self._screen_context_generation = data["generation"]
         self._screen_context_started_at = time.monotonic()
+        self._screen_context_active = True
         self._notify(self._t("screen_context_started"))
+
+    def _send_initial_screen_frame(self, pending):
+        if pending is not self._pending_screen_start:
+            return
+        if pending["generation"] is None or pending["jpeg_base64"] is None:
+            return
+        self._pending_screen_start = None
+        self._screen_context_pending = False
+        self.request(
+            "append_screen_frame",
+            {
+                "generation": pending["generation"],
+                "jpeg_base64": pending["jpeg_base64"],
+            },
+        )
 
     def show_settings(self, initial_tab=""):
         self.request("refresh_devices")
@@ -418,6 +477,7 @@ class RustVocalMoreApp(rumps.App):
                 self._screen_context_active = False
                 self._screen_context_pending = False
                 self._screen_context_generation = None
+                self._pending_screen_start = None
             if method == "request_failed" and self._config_request_failed(data):
                 return
             action = data.get("action", "")
@@ -442,6 +502,7 @@ class RustVocalMoreApp(rumps.App):
                 self._screen_context_active = False
                 self._screen_context_pending = False
                 self._screen_context_generation = None
+                self._pending_screen_start = None
                 # Rust emits idle immediately after a terminal error. Let the
                 # capsule's failure timer keep the reason visible for reading.
                 if getattr(self.capsule, "_current_state", "") != "failure":
@@ -454,16 +515,32 @@ class RustVocalMoreApp(rumps.App):
         elif method == "_screen_frame":
             self._screen_capture_inflight = False
             if data["initial"]:
-                self._screen_context_pending = False
-                self._screen_context_active = True
-                self.request(
-                    "start",
-                    {
-                        "screen_context": True,
-                        "screen_frame_base64": data["jpeg_base64"],
-                    },
-                    callback=self._screen_started,
-                )
+                pending = getattr(self, "_pending_screen_start", None)
+                if pending is None:
+                    if not self._screen_context_pending:
+                        return
+                    # Keep the old internal event shape harmless for callers
+                    # that may already have queued a one-off capture.
+                    self._screen_context_pending = False
+                    self._screen_context_active = True
+                    self.request(
+                        "start",
+                        {
+                            "screen_context": True,
+                            "screen_frame_base64": data["jpeg_base64"],
+                        },
+                        callback=self._screen_started,
+                    )
+                    return
+                if (
+                    pending["cancel_requested"]
+                    or not getattr(self.config, "screen_context_enabled", False)
+                ):
+                    self._pending_screen_start = None
+                    self._screen_context_pending = False
+                    return
+                pending["jpeg_base64"] = data["jpeg_base64"]
+                self._send_initial_screen_frame(pending)
             elif (
                 self._screen_context_active
                 and data["generation"] == self._screen_context_generation
@@ -478,9 +555,12 @@ class RustVocalMoreApp(rumps.App):
                 )
         elif method == "_screen_capture_failed":
             self._screen_capture_inflight = False
+            if data.get("initial") and self._pending_screen_start is None:
+                return
             self._screen_context_pending = False
             self._screen_context_active = False
             self._screen_context_generation = None
+            self._pending_screen_start = None
             self._notify(data["message"])
         elif method == "audio_level":
             self.capsule.update_audio_level(data["waveform_level"])
@@ -513,6 +593,12 @@ class RustVocalMoreApp(rumps.App):
         elif method == "config_changed":
             self.snapshot["config"] = data["config"]
             self.config = namespace(data["config"])
+            if not getattr(self.config, "screen_context_enabled", False):
+                self._screen_context_active = False
+                self._screen_context_generation = None
+                if getattr(self, "_pending_screen_start", None) is not None:
+                    self._pending_screen_start = None
+                    self._screen_context_pending = False
             self.capsule.set_interface_language(self.config.ui.language)
             if self._updater is not None and data["config"].get("update_channel"):
                 self._updater.set_update_channel(data["config"]["update_channel"])

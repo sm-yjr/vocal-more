@@ -67,6 +67,7 @@
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
+      "screen_context_enabled": false,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -141,6 +142,7 @@
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
+      "screen_context_enabled": false,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -218,6 +220,7 @@
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
+      "screen_context_enabled": false,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -295,6 +298,7 @@
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
+      "screen_context_enabled": false,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -371,6 +375,7 @@
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
+      "screen_context_enabled": false,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -445,6 +450,7 @@
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
+      "screen_context_enabled": false,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -523,6 +529,7 @@
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
+      "screen_context_enabled": false,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -605,6 +612,7 @@
       "streaming_paste": false,
       "native_fast_paste": false,
       "restore_clipboard": true,
+      "screen_context_enabled": false,
       "default_mode": "realtime_long",
       "update_channel": null
     }

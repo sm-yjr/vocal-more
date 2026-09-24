@@ -529,19 +529,22 @@ impl State {
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>()
             .join("\n");
-            let encoded = required(params, "screen_frame_base64")?;
-            ensure!(
-                encoded.len() <= 260 * 1024,
-                "encoded screen frame exceeds size limit"
-            );
-            let jpeg = STANDARD.decode(encoded)?;
-            ensure!(
-                !jpeg.is_empty()
-                    && jpeg.len() <= 190 * 1024
-                    && jpeg.starts_with(&[0xff, 0xd8, 0xff]),
-                "screen frame must be a JPEG no larger than 190 KiB"
-            );
-            Some(jpeg)
+            if let Some(encoded) = params.get("screen_frame_base64").and_then(Value::as_str) {
+                ensure!(
+                    encoded.len() <= 260 * 1024,
+                    "encoded screen frame exceeds size limit"
+                );
+                let jpeg = STANDARD.decode(encoded)?;
+                ensure!(
+                    !jpeg.is_empty()
+                        && jpeg.len() <= 190 * 1024
+                        && jpeg.starts_with(&[0xff, 0xd8, 0xff]),
+                    "screen frame must be a JPEG no larger than 190 KiB"
+                );
+                Some(jpeg)
+            } else {
+                None
+            }
         } else {
             None
         };

@@ -248,6 +248,22 @@ export function GeneralSettings({
           </NativeSelect>
         </SettingsRow>
         <SettingsRow
+          label={copy.screenContext}
+          description={
+            config.asr?.realtime_url
+              ? copy.screenContextHint
+              : `${copy.screenContextHint} ${copy.screenContextEndpointHint}`
+          }
+        >
+          <Switch
+            aria-label={copy.screenContext}
+            checked={config.screen_context_enabled === true}
+            onCheckedChange={(checked) =>
+              setConfig(store, "screen_context_enabled", checked)
+            }
+          />
+        </SettingsRow>
+        <SettingsRow
           label={copy.interfaceLanguage}
           htmlFor="ui-language"
         >

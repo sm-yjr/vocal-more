@@ -139,6 +139,7 @@ impl Config {
             "streaming_paste",
             "native_fast_paste",
             "restore_clipboard",
+            "screen_context_enabled",
             "enable_polish",
         ] {
             if let Some(v) = value.get(key) {
@@ -192,6 +193,7 @@ impl Config {
             | "streaming_paste"
             | "native_fast_paste"
             | "restore_clipboard"
+            | "screen_context_enabled"
             | "audio.highpass_filter"
             | "audio.soft_limiter"
             | "asr.use_dictionary_corpus"

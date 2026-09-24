@@ -71,6 +71,7 @@ export interface SettingsConfig {
   auto_paste?: boolean
   native_fast_paste?: boolean
   restore_clipboard?: boolean
+  screen_context_enabled?: boolean
   streaming_paste?: boolean
   enable_polish?: boolean
   ui?: {

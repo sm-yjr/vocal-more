@@ -56,6 +56,11 @@ const en = {
   show: "Show",
   hide: "Hide",
   defaultMode: "Default mode",
+  screenContext: "Talk About Screen",
+  screenContextHint:
+    "When enabled, new dictations send screen frames with the audio to Qwen3.8 Omni Flash Realtime for that session.",
+  screenContextEndpointHint:
+    "Qwen3.8 Realtime requires a Model Studio workspace WSS endpoint; configure it in Recognition settings.",
   updateChannel: "Update channel",
   updateChannelHint:
     "Nightly receives Alpha builds. Stable only receives production releases.",
@@ -412,6 +417,11 @@ const zh: Copy = {
   show: "显示",
   hide: "隐藏",
   defaultMode: "默认模式",
+  screenContext: "看屏幕说话",
+  screenContextHint:
+    "开启后，新开始的听写会把屏幕帧随音频发送给 Qwen3.8 Omni Flash Realtime；只在该会话中采集和发送。",
+  screenContextEndpointHint:
+    "Qwen3.8 实时接口需要 Model Studio 工作空间 WSS 地址，可在“识别”设置中配置。",
   updateChannel: "更新渠道",
   updateChannelHint: "Nightly 接收 Alpha 版本；Stable 只接收正式版本。",
   stableChannel: "Stable",

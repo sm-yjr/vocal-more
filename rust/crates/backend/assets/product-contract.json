@@ -1,5 +1,5 @@
 {
-  "source_version": "0.5.0a6",
+  "source_version": "0.5.0a7",
   "defaults": {
     "api_key": "",
     "audio": {
@@ -66,6 +66,7 @@
     "streaming_paste": false,
     "native_fast_paste": false,
     "restore_clipboard": true,
+    "screen_context_enabled": false,
     "default_mode": "realtime_long",
     "update_channel": null
   },
