@@ -741,7 +741,9 @@ def test_start_deadline_covers_blocked_device_enumeration(monkeypatch):
     def query_devices():
         if block_queries:
             query_entered.set()
-            release_query.wait(timeout=2.0)
+            # Only the test may release discovery. A slow CI scheduler must
+            # never let a fake device timeout masquerade as recorder timeout.
+            release_query.wait()
         return [{"index": 0, "name": "USB Mic", "max_input_channels": 1}]
 
     class LateStream:
@@ -790,20 +792,30 @@ def test_start_deadline_covers_blocked_device_enumeration(monkeypatch):
         finally:
             finished.set()
 
-    start_thread = threading.Thread(target=start_recorder)
+    start_thread = threading.Thread(target=start_recorder, daemon=True)
     start_thread.start()
-    assert query_entered.wait(timeout=0.5)
-    returned_before_query = finished.wait(timeout=0.15)
-    release_query.set()
-    start_thread.join(timeout=0.5)
+    worker = None
+    try:
+        assert query_entered.wait(timeout=2.0)
+        # The recorder still has a 30 ms deadline. Allow scheduling slack for
+        # observing its return while discovery remains unconditionally blocked.
+        assert finished.wait(timeout=2.0)
+        assert not release_query.is_set()
+        assert len(errors) == 1
+        assert isinstance(errors[0], AudioRecorderStartError)
+        assert errors[0].startup_timed_out is True
+        assert errors[0].code == "startup_timeout"
+        assert recorder.is_recording() is False
+        assert recorder._stream is None
+    finally:
+        worker = recorder._stream_start_thread
+        release_query.set()
+        start_thread.join(timeout=2.0)
+        if worker is not None:
+            worker.join(timeout=2.0)
 
-    assert returned_before_query is True
-    assert len(errors) == 1
-    assert isinstance(errors[0], AudioRecorderStartError)
-    assert errors[0].startup_timed_out is True
-    worker = recorder._stream_start_thread
-    if worker is not None:
-        worker.join(timeout=0.5)
+    assert not start_thread.is_alive()
+    assert worker is None or not worker.is_alive()
     assert not late_stream_created.is_set()
 
 

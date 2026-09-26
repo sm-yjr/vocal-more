@@ -39,6 +39,14 @@
 
 本地详细证据保存在 `.build/alpha9-rc-audit/`：`python-tests-final.log`、`rust-tests-final.log`、`rust-clippy-final.log`、`native-static-analysis.log` 和 `frontend-ui-final/result.json`。该目录是本机验证产物，不纳入发布包。
 
+## 发布候选 CI 补充
+
+首次 alpha9 候选 [Prepare Release 36230420807](https://github.com/sm-yjr/vocal-more/actions/runs/36230420807) 在录音设备枚举超时测试上失败：1074 项 Python 测试通过，唯一失败断言要求观察线程在 150 毫秒内收到完成事件。Rust 和前端检查通过，打包、签名、公证和候选上传尚未执行。
+
+代码检查确认设备枚举位于独立启动线程，超时分支不等待设备枚举。旧测试与修订测试各连续执行 100 次均通过；在启动等待返回后人为加入 200 毫秒调度暂停，旧测试失败、修订测试通过。这证明旧测试会把观察线程的调度延迟误判为启动超时失效；CI 日志本身没有线程调度轨迹，无法精确还原那次延迟来源。
+
+修订测试保持录音器 30 毫秒启动期限，以显式事件持续阻塞设备枚举，允许观察线程最多 2 秒调度时间，并验证返回的是 `startup_timeout`、录音未激活、迟到设备枚举不再创建流；所有退出路径均释放并回收测试线程。刻意禁用启动期限或取消代次检查时，修订测试均按预期失败。此次不修改录音实现或产品默认 3 秒启动期限。修订后全量 Python 回归 **1075 passed，22.47 秒**。证据保存在 `.build/release-a9-050/enumeration-regression-evidence.log` 和 `python-tests-retry-fix.log`。
+
 ## 检查边界与发布验收
 
 - 全库完整 Ruff 规则仍有 **921 项既有维护告警**，主要是类型注解写法、导入排序、宽泛异常捕获及未使用导入等。本轮没有用全库机械格式化掩盖这些问题；严重语法/名称检查已单独通过。
