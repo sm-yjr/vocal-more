@@ -717,7 +717,9 @@ impl Session {
                     self.input_high_watermark
                         .fetch_max(self.input_rx.len(), Ordering::Relaxed);
                     let energy = pcm
-                        .chunks_exact(2)
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
                         .map(|p| (i16::from_le_bytes([p[0], p[1]]) as f64 / 32768.0).powi(2))
                         .sum::<f64>();
                     let rms = (energy / (pcm.len() / 2).max(1) as f64).sqrt();
@@ -788,8 +790,11 @@ impl Session {
                 }
                 Event::Image(Some(jpeg)) => {
                     if network.is_some() {
-                        self.send_network(network_tx, NetworkInput::Image(jpeg))
-                            .await?;
+                        // Screen updates are best effort at both queue boundaries.
+                        // Waiting for network capacity here would stop PCM archive
+                        // reads and let a visual update truncate capture. The PCM
+                        // and network-result branches still own transport failures.
+                        let _ = network_tx.try_send(NetworkInput::Image(jpeg));
                     }
                 }
                 Event::Image(None) => {}

@@ -487,12 +487,8 @@ fn normalize_proxy_url(value: &Value) -> Result<String> {
             && url.fragment().is_none(),
         "Proxy URL must be http://host:port or socks5://host:port without credentials"
     );
+    // url::Url already includes the required brackets in an IPv6 host_str.
     let host = host.to_lowercase();
-    let host = if host.contains(':') {
-        format!("[{host}]")
-    } else {
-        host.to_string()
-    };
     Ok(format!(
         "{}://{host}:{}",
         url.scheme(),

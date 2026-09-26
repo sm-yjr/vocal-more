@@ -210,6 +210,10 @@ impl Provider {
             )
             .await?;
         response.text = text::structured(&response.text, &self.config);
+        ensure!(
+            !response.text.trim().is_empty(),
+            "provider returned empty polished text"
+        );
         response.model = self.config.get("llm.model").as_str().unwrap().into();
         Ok(response)
     }
@@ -261,6 +265,7 @@ impl Provider {
                     let value: Value = serde_json::from_slice(&body).context("provider returned invalid JSON")?;
                     check_http_error(&value)?;
                     let choice = choices(&value,compatible);
+                    completed_finish_reason(choice)?;
                     result.text = extract_content(&choice["message"]["content"]);
                     result.usage = value["usage"].clone();
                 } else {
@@ -276,8 +281,7 @@ impl Provider {
                             result.text.push_str(&text);
                             if !text.is_empty() && let Some(callback) = &partial { callback(&result.text); }
                             if let Some(usage) = value.get("usage").filter(|u| !u.is_null()) { result.usage = usage.clone(); }
-                            if let Some(reason) = choice["finish_reason"].as_str().filter(|r| !r.is_empty() && *r != "null") {
-                                ensure!(reason == "stop", "provider output did not complete: {}",safe_code(&json!(reason)));
+                            if completed_finish_reason(choice)? {
                                 finished = true;
                             }
                         }
@@ -308,6 +312,20 @@ fn choices(value: &Value, compatible: bool) -> &Value {
     } else {
         &value["output"]["choices"][0]
     }
+}
+fn completed_finish_reason(choice: &Value) -> Result<bool> {
+    let Some(reason) = choice["finish_reason"]
+        .as_str()
+        .filter(|reason| !reason.is_empty() && *reason != "null")
+    else {
+        return Ok(false);
+    };
+    ensure!(
+        reason == "stop",
+        "provider output did not complete: {}",
+        safe_code(&json!(reason))
+    );
+    Ok(true)
 }
 fn extract_content(value: &Value) -> String {
     match value {

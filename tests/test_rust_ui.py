@@ -76,7 +76,7 @@ def test_request_failure_keeps_config_key_for_inline_error(app):
 @pytest.mark.parametrize("auto_paste", [True, False])
 def test_success_is_quiet_for_paste_and_copies_when_paste_disabled(app, auto_paste):
     app.config.auto_paste = auto_paste
-    app._event("final_result", {"text": "transcript"})
+    app._event("final_result", {"text": "transcript", "generation": 3})
     if auto_paste:
         app._copy.assert_not_called()
         app._notify.assert_not_called()

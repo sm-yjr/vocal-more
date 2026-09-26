@@ -149,7 +149,10 @@ pub async fn connect_url_with_proxy(
         .max_frame_size(Some(MAX_EVENT_BYTES))
         .write_buffer_size(0)
         .max_write_buffer_size(512 * 1024);
-    let host = url.host_str().context("WebSocket endpoint has no host")?;
+    let host = url
+        .host_str()
+        .context("WebSocket endpoint has no host")?
+        .trim_matches(['[', ']']);
     let port = url
         .port_or_known_default()
         .context("WebSocket endpoint has no port")?;
@@ -177,8 +180,15 @@ async fn connect_proxy(proxy_url: &str, host: &str, port: u16) -> Result<TcpStre
         proxy.username().is_empty() && proxy.password().is_none(),
         "proxy credentials are not supported"
     );
-    let proxy_host = proxy.host_str().context("proxy URL has no host")?;
-    let proxy_port = proxy.port().context("proxy URL has no port")?;
+    // URL syntax brackets IPv6 literals; socket address tuples require the
+    // unbracketed address. Explicit HTTP :80 is normalized away by url::Url.
+    let proxy_host = proxy
+        .host_str()
+        .context("proxy URL has no host")?
+        .trim_matches(['[', ']']);
+    let proxy_port = proxy
+        .port_or_known_default()
+        .context("proxy URL has no port")?;
     match proxy.scheme() {
         "socks5" => Ok(tokio_socks::tcp::Socks5Stream::connect(
             (proxy_host, proxy_port),
@@ -375,28 +385,61 @@ mod tests {
 
     #[tokio::test]
     async fn http_proxy_opens_a_connect_tunnel() -> Result<()> {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        for bind in ["127.0.0.1:0", "[::1]:0"] {
+            let listener = tokio::net::TcpListener::bind(bind).await?;
+            let address = listener.local_addr()?;
+            let proxy = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0_u8; 1];
+                while !request.ends_with(b"\r\n\r\n") {
+                    stream.read_exact(&mut byte).await.unwrap();
+                    request.push(byte[0]);
+                }
+                assert!(request.starts_with(b"CONNECT example.com:443 HTTP/1.1\r\n"));
+                stream
+                    .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                    .await
+                    .unwrap();
+                let mut marker = [0_u8; 4];
+                stream.read_exact(&mut marker).await.unwrap();
+                marker
+            });
+
+            let mut stream =
+                connect_proxy(&format!("http://{address}"), "example.com", 443).await?;
+            stream.write_all(b"ping").await?;
+            assert_eq!(proxy.await?, *b"ping");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ipv6_socks_proxy_performs_handshake_and_carries_payload() -> Result<()> {
+        let listener = tokio::net::TcpListener::bind("[::1]:0").await?;
         let address = listener.local_addr()?;
         let proxy = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            let mut request = Vec::new();
-            let mut byte = [0_u8; 1];
-            while !request.ends_with(b"\r\n\r\n") {
-                stream.read_exact(&mut byte).await.unwrap();
-                request.push(byte[0]);
-            }
-            assert!(request.starts_with(b"CONNECT example.com:443 HTTP/1.1\r\n"));
+            let mut greeting = [0_u8; 3];
+            stream.read_exact(&mut greeting).await.unwrap();
+            assert_eq!(greeting, [5, 1, 0]);
+            stream.write_all(&[5, 0]).await.unwrap();
+            let mut request = [0_u8; 5];
+            stream.read_exact(&mut request).await.unwrap();
+            assert_eq!(&request[..4], &[5, 1, 0, 3]);
+            let mut target = vec![0_u8; request[4] as usize + 2];
+            stream.read_exact(&mut target).await.unwrap();
+            assert_eq!(&target[..target.len() - 2], b"example.com");
+            assert_eq!(&target[target.len() - 2..], &443_u16.to_be_bytes());
             stream
-                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                .write_all(&[5, 0, 0, 1, 127, 0, 0, 1, 0, 0])
                 .await
                 .unwrap();
             let mut marker = [0_u8; 4];
             stream.read_exact(&mut marker).await.unwrap();
             marker
         });
-
-        let mut stream =
-            connect_http_tunnel("127.0.0.1", address.port(), "example.com", 443).await?;
+        let mut stream = connect_proxy(&format!("socks5://{address}"), "example.com", 443).await?;
         stream.write_all(b"ping").await?;
         assert_eq!(proxy.await?, *b"ping");
         Ok(())

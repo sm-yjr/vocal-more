@@ -85,6 +85,8 @@ class RustVocalMoreApp(rumps.App):
         self._screen_context_generation = None
         self._screen_context_started_at = 0.0
         self._pending_screen_start = None
+        self._paste_epoch = 0
+        self._paste_cancelled = False
         args = ("--import-python", str(import_from)) if import_from else ()
         self.client = RustBackendClient(binary, data_dir, native_library=native_library,
                                         on_event=self._enqueue, extra_args=args)
@@ -127,6 +129,11 @@ class RustVocalMoreApp(rumps.App):
     def _enqueue(self, event):
         if self._closing:
             return
+        if event.get("method") == "final_result":
+            event = {**event, "params": {
+                **event.get("params", {}),
+                "_ui_epoch": getattr(self, "_paste_epoch", 0),
+            }}
         # Backpressure preserves terminal/paste events. The main queue drains promptly.
         while not self._closing:
             try:
@@ -153,6 +160,17 @@ class RustVocalMoreApp(rumps.App):
             return
         params = params or {}
         start_methods = {"start", "toggle_recording", "hotkey_pressed"}
+        if method == "cancel" or (
+            method in start_methods
+            and (
+                self.snapshot.get("state") == "idle"
+                or getattr(self, "_paste_cancelled", False)
+            )
+        ):
+            # Revoke platform work already queued before this control intent.
+            # Backend token checks precede the final AppKit queue hop.
+            self._paste_epoch = getattr(self, "_paste_epoch", 0) + 1
+            self._paste_cancelled = method == "cancel"
         pending_screen_start = getattr(self, "_pending_screen_start", None)
         if pending_screen_start is not None and method in (
             "cancel",
@@ -334,6 +352,7 @@ class RustVocalMoreApp(rumps.App):
                 result = {
                     "initial": data["initial"],
                     "generation": data["generation"],
+                    "screen_start": data["screen_start"],
                     "jpeg_base64": base64.b64encode(jpeg).decode("ascii"),
                 }
                 self._enqueue({"method": "_screen_frame", "params": result})
@@ -343,6 +362,8 @@ class RustVocalMoreApp(rumps.App):
                         "method": "_screen_capture_failed",
                         "params": {
                             "initial": data["initial"],
+                            "generation": data["generation"],
+                            "screen_start": data["screen_start"],
                             "message": str(error),
                         },
                     }
@@ -353,6 +374,7 @@ class RustVocalMoreApp(rumps.App):
             {
                 "initial": initial,
                 "generation": generation,
+                "screen_start": self._pending_screen_start if initial else None,
                 "request_permission": request_permission,
             },
         ):
@@ -360,6 +382,16 @@ class RustVocalMoreApp(rumps.App):
             self._screen_context_pending = False
             if initial:
                 self._pending_screen_start = None
+
+    def _resume_pending_screen_capture(self):
+        pending = self._pending_screen_start
+        if (
+            pending is not None
+            and not pending["cancel_requested"]
+            and pending["jpeg_base64"] is None
+            and getattr(self.config, "screen_context_enabled", False)
+        ):
+            self._capture_screen(initial=True, request_permission=True)
 
     def _screen_tick(self):
         if (
@@ -516,21 +548,8 @@ class RustVocalMoreApp(rumps.App):
             self._screen_capture_inflight = False
             if data["initial"]:
                 pending = getattr(self, "_pending_screen_start", None)
-                if pending is None:
-                    if not self._screen_context_pending:
-                        return
-                    # Keep the old internal event shape harmless for callers
-                    # that may already have queued a one-off capture.
-                    self._screen_context_pending = False
-                    self._screen_context_active = True
-                    self.request(
-                        "start",
-                        {
-                            "screen_context": True,
-                            "screen_frame_base64": data["jpeg_base64"],
-                        },
-                        callback=self._screen_started,
-                    )
+                if pending is None or data.get("screen_start") is not pending:
+                    self._resume_pending_screen_capture()
                     return
                 if (
                     pending["cancel_requested"]
@@ -553,9 +572,21 @@ class RustVocalMoreApp(rumps.App):
                         "jpeg_base64": data["jpeg_base64"],
                     },
                 )
+            else:
+                self._resume_pending_screen_capture()
         elif method == "_screen_capture_failed":
             self._screen_capture_inflight = False
-            if data.get("initial") and self._pending_screen_start is None:
+            if (
+                data.get("initial")
+                and (
+                    self._pending_screen_start is None
+                    or data.get("screen_start") is not self._pending_screen_start
+                )
+            ) or (
+                not data.get("initial")
+                and data.get("generation") != self._screen_context_generation
+            ):
+                self._resume_pending_screen_capture()
                 return
             self._screen_context_pending = False
             self._screen_context_active = False
@@ -574,7 +605,7 @@ class RustVocalMoreApp(rumps.App):
             self.capsule.set_processing_stage(data["stage"])
         elif method == "final_result":
             self._last_text = data["text"]
-            if not self.config.auto_paste and self._last_text:
+            if not self.config.auto_paste and self._last_text and self._can_deliver_text(data):
                 self._copy(self._last_text)
                 self._notify(self._t("notification_transcription_complete_title"))
         elif method == "paste_requested":
@@ -695,6 +726,9 @@ class RustVocalMoreApp(rumps.App):
 
     def _paste(self, event):
         try:
+            epoch = getattr(self, "_paste_epoch", 0)
+            if self._closing or getattr(self, "_paste_cancelled", False):
+                return
             paste = self.client.call("claim_paste", {"token": event["token"]})
             if paste.get("cancelled") or self._closing:
                 return
@@ -707,12 +741,25 @@ class RustVocalMoreApp(rumps.App):
             # KeyboardSimulator may fall back to pynput, whose macOS Controller
             # constructor queries HIToolbox and must run on the AppKit main
             # queue.  Re-enter through the UI event queue for final delivery.
-            self._enqueue({"method": "_deliver_paste", "params": paste})
+            self._enqueue({"method": "_deliver_paste", "params": {
+                **paste, "_ui_epoch": epoch,
+            }})
         except Exception as error:  # noqa: BLE001 - platform operation boundary
             self.request("cancel_observation")
             self._enqueue({"method": "error", "params": {"message": str(error)}})
 
+    def _can_deliver_text(self, data):
+        epoch = getattr(self, "_paste_epoch", 0)
+        return (
+            not self._closing
+            and not getattr(self, "_paste_cancelled", False)
+            and data.get("_ui_epoch", epoch) == epoch
+            and data.get("generation") == self.snapshot.get("generation")
+        )
+
     def _deliver_paste(self, paste):
+        if not self._can_deliver_text(paste):
+            return
         try:
             from .core.keyboard_sim import KeyboardSimulator
             from .core.macos_native_paste import MacOSNativePaste

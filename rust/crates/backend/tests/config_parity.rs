@@ -101,6 +101,21 @@ fn proxy_url_is_validated_and_normalized() -> anyhow::Result<()> {
 }
 
 #[test]
+fn ipv6_proxy_remains_usable_after_persistence_and_reload() -> anyhow::Result<()> {
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("config.yaml");
+    let mut repo = ConfigRepository::open(&path)?;
+    for proxy in ["socks5://[::1]:1080", "http://[2001:db8::1]:7890"] {
+        repo.update("network.proxy_url", &json!(proxy))?;
+        assert_eq!(repo.config.get("network.proxy_url"), proxy);
+        reqwest::Proxy::all(repo.config.get("network.proxy_url").as_str().unwrap())?;
+        let reloaded = ConfigRepository::open(&path)?;
+        assert_eq!(reloaded.config.get("network.proxy_url"), proxy);
+    }
+    Ok(())
+}
+
+#[test]
 fn skipped_onboarding_survives_reload() -> anyhow::Result<()> {
     let temp = tempfile::tempdir()?;
     let path = temp.path().join("config.yaml");

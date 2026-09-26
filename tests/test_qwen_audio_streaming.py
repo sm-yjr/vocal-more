@@ -104,8 +104,7 @@ def test_recognition_adapter_coalesces_macos_blocks_and_flushes_tail(monkeypatch
         def __init__(self, **_kwargs):
             pass
 
-        def start(self, **kwargs):
-            captured.update(kwargs)
+        def start(self, **_kwargs):
             pass
 
         def send_audio_frame(self, frame):
@@ -128,6 +127,7 @@ def test_recognition_adapter_coalesces_macos_blocks_and_flushes_tail(monkeypatch
         on_close=lambda: None,
     )
 
+    conversation.connect()
     conversation.send_audio_frame(b"a" * 1280)
     conversation.send_audio_frame(b"b" * 1280)
     assert frames == []

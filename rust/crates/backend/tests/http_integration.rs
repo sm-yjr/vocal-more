@@ -18,7 +18,9 @@ use vocal_more_backend::{
     http::SseDecoder,
     provider::{Endpoints, Provider},
     wave::{WaveChunks, wav_bytes},
+    workflow,
 };
+use vocal_more_core::runtime::{Phase, Status};
 
 async fn read_request(stream: &mut tokio::net::TcpStream) -> Result<(String, Value)> {
     let mut bytes = Vec::new();
@@ -207,6 +209,94 @@ async fn failed_or_truncated_provider_output_is_never_a_success() -> Result<()> 
         let error = result.unwrap_err().to_string();
         assert!(!error.contains("private-provider-detail"));
         server.await??;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn non_streamed_responses_reject_incomplete_finish_reasons() -> Result<()> {
+    for compatible in [false, true] {
+        for reason in [None, Some("stop"), Some("length"), Some("content_filter")] {
+            let choice = json!({"message":{"content":"提供方返回的文本"},"finish_reason":reason});
+            let body = if compatible {
+                json!({"choices":[choice]})
+            } else {
+                json!({"output":{"choices":[choice]}})
+            };
+            let (endpoint, server) = http_fixture(200, body.to_string(), false).await?;
+            let result = provider(&endpoint)
+                .request_json(
+                    if compatible {
+                        "/compatible-mode/v1/chat/completions"
+                    } else {
+                        "/api/v1/services/aigc/multimodal-generation/generation"
+                    },
+                    json!({"model":"fixture"}),
+                    false,
+                    compatible,
+                    &CancellationToken::new(),
+                    None,
+                )
+                .await;
+            if matches!(reason, Some("length" | "content_filter")) {
+                let error = result.expect_err("incomplete text must not be published");
+                assert!(
+                    error
+                        .to_string()
+                        .contains("provider output did not complete")
+                );
+            } else {
+                // Short-file providers may omit finish_reason. Keep that
+                // existing envelope and explicit successful completions valid.
+                assert_eq!(result?.text, "提供方返回的文本");
+            }
+            server.await??;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn empty_polish_response_preserves_transcription_and_paste() -> Result<()> {
+    for sse in [false, true] {
+        for text in ["", " \n\t "] {
+            let value = json!({"output":{"choices":[{"message":{"content":[{"text":text}]},"finish_reason":"stop"}]}});
+            let body = if sse { event(value) } else { value.to_string() };
+            let (endpoint, server) = http_fixture(200, body, sse).await?;
+            let mut provider = provider(&endpoint);
+            provider
+                .config
+                .apply_update("asr.model", &json!("fun-asr-realtime"))?;
+            provider
+                .config
+                .apply_update("enable_polish", &json!(true))?;
+            provider.config.apply_update("auto_paste", &json!(true))?;
+            provider
+                .config
+                .apply_update("llm.polish_mode", &json!("dictation"))?;
+            let raw = "必须保留的原始听写。";
+            let result = workflow::finish(
+                provider,
+                Status {
+                    phase: Phase::Completed,
+                    pcm_bytes: 6400,
+                    transcript: raw.into(),
+                    ..Default::default()
+                },
+                std::path::Path::new("unused-realtime-recording.wav"),
+                "",
+                &CancellationToken::new(),
+                Arc::new(|_| {}),
+                None,
+            )
+            .await?;
+            assert_eq!(result.raw_text, raw);
+            assert_eq!(result.final_text, raw);
+            assert_eq!(result.paste_text.as_deref(), Some(raw));
+            assert_eq!(result.warnings.len(), 1);
+            assert!(result.warnings[0].contains("empty polished text"));
+            server.await??;
+        }
     }
     Ok(())
 }

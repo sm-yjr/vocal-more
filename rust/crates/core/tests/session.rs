@@ -18,7 +18,7 @@ use vocal_more_core::{
     audio::Source,
     protocol::RealtimeConfig,
     recording::RecordingStore,
-    runtime::{Host, Phase, StartRequest, wait_terminal},
+    runtime::{ExternalAsr, Host, Phase, StartRequest, wait_terminal},
 };
 
 fn asr(endpoint: String) -> RealtimeConfig {
@@ -284,6 +284,83 @@ async fn repeated_sessions_and_unsupported_wav_fail_without_poisoning_host() -> 
         assert_eq!(state.pcm_bytes, 4);
     }
     assert_eq!(host.store().list().await?.len(), 51);
+    host.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn screen_frame_backpressure_keeps_archiving_until_the_user_finishes() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let mut host = Host::new(RecordingStore::open(temp.path()).await?, None, None);
+    let asr = ExternalAsr {
+        model: "stalled-fixture".into(),
+        audio_limit_bytes: None,
+        run: Box::new(|input, cancel, _reporter| {
+            Box::pin(async move {
+                // Hold the receiver open without consuming it, like an ASR
+                // handshake or socket send that is still inside its deadline.
+                cancel.cancelled().await;
+                drop(input);
+                anyhow::bail!("fixture cancelled")
+            })
+        }),
+    };
+    let generation = host.start_external(Source::Stream, asr).await?.generation;
+    let mut status = host.subscribe().context("session status")?;
+    for _ in 0..AUDIO_QUEUE_BLOCKS {
+        host.append(generation, Bytes::from(vec![7; BLOCK_BYTES]))?;
+    }
+    timeout(Duration::from_secs(2), async {
+        loop {
+            if status.borrow_and_update().asr_queue_high_watermark == AUDIO_QUEUE_BLOCKS {
+                break;
+            }
+            status.changed().await?;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+
+    // Both are queued in this current-thread turn. The visual branch has
+    // priority, so an awaited image send would stop all subsequent PCM reads.
+    host.append_image(generation, Bytes::from_static(&[0xff, 0xd8, 0xff, 1]))?;
+    for _ in 0..4 {
+        host.append(generation, Bytes::from(vec![9; BLOCK_BYTES]))?;
+    }
+    let expected_bytes = ((AUDIO_QUEUE_BLOCKS + 4) * BLOCK_BYTES) as u64;
+    timeout(Duration::from_secs(2), async {
+        loop {
+            if status.borrow_and_update().pcm_bytes == expected_bytes {
+                break;
+            }
+            status.changed().await?;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    assert_eq!(host.status().phase, Phase::Recording);
+    assert!(host.status().error.is_some());
+
+    host.finish(generation)?;
+    let state = wait_terminal(&host, Duration::from_secs(2)).await?;
+    assert_eq!(state.phase, Phase::Failed);
+    assert!(state.error.as_deref().unwrap().contains("ASR queue full"));
+    assert_eq!(state.pcm_bytes, expected_bytes);
+    let record = host.store().list().await?.remove(0);
+    let samples = hound::WavReader::open(host.store().directory().join(record.filename))?
+        .into_samples::<i16>()
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(samples.len() as u64 * 2, expected_bytes);
+    assert!(
+        samples[..AUDIO_QUEUE_BLOCKS * BLOCK_BYTES / 2]
+            .iter()
+            .all(|sample| *sample == i16::from_le_bytes([7, 7]))
+    );
+    assert!(
+        samples[AUDIO_QUEUE_BLOCKS * BLOCK_BYTES / 2..]
+            .iter()
+            .all(|sample| *sample == i16::from_le_bytes([9, 9]))
+    );
     host.shutdown().await?;
     Ok(())
 }

@@ -6,7 +6,7 @@ import os
 import subprocess
 import threading
 import time
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlsplit
 
 _MODULE_IMPORT_STARTED_AT = time.perf_counter()
@@ -32,6 +32,10 @@ from .localization import t
 from .modes.base_mode import ModeState
 from .paths import bundled_resource_path
 from .startup_diagnostics import new_startup_attempt_id, record_startup_event
+
+if TYPE_CHECKING:
+    from .application.dictation_command_coordinator import DictationCommandCoordinator
+    from .application.runtime_facade import RuntimeFacade
 
 
 def AudioRecorder(*args, **kwargs):

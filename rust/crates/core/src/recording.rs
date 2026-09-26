@@ -193,6 +193,18 @@ impl RecordingStore {
         Ok(())
     }
 
+    async fn quarantine_partial(&self, path: &Path, id: Uuid) -> Result<()> {
+        let quarantine = self.0.dir.join(".recovery-quarantine");
+        fs::create_dir_all(&quarantine).await?;
+        let destination = quarantine.join(format!("{id}-{}.wav.part", Uuid::new_v4()));
+        fs::rename(path, &destination).await?;
+        #[cfg(unix)]
+        File::open(&quarantine).await?.sync_all().await?;
+        self.sync_directory().await?;
+        eprintln!("Preserved invalid partial recording {id} in .recovery-quarantine");
+        Ok(())
+    }
+
     async fn recover(&self) -> Result<()> {
         let mut entries = fs::read_dir(&self.0.dir).await?;
         while let Some(entry) = entries.next_entry().await? {
@@ -206,17 +218,22 @@ impl RecordingStore {
             let path = entry.path();
             let mut file = File::options().read(true).write(true).open(&path).await?;
             let length = file.metadata().await?.len();
-            ensure!(
-                length >= HEADER_BYTES,
-                "truncated WAV header in {id}; preserve file for manual recovery"
-            );
+            // A crash or full disk between create_new and the initial header
+            // write can leave an empty/partial file. Preserve it separately so
+            // one unfinished recording cannot prevent every future launch.
+            if length < HEADER_BYTES {
+                drop(file);
+                self.quarantine_partial(&path, id).await?;
+                continue;
+            }
             let mut header = [0u8; 44];
             file.read_exact(&mut header).await?;
             let expected = wav_header(0)?;
-            ensure!(
-                header[..4] == expected[..4] && header[8..40] == expected[8..40],
-                "invalid WAV header in {id}; preserve file for manual recovery"
-            );
+            if header[..4] != expected[..4] || header[8..40] != expected[8..40] {
+                drop(file);
+                self.quarantine_partial(&path, id).await?;
+                continue;
+            }
             let pcm_bytes = (length - HEADER_BYTES) & !1;
             file.set_len(HEADER_BYTES + pcm_bytes).await?;
             file.seek(std::io::SeekFrom::Start(0)).await?;
@@ -462,6 +479,47 @@ mod tests {
         assert_eq!(record.model, "reserved-model");
         assert_eq!(record.pcm_bytes, 4);
         assert!(record.transcript.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn invalid_partial_audio_is_preserved_without_blocking_restart() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let store = RecordingStore::open(temp.path()).await?;
+        let mut writer = store.create(1, "healthy").await?;
+        writer.append(&[1, 0, 2, 0]).await?;
+        let healthy = writer
+            .finish("completed", "healthy text".into(), None)
+            .await?;
+        let invalid = [Vec::new(), b"RIFF".to_vec(), vec![0_u8; 64]];
+        for bytes in &invalid {
+            fs::write(
+                temp.path().join(format!("{}.wav.part", Uuid::new_v4())),
+                bytes,
+            )
+            .await?;
+        }
+        drop(store);
+
+        let recovered = RecordingStore::open(temp.path()).await?;
+        let records = recovered.list().await?;
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, healthy.id);
+        assert_eq!(records[0].transcript, "healthy text");
+        let mut preserved = Vec::new();
+        let mut files = fs::read_dir(temp.path().join(".recovery-quarantine")).await?;
+        while let Some(file) = files.next_entry().await? {
+            preserved.push(fs::read(file.path()).await?);
+        }
+        preserved.sort();
+        let mut expected = invalid.to_vec();
+        expected.sort();
+        assert_eq!(preserved, expected);
+        drop(recovered);
+        assert_eq!(
+            RecordingStore::open(temp.path()).await?.list().await?.len(),
+            1
+        );
         Ok(())
     }
 
