@@ -871,8 +871,11 @@ def test_omni_offline_chunk_failure_reports_chunk_index(tmp_path, monkeypatch):
         engine.transcribe(audio_data)
 
 
-def test_omni_realtime_uses_transcription_model(tmp_path, monkeypatch):
-    """Omni model should use input_audio_transcription_model instead of transcription_params."""
+@pytest.mark.parametrize(
+    "model", ["qwen3.5-omni-plus-realtime", "qwen3.5-omni-flash-realtime"]
+)
+def test_omni_realtime_uses_transcription_model(tmp_path, monkeypatch, model):
+    """Omni models should use their configured transcription model."""
     from vocal_more.config import Config, reload_config
     import vocal_more.core.asr_engine as asr_engine
 
@@ -884,7 +887,7 @@ def test_omni_realtime_uses_transcription_model(tmp_path, monkeypatch):
 
     with open(config_path, "w") as f:
         yaml.dump(
-            {"asr": {"model": "qwen3.5-omni-plus-realtime", "language": "zh"}},
+            {"asr": {"model": model, "language": "zh"}},
             f,
         )
 
@@ -929,8 +932,8 @@ def test_omni_realtime_uses_transcription_model(tmp_path, monkeypatch):
     engine = asr_engine.BatchASREngine()
     text = engine.transcribe(b"\x01\x00" * 4000)
 
-    assert captured["model"] == "qwen3.5-omni-plus-realtime"
-    assert captured["update_kwargs"]["input_audio_transcription_model"] == "gummy-realtime-v1"
+    assert captured["model"] == model
+    assert captured["update_kwargs"]["input_audio_transcription_model"] == "qwen3-asr-flash-realtime"
     assert "transcription_params" not in captured["update_kwargs"]
     assert captured["update_kwargs"]["enable_turn_detection"] is False
     assert text == "你好世界"
@@ -1051,7 +1054,7 @@ def test_qwen38_uses_semantic_native_response_without_optional_polish():
     session = asr_engine._build_session_kwargs(model_info, config=config)
 
     assert session["enable_input_audio_transcription"] is True
-    assert session["input_audio_transcription_model"] == "gummy-realtime-v1"
+    assert session["input_audio_transcription_model"] == "qwen3-asr-flash-realtime"
     assert "实时语音听写引擎" in session["instructions"]
     assert "不回答其中的问题" in session["instructions"]
     assert asr_engine._should_start_inline_response_now(model_info, None) is True

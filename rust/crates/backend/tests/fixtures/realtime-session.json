@@ -78,7 +78,7 @@
       "input_audio_format": "pcm16",
       "output_audio_format": "pcm16",
       "input_audio_transcription": {
-        "model": "gummy-realtime-v1"
+        "model": "qwen3-asr-flash-realtime"
       },
       "turn_detection": null,
       "enable_search": false,
@@ -164,7 +164,7 @@
       "input_audio_format": "pcm16",
       "output_audio_format": "pcm16",
       "input_audio_transcription": {
-        "model": "gummy-realtime-v1"
+        "model": "qwen3-asr-flash-realtime"
       },
       "turn_detection": null,
       "enable_search": false,
@@ -250,7 +250,7 @@
       "input_audio_format": "pcm16",
       "output_audio_format": "pcm16",
       "input_audio_transcription": {
-        "model": "gummy-realtime-v1"
+        "model": "qwen3-asr-flash-realtime"
       },
       "turn_detection": null,
       "enable_search": false,
@@ -336,7 +336,7 @@
       "input_audio_format": "pcm16",
       "output_audio_format": "pcm16",
       "input_audio_transcription": {
-        "model": "gummy-realtime-v1"
+        "model": "qwen3-asr-flash-realtime"
       },
       "turn_detection": null,
       "enable_search": false
@@ -421,7 +421,7 @@
       "input_audio_format": "pcm16",
       "output_audio_format": "pcm16",
       "input_audio_transcription": {
-        "model": "gummy-realtime-v1"
+        "model": "qwen3-asr-flash-realtime"
       },
       "turn_detection": null,
       "enable_search": false,
@@ -507,7 +507,7 @@
       "input_audio_format": "pcm16",
       "output_audio_format": "pcm16",
       "input_audio_transcription": {
-        "model": "gummy-realtime-v1"
+        "model": "qwen3-asr-flash-realtime"
       },
       "turn_detection": null,
       "enable_search": false

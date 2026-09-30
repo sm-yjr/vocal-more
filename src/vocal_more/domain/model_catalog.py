@@ -41,7 +41,7 @@ ALL_ASR_MODELS = [
         "display_name": "Qwen3.8 Omni Flash Realtime",
         "transport": "realtime_ws",
         "supports_transcription_params": False,
-        "input_audio_transcription_model": "gummy-realtime-v1",
+        "input_audio_transcription_model": "qwen3-asr-flash-realtime",
         "handles_inline_polish": True,
         # Qwen3.8 is the semantic transcription owner even when the optional
         # Vocal More polish switch is off.  The sidecar transcript remains a
@@ -69,7 +69,7 @@ ALL_ASR_MODELS = [
         "display_name": "Qwen3.5 Omni Flash Realtime",
         "transport": "realtime_ws",
         "supports_transcription_params": False,
-        "input_audio_transcription_model": "gummy-realtime-v1",
+        "input_audio_transcription_model": "qwen3-asr-flash-realtime",
         "handles_inline_polish": True,
     },
     {
@@ -85,7 +85,7 @@ ALL_ASR_MODELS = [
         "display_name": "Qwen3.5 Omni Plus Realtime",
         "transport": "realtime_ws",
         "supports_transcription_params": False,
-        "input_audio_transcription_model": "gummy-realtime-v1",
+        "input_audio_transcription_model": "qwen3-asr-flash-realtime",
         "handles_inline_polish": True,
     },
     {

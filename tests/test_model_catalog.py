@@ -50,3 +50,26 @@ def test_qwen38_exposes_verified_multimodal_context_capabilities():
     assert model["max_audio_turns"] == 100
     assert model["max_audio_seconds"] == 600
     assert model["rollover_audio_seconds"] == 540
+
+
+def test_omni_realtime_models_use_the_supported_transcription_submodel():
+    for model_id in (
+        "qwen3.8-omni-flash-realtime",
+        "qwen3.5-omni-plus-realtime",
+        "qwen3.5-omni-flash-realtime",
+    ):
+        info = get_asr_model_info(model_id)
+        assert info is not None
+        assert info["input_audio_transcription_model"] == "qwen3-asr-flash-realtime"
+        assert info["transport"] == "realtime_ws"
+        assert info["protocol"] == "omni_realtime"
+        assert info["handles_inline_polish"] is True
+
+
+def test_legacy_fast_keeps_its_independent_dated_model_configuration():
+    info = get_asr_model_info("qwen3-asr-flash-realtime-2026-02-10")
+    assert info is not None
+    assert info["id"] == "qwen3-asr-flash-realtime-2026-02-10"
+    assert info["display_name"] == "Legacy Fast"
+    assert info["supports_transcription_params"] is True
+    assert info["input_audio_transcription_model"] is None

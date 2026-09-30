@@ -15,7 +15,7 @@
 
 Qwen3.8 Omni Flash Realtime 长音频离线降级走 `qwen3.8-omni-flash`（按目录后缀规则推导，HTTP 通道已实测可用）。费用按 2026-09-21 官方原价接入：realtime 输入音频 6 元/百万 Token（约为 3.5 Flash Realtime 的 22%），输出语音时音频及对应文本分别计费；离线版输入不分模态统一 0.8 元/百万 Token，纯文本输出。
 
-Qwen3.8 的主模型现在始终承担最终听写：关闭“润色”时使用严格的忠实转写指令，开启时使用现有内联润色指令；`gummy-realtime-v1` 旁路结果只用于流式反馈、诊断和恢复，避免绕过官方强调的口音、非标准发音与语义联合建模。自动语言模式直接使用模型的 74 种语言和 39 种中文方言识别能力，不把设置页的“中文/英文”提示伪装成完整语言清单。
+Qwen3.8 的主模型现在始终承担最终听写：关闭“润色”时使用严格的忠实转写指令，开启时使用现有内联润色指令。Omni Realtime 会话按客户端事件协议将 `input_audio_transcription.model` 设为 `qwen3-asr-flash-realtime`；该旁路转写只用于流式反馈、诊断和恢复，不改变主模型的最终文本选择，也不会绕过官方强调的口音、非标准发音与语义联合建模。自动语言模式直接使用模型的 74 种语言和 39 种中文方言识别能力，不把设置页的“中文/英文”提示伪装成完整语言清单。
 
 “看屏幕说话”是默认关闭的持久开关，可在设置页或菜单栏切换。开启后，每次新听写都会临时使用 Qwen3.8 Omni Flash Realtime，并把 macOS 主显示器压缩后的 JPEG 帧随听写音频发送；首帧与音频采集并行，Realtime 链路会等到首个音频块后再发送图像，后续每 2 秒更新一帧，230 秒后停止画面更新以留出官方 240 秒视频上限。关闭开关会停止当前会话后续的画面采集。图像仅用于理解界面文本、代码和专有名词，不允许模型描述屏幕；帧不写入录音历史或诊断日志。Qwen3.8 Realtime 需使用 Model Studio 工作空间 WSS 地址，在识别设置中配置。
 
@@ -35,6 +35,6 @@ Fun-ASR 虽支持预编译词表与部分版本的上下文，但现有集成未
 
 [Qwen Audio 实时语音对话](https://help.aliyun.com/zh/model-studio/qwen-audio-realtime-user-guides)确认 Plus 与 Flash 使用同系列接口。[Flash 模型信息](https://help.aliyun.com/zh/model-studio/qwen-audio-3-0-realtime-flash)提供北京区定价；已接入现有费用估算。[更新记录](https://help.aliyun.com/en/model-studio/newly-released-models)用于核对新增系列。
 
-[Qwen3.8 Omni Flash Realtime](https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime)给出多语言/方言、音频/视频/Token 上限；[Realtime 客户端事件](https://help.aliyun.com/zh/model-studio/client-events)规定图像必须为 JPEG、Base64 后不超过 256 KiB、发送图像前至少已有一个音频 append，以及图像随音频 commit 一起提交。
+[Qwen3.8 Omni Flash Realtime](https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime)给出多语言/方言、音频/视频/Token 上限；[Realtime 客户端事件](https://help.aliyun.com/zh/model-studio/client-events)规定转写模型、图像必须为 JPEG、Base64 后不超过 256 KiB、发送图像前至少已有一个音频 append，以及图像随音频 commit 一起提交。
 
 本地验证覆盖目录、协议参数、热词限制、单级完成流程、费用估算和设置页。单元测试模拟供应商响应，不代表已用真实音频验证线上识别质量或账户模型权限。

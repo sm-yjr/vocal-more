@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import sys
 from types import SimpleNamespace
+
+import pytest
 
 from vocal_more.application.dashscope_model_check import (
     DASHSCOPE_MODELS,
+    _realtime_model_call,
     check_dashscope_models,
 )
 
@@ -86,3 +91,45 @@ def test_provider_exception_cannot_echo_the_api_key():
 
     assert all("sk-secret" not in result["error"] for result in results)
     assert all("***" in result["error"] for result in results)
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "qwen3.8-omni-flash-realtime",
+        "qwen3.5-omni-plus-realtime",
+        "qwen3.5-omni-flash-realtime",
+    ],
+)
+def test_realtime_model_check_uses_catalog_transcription_submodel(monkeypatch, model):
+    sent = []
+    connection = {}
+
+    class FakeWebSocket:
+        def send(self, raw):
+            sent.append(json.loads(raw))
+
+        def recv(self):
+            return json.dumps({"type": "session.updated"})
+
+        def close(self):
+            pass
+
+    def create_connection(url, **_kwargs):
+        connection["url"] = url
+        return FakeWebSocket()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "websocket",
+        SimpleNamespace(create_connection=create_connection),
+    )
+
+    response = _realtime_model_call(model=model, api_key="test-only")
+
+    assert response.status_code == 200
+    assert model in connection["url"]
+    assert sent[0]["type"] == "session.update"
+    assert sent[0]["session"]["input_audio_transcription"] == {
+        "model": "qwen3-asr-flash-realtime"
+    }

@@ -407,3 +407,40 @@ async fn qwen38_rolls_over_before_the_context_limit_and_merges_results() -> Resu
     host.shutdown().await?;
     Ok(())
 }
+
+#[test]
+fn omni_realtime_contract_uses_the_supported_asr_submodel_and_preserves_legacy_fast() {
+    for collection in ["all_asr_models", "asr_models"] {
+        for id in [
+            "qwen3.8-omni-flash-realtime",
+            "qwen3.5-omni-plus-realtime",
+            "qwen3.5-omni-flash-realtime",
+        ] {
+            let model = CONTRACT[collection]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|model| model["id"] == id)
+                .unwrap_or_else(|| panic!("{id} missing from {collection}"));
+            assert_eq!(
+                model["input_audio_transcription_model"],
+                "qwen3-asr-flash-realtime"
+            );
+            assert!(model["handles_inline_polish"].as_bool().unwrap());
+        }
+    }
+
+    let legacy_fast = CONTRACT["all_asr_models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|model| model["id"] == "qwen3-asr-flash-realtime-2026-02-10")
+        .unwrap();
+    assert_eq!(legacy_fast["display_name"], "Legacy Fast");
+    assert!(
+        legacy_fast["supports_transcription_params"]
+            .as_bool()
+            .unwrap()
+    );
+    assert!(legacy_fast["input_audio_transcription_model"].is_null());
+}

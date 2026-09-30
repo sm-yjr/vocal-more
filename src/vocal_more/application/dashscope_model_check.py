@@ -88,10 +88,9 @@ def _realtime_model_call(*, model: str, api_key: str):
                 "turn_detection": None,
                 "instructions": "Return transcription text only.",
             }
-            if info.get("protocol") != "realtime_conversation":
-                session["input_audio_transcription"] = {
-                    "model": "gummy-realtime-v1"
-                }
+            transcription_model = info.get("input_audio_transcription_model")
+            if transcription_model is not None:
+                session["input_audio_transcription"] = {"model": transcription_model}
             event = {
                 "event_id": f"event_{uuid.uuid4().hex}",
                 "type": "session.update",

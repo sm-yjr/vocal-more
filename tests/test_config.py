@@ -1110,7 +1110,7 @@ def test_get_asr_model_info():
 
     info2 = get_asr_model_info("qwen3.5-omni-plus-realtime")
     assert info2 is not None
-    assert info2["input_audio_transcription_model"] == "gummy-realtime-v1"
+    assert info2["input_audio_transcription_model"] == "qwen3-asr-flash-realtime"
     assert info2["handles_inline_polish"] is True
 
     info3 = get_asr_model_info("qwen-audio-3.0-asr-flash-streaming")
