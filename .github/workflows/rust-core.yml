@@ -25,7 +25,7 @@ jobs:
           rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
           rustup override set 1.90.0
       - name: Check formatting
-        run: cargo fmt --all --manifest-path rust/Cargo.toml -- --check
+        run: cargo fmt --manifest-path rust/Cargo.toml -p vocal-more-core -p vocal-more-backend -p vocal-more-host -- --check
       - name: Check warnings
         run: cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings
       - name: Test core and stdio lifecycle
@@ -35,3 +35,26 @@ jobs:
       - name: Build existing native audio library
         if: runner.os == 'macOS'
         run: bash scripts/build_native_audio.sh
+  desktop:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install desktop Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+          shared-key: macos-desktop
+      - name: Verify native desktop
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '14.0'
+        run: |
+          cargo +1.98.1 fmt --all --manifest-path rust/Cargo.toml -- --check
+          cargo +1.98.1 clippy --locked --no-deps --manifest-path rust/Cargo.toml -p vocal-more-desktop --features ui-test --all-targets -- -D warnings
+          cargo +1.98.1 test --locked --manifest-path rust/Cargo.toml -p vocal-more-desktop
+          cargo +1.98.1 build --locked --manifest-path rust/Cargo.toml -p vocal-more-desktop
+          cargo +1.98.1 test --locked --manifest-path rust/Cargo.toml -p vocal-more-desktop --features ui-test --test settings_rendering
+      - name: Verify deferred native termination and durable saves
+        run: |
+          cargo +1.98.1 run --locked --manifest-path rust/Cargo.toml -p vocal-more-desktop --bin vocal-more-native-termination-acceptance
+          cargo +1.98.1 run --locked --manifest-path rust/Cargo.toml -p vocal-more-desktop --bin vocal-more-native-termination-acceptance -- --host-quit

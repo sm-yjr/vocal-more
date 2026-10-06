@@ -80,6 +80,30 @@ def verify_rust_backend(app: Path, *, command_runner: CommandRunner = subprocess
         raise RuntimeError("Rust application backend has a non-Apple runtime dependency")
 
 
+def verify_rust_frontend(app: Path, *, command_runner: CommandRunner = subprocess.run) -> None:
+    """Read back the product entry point and reject legacy runtime payloads."""
+    info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+    if info.get("VocalMoreUIRuntime") != "rust-gpui-kit" or info.get("CFBundleExecutable") != "Vocal More":
+        raise RuntimeError("App entry point is not the Rust desktop")
+    binary = app / "Contents/MacOS/Vocal More"
+    if not binary.is_file():
+        raise RuntimeError("Rust desktop executable is missing")
+    if _run([binary, "--version"], command_runner=command_runner).strip() != f"Vocal More {info['VocalMoreVersion']}":
+        raise RuntimeError("Rust desktop version does not match the app")
+    if _run(["lipo", "-archs", binary], command_runner=command_runner).split() != [EXPECTED_ARCHITECTURE]:
+        raise RuntimeError("Rust desktop must be arm64-only")
+    dependencies = _otool_values(_run(["otool", "-L", binary], command_runner=command_runner))
+    if any(not item.startswith(("/System/Library/", "/usr/lib/")) or "WebKit" in item for item in dependencies):
+        raise RuntimeError("Rust desktop has an unexpected runtime dependency")
+    for path in (app / "Contents").rglob("*"):
+        name = path.name.lower()
+        if name.startswith("python") or name in {"lib-dynload", "site-packages", "webkit.framework"} or path.suffix in {".py", ".pyc", ".html", ".js"}:
+            raise RuntimeError(f"Legacy UI runtime payload remains: {path.relative_to(app)}")
+    notices = app / "Contents/Resources/Rust-Third-Party-Notices.txt"
+    if not notices.is_file() or "gpui-kit 0.7.0" not in notices.read_text():
+        raise RuntimeError("Locked Rust dependency notices are missing")
+
+
 def verify_native_audio_library(
     app: Path,
     *,
@@ -221,6 +245,7 @@ def verify_release_artifact(
                 raise RuntimeError(f"Missing or incorrect project license: {license_path}")
         verify_native_audio_library(app, command_runner=command_runner)
         verify_rust_backend(app, command_runner=command_runner)
+        verify_rust_frontend(app, command_runner=command_runner)
         _run(
             ["codesign", "--verify", "--deep", "--strict", "--verbose=2", app],
             command_runner=command_runner,

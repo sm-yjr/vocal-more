@@ -47,6 +47,14 @@ See [docs/windows.md](docs/windows.md) for behavior, privacy boundaries, packagi
 
 ### macOS
 
+The development branch includes a Rust desktop with GPUI Kit settings and an AppKit capsule. Build and launch its development app with Rust 1.98.1, Xcode Command Line Tools, and build-time Python 3.11+:
+
+```bash
+bash script/build_and_run.sh run
+```
+
+See [Rust desktop development](rust/README.md) for isolated data, tests, and acceptance status. The published 0.5.1 release uses the Python/PyObjC UI; its reference source entry remains:
+
 ```bash
 uv venv
 source .venv/bin/activate
@@ -91,7 +99,7 @@ dist\Vocal-More-<version>-windows-x64-setup.exe
 
 ## Configuration
 
-Persistent configuration is stored at `~/.vocal-more/config.yaml` on macOS and `%APPDATA%\Vocal More\config.yaml` on Windows. The Windows GUI applies common settings through the same serialized runtime configuration path; the YAML file remains available for advanced options.
+The Rust macOS backend stores configuration and history in `~/.vocal-more/rust-backend`, importing the existing `~/.vocal-more` data on first use. The Python reference path stores configuration at `~/.vocal-more/config.yaml`; Windows uses `%APPDATA%\Vocal More\config.yaml`. The Windows GUI applies common settings through the same serialized runtime configuration path; the YAML file remains available for advanced options.
 
 Vocal More exposes one downstream audio contract: 16 kHz, mono, signed PCM16. macOS prefers Apple Voice Processing and `AVAudioConverter`; Windows uses PortAudio through `sounddevice` with the shared software gain, high-pass filter, and limiter.
 

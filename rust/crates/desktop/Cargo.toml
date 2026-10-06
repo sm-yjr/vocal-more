@@ -1,0 +1,49 @@
+[package]
+name = "vocal-more-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.98"
+license.workspace = true
+description = "Rust macOS desktop host for Vocal More"
+default-run = "vocal-more-desktop"
+
+[[bin]]
+name = "vocal-more-native-platform-acceptance"
+path = "src/platform/tests/native_harness.rs"
+
+[[bin]]
+name = "vocal-more-native-termination-acceptance"
+path = "src/platform/tests/termination_harness.rs"
+
+[features]
+ui-test = ["gpui-kit/test-support"]
+
+[[test]]
+name = "settings_rendering"
+path = "tests/settings_rendering.rs"
+test = false
+harness = false
+required-features = ["ui-test"]
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+vocal-more-backend = { path = "../backend" }
+vocal-more-core = { path = "../core" }
+async-channel = "2.5"
+futures-lite = "2.6"
+gpui-kit = "=0.7.0"
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+objc2-quartz-core = "0.3"
+objc2-core-foundation = "0.3"
+objc2-core-graphics = "0.3"
+block2 = "0.6"
+regex = "1.11"
+
+[dev-dependencies]
+tempfile.workspace = true

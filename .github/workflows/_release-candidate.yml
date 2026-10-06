@@ -59,8 +59,8 @@ jobs:
       run: python3 packaging/release_cli.py preflight --source-sha "$SOURCE_SHA" --tag "$RELEASE_TAG"
     - name: Install pinned Rust toolchain
       run: |-
-        rustup toolchain install 1.90.0 --profile minimal --component rustfmt
-        rustup default 1.90.0
+        rustup toolchain install 1.98.1 --profile minimal --component rustfmt
+        rustup default 1.98.1
       if: inputs.refresh_artifact_id == '0'
     - name: Restore Rust dependency builds
       if: inputs.refresh_artifact_id == '0'
@@ -103,11 +103,12 @@ jobs:
         wait "$python_install_pid" || status=$?
         exit "$status"
       if: inputs.refresh_artifact_id == '0'
-    - name: Verify Rust backend and build stdio integration target
+    - name: Verify Rust desktop and backend integration targets
       run: |
         cargo fmt --all --manifest-path rust/Cargo.toml -- --check
         cargo test --locked --manifest-path rust/Cargo.toml --workspace
-        cargo build --locked --manifest-path rust/Cargo.toml -p vocal-more-backend
+        cargo test --locked --manifest-path rust/Cargo.toml -p vocal-more-desktop --features ui-test --test settings_rendering
+        cargo build --locked --manifest-path rust/Cargo.toml -p vocal-more-backend -p vocal-more-desktop
       if: inputs.refresh_artifact_id == '0'
     - name: Run frontend and Python checks in parallel
       run: |
@@ -126,18 +127,6 @@ jobs:
         wait "$frontend_check_pid" || check_exit=$?
         wait "$python_check_pid" || check_exit=$?
         exit "$check_exit"
-      if: inputs.refresh_artifact_id == '0'
-    - name: Build frontend bundle
-      run: npm --prefix frontend/settings run build
-      if: inputs.refresh_artifact_id == '0'
-    - name: Prepare clean packaging environment
-      run: |
-        set -euo pipefail
-        packaging_env="$RUNNER_TEMP/vocal-more-packaging-venv"
-        UV_PROJECT_ENVIRONMENT="$packaging_env" \
-          uv sync --locked --no-dev --group packaging \
-            --python "$VOCAL_MORE_BUILD_PYTHON"
-        echo "VOCAL_MORE_BUILD_VENV=$packaging_env" >> "$GITHUB_ENV"
       if: inputs.refresh_artifact_id == '0'
     - name: Import signing certificate
       env:
@@ -196,8 +185,6 @@ jobs:
       if: inputs.refresh_artifact_id == '0'
     - name: Build signed DMG
       env:
-        VOCAL_MORE_USE_PREPARED_BUILD_VENV: '1'
-        VOCAL_MORE_SKIP_FRONTEND_BUILD: '1'
         VOCAL_MORE_SKIP_ADHOC_SIGN: '1'
         VOCAL_MORE_TARGET_ARCH: arm64
       run: ./packaging/macos/build_dmg.sh

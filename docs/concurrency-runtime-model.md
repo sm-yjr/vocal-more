@@ -1,8 +1,72 @@
 # Concurrency Runtime Model
 
-This document describes the current concurrency boundaries in the active Python app under `src/vocal_more/`.
+This document describes the Rust desktop in development and the published Python reference app under `src/vocal_more/`.
 
 The goal is not to eliminate every background thread. The goal is to make thread ownership explicit so UI work, dictation control, audio capture, and ASR/network work cannot accidentally fight each other.
+
+## Rust desktop boundaries
+
+`vocal-more-desktop` owns GPUI settings, the native AppKit capsule, menu and
+playback objects on the main thread. Callbacks admit intents through
+`CommandSink`; the UI event channel holds at most 1,024 events and the backend
+command channel holds at most 64 requests. Event handling yields after 128
+events so a ready queue cannot monopolize animation and platform timers.
+Requests with pending UI state use checked admission and reserve one of 1,088
+bounded completion/error slots. Queue rejection is returned before pending
+state is created; backend rejection retains its request ID even when the event
+channel is full. Untracked callback failures are coalesced with a rejection count.
+
+One `vocal-more-backend-driver` OS thread owns `Application` and its Tokio
+runtime (two worker threads, at most four blocking workers). AppKit callbacks
+never await provider, storage or audio operations. The business backend retains
+ownership of PCM, native capture and mode sessions. Hotkey callbacks enqueue
+control requests; they revoke the UI delivery epoch before the main-thread hop.
+A bounded generation-to-epoch registry attaches original provenance to results,
+including snapshot recovery, rather than relabeling an old result on delivery.
+
+Paste delivery has one active FIFO item across claim, asynchronous AX capture,
+prepare and guarded native insertion. Cancellation clears queued work, and both
+the original epoch and generation are checked before insertion. An old AX
+callback cannot complete or replace a newer queue item. The AX worker owns
+retained accessibility references and applies bounded messaging timeouts.
+
+Screen context uses a separate OS worker and one-slot queue. Each JPEG carries
+the start request ID, epoch and generation. The first image waits for the
+matching start response; frames from a previous request are discarded even if
+their epochs happen to match. This worker does not consume or transform PCM.
+
+Quit transfers at most 1,024 already admitted UI edits to the driver after its
+existing backend queue; it never waits for a free command slot. Unsaved edits
+that cannot enter the UI queue report a save failure. Quit closes admission, releases native
+platform ownership and waits asynchronously for the backend to shut down. The
+foreground executor remains available during that wait. Development automation
+uses isolated data and disables global hotkeys; a locked desktop is recorded as
+a barrier to real focus, hotkey and cross-application paste acceptance.
+
+GPUI's final `on_app_quit` cleanup has a 200 ms framework deadline. Durable
+storage is therefore completed before final termination through the AppKit
+termination gate. The host waits for the driver's actual `finished` state,
+without a shorter fixed timeout that could truncate accepted saves. Quit has
+an independent atomic admission flag, so a full UI queue cannot discard the
+request or permit a late paste. Native resources close immediately, including
+failure notices in the capsule. AppKit termination is deferred outside a GPUI
+App borrow to prevent reentrant shutdown.
+
+Shutdown keeps a bounded failure summary for admitted durable writes and final
+cleanup, including an in-flight write whose response cannot enter the closed
+UI channel. The summary contains counts and a cleanup flag, never request
+values, credentials, prompts or raw provider errors. After the driver finishes,
+the host presents any failure through the existing four-second capsule notice
+before final termination. A finished driver alone does not mean every save
+succeeded.
+
+AX capture has a five-second host deadline. If its callback is lost under queue
+pressure, the active paste proceeds without an edit-learning snapshot; the
+whole delivery lane remains serial. A late callback must still match the
+original epoch/generation and the waiting phase, so it cannot prepare twice.
+
+The domains below describe the Python reference implementation, retained for
+regression comparison and Windows support.
 
 ## Current Domains
 

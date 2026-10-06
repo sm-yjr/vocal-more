@@ -1,12 +1,41 @@
-# 独立 Rust 后端
+# Rust 桌面与后端
 
-工作区现在包含完整应用服务 `vocal-more-backend` 和独立会话工具 `vocal-more-host`。完整服务已接到现有 macOS Python/PyObjC 薄 UI 壳，并接入正式构建流程；原 Python 后端保留为回退路径。构建后用 `uv run vocal-more --backend rust` 启动，功能范围、迁移和验收见 [完整集成说明](../docs/rust-backend-integration.md)。
+工作区包含 macOS 桌面程序 `vocal-more-desktop`、完整应用服务 `vocal-more-backend` 和独立会话工具 `vocal-more-host`。桌面设置页使用锁定的 GPUI Kit 0.7.0，胶囊使用 Rust AppKit / Core Animation，直接嵌入既有 Rust 业务服务，并复用 Objective-C++ 原生音频 C ABI。正式 macOS 构建入口已切换到 Rust 桌面；本地开发分支的改动尚未发布。
+
+已发布的 0.5.1 仍使用 Python/PyObjC 薄 UI，`uv run vocal-more --backend rust` 保留这条参考路径。它与新的 Rust 桌面是不同入口；后端集成说明见 [完整集成说明](../docs/rust-backend-integration.md)。
+
+## macOS 桌面开发
+
+要求 Apple Silicon、macOS 14+、Xcode Command Line Tools、Rust 1.98.1 和构建时 Python 3.11+。从仓库根目录执行：
+
+```bash
+rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+bash script/build_and_run.sh run
+```
+
+此入口构建并启动 `.build/rust-desktop/Vocal More Dev.app`，使用独立开发 bundle ID，仅停止这个目录中的上次开发进程。默认使用 `.build/rust-desktop/development-data`，不导入个人数据并禁用全局热键，避免与正在运行的正式版冲突。可用显式 `--data-dir` 选择其他目录及相应运行参数；例如验收使用：
+
+```bash
+bash script/build_and_run.sh --verify \
+  --data-dir "$PWD/.build/rust-desktop/demo-data" --no-import --no-hotkeys
+```
+
+`--debug` 启动 LLDB，`--logs` 查看运行日志。构建只生成 `.app`；DMG、Developer ID 签名、公证和发布仍由 [发布流程](../docs/release.md) 完成。
+
+```bash
+cargo +1.98.1 fmt --all --manifest-path rust/Cargo.toml -- --check
+cargo +1.98.1 clippy --locked --no-deps --manifest-path rust/Cargo.toml -p vocal-more-desktop --all-targets -- -D warnings
+cargo +1.98.1 test --locked --manifest-path rust/Cargo.toml --workspace
+cargo +1.98.1 test --locked --manifest-path rust/Cargo.toml -p vocal-more-desktop --features ui-test --test settings_rendering
+```
+
+胶囊、设置和平台验证边界见 [迁移验收清单](../docs/plans/2026-10-03-macos-rust-desktop.md)。
 
 本文以下保留独立 `vocal-more-host` 的较小协议和性能验证用法，不能用其内存数据替代完整应用测量。
 
 ## 构建与运行
 
-要求 Rust 1.90.0 或更新版本。依赖由 `Cargo.lock` 固定；macOS 原生音频库还需要 Xcode Command Line Tools。本机验证为 Apple Silicon / macOS 27.0，原生库部署目标为 macOS 14.0。Windows/Linux 的 PCM、WAV 与网络核心已配置 CI，本次尚未在这些系统运行。
+核心与独立后端要求 Rust 1.90.0 或更新版本，工作区默认成员不包含仅供 macOS 的桌面 crate。依赖由 `Cargo.lock` 固定；macOS 原生音频库还需要 Xcode Command Line Tools。本机验证为 Apple Silicon / macOS 27.0，原生库部署目标为 macOS 14.0。Windows/Linux 的 PCM、WAV 与网络核心已配置 CI，本次尚未在这些系统运行。
 
 在仓库根目录执行：
 
@@ -74,7 +103,7 @@ native DSP 参数还包括 `automatic_gain`、`highpass_enabled`、`soft_limiter
 ## 验证与测量
 
 ```bash
-cargo fmt --all --manifest-path rust/Cargo.toml -- --check
+cargo fmt --manifest-path rust/Cargo.toml -p vocal-more-core -p vocal-more-backend -p vocal-more-host -- --check
 cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings
 cargo test --locked --manifest-path rust/Cargo.toml
 ```
@@ -92,4 +121,4 @@ macOS 常驻测量使用 Python 标准库作为**进程外控制器**；被测 R
 
 输出目录必须不存在。默认生成 30 分钟合成音频，并测量 50 次短会话、完整长文件及网络传输、取消、本地 TLS 证书拒绝和强制退出恢复。不会录音或调用云端。可用 `--python-runtime /path/to/python` 增加现有 Python RPC 参考；随包解释器还需要 `--python-home /path/to/Contents/Resources`。
 
-设计与存储边界见 [核心设计](../docs/rust-core-design.md)，本机数据见 [常驻性能报告](../docs/rust-core-performance-2026-09-11.md)。下一阶段接入 GPUI Kit，并补齐真实设备/云端验收和现有业务能力。
+设计与存储边界见 [核心设计](../docs/rust-core-design.md)，独立 host 的历史测量见 [常驻性能报告](../docs/rust-core-performance-2026-09-11.md)。这些测量不代表新桌面程序的常驻性能；真实设备与云端验收需要单独记录。

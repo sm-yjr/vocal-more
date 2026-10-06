@@ -4,7 +4,7 @@
 
 候选已就绪时，目标是把 tag 触发到 Release 和更新源可用压到一分钟内。它不是完整构建的一分钟承诺，也尚未经过真实 CI 耗时验收。排队、上传和 CDN 传播仍计入端到端时间。实现与故障边界见 [流程设计记录](release-candidate-design.md)。
 
-当前覆盖 macOS arm64、macOS 14.0+ 的 Python/py2app 应用及集成中的 Rust 后端。Windows 打包不在本流程范围内。
+当前覆盖 macOS arm64、macOS 14.0+ 的 Rust 桌面应用：GPUI Kit 设置页、原生 AppKit 胶囊和内嵌 Rust 业务后端。Windows 打包不在本流程范围内。
 
 ## 版本与通道
 
@@ -84,15 +84,16 @@ Summary 中 `fast` 表示就绪候选，`full` 表示完整准备，`refresh` �
 完整准备由 `_release-candidate.yml` 统一执行：
 
 - 前端 test/typecheck/lint、Python 全量测试、Rust fmt/test，以及 Python/Rust 集成测试所需的 debug 二进制构建。
-- 生产环境使用单独的 `uv sync --locked --no-dev --group packaging` venv；复用前端构建产物，跳过重复 ad-hoc 签名。
-- 嵌套 Mach-O 保持串行 Developer ID 签名，避免 py2app 硬链接签名竞态。
+- 产品采用锁定 Cargo workspace 构建；Python 仅用于构建脚本和旧行为基线测试，不随 app 分发。正式构建跳过重复 ad-hoc 签名。
+- 嵌套 Mach-O 保持串行 Developer ID 签名。
 - 最终 DMG 公证并 staple，保存 Accepted submission ID，验证完整 App 签名、原生 C ABI/动态库、Rust 后端、架构及最低系统版本。
 - 校验 App Resources 和 DMG 根目录的 `LICENSE.txt` 与仓库 GPL-3.0-only 许可证完全一致。
+- 校验 Rust 桌面入口、版本、架构及第三方许可证；拒绝 Python/PyObjC、WebView 前端文件及 WebKit 运行依赖。
 - 使用锁定的 Sparkle 2.9.4 生成更新，验证 XML/DMG/delta 签名，并应用 delta、核对重建 App 的文件内容、权限和签名。旧版 DMG 必须保留；存在上一版本但工具未生成 delta 时失败。
 
 候选记录完整 SHA、来源 workflow/run/attempt、工具版本、关键输入和所有文件 SHA-256。先验证 artifact archive digest，再安全解包和逐文件核对。只有允许的仓库 workflow 和成功候选 gate 可交接给 Linux 发布 job；发布 job 不需要签名私钥，也不执行 DMG 中的程序。
 
-工具基线是 Node 22、Rust 1.90.0（包含 rustfmt）、uv 0.12.13、Homebrew Python 3.12 和 macOS hosted runner。Python 的实际补丁版本及 runner 镜像版本写入 manifest；这不是可复现到完全相同字节的构建承诺。
+工具基线是 Node 22（旧前端基线测试）、Rust 1.98.1（包含 rustfmt）、uv 0.12.13、Homebrew Python 3.12（构建工具）和 macOS hosted runner。Python 的实际补丁版本及 runner 镜像版本写入 manifest；这不是可复现到完全相同字节的构建承诺。核心库仍保留 Rust 1.90 MSRV；macOS GPUI 桌面使用独立 1.98.1 构建任务。
 
 日常验证只运行测试，不在本地构建 DMG：
 

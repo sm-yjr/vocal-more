@@ -108,13 +108,9 @@ def test_py2app_bundles_numpy_for_the_audio_callback():
 
 
 def test_completed_app_runs_a_runtime_dependency_smoke_test():
-    launcher = (ROOT / "packaging" / "macos" / "vocal_more_launcher.py").read_text()
-    build_script = (ROOT / "packaging" / "macos" / "build_app.sh").read_text()
-
-    assert 'VOCAL_MORE_PACKAGING_SMOKE_TEST") == "1"' in launcher
-    assert "from vocal_more.core.audio_recorder import AudioRecorder" in launcher
-    assert "VOCAL_MORE_PACKAGING_SMOKE_TEST=1" in build_script
-    assert '"$APP/Contents/MacOS/Vocal More"' in build_script
+    build = (ROOT / "packaging/macos/build_app.sh").read_text()
+    assert '"$APP/Contents/MacOS/Vocal More" --version' in build
+    assert '"$APP/Contents/Resources/rust-backend/vocal-more-backend" --version' in build
 
 
 def test_py2app_declares_signed_sparkle_feed():
@@ -184,11 +180,11 @@ def test_distribution_includes_shadcn_ui_license_separately():
     ) in build_script
 
 
-def test_packaging_rebuilds_settings_frontend_before_py2app():
-    build_script = (ROOT / "packaging" / "macos" / "build_app.sh").read_text()
-
-    assert 'npm --prefix "$ROOT/frontend/settings" ci' in build_script
-    assert 'npm --prefix "$ROOT/frontend/settings" run build' in build_script
+def test_packaging_builds_locked_rust_frontend():
+    build = (ROOT / "packaging/macos/build_app.sh").read_text()
+    assert 'build --locked --release' in build
+    assert '-p vocal-more-desktop -p vocal-more-backend' in build
+    assert 'setup.py py2app' not in build
 
 
 def test_bundle_pruner_removes_only_non_runtime_python_payload(tmp_path):
@@ -247,24 +243,17 @@ def test_bundle_pruner_rejects_non_app_targets(tmp_path):
     assert "expected a .app bundle" in result.stderr
 
 
-def test_build_prunes_python_payload_before_embedding_and_signing_sparkle():
-    build_script = (ROOT / "packaging" / "macos" / "build_app.sh").read_text()
-
-    prune = build_script.index("prune_app_bundle.py")
-    embed_sparkle = build_script.index('SPARKLE_ROOT="$(')
-    sign_sparkle = build_script.index('sign_sparkle.sh')
-
-    assert prune < embed_sparkle < sign_sparkle
+def test_build_stages_native_product_before_signing_sparkle():
+    build = (ROOT / "packaging/macos/build_app.sh").read_text()
+    assert build.index('stage_rust_app.py') < build.index('SPARKLE_ROOT=') < build.index('sign_sparkle.sh')
+    assert 'prune_app_bundle.py' not in build
 
 
 def test_build_installs_dependencies_from_frozen_lockfile():
-    build_script = (ROOT / "packaging" / "macos" / "build_app.sh").read_text()
-
-    assert (
-        "uv export --frozen --no-dev --group packaging --no-hashes"
-        in build_script
-    )
-    assert "pip install -r /dev/stdin" in build_script
+    build = (ROOT / "packaging/macos/build_app.sh").read_text()
+    assert 'build --locked --release' in build
+    assert 'rust_notices.py' in build
+    assert 'pip install' not in build
 
 
 def test_bundle_optimizer_thins_non_sparkle_macho_files(tmp_path):
@@ -349,15 +338,15 @@ def test_bundle_optimizer_rejects_macho_without_target_architecture(tmp_path):
         )
 
 
-def test_release_build_uses_clean_locked_arm64_packaging_environment():
+def test_release_build_uses_locked_rust_toolchain_and_arm64():
     import yaml
     workflow = yaml.safe_load((ROOT / ".github/workflows/_release-candidate.yml").read_text())
-    steps = workflow["jobs"]["build"]["steps"]
-    prepare = next(s for s in steps if s["name"] == "Prepare clean packaging environment")
-    assert "UV_PROJECT_ENVIRONMENT" in prepare["run"]
-    assert "uv sync --locked --no-dev --group packaging" in prepare["run"]
-    build = next(s for s in steps if s["name"] == "Build signed DMG")
-    assert build["env"]["VOCAL_MORE_TARGET_ARCH"] == "arm64"
+    steps = workflow['jobs']['build']['steps']
+    toolchain = next(s for s in steps if s['name'] == 'Install pinned Rust toolchain')
+    assert '1.98.1' in toolchain['run']
+    assert not any(s['name'] == 'Prepare clean packaging environment' for s in steps)
+    build = next(s for s in steps if s['name'] == 'Build signed DMG')
+    assert build['env']['VOCAL_MORE_TARGET_ARCH'] == 'arm64'
 
 
 def test_py2app_excludes_test_and_optional_gui_modules():
@@ -386,15 +375,14 @@ def test_bundle_uses_generated_notification_logo_instead_of_source_artwork():
     assert 'bundled_resource_path("assets", ".VocalMore.runtime-logo.png")' in app_text
 
 
-def test_release_workflow_tests_and_builds_settings_frontend():
+def test_release_workflow_retains_legacy_behavior_checks_and_builds_rust_ui():
     import yaml
     workflow = yaml.safe_load((ROOT / ".github/workflows/_release-candidate.yml").read_text())
-    steps = workflow["jobs"]["build"]["steps"]
-    commands = "\n".join(s.get("run", "") for s in steps)
-    for command in ("ci", "test", "run typecheck", "run lint", "run build"):
-        assert f"npm --prefix frontend/settings {command}" in commands
-
-
+    steps = workflow['jobs']['build']['steps']
+    commands = '\n'.join(s.get('run', '') for s in steps)
+    for command in ('ci', 'test', 'run typecheck', 'run lint'):
+        assert f'npm --prefix frontend/settings {command}' in commands
+    assert '-p vocal-more-backend -p vocal-more-desktop' in commands
 
 
 def test_sparkle_nested_services_are_signed_in_official_order():
@@ -419,10 +407,11 @@ def test_sparkle_nested_services_are_signed_in_official_order():
 def test_release_workflow_avoids_duplicate_build_and_signing_work():
     import yaml
     workflow = yaml.safe_load((ROOT / ".github/workflows/_release-candidate.yml").read_text())
-    steps = workflow["jobs"]["build"]["steps"]
-    build = next(s for s in steps if s["name"] == "Build signed DMG")
-    for key in ("VOCAL_MORE_SKIP_FRONTEND_BUILD", "VOCAL_MORE_SKIP_ADHOC_SIGN", "VOCAL_MORE_USE_PREPARED_BUILD_VENV"):
-        assert build["env"][key] == "1"
+    steps = workflow['jobs']['build']['steps']
+    build = next(s for s in steps if s['name'] == 'Build signed DMG')
+    assert build['env']['VOCAL_MORE_SKIP_ADHOC_SIGN'] == '1'
+    assert 'VOCAL_MORE_USE_PREPARED_BUILD_VENV' not in build['env']
+    assert not any(s['name'] == 'Build frontend bundle' for s in steps)
 
 
 def _load_release_artifact_verifier():
@@ -568,3 +557,66 @@ def test_rust_release_service_requires_matching_bundle_version(tmp_path):
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleShortVersionString": "0.4.18"}))
     with pytest.raises(RuntimeError, match="does not match"):
         verifier.verify_rust_backend(app, command_runner=runner)
+
+
+def _load_rust_stager():
+    spec = importlib.util.spec_from_file_location("stage_rust_app", ROOT / "packaging/macos/stage_rust_app.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_rust_staging_preserves_metadata_license_and_has_no_python_payload(tmp_path):
+    stager = _load_rust_stager()
+    sources = []
+    for name in ("desktop", "backend", "audio.dylib"):
+        source = tmp_path / name
+        source.write_bytes(name.encode())
+        sources.append(source)
+    app = stager.stage_app(tmp_path / "Vocal More.app", *sources)
+    info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+    assert info["CFBundleExecutable"] == "Vocal More"
+    assert info["CFBundleIdentifier"] == "com.sm-yjr.vocal-more"
+    assert info["VocalMoreUIRuntime"] == "rust-gpui-kit"
+    assert info["LSUIElement"] is True
+    assert info["LSMinimumSystemVersion"] == "14.0"
+    assert (app / "Contents/MacOS/Vocal More").read_bytes() == b"desktop"
+    assert (app / "Contents/Resources/rust-backend/vocal-more-backend").read_bytes() == b"backend"
+    assert (app / "Contents/Frameworks/libvocal_more_audio.dylib").read_bytes() == b"audio.dylib"
+    assert (app / "Contents/Resources/LICENSE.txt").read_bytes() == (ROOT / "LICENSE").read_bytes()
+    assert not list(app.rglob("*.py"))
+    assert not list(app.rglob("*.html"))
+    assert stager.app_info("0.5.2b1")["SUFeedURL"].endswith("sparkle-feed-beta/appcast.xml")
+    assert stager.app_info("0.5.2a1")["SUFeedURL"].endswith("sparkle-feed-alpha/appcast.xml")
+    assert stager.app_info("0.5.2", development=True)["CFBundleIdentifier"].endswith(".dev")
+
+
+def test_rust_frontend_verifier_rejects_legacy_runtime_and_version_mismatch(tmp_path):
+    stager = _load_rust_stager()
+    verifier = _load_release_artifact_verifier()
+    app = tmp_path / "Vocal More.app"
+    binary = app / "Contents/MacOS/Vocal More"
+    binary.parent.mkdir(parents=True)
+    binary.touch()
+    info = stager.app_info("0.5.2")
+    (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
+    resources = app / "Contents/Resources"
+    resources.mkdir()
+    (resources / "Rust-Third-Party-Notices.txt").write_text("gpui-kit 0.7.0\nApache-2.0")
+    def runner(command, **kwargs):
+        if command[0] == str(binary):
+            output = "Vocal More 0.5.2\n"
+        elif command[0] == "lipo":
+            output = "arm64\n"
+        else:
+            output = str(binary) + ":\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n"
+        return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
+    verifier.verify_rust_frontend(app, command_runner=runner)
+    (resources / "legacy.py").touch()
+    with pytest.raises(RuntimeError, match="Legacy UI runtime"):
+        verifier.verify_rust_frontend(app, command_runner=runner)
+    (resources / "legacy.py").unlink()
+    info["VocalMoreVersion"] = "0.5.3"
+    (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
+    with pytest.raises(RuntimeError, match="version does not match"):
+        verifier.verify_rust_frontend(app, command_runner=runner)
