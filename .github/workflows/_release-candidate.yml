@@ -192,14 +192,14 @@ jobs:
     - name: Notarize and staple final DMG
       if: inputs.refresh_artifact_id == '0'
       env:
-        VERSION: ${{ steps.metadata.outputs.version }}
+        DMG_NAME: ${{ steps.metadata.outputs.dmg_name }}
         VOCAL_MORE_NOTARY_RESULT_PATH: ${{ runner.temp }}/notary-result.json
-      run: ./packaging/macos/notarize_dmg.sh "$GITHUB_WORKSPACE/dist/Vocal-More-$VERSION.dmg"
+      run: ./packaging/macos/notarize_dmg.sh "$GITHUB_WORKSPACE/dist/$DMG_NAME"
     - name: Verify final candidate artifact
       if: inputs.refresh_artifact_id == '0'
       env:
-        VERSION: ${{ steps.metadata.outputs.version }}
-      run: python3 packaging/macos/verify_release_artifact.py "dist/Vocal-More-$VERSION.dmg" --report verification.json --notary-result
+        DMG_NAME: ${{ steps.metadata.outputs.dmg_name }}
+      run: python3 packaging/macos/verify_release_artifact.py "dist/$DMG_NAME" --report verification.json --notary-result
         "$RUNNER_TEMP/notary-result.json"
     - name: Prepare signed update feed and candidate manifest
       id: candidate

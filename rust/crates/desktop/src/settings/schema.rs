@@ -112,24 +112,14 @@ macro_rules! field {
 }
 pub const FIELDS: &[Field] = &[
     field!(
-        "ui.advanced_settings",
-        General,
-        "高级设置",
-        "Advanced settings",
-        false,
-        Kind::Toggle,
-        "显示服务配置和音频细节。",
-        "Show provider configuration and audio details."
-    ),
-    field!(
         "api_key",
         General,
         "DashScope API Key",
         "DashScope API Key",
         true,
         Kind::Secret,
-        "仅在本机明确点击显示时读取已保存的密钥。",
-        "Read the saved key only when you explicitly choose Show."
+        "密钥只保存在本机，点击「显示」时才会读取。",
+        "The key stays on this Mac and is only read when you choose Show."
     ),
     field!(
         "default_mode",
@@ -141,18 +131,18 @@ pub const FIELDS: &[Field] = &[
             ("walkie_talkie", "按住说话", "Push to talk"),
             ("realtime_long", "免提长录音", "Hands free")
         ]),
-        "短按并松开进入免提；按住说话，松开结束。",
-        "Tap to latch hands free; hold to speak and release to finish."
+        "快捷键按住时录音、松开结束；免提模式下短按开始，再按一次结束。",
+        "Hold the shortcut to talk and release to finish, or tap once to start hands free and tap again to stop."
     ),
     field!(
         "screen_context_enabled",
-        General,
+        Recognition,
         "屏幕上下文",
         "Screen context",
         false,
         Kind::Toggle,
-        "屏幕内容用于辅助识别，不会成为口述文本；需要兼容模型和空间端点。",
-        "Screen content assists recognition and does not become dictated text; requires a compatible model and workspace endpoint."
+        "参考屏幕上的文字来认准专有名词，屏幕内容不会被输入。需要选用支持此功能的识别模型，并填写阿里云百炼业务空间的实时端点。",
+        "Uses on-screen text to get names and terms right; it is never typed out. Requires a recognition model that supports it and an Alibaba Cloud Model Studio workspace realtime endpoint."
     ),
     field!(
         "ui.language",
@@ -169,20 +159,17 @@ pub const FIELDS: &[Field] = &[
         General,
         "更新通道",
         "Update channel",
-        false,
-        Kind::Choice(&[
-            ("stable", "稳定版", "Stable"),
-            ("nightly", "预发布版", "Prerelease")
-        ]),
-        "通道由安装的正式版或预发布版决定。",
-        "The installed distribution determines the update channel."
+        true,
+        Kind::Choice(&[("stable", "稳定版", "Stable"), ("beta", "Beta", "Beta")]),
+        "稳定版只接收正式版本；Beta 同时接收 Beta 和正式版本，以较新的为准。",
+        "Stable receives releases only. Beta receives both betas and releases, whichever is newer."
     ),
     field!(
         "network.proxy_url",
         General,
         "网络代理",
         "Network proxy",
-        false,
+        true,
         Kind::Text,
         "留空为直连；支持 http://host:port 和 socks5://host:port。",
         "Leave blank for direct access; supports http://host:port and socks5://host:port."
@@ -190,19 +177,19 @@ pub const FIELDS: &[Field] = &[
     field!(
         "auto_paste",
         General,
-        "自动输入识别结果",
-        "Automatically paste results",
+        "自动输入到当前应用",
+        "Type into the current app",
         false,
         Kind::Toggle,
-        "完成识别后输入到原来聚焦的应用。",
-        "Insert the completed result into the previously focused application."
+        "说完后把文字直接输入到光标所在位置；关闭后只复制到剪贴板。",
+        "Insert the text at the cursor when you finish. When off, the text is only copied."
     ),
     field!(
         "native_fast_paste",
         General,
         "原生快速输入",
         "Native fast paste",
-        false,
+        true,
         Kind::Toggle,
         "在支持的应用中优先使用原生输入路径。",
         "Prefer native input in supported applications."
@@ -212,7 +199,7 @@ pub const FIELDS: &[Field] = &[
         General,
         "恢复原剪贴板",
         "Restore clipboard",
-        false,
+        true,
         Kind::Toggle,
         "粘贴后恢复此前的剪贴板内容。",
         "Restore the previous clipboard content after pasting."
@@ -224,8 +211,18 @@ pub const FIELDS: &[Field] = &[
         "Streaming paste",
         false,
         Kind::Toggle,
-        "在录音过程中输入实时识别结果。",
-        "Insert interim recognition while recording."
+        "一边说一边看到文字出现，而不是说完后一次输入。",
+        "See words appear while you talk instead of all at once at the end."
+    ),
+    field!(
+        "ui.advanced_settings",
+        General,
+        "高级设置",
+        "Advanced settings",
+        false,
+        Kind::Toggle,
+        "显示 API Key、网络、输入方式和音频诊断等细节；日常使用无需打开。",
+        "Show API key, network, input and audio diagnostics. Not needed for everyday use."
     ),
     field!(
         "audio.input_device",
@@ -346,8 +343,8 @@ pub const FIELDS: &[Field] = &[
         "Recognition model",
         false,
         Kind::Model,
-        "模型列表和能力来自后端产品契约。",
-        "Models and capabilities come from the backend product contract."
+        "不同模型在速度、语言和方言支持上有所区别。",
+        "Models differ in speed and language and dialect support."
     ),
     field!(
         "asr.language",
@@ -366,11 +363,11 @@ pub const FIELDS: &[Field] = &[
     field!(
         "asr.realtime_url",
         Recognition,
-        "空间实时端点",
+        "业务空间实时端点",
         "Workspace realtime endpoint",
-        false,
+        true,
         Kind::Text,
-        "留空使用公共端点；空间地址必须为 wss://…maas.aliyuncs.com/api-ws/v1/realtime。",
+        "留空使用公共端点；业务空间地址形如 wss://…maas.aliyuncs.com/api-ws/v1/realtime。",
         "Leave blank for the public endpoint; workspace URLs must use wss://…maas.aliyuncs.com/api-ws/v1/realtime."
     ),
     field!(
@@ -380,8 +377,8 @@ pub const FIELDS: &[Field] = &[
         "Enable polish",
         false,
         Kind::Toggle,
-        "原生 ASR 模型直接转写，跳过第二阶段润色。",
-        "Native ASR transcribes directly and skips second-stage polish."
+        "去掉口头语和重复，把说的话整理成通顺的文字。",
+        "Remove filler words and repetition, and turn speech into clean text."
     ),
     field!(
         "llm.polish_mode",
@@ -531,7 +528,7 @@ pub const FIELDS: &[Field] = &[
         Dictionary,
         "排除的应用",
         "Excluded applications",
-        false,
+        true,
         Kind::List,
         "用逗号分隔应用 Bundle ID。",
         "Separate application bundle IDs with commas."
@@ -583,6 +580,115 @@ pub const ACTIONS: &[&str] = &[
     "stopRecording",
     "copyTranscript",
     "compactRecordingHistory",
+];
+
+impl Tab {
+    /// One line under the page title that says what the page is for.
+    pub fn subtitle(self, english: bool) -> &'static str {
+        match (self, english) {
+            (Self::General, false) => "录音模式、文字如何输入，以及界面语言。",
+            (Self::General, true) => "How you record, where text goes, and the interface language.",
+            (Self::Audio, false) => "选择麦克风，并让低声说话也能被听清。",
+            (Self::Audio, true) => {
+                "Pick a microphone and tune it so even a whisper is heard clearly."
+            }
+            (Self::Recognition, false) => "选择识别模型和语言。",
+            (Self::Recognition, true) => "Choose the recognition model and language.",
+            (Self::Polish, false) => "让口语变成通顺、可直接使用的文字。",
+            (Self::Polish, true) => "Turn spoken words into clean, ready-to-use text.",
+            (Self::Shortcuts, false) => "设置开始和结束录音的按键。",
+            (Self::Shortcuts, true) => "Choose the keys that start and stop recording.",
+            (Self::Dictionary, false) => "教它认识人名、术语和常用写法。",
+            (Self::Dictionary, true) => "Teach it names, terms and the spellings you prefer.",
+            (Self::History, false) => "回听、复制或重新识别之前的录音。",
+            (Self::History, true) => "Replay, copy or re-transcribe earlier recordings.",
+        }
+    }
+}
+
+/// Visual grouping of fields within each page, in display order. Advanced
+/// fields stay in their natural group and are filtered at render time.
+pub const SECTIONS: &[(Tab, &str, &str, &[&str])] = &[
+    (
+        Tab::General,
+        "录音与输入",
+        "Recording and typing",
+        &[
+            "default_mode",
+            "auto_paste",
+            "streaming_paste",
+            "restore_clipboard",
+            "native_fast_paste",
+        ],
+    ),
+    (Tab::General, "界面", "Interface", &["ui.language"]),
+    (
+        Tab::General,
+        "服务与更新",
+        "Service and updates",
+        &["api_key", "network.proxy_url", "update_channel"],
+    ),
+    (Tab::General, "高级", "Advanced", &["ui.advanced_settings"]),
+    (Tab::Audio, "麦克风", "Microphone", &["audio.input_device"]),
+    (
+        Tab::Audio,
+        "低声增强",
+        "Low-voice enhancement",
+        &[
+            "audio.gain_mode",
+            "audio.gain",
+            "audio.highpass_filter",
+            "audio.highpass_freq",
+            "audio.soft_limiter",
+            "audio.capture_backend",
+            "audio.waveform_ceiling_dbfs",
+        ],
+    ),
+    (
+        Tab::Recognition,
+        "识别",
+        "Recognition",
+        &["asr.model", "asr.language"],
+    ),
+    (
+        Tab::Recognition,
+        "屏幕上下文",
+        "Screen context",
+        &["screen_context_enabled", "asr.realtime_url"],
+    ),
+    (
+        Tab::Polish,
+        "润色",
+        "Polish",
+        &["enable_polish", "llm.polish_mode", "llm.output_language"],
+    ),
+    (
+        Tab::Polish,
+        "风格",
+        "Style",
+        &["llm.level", "llm.tone", "llm.persona", "llm.structured"],
+    ),
+    (
+        Tab::Polish,
+        "模型",
+        "Model",
+        &["llm.model", "llm.temperature", "llm.enable_thinking"],
+    ),
+    (
+        Tab::Shortcuts,
+        "按键判定",
+        "Key timing",
+        &["hotkey.double_tap_threshold"],
+    ),
+    (
+        Tab::Dictionary,
+        "自动学习",
+        "Automatic learning",
+        &[
+            "dictionary_learning.enabled",
+            "dictionary_learning.excluded_bundle_ids",
+        ],
+    ),
 ];
 
 pub fn get<'a>(config: &'a Value, key: &str) -> &'a Value {
@@ -670,12 +776,19 @@ pub fn valid_endpoint(value: &str) -> bool {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
 }
-pub fn validate(key: &str, value: &Value) -> Result<(), &'static str> {
+/// Errors carry Chinese and English text so the UI can follow its language.
+pub fn validate(key: &str, value: &Value) -> Result<(), (&'static str, &'static str)> {
     if key == "network.proxy_url" && !valid_proxy(value.as_str().unwrap_or("")) {
-        return Err("Invalid proxy URL; use http://host:port or socks5://host:port");
+        return Err((
+            "代理地址格式不正确，请使用 http://主机:端口 或 socks5://主机:端口",
+            "Invalid proxy URL; use http://host:port or socks5://host:port",
+        ));
     }
     if key == "asr.realtime_url" && !valid_endpoint(value.as_str().unwrap_or("")) {
-        return Err("Invalid workspace endpoint");
+        return Err((
+            "业务空间端点格式不正确，应为 wss://…maas.aliyuncs.com/api-ws/v1/realtime",
+            "Invalid workspace endpoint",
+        ));
     }
     Ok(())
 }
@@ -683,6 +796,26 @@ pub fn validate(key: &str, value: &Value) -> Result<(), &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_field_belongs_to_exactly_one_section_on_its_tab() {
+        for field in FIELDS {
+            let homes = SECTIONS
+                .iter()
+                .filter(|(_, _, _, keys)| keys.contains(&field.key))
+                .collect::<Vec<_>>();
+            assert_eq!(homes.len(), 1, "{} must be in one section", field.key);
+            assert_eq!(
+                homes[0].0, field.tab,
+                "{} section is on another tab",
+                field.key
+            );
+        }
+        for (_, _, _, keys) in SECTIONS {
+            for key in *keys {
+                assert!(FIELDS.iter().any(|field| field.key == *key), "{key}");
+            }
+        }
+    }
     #[test]
     fn nested_updates_preserve_unrelated_data() {
         let mut config =

@@ -586,9 +586,15 @@ def test_rust_staging_preserves_metadata_license_and_has_no_python_payload(tmp_p
     assert (app / "Contents/Resources/LICENSE.txt").read_bytes() == (ROOT / "LICENSE").read_bytes()
     assert not list(app.rglob("*.py"))
     assert not list(app.rglob("*.html"))
-    assert stager.app_info("0.5.2b1")["SUFeedURL"].endswith("sparkle-feed-beta/appcast.xml")
-    assert stager.app_info("0.5.2a1")["SUFeedURL"].endswith("sparkle-feed-alpha/appcast.xml")
-    assert stager.app_info("0.5.2", development=True)["CFBundleIdentifier"].endswith(".dev")
+    version = stager.project_version()
+    assert info["CFBundleVersion"] == str(version.build)
+    assert info["VocalMoreVersion"] == version.text
+    beta = stager.app_info(stager.Version.parse("0.6.1-beta.1+58"))
+    # Every channel reads the one feed; the channel picks which items apply.
+    assert beta["SUFeedURL"].endswith("/sparkle-feed/appcast.xml")
+    assert (beta["CFBundleShortVersionString"], beta["CFBundleVersion"], beta["VocalMoreVersion"], beta["VocalMoreReleaseChannel"]) == (
+        "0.6.1", "58", "0.6.1-beta.1+58", "beta")
+    assert stager.app_info(version, development=True)["CFBundleIdentifier"].endswith(".dev")
 
 
 def test_rust_frontend_verifier_rejects_legacy_runtime_and_version_mismatch(tmp_path):
@@ -598,14 +604,14 @@ def test_rust_frontend_verifier_rejects_legacy_runtime_and_version_mismatch(tmp_
     binary = app / "Contents/MacOS/Vocal More"
     binary.parent.mkdir(parents=True)
     binary.touch()
-    info = stager.app_info("0.5.2")
+    info = stager.app_info(stager.Version.parse("0.5.2+3"))
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
     resources = app / "Contents/Resources"
     resources.mkdir()
     (resources / "Rust-Third-Party-Notices.txt").write_text("gpui-kit 0.7.0\nApache-2.0")
     def runner(command, **kwargs):
         if command[0] == str(binary):
-            output = "Vocal More 0.5.2\n"
+            output = "Vocal More 0.5.2+3\n"
         elif command[0] == "lipo":
             output = "arm64\n"
         else:
@@ -616,7 +622,7 @@ def test_rust_frontend_verifier_rejects_legacy_runtime_and_version_mismatch(tmp_
     with pytest.raises(RuntimeError, match="Legacy UI runtime"):
         verifier.verify_rust_frontend(app, command_runner=runner)
     (resources / "legacy.py").unlink()
-    info["VocalMoreVersion"] = "0.5.3"
+    info["VocalMoreVersion"] = "0.5.3+3"
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
     with pytest.raises(RuntimeError, match="version does not match"):
         verifier.verify_rust_frontend(app, command_runner=runner)

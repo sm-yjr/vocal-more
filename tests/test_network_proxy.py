@@ -38,12 +38,19 @@ def test_explicit_proxy_updates_all_common_environment_variables(monkeypatch):
 
 def test_blank_proxy_keeps_dashscope_on_direct_route(monkeypatch):
     monkeypatch.setenv("NO_PROXY", "localhost")
-    monkeypatch.setenv("no_proxy", "")
+    # Windows treats these spellings as the same environment variable.
+    if os.name != "nt":
+        monkeypatch.setenv("no_proxy", "")
 
     network_proxy.configure_network_proxy("", ["dashscope.aliyuncs.com"])
 
     assert os.environ["NO_PROXY"] == "localhost,dashscope.aliyuncs.com"
-    assert os.environ["no_proxy"] == "dashscope.aliyuncs.com"
+    expected_lowercase = (
+        "localhost,dashscope.aliyuncs.com"
+        if os.name == "nt"
+        else "dashscope.aliyuncs.com"
+    )
+    assert os.environ["no_proxy"] == expected_lowercase
 
 
 def test_clearing_proxy_removes_app_override(monkeypatch):

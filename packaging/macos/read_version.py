@@ -1,4 +1,4 @@
-"""Print the project version for packaging scripts."""
+"""Print the project version used in macOS artifact names (no build number)."""
 
 from __future__ import annotations
 
@@ -25,4 +25,9 @@ def read_project_version() -> str:
     raise RuntimeError(f"Could not read project version from {pyproject}")
 
 
-print(read_project_version())
+def file_version(version: str) -> str:
+    """The version in artifact names: X.Y.Z, or X.Y.Z-beta.N for a PEP 440 beta."""
+    return re.sub(r"b([1-9]\d*)$", r"-beta.\1", version)
+
+
+print(file_version(read_project_version()))

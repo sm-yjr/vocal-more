@@ -99,7 +99,7 @@ def validate(directory: Path, context: dict, *, allow_expired: bool = False) -> 
             if manifest[key] != context[key]:
                 raise ReleaseError(f"Candidate identity mismatch: {key}")
         version = Version.parse(manifest["version"])
-        if Version.from_tag(manifest["release_tag"]) != version:
+        if Version.from_tag(manifest["release_tag"]).release != version.release:
             raise ReleaseError("Candidate tag/version mismatch")
         if manifest["feed_tag"] != version.feed_tag:
             raise ReleaseError("Candidate channel/feed mismatch")

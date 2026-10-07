@@ -151,7 +151,7 @@ def main() -> None:
                         released = Version.from_tag(release["tag_name"])
                     except ReleaseError:
                         continue
-                    if released.text == context["version"]:
+                    if released.release == Version.parse(context["version"]).release:
                         skip = True
                         break
             outputs(**context, skip=skip)
@@ -189,7 +189,8 @@ def main() -> None:
             else:
                 shutil.copy2(args.root / "dist" / context["dmg_name"], args.directory / context["dmg_name"])
                 shutil.copy2(args.root / "verification.json", args.directory / "verification.json")
-            shutil.copy2(args.root / "docs/releases" / f"{context['version']}.md", args.directory / "release-notes.md")
+            notes = Version.parse(context["version"]).notes_name
+            shutil.copy2(args.root / "docs/releases" / notes, args.directory / "release-notes.md")
             state = feed.prepare(api, context, args.directory, args.root)
             manifest = candidate.seal(args.directory, context, state, origin, build=build or candidate.build_metadata(args.root))
             name = candidate.artifact_prefix(context) + f"{manifest['producer']['run_id']}-{manifest['producer']['attempt']}"

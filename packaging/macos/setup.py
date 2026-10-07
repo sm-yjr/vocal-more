@@ -3,6 +3,7 @@
 from pathlib import Path
 import sys
 import os
+import tomllib
 
 from setuptools import setup
 
@@ -15,10 +16,11 @@ sys.path.insert(0, str(ROOT / "packaging"))
 from vocal_more import __version__  # noqa: E402
 from release.model import Version  # noqa: E402
 
-BUILD_NUMBER = os.environ.get("VOCAL_MORE_BUILD_NUMBER", __version__)
-RELEASE_VERSION = Version.parse(__version__)
-if BUILD_NUMBER != __version__:
-    raise RuntimeError("CFBundleVersion must match the candidate product version")
+_PROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text())
+RELEASE_VERSION = Version.project(__version__, _PROJECT.get("tool", {}).get("vocal-more", {}).get("build"))
+BUILD_NUMBER = os.environ.get("VOCAL_MORE_BUILD_NUMBER", RELEASE_VERSION.bundle_version)
+if BUILD_NUMBER != RELEASE_VERSION.bundle_version:
+    raise RuntimeError("CFBundleVersion must match the candidate build number")
 
 APP = [
     {
@@ -29,7 +31,7 @@ APP = [
             "CFBundleIdentifier": "com.sm-yjr.vocal-more",
             "CFBundleShortVersionString": RELEASE_VERSION.base,
             "CFBundleVersion": BUILD_NUMBER,
-            "VocalMoreVersion": __version__,
+            "VocalMoreVersion": RELEASE_VERSION.text,
             "VocalMoreReleaseChannel": RELEASE_VERSION.channel,
             "SUFeedURL": RELEASE_VERSION.feed_url,
             "SUPublicEDKey": "rX4Sp1huP0v763afpuPlVkpDuXYoMj/+2fNqnFFMHsk=",

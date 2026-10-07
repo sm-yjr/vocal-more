@@ -373,6 +373,7 @@ impl DesktopHost {
                     self.no_hotkeys,
                 ) {
                     Ok(mut platform) => {
+                        platform.set_has_result(!self.last_text.is_empty());
                         platform.update_snapshot(&self.snapshot);
                         self.platform = Some(platform);
                     }
@@ -495,6 +496,9 @@ impl DesktopHost {
             "final_result" => {
                 if current(&self.snapshot, &params) && self.event_epoch(&params) {
                     self.last_text = params["text"].as_str().unwrap_or("").into();
+                    if let Some(platform) = &mut self.platform {
+                        platform.set_has_result(!self.last_text.is_empty());
+                    }
                     if self.snapshot["config"]["auto_paste"] != true
                         && !self.last_text.is_empty()
                         && self.commands.can_paste(
@@ -656,6 +660,9 @@ impl DesktopHost {
                 self.snapshot = params.clone();
                 if let Some(text) = recovered_text(&params, self.commands.paste_epoch()) {
                     self.last_text = text.to_owned();
+                    if let Some(platform) = &mut self.platform {
+                        platform.set_has_result(!self.last_text.is_empty());
+                    }
                 }
                 self.commands.update_session(
                     params["state"].as_str().unwrap_or("idle"),

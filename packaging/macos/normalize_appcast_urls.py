@@ -8,13 +8,17 @@ from pathlib import Path
 import re
 
 
+_TAG = r"v?\d+\.\d+\.\d+(?:[ab]\d+|-(?:alpha|beta)\.\d+)?"
 _RELEASE_ASSET_URL = re.compile(
     r"(?P<prefix>https://github\.com/[^/]+/[^/]+/releases/download/)"
-    r"(?P<tag>v?\d+\.\d+\.\d+(?:[ab]\d+|-(?:alpha|beta)\.\d+)?)/"
-    r"(?P<name>Vocal(?:-More-|%20More|\.More| More)\d+\.\d+\.\d+[^\"<]*)"
+    rf"(?P<tag>{_TAG})/"
+    r"(?P<name>Vocal(?:-More-|%20More|\.More| More)\d[^\"<]*)"
 )
+# DMGs name the SemVer (0.6+) or PEP 440 (pre-0.6) version; Sparkle names
+# deltas after CFBundleVersion, which is the bare build number since 0.6.
 _ASSET_VERSION = re.compile(
-    r"^Vocal(?:-More-|%20More|\.More| More)(?P<version>\d+\.\d+\.\d+(?:[ab]\d+)?)"
+    r"^Vocal(?:-More-|%20More|\.More| More)"
+    r"(?P<version>\d+\.\d+\.\d+(?:[ab]\d+|-beta\.\d+)?|\d+(?=-))"
 )
 
 
@@ -28,8 +32,10 @@ def normalize_appcast_urls(xml: str, *, tag_map: dict[str, str] | None = None) -
             return match.group(0)
         normalized_name = name.replace("%20", ".").replace(" ", ".")
         version = version_match.group("version")
-        tag = (tag_map or {}).get(version, f"v{version}")
-        if not re.fullmatch(r"v?\d+\.\d+\.\d+(?:[ab]\d+|-(?:alpha|beta)\.\d+)?", tag):
+        # An unknown bare build belongs to an older item: keep its own release.
+        default = f"v{version}" if "." in version else match.group("tag")
+        tag = (tag_map or {}).get(version, default)
+        if not re.fullmatch(_TAG, tag):
             raise ValueError(f"Invalid release tag: {tag}")
         return f"{match.group('prefix')}{tag}/{normalized_name}"
 

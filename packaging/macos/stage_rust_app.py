@@ -14,8 +14,12 @@ sys.path.insert(0, str(ROOT / "packaging"))
 from release.model import Version
 
 
-def app_info(version: str, *, development: bool = False) -> dict:
-    release = Version.parse(version)
+def project_version() -> Version:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    return Version.project(project["project"]["version"], project.get("tool", {}).get("vocal-more", {}).get("build"))
+
+
+def app_info(release: Version, *, development: bool = False) -> dict:
     return {
         "CFBundleExecutable": "Vocal More",
         "CFBundleName": "Vocal More Dev" if development else "Vocal More",
@@ -24,8 +28,9 @@ def app_info(version: str, *, development: bool = False) -> dict:
         "CFBundlePackageType": "APPL",
         "CFBundleIconFile": "VocalMore.icns",
         "CFBundleShortVersionString": release.base,
-        "CFBundleVersion": version,
-        "VocalMoreVersion": version,
+        # Sparkle compares CFBundleVersion: the global build number.
+        "CFBundleVersion": release.bundle_version,
+        "VocalMoreVersion": release.text,
         "VocalMoreReleaseChannel": release.channel,
         "VocalMoreUIRuntime": "rust-gpui-kit",
         "SUFeedURL": release.feed_url,
@@ -48,7 +53,7 @@ def stage_app(destination: Path, binary: Path, backend: Path, native: Path, *, d
     for source in (binary, backend, native, ROOT / "LICENSE", ROOT / "packaging/macos/VocalMore.icns"):
         if not source.is_file():
             raise FileNotFoundError(source)
-    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    version = project_version()
     if destination.exists():
         shutil.rmtree(destination)
     contents = destination / "Contents"

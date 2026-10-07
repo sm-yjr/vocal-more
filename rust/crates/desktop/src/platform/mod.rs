@@ -59,7 +59,7 @@ impl Platform {
     ) -> Result<Self> {
         let hotkeys = hotkeys::Hotkeys::new(commands.clone(), config, no_hotkeys);
         let accessibility = accessibility::AccessibilityWorker::new(commands.clone());
-        let menu = menu::Menu::new(mtm, commands.clone());
+        let menu = menu::Menu::new(mtm, commands.clone(), !no_hotkeys);
         let playback = playback::Playback::new(commands.clone());
         let updater = updater::Updater::new(mtm, config);
         Ok(Self {
@@ -91,6 +91,9 @@ impl Platform {
     }
     pub fn set_status(&mut self, state: &str) {
         self.menu.set_status(state);
+    }
+    pub fn set_has_result(&mut self, has_result: bool) {
+        self.menu.set_has_result(has_result);
     }
     pub fn status(&self) -> Value {
         let diagnostics = self

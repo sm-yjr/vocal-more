@@ -5,13 +5,14 @@ import json
 import runpy
 import stat
 import sys
+import tomllib
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from release import candidate
+from release import candidate, feed
 from release.github import GitHub
 from release.model import ReleaseError, Version, read_context, sha256, write_json
 from release.state import feed_versions
@@ -53,40 +54,53 @@ def test_published_release_lookup_does_not_scan_drafts(monkeypatch):
     assert api.release("v0.5.0-alpha.1") == published
 
 
-@pytest.mark.parametrize("text,tag,channel", [("0.4.18", "v0.4.18", "stable"), ("0.4.18a1", "v0.4.18-alpha.1", "alpha"), ("0.4.18b12", "v0.4.18-beta.12", "beta")])
-def test_version_contract(text, tag, channel):
-    version = Version.parse(text)
-    assert version.tag == tag
-    assert version.channel == channel
-    assert Version.from_tag(tag) == Version.from_tag(text) == version
+@pytest.mark.parametrize("project,build,text,tag,channel,bundle,dmg", [
+    ("0.6.0", 1, "0.6.0+1", "v0.6.0", "stable", "1", "Vocal-More-0.6.0.dmg"),
+    ("0.6.1b12", 58, "0.6.1-beta.12+58", "v0.6.1-beta.12", "beta", "58", "Vocal-More-0.6.1-beta.12.dmg"),
+])
+def test_version_contract(project, build, text, tag, channel, bundle, dmg):
+    version = Version.project(project, build)
+    assert version == Version.parse(text)
+    assert (version.text, version.tag, version.channel, version.bundle_version, version.dmg_name) == (text, tag, channel, bundle, dmg)
+    assert version.pep440 == project
+    assert Version.from_tag(tag).release == Version.from_tag(project).release == version.release
 
 
-def test_versions_sort_numerically_and_stable_after_prereleases():
-    values = ["0.4.18a10", "0.4.18b1", "0.4.18", "0.4.19a1", "0.4.18a2"]
-    assert sorted(values, key=lambda s: Version.parse(s).key) == ["0.4.18a2", "0.4.18a10", "0.4.18b1", "0.4.18", "0.4.19a1"]
+def test_feed_order_follows_build_numbers_and_legacy_releases_come_first():
+    values = ["0.6.1-beta.1+5", "0.5.0", "0.6.0+4", "0.6.1+6", "0.5.0a9"]
+    assert sorted(values, key=lambda s: Version.any(s).order) == ["0.5.0a9", "0.5.0", "0.6.0+4", "0.6.1-beta.1+5", "0.6.1+6"]
 
 
-@pytest.mark.parametrize("text", ["01.2.3", "1.2", "1.2.3rc1", "1.2.3a0", "1.2.3b256", "1.2.3+local", "1.2.3;echo oops"])
+@pytest.mark.parametrize("text", ["01.2.3+1", "1.2+1", "1.2.3", "1.2.3+0", "1.2.3-alpha.1+1", "1.2.3-beta.0+1",
+                                  "1.2.3-beta.256+1", "1.2.3b1+1", "1.2.3+local", "1.2.3+1;echo oops"])
 def test_invalid_versions_are_rejected(text):
     with pytest.raises(ReleaseError):
         Version.parse(text)
 
 
-@pytest.mark.parametrize("version", ["0.4.18", "0.4.18a1", "0.4.18b1"])
-def test_real_setup_embeds_the_correct_update_channel(monkeypatch, version):
+@pytest.mark.parametrize("project,build", [("0.6.0a1", 1), ("0.6.0", 0), ("0.6.0", "1"), ("0.6.0", None), ("0.6.0rc1", 1)])
+def test_alpha_and_missing_build_are_rejected_in_pyproject(project, build):
+    with pytest.raises(ReleaseError):
+        Version.project(project, build)
+
+
+@pytest.mark.parametrize("version,display", [("0.4.18", "0.4.18+1"), ("0.4.18b1", "0.4.18-beta.1+1")])
+def test_real_setup_embeds_the_correct_update_channel(monkeypatch, version, display):
     import vocal_more
     captured = {}
     monkeypatch.setattr(vocal_more, "__version__", version)
     monkeypatch.setitem(sys.modules, "setuptools", SimpleNamespace(setup=lambda **kwargs: captured.update(kwargs)))
     monkeypatch.delenv("VOCAL_MORE_BUILD_NUMBER", raising=False)
     root = Path(__file__).resolve().parents[1]
+    build = tomllib.loads((root / "pyproject.toml").read_text())["tool"]["vocal-more"]["build"]
+    display = display.replace("+1", f"+{build}")
     runpy.run_path(str(root / "packaging/macos/setup.py"))
     plist = captured["app"][0]["plist"]
-    assert plist["VocalMoreVersion"] == version
+    assert plist["VocalMoreVersion"] == display
     assert plist["CFBundleShortVersionString"] == "0.4.18"
-    assert plist["CFBundleVersion"] == version
-    assert plist["SUFeedURL"] == Version.parse(version).feed_url
-    assert plist["VocalMoreReleaseChannel"] == Version.parse(version).channel
+    assert plist["CFBundleVersion"] == str(build)
+    assert plist["SUFeedURL"] == Version.parse(display).feed_url
+    assert plist["VocalMoreReleaseChannel"] == Version.parse(display).channel
 
 
 def test_sealed_candidate_binds_source_notes_and_every_file(tmp_path, monkeypatch):
@@ -160,23 +174,55 @@ def test_current_run_needs_successful_candidate_gate(tmp_path, monkeypatch):
         candidate.verify_producer(api, manifest, current_run=123)
 
 
-def test_channels_cannot_leak_into_each_others_feeds():
+def test_feed_items_must_carry_the_channel_their_version_names():
+    assert feed_versions(xml_for("0.6.1-beta.1+2")) == [Version.parse("0.6.1-beta.1+2")]
+    unmarked = xml_for("0.6.1-beta.1+2").replace(b"<sparkle:channel>beta</sparkle:channel>", b"")
     with pytest.raises(ReleaseError, match="Cross-channel"):
-        feed_versions(xml_for("0.4.18a1"), "stable")
+        feed_versions(unmarked)
     with pytest.raises(ReleaseError, match="Cross-channel"):
-        feed_versions(xml_for("0.4.18b1"), "alpha")
+        feed_versions(xml_for("0.5.0a9"))
+    renumbered = xml_for("0.6.0+1").replace(b"<sparkle:version>1<", b"<sparkle:version>2<")
+    with pytest.raises(ReleaseError, match="build number"):
+        feed_versions(renumbered)
+
+
+@pytest.mark.parametrize("previous,current", [
+    ("0.6.0+1", "0.6.1+3"),
+    ("0.6.1-beta.1+2", "0.6.1-beta.2+3"),
+    ("0.6.1-beta.1+2", "0.6.1+3"),
+])
+def test_sparkle_rewritten_previous_display_and_channel_are_restored(previous, current):
+    old = xml_for(previous, keep=xml_for("0.5.1"))
+    generated = xml_for(current, keep=old).decode()
+    # Sparkle 2.9.4 FeedXML.swift writes every available archive's numeric
+    # CFBundleShortVersionString, including the previous archive used for delta.
+    for value in (previous, current):
+        generated = generated.replace(
+            f"<sparkle:shortVersionString>{value}</sparkle:shortVersionString>",
+            f"<sparkle:shortVersionString>{Version.parse(value).base}</sparkle:shortVersionString>")
+    generated = generated.replace("<sparkle:channel>beta</sparkle:channel>", "")
+    generated = generated.replace("</item>", "<description><![CDATA[<p>Keep notes & links</p>]]></description></item>")
+    with pytest.raises(ReleaseError, match="Unsupported product version"):
+        feed_versions(generated.encode())
+    final = feed.finish_appcast(generated, Version.parse(current), old)
+    assert feed_versions(final.encode()) == [Version.legacy("0.5.1"), Version.parse(previous), Version.parse(current)]
+    assert final.count("<![CDATA[<p>Keep notes & links</p>]]>") == 3
+    assert final.count("<sparkle:channel>beta</sparkle:channel>") == sum(
+        Version.parse(value).channel == "beta" for value in (previous, current))
 
 
 def test_empty_notes_and_lock_version_mismatch_fail_preflight(tmp_path):
-    (tmp_path / "pyproject.toml").write_text('[project]\nversion="0.4.18a1"\nlicense="GPL-3.0-only"\n')
-    (tmp_path / "uv.lock").write_text('[[package]]\nname="vocal-more"\nversion="0.4.18a1"\n')
-    notes = tmp_path / "docs/releases/0.4.18a1.md"
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion="0.6.1b1"\nlicense="GPL-3.0-only"\n[tool.vocal-more]\nbuild=7\n')
+    (tmp_path / "uv.lock").write_text('[[package]]\nname="vocal-more"\nversion="0.6.1b1"\n')
+    notes = tmp_path / "docs/releases/0.6.1-beta.1.md"
     notes.parent.mkdir(parents=True)
     notes.write_text("")
     with pytest.raises(ReleaseError, match="notes"):
         read_context(tmp_path, SOURCE)
-    notes.write_text("Alpha test")
-    assert read_context(tmp_path, SOURCE)["release_tag"] == "v0.4.18-alpha.1"
-    (tmp_path / "uv.lock").write_text('[[package]]\nname="vocal-more"\nversion="0.4.18"\n')
+    notes.write_text("Beta test")
+    context = read_context(tmp_path, SOURCE)
+    assert (context["version"], context["release_tag"], context["dmg_name"]) == (
+        "0.6.1-beta.1+7", "v0.6.1-beta.1", "Vocal-More-0.6.1-beta.1.dmg")
+    (tmp_path / "uv.lock").write_text('[[package]]\nname="vocal-more"\nversion="0.6.1"\n')
     with pytest.raises(ReleaseError, match="uv.lock"):
         read_context(tmp_path, SOURCE)

@@ -22,9 +22,12 @@ fn run() -> anyhow::Result<()> {
         return Ok(());
     }
     gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(vocal_more_desktop::assets::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
+            if let Err(error) = vocal_more_desktop::theme::install(cx) {
+                eprintln!("Vocal More: {error:#}");
+            }
             if let Err(error) = vocal_more_desktop::host::DesktopHost::start(options, cx) {
                 eprintln!("Vocal More: {error:#}");
                 cx.quit();

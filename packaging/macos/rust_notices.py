@@ -31,6 +31,10 @@ def notices(toolchain: str) -> str:
         sections.append(f"\n{'=' * 72}\n{package['name']} {package['version']}\nLicense: {package.get('license') or 'see license file'}\nRepository: {package.get('repository') or ''}\n")
         for path in files:
             sections.append(f"\n--- {path.name} ---\n{path.read_text(errors='replace')}\n")
+    # Fonts embedded in the desktop binary (not Cargo packages).
+    fonts = ROOT / "rust/crates/desktop/assets/fonts"
+    sections.append(f"\n{'=' * 72}\nGeist and Geist Mono fonts 1.7.2\nLicense: OFL-1.1\nRepository: https://github.com/vercel/geist-font\n")
+    sections.append(f"\n--- OFL.txt ---\n{(fonts / 'OFL.txt').read_text()}\n")
     return "".join(sections)
 
 

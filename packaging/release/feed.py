@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from .model import (
+    BETA,
     EMPTY_BASELINE,
     REPOSITORY,
     SPARKLE_NS,
@@ -23,17 +24,17 @@ from .model import (
     file_hash,
     sha256,
 )
-from .state import baseline, feed_versions
+from .state import baseline, feed_versions, newest
 
 
 def validate_appcast(directory: Path, manifest: dict) -> None:
     data = (directory / "appcast.xml").read_bytes()
     version = Version.parse(manifest["version"])
-    versions = feed_versions(data, version.channel)
-    if versions.count(version) != 1 or max(versions, key=lambda v: v.key) != version:
+    versions = feed_versions(data)
+    if versions.count(version) != 1 or newest(versions) != version:
         raise ReleaseError("Candidate appcast does not advertise the expected newest version")
     root = ET.fromstring(data)
-    item = next(i for i in root.findall("./channel/item") if i.findtext(f"{{{SPARKLE_NS}}}version") == version.text)
+    item = next(i for i in root.findall("./channel/item") if i.findtext(f"{{{SPARKLE_NS}}}version") == version.bundle_version)
     enclosure = item.find("enclosure")
     if enclosure is None:
         raise ReleaseError("Missing full update enclosure")
@@ -60,7 +61,7 @@ def validate_appcast(directory: Path, manifest: dict) -> None:
     previous = manifest["baseline"].get("previous")
     if len(deltas) != (1 if previous else 0):
         raise ReleaseError("Expected exactly one previous-version delta, or none for a new channel")
-    if deltas and deltas[0].get(f"{{{SPARKLE_NS}}}deltaFrom") != previous["version"]:
+    if deltas and deltas[0].get(f"{{{SPARKLE_NS}}}deltaFrom") != Version.any(previous["version"]).bundle_version:
         raise ReleaseError("Delta is based on the wrong channel version")
     expected_names = {manifest["dmg_name"]} | {n for n in manifest["files"] if n.endswith(".delta")}
     if names != expected_names:
@@ -105,7 +106,38 @@ def verify_delta(sparkle: Path, previous: Path, current: Path, delta: Path) -> N
             raise ReleaseError("Applied delta differs from final signed application")
 
 
+def finish_appcast(xml: str, version: Version, old_feed: bytes) -> str:
+    """Restore product metadata that generate_appcast rewrites from bundles.
+
+    Sparkle updates existing archive items' shortVersionString from the numeric
+    CFBundleShortVersionString too. Keep the signed baseline's display version
+    and channel for those builds, while preserving CDATA and archive metadata.
+    """
+    known = {v.bundle_version: v for v in feed_versions(old_feed) if v.build}
+    known[version.bundle_version] = version
+
+    def finish_item(match):
+        item = match.group(0)
+        build = re.search(r"<sparkle:version>([^<]+)</sparkle:version>", item)
+        value = known.get(build[1]) if build else None
+        if value is None:
+            return item
+        display = f"<sparkle:shortVersionString>{value.text}</sparkle:shortVersionString>"
+        if "<sparkle:shortVersionString>" in item:
+            item = re.sub(r"<sparkle:shortVersionString>.*?</sparkle:shortVersionString>",
+                          lambda _: display, item, flags=re.DOTALL)
+        else:
+            item = item.replace("</sparkle:version>", "</sparkle:version>" + display, 1)
+        item = re.sub(r"\s*<sparkle:channel>.*?</sparkle:channel>", "", item, flags=re.DOTALL)
+        if value.channel == BETA:
+            item = item.replace("</sparkle:version>", f"</sparkle:version><sparkle:channel>{BETA}</sparkle:channel>", 1)
+        return item
+
+    return re.sub(r"<item>.*?</item>", finish_item, xml, flags=re.DOTALL)
+
+
 def prepare(api, context: dict, candidate_dir: Path, root: Path) -> dict:
+    version = Version.parse(context["version"])
     state, old_feed, tag_map = baseline(api, context)
     (candidate_dir / "baseline-appcast.xml").write_bytes(old_feed or EMPTY_BASELINE)
     sparkle = Path(subprocess.check_output([str(root / "packaging/macos/install_sparkle.sh")], text=True).strip())
@@ -135,7 +167,7 @@ def prepare(api, context: dict, candidate_dir: Path, root: Path) -> dict:
             previous_path.write_bytes(previous_data)
         signed_tool("generate_appcast", [
             "--download-url-prefix", f"https://github.com/{REPOSITORY}/releases/download/{context['release_tag']}/",
-            "--embed-release-notes", "--versions", context["version"], "--maximum-versions", "5",
+            "--embed-release-notes", "--versions", version.bundle_version, "--maximum-versions", "10",
             "--maximum-deltas", "1", "--delta-compression", "lzfse", "--link", f"https://github.com/{REPOSITORY}",
             "-o", str(updates / "appcast.xml"), str(updates),
         ])
@@ -148,21 +180,18 @@ def prepare(api, context: dict, candidate_dir: Path, root: Path) -> dict:
         spec.loader.exec_module(module)
         appcast = updates / "appcast.xml"
         xml = module.normalize_appcast_urls(appcast.read_text(), tag_map=tag_map)
-        # Keep the human-facing alpha/beta suffix while CFBundleShortVersionString
-        # stays numeric. Preserve CDATA and sign only after this final edit.
-        def display_version(match):
-            item = match.group(0)
-            if f"<sparkle:version>{context['version']}</sparkle:version>" in item:
-                item = re.sub(r"(<sparkle:shortVersionString>).*?(</sparkle:shortVersionString>)",
-                              lambda m: m[1] + context["version"] + m[2], item, flags=re.DOTALL)
-            return item
-        xml = re.sub(r"<item>.*?</item>", display_version, xml, flags=re.DOTALL)
+        # sparkle:version is the build number Sparkle compares; show the full
+        # product version, and mark betas so only beta installs are offered
+        # them. Preserve CDATA and sign only after this final edit.
+        xml = finish_appcast(xml, version, old_feed)
         appcast.write_text(xml)
-        # Separate feeds intentionally omit sparkle:channel; the app's SUFeedURL selects the channel.
+        # Every other item must keep its channel; a lost beta marker would push
+        # a beta to stable installs.
+        feed_versions(appcast.read_bytes())
         signed_tool("sign_update", [str(appcast)])
         signed_tool("sign_update", ["--verify", str(appcast)])
         tree = ET.fromstring(appcast.read_bytes())
-        item = next((i for i in tree.findall("./channel/item") if i.findtext(f"{{{SPARKLE_NS}}}version") == context["version"]), None)
+        item = next((i for i in tree.findall("./channel/item") if i.findtext(f"{{{SPARKLE_NS}}}version") == version.bundle_version), None)
         if item is None:
             raise ReleaseError("Sparkle did not generate the requested version")
         for entry in [item.find("enclosure"), *item.findall(f"{{{SPARKLE_NS}}}deltas/enclosure")]:

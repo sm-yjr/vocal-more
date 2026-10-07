@@ -206,9 +206,11 @@ impl Config {
                 json!(boolean(value, current.as_bool().unwrap_or(false)))
             }
             "default_mode" => choice(value, &["walkie_talkie", "realtime_long"], "realtime_long"),
+            // The retired "nightly" (alpha) choice is dropped, so old alpha
+            // installs fall back to their bundle channel: stable.
             "update_channel" => value
                 .as_str()
-                .filter(|channel| ["stable", "nightly"].contains(channel))
+                .filter(|channel| ["stable", "beta"].contains(channel))
                 .map_or(Value::Null, |channel| json!(channel)),
             "audio.sample_rate" => json!(16000),
             "audio.channels" => json!(1),

@@ -14,7 +14,6 @@ mod macos {
     use base64::{Engine, engine::general_purpose::STANDARD};
     use gpui_kit::{
         AnyWindowHandle, App, ElementId, Entity, HeadlessAppContext, ScrollDelta, Window,
-        assets::Assets,
         component::{Theme, ThemeMode},
         point, px, size,
         test::{ElementSnapshot, TestWindowExt},
@@ -31,6 +30,7 @@ mod macos {
     use vocal_more_backend::{application::Options, config::ConfigRepository, history::History};
     use vocal_more_core::recording::RecordingStore;
     use vocal_more_desktop::{
+        assets::Assets,
         bridge::{BackendDriver, CommandSink, UI_QUEUE_CAPACITY, UiEvent},
         settings::{
             self, Settings,
@@ -81,6 +81,7 @@ mod macos {
                 gpui_kit::platform::current_headless_renderer,
             );
             cx.update(gpui_kit::init);
+            cx.update(vocal_more_desktop::theme::install)?;
             let (window, view) = cx.update(|cx| settings::open(snapshot, sink.clone(), cx))?;
             let output = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../../.build/settings-rendering");
@@ -1081,7 +1082,7 @@ mod macos {
 
     fn key_and_rejection(this: &mut Harness) -> Result<()> {
         this.click("general")?;
-        this.top()?;
+        this.scroll_to("api_key")?;
         this.edit("api_key", "metal-fixture-not-a-credential")?;
         let snapshot = this.call("snapshot", json!({}))?;
         assert_eq!(snapshot["api_key_set"], true);
@@ -1144,7 +1145,7 @@ mod macos {
         let backup = fs::read(&config_path)?;
         fs::remove_file(&config_path)?;
         fs::create_dir(&config_path)?;
-        this.top()?;
+        this.scroll_to("api_key")?;
         this.edit("api_key", "rejected-synthetic-key")?;
         let public = this.call("snapshot", json!({}))?;
         assert_eq!(public["api_key_set"], false);
@@ -1419,7 +1420,7 @@ mod macos {
         this.shot("full-ui-queue-rejects-toggle-and-restores")?;
         this.click("dismiss-settings-error")?;
 
-        this.top()?;
+        this.scroll_to("api_key")?;
         this.click("api_key")?;
         this.window(|window, cx| {
             window.press("cmd-a", cx);

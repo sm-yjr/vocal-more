@@ -3,10 +3,14 @@
 //!
 //! GPUI 0.3.7 creates its private delegate class at runtime and exposes only
 //! applicationWillTerminate, whose shutdown futures have a 200 ms deadline.
-//! This gate changes the existing delegate and application instances to no-ivar
-//! subclasses. All original GPUI methods/ivars remain inherited; no original
-//! IMP is changed. The application override moves terminate off GPUI's GCD main
-//! callback so AppKit's pending-termination loop can still service GPUI tasks.
+//! This gate adds `applicationShouldTerminate:` to GPUI's delegate class and
+//! `terminate:` to GPUI's application class; neither class defines them, so no
+//! original IMP is changed. Instances keep their classes: AppKit may already
+//! have KVO-subclassed NSApp, and re-subclassing a KVO class corrupts KVO
+//! bookkeeping (macOS 27 crashes on activation). KVO subclasses inherit the
+//! added methods. Without an installed gate both methods behave like AppKit's.
+//! The application override moves terminate off GPUI's GCD main callback so
+//! AppKit's pending-termination loop can still service GPUI tasks.
 use super::class;
 use crate::bridge::CommandSink;
 use anyhow::{Context, Result, ensure};
@@ -14,12 +18,15 @@ use block2::RcBlock;
 use objc2::{
     MainThreadMarker, msg_send,
     rc::Retained,
-    runtime::{AnyClass, AnyObject, ClassBuilder, Sel},
+    runtime::{AnyClass, AnyObject, Imp, Sel},
     sel,
 };
 use objc2_foundation::NSString;
 use serde_json::json;
-use std::cell::{Cell, RefCell};
+use std::{
+    cell::{Cell, RefCell},
+    ffi::CStr,
+};
 
 const CANCEL: usize = 0;
 const NOW: usize = 1;
@@ -35,7 +42,6 @@ struct State {
     installation: u64,
     delegate: usize,
     application: usize,
-    original_application: &'static AnyClass,
     native_request_queued: bool,
     commands: CommandSink,
     phase: Phase,
@@ -43,24 +49,48 @@ struct State {
     quit_published: bool,
 }
 
+/// AppKit's own `terminate:` lives on GPUIApplication's superclass.
+fn appkit_application() -> Option<&'static AnyClass> {
+    AnyClass::get(c"GPUIApplication").and_then(AnyClass::superclass)
+}
+enum Terminate {
+    /// No gate owns this application: behave exactly like AppKit.
+    Forward,
+    /// A deferred request is already queued or awaiting the backend.
+    Ignore,
+    Defer(u64, Option<CommandSink>),
+}
 extern "C" fn defer_terminate(this: *mut AnyObject, _: Sel, sender: *mut AnyObject) {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let original = STATE.with_borrow_mut(|slot| {
-            let state = slot
+        let decision = STATE.with_borrow_mut(|slot| {
+            let Some(state) = slot
                 .as_mut()
-                .filter(|state| state.application == this as usize)?;
+                .filter(|state| state.application == this as usize)
+            else {
+                return Terminate::Forward;
+            };
             if state.native_request_queued || state.phase == Phase::Waiting {
-                return None;
+                return Terminate::Ignore;
             }
             state.native_request_queued = true;
             let commands = (state.phase == Phase::Installed && !state.quit_published).then(|| {
                 state.quit_published = true;
                 state.commands.clone()
             });
-            Some((state.original_application, state.installation, commands))
+            Terminate::Defer(state.installation, commands)
         });
-        let Some((original, installation, commands)) = original else {
+        let Some(original) = appkit_application() else {
             return;
+        };
+        let (installation, commands) = match decision {
+            Terminate::Ignore => return,
+            Terminate::Forward => {
+                unsafe {
+                    let _: () = msg_send![super(&*this, original),terminate:sender];
+                }
+                return;
+            }
+            Terminate::Defer(installation, commands) => (installation, commands),
         };
         if let Some(commands) = commands {
             // Reject pending paste admission immediately, before the native
@@ -148,11 +178,45 @@ pub struct TerminationGate {
     installation: u64,
     _main_thread: MainThreadMarker,
     delegate: Retained<AnyObject>,
-    original: &'static AnyClass,
-    subclass: &'static AnyClass,
-    application: Retained<AnyObject>,
-    original_application: &'static AnyClass,
-    application_subclass: &'static AnyClass,
+    // Keeps the instance whose address identifies this gate alive.
+    _application: Retained<AnyObject>,
+}
+
+/// Add `selector` to `class` (which must not define it already), or accept
+/// the identical IMP left by an earlier installation in this process.
+fn add_method(class: &'static AnyClass, selector: Sel, imp: Imp, types: &CStr) -> Result<()> {
+    if let Some(existing) = class
+        .instance_methods()
+        .iter()
+        .find(|method| method.name() == selector)
+    {
+        ensure!(
+            existing.implementation() as usize == imp as usize,
+            "{} already defines {selector:?}; review its native hook before installing the gate",
+            class.name().to_string_lossy()
+        );
+        return Ok(());
+    }
+    let added = unsafe {
+        objc2::ffi::class_addMethod(
+            (class as *const AnyClass).cast_mut(),
+            selector,
+            imp,
+            types.as_ptr(),
+        )
+    };
+    ensure!(added.as_bool(), "could not add {selector:?}");
+    Ok(())
+}
+/// Find `name` in the class chain, looking through any KVO subclass.
+fn ancestor(mut class: Option<&'static AnyClass>, name: &CStr) -> Option<&'static AnyClass> {
+    while let Some(current) = class {
+        if current.name() == name {
+            return Some(current);
+        }
+        class = current.superclass();
+    }
+    None
 }
 impl TerminationGate {
     /// Install inside GPUI's did-finish-launching callback, before exposing UI.
@@ -176,86 +240,45 @@ impl TerminationGate {
             unsafe { msg_send![class(c"NSApplication"), sharedApplication] };
         let delegate: Option<Retained<AnyObject>> = unsafe { msg_send![&*application, delegate] };
         let delegate = delegate.context("GPUI application delegate is not installed yet")?;
-        let original_application = application.class();
-        // AppKit installs NSKVONotifying_GPUIApplication while observing its
-        // delegate. Inherit that exact current class so its KVO behavior also
-        // survives; validate the GPUI ancestor, not just the reported class.
-        let gpui_application =
-            AnyClass::get(c"GPUIApplication").context("GPUI application class missing")?;
-        let mut ancestor = Some(original_application);
-        while ancestor.is_some_and(|class| class != gpui_application) {
-            ancestor = ancestor.and_then(AnyClass::superclass);
-        }
+        let gpui_application = ancestor(Some(application.class()), c"GPUIApplication")
+            .with_context(|| {
+                format!(
+                    "termination gate requires the pinned GPUI application, found {}",
+                    application.class().name().to_string_lossy()
+                )
+            })?;
+        let gpui_delegate = ancestor(Some(delegate.class()), c"GPUIApplicationDelegate")
+            .with_context(|| {
+                format!(
+                    "termination gate requires the pinned GPUI delegate, found {}",
+                    delegate.class().name().to_string_lossy()
+                )
+            })?;
         ensure!(
-            ancestor == Some(gpui_application),
-            "termination gate requires the pinned GPUI application, found {}",
-            original_application.name().to_string_lossy()
+            appkit_application().is_some(),
+            "GPUI application has no AppKit superclass"
         );
-        let original = delegate.class();
-        ensure!(
-            original.name() == c"GPUIApplicationDelegate",
-            "termination gate requires the pinned GPUI delegate, found {}",
-            original.name().to_string_lossy()
-        );
-        ensure!(
-            original
-                .instance_method(sel!(applicationShouldTerminate:))
-                .is_none(),
-            "GPUI now provides applicationShouldTerminate; review its native hook before installing the gate"
-        );
-        let subclass = if let Some(existing) = AnyClass::get(c"VMRustGPUIFlushTerminationDelegate")
-        {
-            ensure!(
-                existing.superclass() == Some(original),
-                "termination subclass has an unexpected superclass"
-            );
-            existing
-        } else {
-            let mut builder = ClassBuilder::new(c"VMRustGPUIFlushTerminationDelegate", original)
-                .context("could not allocate the GPUI termination subclass")?;
-            // NSUInteger return and the original NSObject receiver ABI match
-            // NSApplicationDelegate.applicationShouldTerminate exactly.
-            unsafe {
-                builder.add_method(
-                    sel!(applicationShouldTerminate:),
-                    should_terminate as extern "C" fn(*mut AnyObject, Sel, *mut AnyObject) -> usize,
-                );
-            }
-            builder.register()
-        };
-        ensure!(
-            subclass.instance_size() == original.instance_size(),
-            "termination subclass changed the delegate layout"
-        );
-        let application_subclass =
-            if let Some(existing) = AnyClass::get(c"VMRustGPUITerminationApplication") {
-                ensure!(
-                    existing.superclass() == Some(original_application),
-                    "termination application subclass has an unexpected superclass"
-                );
-                existing
-            } else {
-                let mut builder =
-                    ClassBuilder::new(c"VMRustGPUITerminationApplication", original_application)
-                        .context("could not allocate the GPUI termination application subclass")?;
-                unsafe {
-                    builder.add_method(
-                        sel!(terminate:),
-                        defer_terminate as extern "C" fn(*mut AnyObject, Sel, *mut AnyObject),
-                    );
-                }
-                builder.register()
-            };
-        ensure!(
-            application_subclass.instance_size() == original_application.instance_size(),
-            "termination application subclass changed the application layout"
-        );
+        // NSUInteger return and the original NSObject receiver ABI match
+        // NSApplicationDelegate.applicationShouldTerminate exactly.
+        type ShouldTerminate = extern "C" fn(*mut AnyObject, Sel, *mut AnyObject) -> usize;
+        type Terminate = extern "C" fn(*mut AnyObject, Sel, *mut AnyObject);
+        add_method(
+            gpui_delegate,
+            sel!(applicationShouldTerminate:),
+            unsafe { std::mem::transmute::<ShouldTerminate, Imp>(should_terminate) },
+            c"Q@:@",
+        )?;
+        add_method(
+            gpui_application,
+            sel!(terminate:),
+            unsafe { std::mem::transmute::<Terminate, Imp>(defer_terminate) },
+            c"v@:@",
+        )?;
         STATE.with_borrow_mut(|slot| {
             *slot = Some(State {
                 installation,
                 delegate: Retained::as_ptr(&delegate) as usize,
                 application: Retained::as_ptr(&application) as usize,
-                original_application,
                 native_request_queued: false,
                 commands,
                 phase: Phase::Installed,
@@ -263,25 +286,11 @@ impl TerminationGate {
                 quit_published: false,
             })
         });
-        // The private runtime GPUI class has no Rust ClassType, so define_class!
-        // cannot name it as a superclass. This no-ivar dynamic subclass has the
-        // exact same layout and affects only the retained original instance.
-        let previous = unsafe { AnyObject::set_class(&delegate, subclass) };
-        assert_eq!(previous, original, "GPUI delegate changed concurrently");
-        let previous = unsafe { AnyObject::set_class(&application, application_subclass) };
-        assert_eq!(
-            previous, original_application,
-            "GPUI application changed concurrently"
-        );
         Ok(Self {
             installation,
             _main_thread: mtm,
             delegate,
-            original,
-            subclass,
-            application,
-            original_application,
-            application_subclass,
+            _application: application,
         })
     }
     pub fn is_waiting(&self) -> bool {
@@ -359,26 +368,8 @@ impl Drop for TerminationGate {
     fn drop(&mut self) {
         let pending =
             STATE.with_borrow_mut(|slot| slot.take().is_some_and(|state| state.pending_native));
-        if self.delegate.class() == self.subclass {
-            // objc2::AnyObject::set_class documents subclass installation only.
-            // Restoring the exact original isa uses the runtime API directly;
-            // both layouts/ivars are identical and this happens on the main
-            // thread, with no method/ivar mutation or delegate replacement.
-            unsafe {
-                objc2::ffi::object_setClass(
-                    Retained::as_ptr(&self.delegate).cast_mut(),
-                    self.original,
-                );
-            }
-        }
-        if self.application.class() == self.application_subclass {
-            unsafe {
-                objc2::ffi::object_setClass(
-                    Retained::as_ptr(&self.application).cast_mut(),
-                    self.original_application,
-                );
-            }
-        }
+        // The added methods stay on the GPUI classes; with no state they
+        // forward to AppKit's behavior, so nothing needs restoring.
         if pending {
             // Dropping an unfinished owner must not leave AppKit waiting forever.
             let application: Retained<AnyObject> =

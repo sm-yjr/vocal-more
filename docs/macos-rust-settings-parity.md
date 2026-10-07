@@ -2,7 +2,7 @@
 
 Rust 设置窗口由 `rust/crates/desktop/src/settings/` 实现。窗口和控件采用 GPUI Kit 0.7.0；没有 WebView、JavaScript 或 Python UI 运行时。业务请求通过 `CommandSink` 异步提交给既有 Rust 后端，持久化结果以 `config_changed`、`snapshot` 等事件回读。本文是迁移审计清单；“已实现”不替代实际运行与平台验收。
 
-颜色及字体来自 GPUI Kit 的系统主题，字体沿用其 `.SystemUIFont` 平台解析，不加载自定义字体；设置窗口跟随系统外观。本文的实际像素验收使用 macOS Metal，不据此宣称 Windows 已运行验收。
+设置窗口采用下述 Geist 色板及内嵌字体，并跟随系统外观。本文的实际像素验收使用 macOS Metal，不据此宣称 Windows 已运行验收。
 
 ## 配置项
 
@@ -10,14 +10,16 @@ Rust 设置窗口由 `rust/crates/desktop/src/settings/` 实现。窗口和控�
 
 | 页面 | 独立配置键 | 组合配置及行为 |
 | --- | --- | --- |
-| 通用 | `ui.advanced_settings`、`api_key`、`default_mode`、`screen_context_enabled`、`ui.language`、`update_channel`、`network.proxy_url`、`auto_paste`、`native_fast_paste`、`restore_clipboard`、`streaming_paste` | API Key 默认遮罩，明确显示时 `revealApiKey`；显示、隐藏；模型/API 验证；获取 Key；打开配置；重新首次设置 |
+| 通用 | `ui.advanced_settings`、`api_key`、`default_mode`、`ui.language`、`update_channel`、`network.proxy_url`、`auto_paste`、`native_fast_paste`、`restore_clipboard`、`streaming_paste` | API Key 默认遮罩，明确显示时 `revealApiKey`；显示、隐藏；模型/API 验证；获取 Key；打开配置；重新首次设置 |
 | 音频 | `audio.input_device`、`audio.capture_backend`、`audio.gain_mode`、`audio.gain`、`audio.waveform_ceiling_dbfs`、`audio.highpass_filter`、`audio.highpass_freq`、`audio.soft_limiter` | 设备选择和刷新；低声/正常/嘈杂环境预设；麦克风测试、停止及原生回放；低声校准 |
-| 识别 | `asr.model`、`asr.language`、`asr.realtime_url` | `asr.backend` 由模型选择和后端契约确定；保留已保存但已下架模型；公共/空间端点；模型能力信息 |
+| 识别 | `asr.model`、`asr.language`、`screen_context_enabled`、`asr.realtime_url` | `asr.backend` 由模型选择和后端契约确定；保留已保存但已下架模型；公共/空间端点；模型能力信息 |
 | 润色 | `enable_polish`、`llm.polish_mode`、`llm.output_language`、`llm.level`、`llm.structured`、`llm.tone`、`llm.persona`、`llm.model`、`llm.temperature`、`llm.enable_thinking` | `llm.prompt_overrides` 的输出类型/程度/结构/语气/风格 5 分类；系统/自定义切换；编辑；载入当前系统预设 |
 | 快捷键 | `hotkey.double_tap_threshold` | `hotkey.active_hotkeys` Fn 开关；`hotkey.custom_keys` 添加/删除/最多 8 个/去重；兼容 `hotkey.custom_key` 旧存档；原生 key code 和左右修饰键；修饰键两次确认；自动重复忽略；Esc 取消 |
 | 词典 | `dictionary_learning.enabled`、`dictionary_learning.excluded_bundle_ids` | 词条及别名添加/删除；打开词典文件；学习记录、接受、拒绝、撤销 |
 | 历史 | 无新增持久配置 | 列表、文本搜索、模型/模式/时间/时长/状态、文本与错误、费用分项与合计；播放/停止、复制、重新识别；删除及 5 秒撤销；压缩较早文件、压缩状态和存储统计；会议发言人/时间戳/转写/摘要/要点/待办；定位指定记录 |
 | 首次设置 | `api_key`、`audio.input_device` 与低声预设相关键 | `ui.onboarding_completed`、`ui.onboarding_skipped`；API、麦克风、设备、辅助功能和热键状态；权限设置、重新检查、首次录音和回放；完成条件沿用原 UI；跳过后保留未完成提醒 |
+
+设置窗口采用 Vercel Geist 设计：`rust/crates/desktop/assets/themes/geist.json` 定义取自 Geist token 的浅色/深色色板，`src/theme.rs` 嵌入 Geist Sans/Mono 字体并跟随系统外观切换。各页按 `schema::SECTIONS` 分组显示（如“录音与输入”“低声增强”“风格”），屏幕上下文与其依赖的空间端点同在识别页。面向个人用户，日常视图只保留常用选项：`update_channel`、`network.proxy_url`、`native_fast_paste`、`restore_clipboard`、`asr.realtime_url`、`dictionary_learning.excluded_bundle_ids` 和识别页的“模型能力”归入高级设置。已保存代理或空间端点、或开启屏幕上下文时，对应字段仍在日常视图显示，方便查看和撤销；“恢复公共实时端点”只在已填写空间端点时出现。词典学习记录显示可读状态，并只提供当前状态可执行的操作；首次设置在“完成设置”不可用时列出剩余步骤。
 
 原前端未提供独立入口的业务内部参数（如固定的 PCM 输出格式、块大小、最大 Token、已退役模型管线键）保持后端原配置与验证规则，未被设置窗口重建或删除。`llm.model`、`llm.temperature`、`llm.enable_thinking`、`hotkey.double_tap_threshold` 保留原 `FormState` 契约并提供高级设置入口。
 
@@ -31,7 +33,7 @@ API Key 在公开快照中脱敏。隐藏和关闭设置窗口时清除 UI 显�
 
 模型能力来自后端 `asr_models`、`llm_models`，不会将静态列表当成可用性证据。原生 ASR 禁用第二阶段润色；不支持 thinking 的模型禁用该开关。模型/API 验证的进行中、成功、失败、耗时和错误有可见状态。
 
-音频设置在实际采集/测试/校准期间禁用可能改变测量条件的控件。Apple AGC 生效时禁用软件增益和限幅；高通关闭时禁用截止频率。音频运行状态显示当前设备、声道、处理方式、回声消除、实际增益、权限、原生后端、源/输出格式、系统麦克风模式、丢块和故障；高级模式显示完整后端诊断（包括最近一次实际会话）。
+音频设置在实际采集/测试/校准期间禁用可能改变测量条件的控件。Apple AGC 生效时禁用软件增益和限幅；高通关闭时禁用截止频率。日常视图的音频状态只显示当前设备、麦克风权限和回退警告；高级模式显示声道、处理方式、回声消除、实际增益、原生后端、源/输出格式、系统麦克风模式、丢块和故障，以及完整后端诊断（包括最近一次实际会话）。
 
 低声校准采用原实现的两阶段测量：环境安静 3 秒、低声 4.5 秒，每阶段至少 8 个有效 RMS 样本；底噪取 dBFS 中位数，语音取 90 百分位，至少 6 dB 余量。测量基于当时生效的增益（Apple AGC 视为 1），推荐目标 −14 dBFS、增益范围 1–50、波形额外 2 dB 余量。应用前显示完整变更；高通至少 220 Hz，并保留已设置的更高截止频率。关闭校准后使原定时器失效、停止测试，并抑制校准录音自动回放。
 

@@ -65,17 +65,18 @@ fn persisted_config_reload_and_failed_form_are_transactional() -> anyhow::Result
 }
 
 #[test]
-fn update_channel_accepts_stable_and_nightly() -> anyhow::Result<()> {
+fn update_channel_accepts_stable_and_beta() -> anyhow::Result<()> {
     let mut config = Config::default();
     assert!(config.get("update_channel").is_null());
 
-    config.apply_update("update_channel", &json!("nightly"))?;
-    assert_eq!(config.get("update_channel"), "nightly");
+    config.apply_update("update_channel", &json!("beta"))?;
+    assert_eq!(config.get("update_channel"), "beta");
 
     config.apply_update("update_channel", &json!("stable"))?;
     assert_eq!(config.get("update_channel"), "stable");
 
-    config.apply_update("update_channel", &json!("beta"))?;
+    // Retired alpha preference: dropped so the build's own channel applies.
+    config.apply_update("update_channel", &json!("nightly"))?;
     assert!(config.get("update_channel").is_null());
     Ok(())
 }

@@ -1,6 +1,6 @@
 [project]
 name = "vocal-more"
-version = "0.6.0a1"
+version = "0.6.0"
 description = "Desktop voice recognition app for macOS and Windows with real-time ASR and text polishing"
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -26,6 +26,11 @@ vocal-more = "vocal_more.entrypoint:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.vocal-more]
+# Global build number, one sequence for stable and beta. Sparkle compares it
+# (CFBundleVersion), so every release must use a larger number than the last.
+build = 1
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vocal_more"]

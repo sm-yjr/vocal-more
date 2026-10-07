@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import base64
 import copy
+from urllib.parse import unquote
 
 from release import candidate
-from release.github import GitHub
+from release.github import APIError, GitHub
 from release.model import (
     EMPTY_BASELINE,
     REPOSITORY,
@@ -20,21 +21,34 @@ SOURCE = "a" * 40
 SIGNATURE = base64.b64encode(b"s" * 64).decode()
 
 
-def xml_for(version: str, tag: str | None = None, *, size: int = 3, previous: str | None = None) -> bytes:
-    value = Version.parse(version)
+def item_for(version: str, tag: str | None = None, *, size: int = 3, previous: str | None = None) -> str:
+    value = Version.any(version)
     prefix = f"https://github.com/{REPOSITORY}/releases/download/{tag or value.tag}/"
     delta = ""
     if previous:
-        delta = f'<sparkle:deltas><enclosure url="{prefix}update.delta" length="5" sparkle:edSignature="{SIGNATURE}" sparkle:deltaFrom="{previous}"/></sparkle:deltas>'
-    return (f'<rss xmlns:sparkle="{SPARKLE_NS}"><channel><item><sparkle:version>{version}</sparkle:version>'
-            f'<enclosure url="{prefix}Vocal-More-{version}.dmg" length="{size}" sparkle:edSignature="{SIGNATURE}"/>'
-            f'{delta}</item></channel></rss>').encode()
+        delta = (f'<sparkle:deltas><enclosure url="{prefix}update.delta" length="5" sparkle:edSignature="{SIGNATURE}" '
+                 f'sparkle:deltaFrom="{Version.any(previous).bundle_version}"/></sparkle:deltas>')
+    channel = "<sparkle:channel>beta</sparkle:channel>" if value.channel == "beta" else ""
+    short = f"<sparkle:shortVersionString>{value.text}</sparkle:shortVersionString>" if value.build else ""
+    return (f'<item><sparkle:version>{value.bundle_version}</sparkle:version>{channel}{short}'
+            f'<enclosure url="{prefix}{value.dmg_name}" length="{size}" sparkle:edSignature="{SIGNATURE}"/>'
+            f'{delta}</item>')
 
 
-def make_candidate(tmp_path, monkeypatch, version="0.4.18a1", *, previous=None, old_feed=b""):
+def xml_for(version: str, tag: str | None = None, *, size: int = 3, previous: str | None = None, keep: bytes = b"") -> bytes:
+    """A feed whose newest item is `version`, after the items of feed `keep`."""
+    kept = ""
+    if keep:
+        text = keep.decode()
+        kept = text[text.index("<channel>") + len("<channel>"):text.index("</channel>")]
+    return (f'<rss xmlns:sparkle="{SPARKLE_NS}"><channel>{kept}{item_for(version, tag, size=size, previous=previous)}'
+            f'</channel></rss>').encode()
+
+
+def make_candidate(tmp_path, monkeypatch, version="0.6.1-beta.1+2", *, previous=None, old_feed=b""):
     value = Version.parse(version)
     context = {"repository": REPOSITORY, "source_sha": SOURCE, "version": version, "release_tag": value.tag,
-               "channel": value.channel, "feed_tag": value.feed_tag, "dmg_name": f"Vocal-More-{version}.dmg",
+               "channel": value.channel, "feed_tag": value.feed_tag, "dmg_name": value.dmg_name,
                "notes_sha256": sha256(b"release notes")}
     directory = tmp_path / "candidate"
     directory.mkdir(parents=True)
@@ -43,7 +57,7 @@ def make_candidate(tmp_path, monkeypatch, version="0.4.18a1", *, previous=None, 
     (directory / "baseline-appcast.xml").write_bytes(old_feed or EMPTY_BASELINE)
     write_json(directory / "verification.json", {"status": "passed", "version": version, "channel": value.channel,
                "dmg_sha256": sha256(b"dmg"), "notarization": {"id": "test-submission", "status": "Accepted"}})
-    (directory / "appcast.xml").write_bytes(xml_for(version, previous=previous["version"] if previous else None))
+    (directory / "appcast.xml").write_bytes(xml_for(version, previous=previous["version"] if previous else None, keep=old_feed))
     if previous:
         (directory / "update.delta").write_bytes(b"delta")
     for key, val in {"GITHUB_REPOSITORY": REPOSITORY, "GITHUB_WORKFLOW_REF": f"{REPOSITORY}/.github/workflows/release-prepare.yml@refs/heads/main",
@@ -53,7 +67,7 @@ def make_candidate(tmp_path, monkeypatch, version="0.4.18a1", *, previous=None, 
     return context, directory, manifest
 
 
-class FakeGitHub:
+class FakeGitHub(GitHub):
     repository = REPOSITORY
 
     def __init__(self):
@@ -63,9 +77,6 @@ class FakeGitHub:
         self.writes = []
         self.source_sha = SOURCE
         self.rename_failures = 0
-
-    def release(self, tag):
-        return copy.deepcopy(self.releases.get(tag))
 
     def add_release(self, tag, *, draft=False, prerelease=False):
         result = {"id": self.next_id, "tag_name": tag, "draft": draft, "prerelease": prerelease, "assets": []}
@@ -104,6 +115,13 @@ class FakeGitHub:
         self.add_asset(tag, path.name, path.read_bytes())
 
     def api(self, path, *, method="GET", data=None, binary=False):
+        # Keep production release()/optional() in the test path. The real tag
+        # endpoint cannot see drafts; only the authenticated listing can.
+        if path.startswith("releases/tags/") and method == "GET":
+            release = self.releases.get(unquote(path.removeprefix("releases/tags/")))
+            if release is None or release["draft"]:
+                raise APIError("Release not found", 404)
+            return copy.deepcopy(release)
         if path.startswith("actions/runs/"):
             return {"id": 123, "head_repository": {"full_name": REPOSITORY}, "path": ".github/workflows/release-prepare.yml",
                     "head_sha": SOURCE, "event": "push", "run_attempt": 1, "status": "completed", "conclusion": "success"}
@@ -133,10 +151,16 @@ class FakeGitHub:
 
 
 def previous_release(api, version):
-    value = Version.parse(version)
+    """Publish `version` and append it to the shared feed; returns (previous, feed)."""
+    value = Version.any(version)
     api.add_release(value.tag, prerelease=bool(value.stage))
-    asset = api.add_asset(value.tag, f"Vocal-More-{version}.dmg", b"old")
-    api.add_release(value.feed_tag, prerelease=True)
-    old_feed = xml_for(version)
-    api.add_asset(value.feed_tag, "appcast.xml", old_feed)
-    return {"version": version, "tag": value.tag, "asset": asset, "digest": asset["digest"]}, old_feed
+    asset = api.add_asset(value.tag, value.dmg_name, b"old")
+    feed = api.releases.get(value.feed_tag) or api.add_release(value.feed_tag, prerelease=True)
+    live = next((a for a in feed["assets"] if a["name"] == "appcast.xml"), None)
+    old_feed = xml_for(version, keep=api.content[live["id"]] if live else b"")
+    if live:
+        api.content[live["id"]] = old_feed
+        live["size"], live["digest"] = len(old_feed), "sha256:" + sha256(old_feed)
+    else:
+        api.add_asset(value.feed_tag, "appcast.xml", old_feed)
+    return {"version": value.text, "tag": value.tag, "asset": asset, "digest": asset["digest"]}, old_feed

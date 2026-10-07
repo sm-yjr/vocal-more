@@ -40,8 +40,15 @@ pub struct Menu {
     status: Option<Retained<AnyObject>>,
     target: Retained<Target>,
     state_item: Option<Retained<AnyObject>>,
+    copy_item: Option<Retained<AnyObject>>,
     button: Option<Retained<AnyObject>>,
     language: String,
+    /// Name of the first active trigger key, shown in the idle status line;
+    /// `None` when no key starts a recording (all off, or `--no-hotkeys`).
+    trigger: Option<String>,
+    hotkeys_enabled: bool,
+    /// Whether there is a last result for "Copy Last Result" to copy.
+    has_result: bool,
 }
 fn menu(title: &str) -> Retained<AnyObject> {
     unsafe {
@@ -52,7 +59,7 @@ fn menu(title: &str) -> Retained<AnyObject> {
     }
 }
 impl Menu {
-    pub fn new(mtm: MainThreadMarker, commands: CommandSink) -> Self {
+    pub fn new(mtm: MainThreadMarker, commands: CommandSink, hotkeys_enabled: bool) -> Self {
         let bar: Retained<AnyObject> = unsafe { msg_send![class(c"NSStatusBar"), systemStatusBar] };
         let status: Retained<AnyObject> = unsafe { msg_send![&*bar,statusItemWithLength:-1.0_f64] };
         let button: Option<Retained<AnyObject>> = unsafe { msg_send![&*status, button] };
@@ -70,8 +77,12 @@ impl Menu {
             status: Some(status),
             target,
             state_item: None,
+            copy_item: None,
             button,
             language: "zh".into(),
+            trigger: Some("Fn".into()),
+            hotkeys_enabled,
+            has_result: false,
         }
     }
     fn item(
@@ -110,6 +121,19 @@ impl Menu {
         }
         item
     }
+    fn shortcut(item: &AnyObject, key: &str) {
+        unsafe {
+            let _: () = msg_send![item,setKeyEquivalent:&*ns(key)];
+        }
+    }
+    /// Small gray group title (macOS 14+ `sectionHeaderWithTitle:`).
+    fn header(menu: &AnyObject, title: &str) {
+        unsafe {
+            let item: Retained<AnyObject> =
+                msg_send![class(c"NSMenuItem"),sectionHeaderWithTitle:&*ns(title)];
+            let _: () = msg_send![menu,addItem:&*item];
+        }
+    }
     fn sub(&self, menu: &AnyObject, title: &str) -> Retained<AnyObject> {
         let item = self.add(menu, title, None, Value::Null, false);
         let submenu = super::menu::menu(title);
@@ -132,19 +156,22 @@ impl Menu {
             .unwrap_or("zh")
             .into();
         let config = &snapshot["config"];
+        let fn_active = config["hotkey"]["active_hotkeys"]
+            .as_array()
+            .is_none_or(|keys| keys.iter().any(|key| key == "fn"));
+        self.trigger = if !self.hotkeys_enabled {
+            None
+        } else if fn_active {
+            Some("Fn".into())
+        } else {
+            config["hotkey"]["custom_keys"]
+                .as_array()
+                .and_then(|keys| keys.first())
+                .and_then(|key| key["display_name"].as_str())
+                .map(str::to_owned)
+        };
         let menu = menu("Vocal More");
-        self.add(
-            &menu,
-            &format!(
-                "Vocal More {}",
-                snapshot["version"]
-                    .as_str()
-                    .unwrap_or(vocal_more_backend::PRODUCT_VERSION)
-            ),
-            None,
-            Value::Null,
-            false,
-        );
+        // Status first: what is happening and how to start, in one line.
         self.state_item = Some(self.add(
             &menu,
             &self.status_title(snapshot["state"].as_str().unwrap_or("idle")),
@@ -152,14 +179,25 @@ impl Menu {
             Value::Null,
             false,
         ));
+        let copy = self.add(
+            &menu,
+            self.t("复制最近结果", "Copy Last Result"),
+            Some("platform_copy_last"),
+            json!({}),
+            false,
+        );
+        unsafe {
+            let _: () = msg_send![&*copy,setEnabled:self.has_result];
+        }
+        self.copy_item = Some(copy);
+
+        Self::separator(&menu);
+        Self::header(&menu, self.t("录音", "Recording"));
         let modes = self.sub(&menu, self.t("录音模式", "Recording Mode"));
+        // Same wording as the settings window.
         for (id, zh, en) in [
-            ("walkie_talkie", "对讲模式（按住）", "Walkie-Talkie (Hold)"),
-            (
-                "realtime_long",
-                "免提模式（按一下开始）",
-                "Hands-Free (Tap)",
-            ),
+            ("walkie_talkie", "按住说话", "Push to Talk"),
+            ("realtime_long", "免提长录音", "Hands Free"),
         ] {
             self.add(
                 &modes,
@@ -168,20 +206,6 @@ impl Menu {
                 json!({"mode":id}),
                 config["default_mode"] == id,
             );
-        }
-        let models = self.sub(&menu, self.t("识别模型", "ASR Model"));
-        if let Some(values) = snapshot["asr_models"].as_array() {
-            for model in values {
-                if let Some(id) = model["id"].as_str() {
-                    self.add(
-                        &models,
-                        model["name"].as_str().unwrap_or(id),
-                        Some("set_asr_model"),
-                        json!({"model":id}),
-                        config["asr"]["model"] == id,
-                    );
-                }
-            }
         }
         let devices = self.sub(&menu, self.t("麦克风", "Microphone"));
         self.add(
@@ -192,6 +216,9 @@ impl Menu {
             config["audio"]["input_device"].is_null(),
         );
         if let Some(values) = snapshot["devices"].as_array() {
+            if !values.is_empty() {
+                Self::separator(&devices);
+            }
             for device in values {
                 if let Some(name) = device["name"].as_str() {
                     self.add(
@@ -205,52 +232,87 @@ impl Menu {
                 }
             }
         }
+        Self::separator(&devices);
         self.add(
             &devices,
-            self.t("重新检查", "Run Check Again"),
+            self.t("刷新设备列表", "Refresh Device List"),
             Some("refresh_devices"),
             json!({}),
             false,
         );
-        for (key, zh, en) in [
-            ("enable_polish", "启用润色", "Enable Polishing"),
-            ("screen_context_enabled", "看屏幕说话", "Talk About Screen"),
-        ] {
-            let on = config[key].as_bool().unwrap_or(false);
-            self.add(
-                &menu,
-                self.t(zh, en),
-                Some("set_config"),
-                json!({"key":key,"value":!on}),
-                on,
-            );
+        if config["ui"]["advanced_settings"] == true {
+            let models = self.sub(&menu, self.t("识别模型", "Recognition Model"));
+            if let Some(values) = snapshot["asr_models"].as_array() {
+                for model in values {
+                    if let Some(id) = model["id"].as_str() {
+                        self.add(
+                            &models,
+                            model["display_name"].as_str().unwrap_or(id),
+                            Some("set_asr_model"),
+                            json!({"model":id}),
+                            config["asr"]["model"] == id,
+                        );
+                    }
+                }
+            }
         }
-        let levels = self.sub(&menu, self.t("润色强度", "Polish Strength"));
-        for (id, zh, en) in [
-            ("minimal", "轻度", "Minimal"),
-            ("balanced", "均衡", "Balanced"),
-            ("strong", "强力", "Strong"),
-        ] {
-            self.add(
-                &levels,
-                self.t(zh, en),
-                Some("set_config"),
-                json!({"key":"llm.level","value":id}),
-                config["llm"]["level"] == id,
-            );
-        }
+
         Self::separator(&menu);
+        Self::header(&menu, self.t("文字", "Text"));
+        let polish = config["enable_polish"].as_bool().unwrap_or(false);
+        self.add(
+            &menu,
+            self.t("润色", "Polish"),
+            Some("set_config"),
+            json!({"key":"enable_polish","value":!polish}),
+            polish,
+        );
+        if polish {
+            let levels = self.sub(&menu, self.t("润色程度", "Polish Level"));
+            for (id, zh, en) in [
+                ("minimal", "轻度", "Minimal"),
+                ("balanced", "适中", "Balanced"),
+                ("strong", "深度", "Strong"),
+            ] {
+                self.add(
+                    &levels,
+                    self.t(zh, en),
+                    Some("set_config"),
+                    json!({"key":"llm.level","value":id}),
+                    config["llm"]["level"] == id,
+                );
+            }
+        }
+        let screen = config["screen_context_enabled"].as_bool().unwrap_or(false);
+        self.add(
+            &menu,
+            self.t("屏幕上下文", "Screen Context"),
+            Some("set_config"),
+            json!({"key":"screen_context_enabled","value":!screen}),
+            screen,
+        );
+
+        Self::separator(&menu);
+        let item = self.add(
+            &menu,
+            self.t("设置…", "Settings…"),
+            Some("platform_show_settings"),
+            json!({}),
+            false,
+        );
+        Self::shortcut(&item, ",");
+        self.add(
+            &menu,
+            self.t("检查更新…", "Check for Updates…"),
+            Some("platform_check_updates"),
+            json!({}),
+            false,
+        );
+        let help = self.sub(&menu, self.t("帮助", "Help"));
         for (zh, en, method, params) in [
             (
-                "复制最近结果",
-                "Copy Last Result",
-                "platform_copy_last",
-                json!({}),
-            ),
-            ("设置…", "Settings…", "platform_show_settings", json!({})),
-            (
-                "环境检查",
-                "Environment Check",
+                "环境检查…",
+                "Environment Check…",
                 "platform_show_settings",
                 json!({"tab":"general"}),
             ),
@@ -260,23 +322,33 @@ impl Menu {
                 "platform_export_diagnostics",
                 json!({}),
             ),
-            (
-                "检查更新…",
-                "Check for Updates…",
-                "platform_check_updates",
-                json!({}),
-            ),
         ] {
-            self.add(&menu, self.t(zh, en), Some(method), params, false);
+            self.add(&help, self.t(zh, en), Some(method), params, false);
         }
-        Self::separator(&menu);
+        Self::separator(&help);
         self.add(
+            &help,
+            &format!(
+                "{} {}",
+                self.t("版本", "Version"),
+                snapshot["version"]
+                    .as_str()
+                    .unwrap_or(vocal_more_backend::PRODUCT_VERSION)
+            ),
+            None,
+            Value::Null,
+            false,
+        );
+
+        Self::separator(&menu);
+        let item = self.add(
             &menu,
             self.t("退出 Vocal More", "Quit Vocal More"),
             Some("platform_quit"),
             json!({}),
             false,
         );
+        Self::shortcut(&item, "q");
         if let Some(status) = &self.status {
             unsafe {
                 let _: () = msg_send![&**status,setMenu:&*menu];
@@ -288,17 +360,32 @@ impl Menu {
         if self.language == "en" { en } else { zh }
     }
     fn status_title(&self, state: &str) -> String {
+        if state == "idle" {
+            return match (&self.trigger, self.language == "en") {
+                (Some(key), true) => format!("Ready · Hold {key} to talk"),
+                (Some(key), false) => format!("就绪 · 按住 {key} 说话"),
+                (None, true) => "Ready · Shortcuts are off".into(),
+                (None, false) => "就绪 · 快捷键已关闭".into(),
+            };
+        }
         let (zh, en) = match state {
-            "idle" => ("空闲", "Idle"),
             "starting" => ("启动中…", "Starting…"),
             "recording" => ("录音中…", "Recording…"),
             "stopping" => ("停止中…", "Stopping…"),
             "processing" => ("处理中…", "Processing…"),
             "cancelling" => ("取消中…", "Cancelling…"),
-            "failed" => ("出错", "Error"),
+            "failed" => ("出错了", "Something went wrong"),
             _ => ("未知", "Unknown"),
         };
-        format!("{}{}", self.t("状态：", "Status: "), self.t(zh, en))
+        self.t(zh, en).to_owned()
+    }
+    pub fn set_has_result(&mut self, has_result: bool) {
+        self.has_result = has_result;
+        if let Some(item) = &self.copy_item {
+            unsafe {
+                let _: () = msg_send![&**item,setEnabled:has_result];
+            }
+        }
     }
     pub fn set_status(&mut self, state: &str) {
         let title = self.status_title(state);
@@ -377,6 +464,7 @@ impl Menu {
         }
         self.button = None;
         self.state_item = None;
+        self.copy_item = None;
         if let Some(class) = objc2::runtime::AnyClass::get(c"NSUserNotificationCenter") {
             unsafe {
                 let center: Option<Retained<AnyObject>> =

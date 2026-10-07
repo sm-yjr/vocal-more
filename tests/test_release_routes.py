@@ -40,14 +40,14 @@ def test_ready_missing_and_explicit_candidate_routes(tmp_path, monkeypatch):
 
 
 def test_tag_alias_and_new_baseline_need_resigned_metadata(tmp_path, monkeypatch):
-    context, directory, _ = make_candidate(tmp_path, monkeypatch, "0.4.18b2")
+    context, directory, _ = make_candidate(tmp_path, monkeypatch, "0.6.1-beta.2+3")
     api = FakeGitHub()
     available_candidate(api, monkeypatch, context, directory)
-    alias = {**context, "release_tag": "0.4.18b2"}
+    alias = {**context, "release_tag": "0.6.1b2"}
     assert cli.resolve(api, alias, "auto") == ("refresh", 7, "TAG_URL_CHANGED")
     with pytest.raises(ReleaseError, match="TAG_URL_CHANGED"):
         cli.resolve(api, alias, "require-ready")
-    previous_release(api, "0.4.18b1")
+    previous_release(api, "0.6.1-beta.1+2")
     assert cli.resolve(api, context, "auto") == ("refresh", 7, "STALE_BASELINE")
     with pytest.raises(ReleaseError, match="STALE_BASELINE"):
         cli.resolve(api, context, "require-ready")
@@ -73,7 +73,7 @@ def test_preflight_skips_version_published_under_bare_alias(tmp_path, monkeypatc
     import sys
     context, _, _ = make_candidate(tmp_path, monkeypatch)
     api = FakeGitHub()
-    api.add_release("0.4.18a1", prerelease=True)
+    api.add_release("0.6.1-beta.1", prerelease=True)
     monkeypatch.setattr(cli, "GitHub", lambda: api)
     monkeypatch.setattr(cli, "context_for", lambda *args: context)
     monkeypatch.setattr(sys, "argv", ["release_cli.py", "preflight", "--prepare"])
@@ -82,10 +82,11 @@ def test_preflight_skips_version_published_under_bare_alias(tmp_path, monkeypatc
     assert not api.writes
 
 
-def test_feed_generation_normalizes_before_signing_and_verifies_delta(tmp_path, monkeypatch):
+def test_feed_generation_marks_beta_normalizes_before_signing_and_verifies_delta(tmp_path, monkeypatch):
     api = FakeGitHub()
-    previous, old_feed = previous_release(api, "0.4.18b1")
-    context, directory, _ = make_candidate(tmp_path, monkeypatch, "0.4.18b2", previous=previous, old_feed=old_feed)
+    _, stable = previous_release(api, "0.6.0+1")
+    previous, old_feed = previous_release(api, "0.6.1-beta.1+2")
+    context, directory, _ = make_candidate(tmp_path, monkeypatch, "0.6.1-beta.2+3", previous=previous, old_feed=old_feed)
     (directory / "update.delta").unlink()
     root = Path(__file__).resolve().parents[1]
     monkeypatch.setenv("SPARKLE_PRIVATE_KEY", "test-private-input")
@@ -96,22 +97,28 @@ def test_feed_generation_normalizes_before_signing_and_verifies_delta(tmp_path, 
         assert kwargs["input"] == "test-private-input\n"
         assert "test-private-input" not in command
         if Path(command[0]).name == "generate_appcast":
+            assert command[command.index("--versions") + 1] == "3"
             updates = Path(command[-1])
-            xml = xml_for(context["version"], previous=previous["version"]).decode()
-            xml = xml.replace("</sparkle:version>", "</sparkle:version><sparkle:shortVersionString>0.4.18</sparkle:shortVersionString>", 1)
-            xml = xml.replace("update.delta", "Vocal%20More0.4.18b2-0.4.18b1.delta")
-            (updates / "Vocal More0.4.18b2-0.4.18b1.delta").write_bytes(b"delta")
-            (updates / "appcast.xml").write_text(xml)
+            # Sparkle writes the numeric short version and no channel marker.
+            xml = xml_for(context["version"], previous=previous["version"], keep=old_feed).decode()
+            new = xml[xml.rindex("<item>"):]
+            new_item = (new.replace("<sparkle:channel>beta</sparkle:channel>", "")
+                        .replace("0.6.1-beta.2+3</sparkle:shortVersionString>", "0.6.1</sparkle:shortVersionString>")
+                        .replace("update.delta", "Vocal%20More3-2.delta"))
+            (updates / "Vocal More3-2.delta").write_bytes(b"delta")
+            (updates / "appcast.xml").write_text(xml.replace(new, new_item))
         elif "--verify" not in command:
             text = Path(command[-1]).read_text()
-            assert "<sparkle:shortVersionString>0.4.18b2</sparkle:shortVersionString>" in text
-            assert "Vocal.More0.4.18b2-0.4.18b1.delta" in text
+            assert "<sparkle:shortVersionString>0.6.1-beta.2+3</sparkle:shortVersionString>" in text
+            assert "<sparkle:version>3</sparkle:version><sparkle:channel>beta</sparkle:channel>" in text
+            assert "v0.6.1-beta.2/Vocal.More3-2.delta" in text
     monkeypatch.setattr(feed.subprocess, "run", run)
     applied = []
     monkeypatch.setattr(feed, "verify_delta", lambda *args: applied.append(args))
     state = feed.prepare(api, context, directory, root)
     candidate.seal(directory, context, state)
     assert len(applied) == 1
-    assert applied[0][1].name == "Vocal-More-0.4.18b1.dmg"
+    assert applied[0][1].name == "Vocal-More-0.6.1-beta.1.dmg"
     assert any("--verify" in call and call[-1].endswith("appcast.xml") for call in calls)
     assert not api.writes
+    assert stable

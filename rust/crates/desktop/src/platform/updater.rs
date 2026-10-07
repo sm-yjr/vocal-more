@@ -7,14 +7,16 @@ use objc2::{
 };
 use objc2_foundation::{NSObject, NSObjectProtocol, NSString};
 use serde_json::Value;
-use std::cell::RefCell;
+use std::cell::Cell;
 
-const STABLE: &str =
+/// Every build reads one signed feed. Beta items carry `<sparkle:channel>beta`
+/// and are offered only when the updater allows that channel, so beta installs
+/// receive both betas and stable releases while stable installs never see betas.
+const FEED: &str =
     "https://github.com/sm-yjr/vocal-more/releases/download/sparkle-feed/appcast.xml";
-const NIGHTLY: &str =
-    "https://github.com/sm-yjr/vocal-more/releases/download/sparkle-feed-alpha/appcast.xml";
+const BETA: &str = "beta";
 struct DelegateIvars {
-    feed: RefCell<Option<String>>,
+    beta: Cell<bool>,
 }
 define_class!(
     #[unsafe(super=NSObject)]
@@ -24,14 +26,26 @@ define_class!(
     struct Delegate;
     unsafe impl NSObjectProtocol for Delegate {}
     impl Delegate {
+        // Overrides any feed URL a pre-0.6 build left behind (such as the
+        // retired alpha feed) so upgraded installs converge on one feed.
         #[unsafe(method_id(feedURLStringForUpdater:))]
-        fn feed(&self,_updater:&AnyObject)->Option<Retained<NSString>> {self.ivars().feed.borrow().as_deref().map(ns)}
+        fn feed(&self,_updater:&AnyObject)->Option<Retained<NSString>> {Some(ns(FEED))}
+        #[unsafe(method_id(allowedChannelsForUpdater:))]
+        fn channels(&self,_updater:&AnyObject)->Retained<AnyObject> {
+            unsafe {
+                if self.ivars().beta.get() {
+                    msg_send![class(c"NSSet"),setWithObject:&*ns(BETA)]
+                } else {
+                    msg_send![class(c"NSSet"), set]
+                }
+            }
+        }
     }
 );
 impl Delegate {
-    fn new(mtm: MainThreadMarker, configured: Option<&str>) -> Retained<Self> {
+    fn new(mtm: MainThreadMarker, beta: bool) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(DelegateIvars {
-            feed: RefCell::new(feed_override(configured).map(str::to_owned)),
+            beta: Cell::new(beta),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -52,10 +66,7 @@ impl Updater {
             channel.map(|v| v.to_string()).unwrap_or_default()
         };
         let channel = effective_channel(configured, &release).to_owned();
-        // No explicit preference means Sparkle owns the embedded SUFeedURL.
-        // In particular, a beta bundle must retain its separate beta feed even
-        // though its user-facing default channel label is Nightly.
-        let delegate = Delegate::new(mtm, configured);
+        let delegate = Delegate::new(mtm, channel == BETA);
         let mut this = Self {
             controller: None,
             delegate,
@@ -98,17 +109,15 @@ impl Updater {
     pub fn update(&mut self, config: &Value) {
         let Some(channel) = config["update_channel"]
             .as_str()
-            .filter(|v| matches!(*v, "stable" | "nightly"))
+            .filter(|v| matches!(*v, "stable" | "beta"))
         else {
             return;
         };
-        if self.channel == channel
-            && self.delegate.ivars().feed.borrow().as_deref() == Some(feed(channel))
-        {
+        if self.channel == channel {
             return;
         }
         self.channel = channel.into();
-        *self.delegate.ivars().feed.borrow_mut() = Some(feed(channel).into());
+        self.delegate.ivars().beta.set(channel == BETA);
         if let Some(controller) = &self.controller {
             unsafe {
                 let updater: Retained<AnyObject> = msg_send![&**controller, updater];
@@ -127,26 +136,16 @@ impl Updater {
         }
     }
     pub fn status(&self) -> Value {
-        serde_json::json!({"available":self.controller.is_some(),"channel":self.channel,"feed_override":*self.delegate.ivars().feed.borrow(),"startup_error":self.error})
+        serde_json::json!({"available":self.controller.is_some(),"channel":self.channel,"feed":FEED,"startup_error":self.error})
     }
 }
-fn feed(channel: &str) -> &'static str {
-    if channel == "nightly" {
-        NIGHTLY
-    } else {
-        STABLE
-    }
-}
-fn feed_override(configured: Option<&str>) -> Option<&'static str> {
-    configured
-        .filter(|channel| matches!(*channel, "stable" | "nightly"))
-        .map(feed)
-}
+/// An explicit preference wins; otherwise a beta bundle follows beta and every
+/// other build (including retired alpha preferences) follows stable.
 pub fn effective_channel(configured: Option<&str>, release: &str) -> &'static str {
     match configured {
-        Some("nightly") => "nightly",
+        Some("beta") => "beta",
         Some("stable") => "stable",
-        _ if matches!(release, "alpha" | "beta") => "nightly",
+        _ if release == "beta" => "beta",
         _ => "stable",
     }
 }
@@ -154,18 +153,13 @@ pub fn effective_channel(configured: Option<&str>, release: &str) -> &'static st
 mod tests {
     use super::*;
     #[test]
-    fn explicit_channels_override_bundle_and_alpha_beta_default_to_nightly() {
-        assert_eq!(effective_channel(None, "alpha"), "nightly");
-        assert_eq!(effective_channel(None, "beta"), "nightly");
-        assert_eq!(effective_channel(Some("stable"), "alpha"), "stable");
-        assert_eq!(effective_channel(Some("nightly"), "stable"), "nightly");
+    fn explicit_channels_override_the_bundle_and_retired_alpha_goes_stable() {
+        assert_eq!(effective_channel(None, "beta"), "beta");
+        assert_eq!(effective_channel(None, "stable"), "stable");
+        assert_eq!(effective_channel(None, "alpha"), "stable");
+        assert_eq!(effective_channel(Some("nightly"), "stable"), "stable");
+        assert_eq!(effective_channel(Some("stable"), "beta"), "stable");
+        assert_eq!(effective_channel(Some("beta"), "stable"), "beta");
         assert_eq!(effective_channel(Some("invalid"), "stable"), "stable");
-    }
-    #[test]
-    fn missing_preference_preserves_the_embedded_beta_feed() {
-        assert_eq!(feed_override(None), None);
-        assert_eq!(feed_override(Some("invalid")), None);
-        assert_eq!(feed_override(Some("nightly")), Some(NIGHTLY));
-        assert_eq!(feed_override(Some("stable")), Some(STABLE));
     }
 }

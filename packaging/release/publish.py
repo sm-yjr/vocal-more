@@ -12,8 +12,8 @@ from urllib.request import Request, urlopen
 
 from .candidate import validate
 from .github import named_asset
-from .model import ReleaseError, Version, read_baseline, sha256, timestamp, write_json
-from .state import baseline, baseline_key, channel_feed, feed_versions
+from .model import LEGACY_FEED_TAGS, ReleaseError, Version, feed_url, read_baseline, sha256, timestamp, write_json
+from .state import baseline, baseline_key, channel_feed, feed_versions, newest
 
 
 def assert_tag(api, context: dict) -> None:
@@ -76,9 +76,9 @@ def check_baseline(api, directory: Path, context: dict, manifest: dict) -> bool:
     expected = manifest["files"]["appcast.xml"]["sha256"]
     if data and sha256(data) == expected:
         return True
-    versions = feed_versions(data, context["channel"])
+    versions = feed_versions(data)
     target = Version.parse(context["version"])
-    if versions and max(versions, key=lambda v: v.key).key >= target.key:
+    if versions and newest(versions).build >= target.build:
         raise ReleaseError("SUPERSEDED_OR_CONFLICTING_FEED")
     release = api.release(context["release_tag"])
     recovery = None
@@ -140,6 +140,33 @@ def stage(api, directory: Path, context: dict, backup: Path) -> dict:
     return manifest
 
 
+def mirror_legacy_feed(api, directory: Path, context: dict, tag: str, expected_hash: str, *, read_public=public_read) -> None:
+    """Copy the signed main feed to a feed that pre-0.6 builds still poll.
+
+    Those builds ignore <sparkle:channel> items, so alpha and old beta installs
+    see only stable releases and upgrade straight to the newest one.
+    """
+    release = api.release(tag)
+    if release is None:
+        return  # No installed build ever polled this feed.
+    if release["draft"] or not release["prerelease"]:
+        raise ReleaseError("Feed container must be a published prerelease")
+    live = named_asset(release, "appcast.xml")
+    if live and sha256(api.asset_bytes(live)) == expected_hash:
+        return
+    staged_path = directory.parent / f"appcast-{expected_hash}.xml"
+    shutil.copy2(directory / "appcast.xml", staged_path)
+    ensure_asset(api, tag, staged_path)
+    staged = named_asset(api.release(tag), staged_path.name)
+    if live:
+        api.api(f"releases/assets/{live['id']}", method="DELETE")
+    api.api(f"releases/assets/{staged['id']}", method="PATCH", data={"name": "appcast.xml"})
+    final = named_asset(api.release(tag), "appcast.xml")
+    if final is None or sha256(api.asset_bytes(final)) != expected_hash:
+        raise ReleaseError(f"LEGACY_FEED_PENDING: {tag}")
+    read_public(feed_url(tag), expected_hash)
+
+
 def commit(api, directory: Path, context: dict, *, read_public=public_read) -> dict:
     release = api.release(context["release_tag"])
     manifest = validate(directory, context, allow_expired=bool(release and not release["draft"]))
@@ -198,6 +225,8 @@ def commit(api, directory: Path, context: dict, *, read_public=public_read) -> d
     if sha256(final) != expected_hash:
         raise ReleaseError("RELEASE_PUBLISHED_FEED_PENDING")
     read_public(Version.parse(context["version"]).feed_url, expected_hash)
+    for tag in LEGACY_FEED_TAGS:
+        mirror_legacy_feed(api, directory, context, tag, expected_hash, read_public=read_public)
     return {**context, "status": "PUBLISHED", "published_at": timestamp(),
             "producer": manifest["producer"], "files": manifest["files"],
             "notarization": json.loads((directory / "verification.json").read_text()).get("notarization")}

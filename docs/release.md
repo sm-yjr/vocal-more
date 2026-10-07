@@ -8,53 +8,62 @@
 
 ## 版本与通道
 
-`pyproject.toml` 是产品版本的唯一来源，`uv.lock` 的本项目版本必须一致。发布说明文件名使用 Python 的 PEP 440 版本，tag 推荐使用下表形式：
+产品版本采用 `x.y.z+构建号`：稳定版如 `0.6.0+1`，beta 如 `0.6.1-beta.1+58`。alpha 已停用。
 
-| 通道 | 项目版本 / 发布说明 | 推荐 tag | Sparkle feed Release | GitHub 标记 |
-| --- | --- | --- | --- | --- |
-| stable | `0.4.18` / `docs/releases/0.4.18.md` | `v0.4.18` | `sparkle-feed` | 正式版，更新 Latest |
-| alpha | `0.4.18a1` / `docs/releases/0.4.18a1.md` | `v0.4.18-alpha.1` | `sparkle-feed-alpha` | prerelease，不更新 Latest |
-| beta | `0.4.18b1` / `docs/releases/0.4.18b1.md` | `v0.4.18-beta.1` | `sparkle-feed-beta` | prerelease，不更新 Latest |
+`pyproject.toml` 是唯一来源：`[project].version` 写 PEP 440 形式（`0.6.0` 或 `0.6.1b1`），`[tool.vocal-more].build` 写构建号；`uv.lock` 中本项目版本必须与 `[project].version` 一致。构建号是 stable 和 beta 共用的全局整数，每次发布都必须大于此前任何已发布的构建号，否则准备阶段以 `SUPERSEDED` 停止。
 
-预发布序号为 1～255。也接受裸 tag、PEP 440 tag，例如 `0.4.18`、`v0.4.18a1`、`0.4.18-beta.1`；同一版本只能发布一次，不能用多个别名重复发布。推荐从准备到发布始终使用同一 tag 拼写，否则必须重新签署下载 URL。
+| 通道 | pyproject 版本 / 构建号 | 显示版本 | 发布说明 | tag | GitHub 标记 |
+| --- | --- | --- | --- | --- | --- |
+| stable | `0.6.0` / `1` | `0.6.0+1` | `docs/releases/0.6.0.md` | `v0.6.0` | 正式版，更新 Latest |
+| beta | `0.6.1b1` / `58` | `0.6.1-beta.1+58` | `docs/releases/0.6.1-beta.1.md` | `v0.6.1-beta.1` | prerelease，不更新 Latest |
 
-App 的 `SUFeedURL` 仍记录构建所属通道，作为未显式选择时的兼容默认值。设置中的 **Stable** 使用稳定 feed，**Nightly** 使用 alpha feed；beta feed 继续用于既有 beta 构建，但不作为新的用户可选渠道。首次发布某通道时没有 delta；从第二版开始生成该通道上一版到当前版的 delta。各通道均需完成相同的签名、公证和验证。
+tag 和 DMG 名（`Vocal-More-0.6.1-beta.1.dmg`）不含构建号。beta 序号为 1～255。也接受裸 tag 和 PEP 440 别名，例如 `0.6.0`、`v0.6.1b1`；同一版本只能发布一次，推荐从准备到发布始终使用同一 tag 拼写，否则必须重新签署下载 URL。
 
-用户可在“设置 → 通用 → 更新渠道”切换 Stable / Nightly，切换后 Sparkle 会立即重置自动检查周期；Nightly 对应 alpha feed。旧版配置没有该字段时沿用安装包内嵌通道，因此已有 Alpha 安装会继续跟随 Nightly。正式版必须修改为无后缀版本、生成新的正式候选，不能把 alpha/beta DMG 改名后直接发布。
+Info.plist：`CFBundleShortVersionString` 为 `x.y.z`，`CFBundleVersion` 为构建号（Sparkle 按它比较新旧），`VocalMoreVersion` 为显示版本，`VocalMoreReleaseChannel` 为 `stable` 或 `beta`。
 
-`CFBundleShortVersionString` 保持三段数字；`CFBundleVersion` 和 `VocalMoreVersion` 保留完整产品版本，`VocalMoreReleaseChannel` 保存通道。应用版本显示和 Sparkle feed 的显示版本保留 alpha/beta 后缀。
+### 升级规则
+
+所有版本共用一个签名 feed（`sparkle-feed`）。beta 条目带 `<sparkle:channel>beta</sparkle:channel>`：
+
+- **稳定版**只接收稳定版。
+- **Beta** 同时接收 beta 和稳定版，以构建号较新的为准。用户在“设置 → 通用 → 更新通道”选择 Stable / Beta；未选择时由安装包通道决定。
+- **旧 alpha（0.6 之前）**直接升级到稳定版：每次发布都会把同一份签名 feed 复制到旧 `sparkle-feed-alpha` 和 `sparkle-feed-beta`，旧版本不识别 beta 条目，只会看到稳定版；旧版本号（如 `0.6.0a1`）在 Sparkle 中小于任何构建号。旧配置里的 `nightly` 选择会被丢弃，回落到稳定版。
+
+delta 只从同通道的上一个版本生成：稳定版基于上一稳定版，beta 基于上一 beta；跨通道升级使用完整 DMG。正式版必须修改为非 beta 版本并生成新的正式候选，不能把 beta DMG 改名后发布。
 
 ## 日常发布步骤
 
-1. 更新 `pyproject.toml`、`uv.lock` 中 `vocal-more` 的版本，添加非空发布说明。仅改版本时不要接受无关的锁文件重写。完成常规测试后提交并推送到 `main`。
+1. 更新 `pyproject.toml` 的版本并把 `[tool.vocal-more].build` 加一，同步 `uv.lock` 中 `vocal-more` 的版本，添加非空发布说明。仅改版本时不要接受无关的锁文件重写。完成常规测试后提交并推送到 `main`。
 2. 等待 **Prepare Release** 成功。Summary 的“候选已就绪”会给出完整 source SHA、预计 tag 和 artifact ID。已发布版本的普通 `main` 提交会跳过候选构建。
 3. 把 tag 指向该候选的完整 SHA。不要隐式使用本地 HEAD；候选准备后再改代码或说明需要新候选。
 4. 等待 **Release DMG** 完成，确认 Summary 显示发布完成及回执。只有公开 DMG/delta 和签名 feed 读回验证成功才算完成。
 
-例如发布 alpha（以下版本和 SHA 均需替换为实际候选）：
+例如发布 beta（以下版本和 SHA 均需替换为实际候选）：
 
 ```bash
 candidate_sha='替换为候选 Summary 中的完整 SHA'
-git tag -a v0.4.18-alpha.1 "$candidate_sha" -m 'Vocal More 0.4.18 alpha 1'
-git push origin refs/tags/v0.4.18-alpha.1
+git tag -a v0.6.1-beta.1 "$candidate_sha" -m 'Vocal More 0.6.1 beta 1'
+git push origin refs/tags/v0.6.1-beta.1
 ```
 
-beta 和 stable 分别使用 `v0.4.18-beta.1`、`v0.4.18`，且各自 tag 必须匹配提交内的项目版本。推送 workflow 文件只会启用流程；不会自动修改项目版本或创建版本 tag。
+beta 和 stable 分别使用 `v0.6.1-beta.1`、`v0.6.1`，且各自 tag 必须匹配提交内的项目版本。推送 workflow 文件只会启用流程；不会自动修改项目版本或创建版本 tag。
 
 候选也可以在 `main` 上手动准备，源码必须位于 `main` 历史中：
 
 ```bash
 gh workflow run release-prepare.yml --ref main \
-  -f source_sha="$candidate_sha" -f release_tag=v0.4.18-alpha.1
+  -f source_sha="$candidate_sha" -f release_tag=v0.6.1-beta.1
 ```
 
 ## 自动回退与重试
+
+先定位失败原因和已完成的远端写入，再重试。特别是 `Upload not visible`：先核对草稿列表、Release ID 和资产摘要，不能直接重复创建 Release。当前发布脚本从目标 source SHA 检出；只修改 main 后重跑旧 tag，不会自动使用修复后的脚本。历史故障、测试边界和恢复规则见 [0.5.0a1 发布复盘](release-postmortem-0.5.0a1.md)。
 
 `.github/workflows/release.yml` 支持 tag push 和手动触发：
 
 ```bash
 gh workflow run release.yml --ref main \
-  -f release_tag=v0.4.18-alpha.1 -f mode=auto
+  -f release_tag=v0.6.1-beta.1 -f mode=auto
 ```
 
 | mode | 行为 |

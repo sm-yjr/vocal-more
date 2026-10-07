@@ -7,6 +7,7 @@ use objc2::{
     MainThreadMarker, msg_send,
     rc::Retained,
     runtime::{AnyClass, AnyObject},
+    sel,
 };
 use objc2_foundation::NSString;
 use serde_json::json;
@@ -204,26 +205,24 @@ fn install(mtm: MainThreadMarker, commands: CommandSink) -> Result<TerminationGa
             .load(&delegate)
     };
     let gate = TerminationGate::install(mtm, commands.clone())?;
+    // Instances keep their (possibly KVO) classes: swapping NSApp's isa under
+    // a KVO subclass corrupts KVO and crashes on activation in macOS 27.
     ensure!(
-        delegate.class().superclass() == Some(original),
-        "original GPUI delegate superclass was not preserved"
+        delegate.class() == original,
+        "termination gate changed the GPUI delegate class"
     );
     ensure!(
-        delegate.class().instance_size() == original.instance_size(),
-        "GPUI delegate layout changed"
+        app.class() == original_application,
+        "termination gate changed the GPUI/KVO application class"
     );
     ensure!(
-        delegate.class().instance_variables().is_empty(),
-        "termination subclass added ivars"
-    );
-    ensure!(
-        app.class().superclass() == Some(original_application),
-        "original GPUI/KVO application superclass was not preserved"
-    );
-    ensure!(
-        app.class().instance_size() == original_application.instance_size()
-            && app.class().instance_variables().is_empty(),
-        "application layout changed"
+        original
+            .instance_method(sel!(applicationShouldTerminate:))
+            .is_some()
+            && original_application
+                .instance_method(sel!(terminate:))
+                .is_some(),
+        "termination hooks are not reachable from the GPUI instances"
     );
     for (selector, imp) in application_methods {
         ensure!(
@@ -262,13 +261,12 @@ fn install(mtm: MainThreadMarker, commands: CommandSink) -> Result<TerminationGa
     ensure!(platform == original_platform, "GPUI platform ivar changed");
     drop(gate);
     ensure!(
-        delegate.class() == original,
-        "dropping the inactive gate did not restore the original delegate class"
+        delegate.class() == original && app.class() == original_application,
+        "dropping the gate changed the GPUI instance classes"
     );
-    ensure!(
-        app.class() == original_application,
-        "dropping the gate did not restore the original GPUI/KVO application class"
-    );
+    // Without a gate the delegate hook answers NSTerminateNow, like AppKit.
+    let reply: usize = unsafe { msg_send![&*delegate,applicationShouldTerminate:&*app] };
+    ensure!(reply == 1, "inactive termination hook did not answer Now");
     TerminationGate::install(mtm, commands)
 }
 

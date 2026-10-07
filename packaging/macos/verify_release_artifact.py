@@ -235,7 +235,7 @@ def verify_release_artifact(
         from release.model import Version
         version = Version.parse(info.get("VocalMoreVersion", info["CFBundleShortVersionString"]))
         if (info["CFBundleShortVersionString"] != version.base
-                or info["CFBundleVersion"] != version.text
+                or info["CFBundleVersion"] != version.bundle_version
                 or info.get("SUFeedURL") != version.feed_url
                 or info.get("VocalMoreReleaseChannel", "stable") != version.channel):
             raise RuntimeError("App version or release channel metadata mismatch")

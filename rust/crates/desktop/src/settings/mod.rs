@@ -127,9 +127,9 @@ impl Settings {
             controls: HashMap::new(),
             prompts: HashMap::new(),
             prompt_category: "output_type",
-            term: cx.new(|cx| InputState::new(window, cx).placeholder("Vocal More")),
-            aliases: cx.new(|cx| InputState::new(window, cx).placeholder("vocal more, vocalmore")),
-            filter: cx.new(|cx| InputState::new(window, cx).placeholder("搜索 / Search")),
+            term: cx.new(|cx| InputState::new(window, cx)),
+            aliases: cx.new(|cx| InputState::new(window, cx)),
+            filter: cx.new(|cx| InputState::new(window, cx)),
             capture: Default::default(),
             show_key: false,
             model_checking: false,
@@ -294,6 +294,13 @@ impl Settings {
         }
         cx.subscribe(&this.filter, |_, _, _: &InputEvent, cx| cx.notify())
             .detach();
+        this.sync_placeholders(window, cx);
+        // Geist light/dark follows the macOS appearance while the window is open.
+        crate::theme::follow_appearance(window, cx);
+        cx.observe_window_appearance(window, |_, window, cx| {
+            crate::theme::follow_appearance(window, cx);
+        })
+        .detach();
         this
     }
     pub(super) fn config(&self) -> &Value {
@@ -326,6 +333,24 @@ impl Settings {
                 .as_str()
                 .is_some_and(|phase| ["starting", "active", "stopping"].contains(&phase))
             || self.calibration.phase.is_some()
+    }
+    pub(super) fn advanced(&self) -> bool {
+        get(self.config(), "ui.advanced_settings") == true
+    }
+    /// Advanced fields stay hidden for everyday use, except when a saved value
+    /// or an enabled feature means the user needs to see or undo them.
+    pub(super) fn shown(&self, field: Field) -> bool {
+        if !field.advanced || self.advanced() {
+            return true;
+        }
+        let saved = |key| !schema::display_value(get(self.config(), key)).is_empty();
+        match field.key {
+            "network.proxy_url" => saved("network.proxy_url"),
+            "asr.realtime_url" => {
+                saved("asr.realtime_url") || get(self.config(), "screen_context_enabled") == true
+            }
+            _ => false,
+        }
     }
     pub(super) fn disabled(&self, key: &str) -> bool {
         if key.starts_with("audio.") && key != "audio.waveform_ceiling_dbfs" && self.audio_busy() {
@@ -436,8 +461,8 @@ impl Settings {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Err(error) = schema::validate(key, &value) {
-            self.error = Some(error.into());
+        if let Err((zh, en)) = schema::validate(key, &value) {
+            self.error = Some(self.text(zh, en).into());
             cx.notify();
             return;
         }
@@ -516,6 +541,24 @@ impl Settings {
         }
         self.sync_controls(window, cx, true);
     }
+    /// Placeholders follow the interface language; examples read as examples
+    /// so they are not mistaken for saved entries.
+    fn sync_placeholders(&self, window: &mut Window, cx: &mut Context<Self>) {
+        for (input, zh, en) in [
+            (&self.term, "例如 Vocal More", "e.g. Vocal More"),
+            (
+                &self.aliases,
+                "例如 vocal more, vocalmore",
+                "e.g. vocal more, vocalmore",
+            ),
+            (&self.filter, "搜索录音文本", "Search recording text"),
+        ] {
+            let placeholder = self.text(zh, en);
+            input.update(cx, |input, cx| {
+                input.set_placeholder(placeholder, window, cx)
+            });
+        }
+    }
     fn sync_controls(&mut self, window: &mut Window, cx: &mut Context<Self>, force: bool) {
         for field in schema::FIELDS {
             let value = get(self.config(), field.key).clone();
@@ -550,6 +593,7 @@ impl Settings {
                 Control::Toggle => {}
             }
         }
+        self.sync_placeholders(window, cx);
         for &(category, _, _) in schema::PROMPT_CATEGORIES {
             let input = &self.prompts[category];
             if force || !input.read(cx).focus_handle(cx).is_focused(window) {
@@ -1001,8 +1045,12 @@ impl Settings {
                 json!(text.trim())
             };
             if get(self.config(), field.key) != &value {
-                if let Err(error) = schema::validate(field.key, &value) {
-                    failed.push(format!("{}: {error}", field.title(self.english())));
+                if let Err((zh, en)) = schema::validate(field.key, &value) {
+                    failed.push(format!(
+                        "{}: {}",
+                        field.title(self.english()),
+                        self.text(zh, en)
+                    ));
                 } else if let Err(error) = self
                     .commands
                     .request_checked("set_config", json!({"key":field.key,"value":value}))
