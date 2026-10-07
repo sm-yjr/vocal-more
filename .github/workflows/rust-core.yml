@@ -58,3 +58,4 @@ jobs:
         run: |
           cargo +1.98.1 run --locked --manifest-path rust/Cargo.toml -p vocal-more-desktop --bin vocal-more-native-termination-acceptance
           cargo +1.98.1 run --locked --manifest-path rust/Cargo.toml -p vocal-more-desktop --bin vocal-more-native-termination-acceptance -- --host-quit
+          cargo +1.98.1 run --locked --manifest-path rust/Cargo.toml -p vocal-more-desktop --bin vocal-more-native-termination-acceptance -- --host-quit --slow-cocoa
