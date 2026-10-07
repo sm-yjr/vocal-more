@@ -18,8 +18,50 @@ use vocal_more_core::{
     audio::Source,
     protocol::RealtimeConfig,
     recording::RecordingStore,
-    runtime::{ExternalAsr, Host, Phase, StartRequest, wait_terminal},
+    runtime::{ExternalAsr, Host, Phase, StartRequest, Status, wait_terminal},
 };
+
+// Session responsiveness and durable filesystem commits have separate budgets.
+// Windows CI can spend seconds in sync_all, even for a tiny WAV. Keep each
+// test's original session deadline and bound persistence like Host::shutdown.
+const PERSISTENCE_TIMEOUT: Duration = Duration::from_secs(5);
+
+async fn wait_committed(host: &Host, session_deadline: Duration) -> Result<Status> {
+    let mut status = host.subscribe().context("session status")?;
+    timeout(session_deadline, async {
+        loop {
+            let phase = status.borrow_and_update().phase.clone();
+            if phase == Phase::Committing || phase.terminal() {
+                return Ok::<_, anyhow::Error>(());
+            }
+            status.changed().await.context("session status closed")?;
+        }
+    })
+    .await
+    .with_context(|| format!("session did not enter commit: {:?}", host.status()))??;
+    wait_terminal(host, PERSISTENCE_TIMEOUT)
+        .await
+        .with_context(|| format!("recording did not durably commit: {:?}", host.status()))
+}
+
+async fn wait_archived_pcm(host: &Host, expected_bytes: u64) -> Result<()> {
+    let mut status = host.subscribe().context("session status")?;
+    timeout(PERSISTENCE_TIMEOUT, async {
+        loop {
+            let current = status.borrow_and_update().clone();
+            anyhow::ensure!(
+                !current.phase.terminal(),
+                "session ended before PCM archival: {current:?}"
+            );
+            if current.pcm_bytes == expected_bytes {
+                return Ok::<_, anyhow::Error>(());
+            }
+            status.changed().await.context("session status closed")?;
+        }
+    })
+    .await
+    .with_context(|| format!("PCM archival did not complete: {:?}", host.status()))?
+}
 
 fn asr(endpoint: String) -> RealtimeConfig {
     RealtimeConfig {
@@ -201,8 +243,10 @@ async fn cancel_interrupts_blocked_handshake_and_shutdown_finishes_files() -> Re
         .generation;
     let (_blocked_stream, _) = timeout(Duration::from_secs(2), listener.accept()).await??;
     host.append(generation, Bytes::from(vec![3; BLOCK_BYTES]))?;
+    // Finish the first-file initialization before timing handshake cancellation.
+    wait_archived_pcm(&host, BLOCK_BYTES as u64).await?;
     host.cancel(generation)?;
-    let state = wait_terminal(&host, Duration::from_secs(1)).await?;
+    let state = wait_committed(&host, Duration::from_secs(1)).await?;
     assert_eq!(state.phase, Phase::Cancelled);
     assert_eq!(state.pcm_bytes, BLOCK_BYTES as u64);
     let generation = host.start(StartRequest::default()).await?.generation;
@@ -272,14 +316,15 @@ async fn repeated_sessions_and_unsupported_wav_fail_without_poisoning_host() -> 
     })
     .await?;
     assert_eq!(
-        wait_terminal(&host, Duration::from_secs(2)).await?.phase,
+        wait_committed(&host, Duration::from_secs(2)).await?.phase,
         Phase::Failed
     );
     for _ in 0..50 {
         let generation = host.start(StartRequest::default()).await?.generation;
         host.append(generation, Bytes::from_static(&[3, 0, 4, 0]))?;
+        wait_archived_pcm(&host, 4).await?;
         host.finish(generation)?;
-        let state = wait_terminal(&host, Duration::from_secs(2)).await?;
+        let state = wait_committed(&host, Duration::from_secs(2)).await?;
         assert_eq!(state.phase, Phase::Completed);
         assert_eq!(state.pcm_bytes, 4);
     }
@@ -342,7 +387,7 @@ async fn screen_frame_backpressure_keeps_archiving_until_the_user_finishes() -> 
     assert!(host.status().error.is_some());
 
     host.finish(generation)?;
-    let state = wait_terminal(&host, Duration::from_secs(2)).await?;
+    let state = wait_committed(&host, Duration::from_secs(2)).await?;
     assert_eq!(state.phase, Phase::Failed);
     assert!(state.error.as_deref().unwrap().contains("ASR queue full"));
     assert_eq!(state.pcm_bytes, expected_bytes);

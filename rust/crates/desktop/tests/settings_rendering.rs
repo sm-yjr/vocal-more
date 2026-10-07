@@ -50,6 +50,7 @@ mod macos {
         output: PathBuf,
         shots: Vec<Value>,
         configuration_coverage: Value,
+        preview_events: Vec<Value>,
         // Entity handles must drop before HeadlessAppContext's leak detector.
         cx: HeadlessAppContext,
     }
@@ -99,6 +100,7 @@ mod macos {
                 output,
                 shots: vec![],
                 configuration_coverage: Value::Null,
+                preview_events: vec![],
             };
             // GPUI emits Focus/Blur only for the active platform window;
             // headless construction alone does not activate TestPlatform.
@@ -111,6 +113,11 @@ mod macos {
                 .update_window(self.window, |_, window, cx| operation(window, cx))
         }
         fn pump(&mut self) -> Result<()> {
+            self.pump_backend()?;
+            self.window(|window, cx| window.render_frame(cx))?;
+            Ok(())
+        }
+        fn pump_backend(&mut self) -> Result<()> {
             self.cx.run_until_parked();
             let view = self.view.clone();
             while let Ok(event) = self.events.try_recv() {
@@ -137,6 +144,13 @@ mod macos {
                         self.driver.send(request);
                     }
                     UiEvent::Backend { method, params } => {
+                        if method.starts_with("mic_test_") || method == "state_changed" {
+                            self.preview_events
+                                .push(json!({"event":method,"params":params}));
+                            if self.preview_events.len() > 24 {
+                                self.preview_events.remove(0);
+                            }
+                        }
                         if method == "backend_disconnected" {
                             bail!("backend disconnected: {}", params["message"]);
                         }
@@ -159,7 +173,6 @@ mod macos {
                 }
             }
             self.cx.run_until_parked();
-            self.window(|window, cx| window.render_frame(cx))?;
             Ok(())
         }
         fn wait(&mut self, predicate: impl Fn(&Self) -> bool) -> Result<()> {
@@ -176,7 +189,44 @@ mod macos {
         }
         fn call(&mut self, method: &str, params: Value) -> Result<Value> {
             let id = self.sink.request(method, params);
-            self.wait(|this| this.terminal.contains_key(&id))?;
+            self.wait(|this| this.terminal.contains_key(&id))
+                .with_context(|| format!("waiting for {method} request {id}"))?;
+            self.response(id)
+        }
+        fn wait_preview(
+            &mut self,
+            label: &str,
+            predicate: impl Fn(&mut Self) -> bool,
+        ) -> Result<()> {
+            // Backend has a real five-second preview safety timer. Metal
+            // rendering on the hosted runner must not consume that deadline
+            // once per polling iteration or PCM append. UI tasks still run.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !predicate(self) {
+                self.pump_backend()?;
+                ensure!(
+                    Instant::now() < deadline,
+                    "{label} did not settle; preview events: {:?}; recent intents: {:?}",
+                    self.preview_events,
+                    self.intents
+                        .iter()
+                        .rev()
+                        .take(8)
+                        .map(|(method, params)| (method, &params["action"]))
+                        .collect::<Vec<_>>()
+                );
+                thread::sleep(Duration::from_millis(2));
+            }
+            self.pump_backend()
+        }
+        fn call_preview(&mut self, method: &str, params: Value) -> Result<Value> {
+            let id = self.sink.request(method, params);
+            self.wait_preview(&format!("preview {method} request {id}"), |this| {
+                this.terminal.contains_key(&id)
+            })?;
+            self.response(id)
+        }
+        fn response(&mut self, id: u64) -> Result<Value> {
             let (method, params) = self.terminal.remove(&id).unwrap();
             ensure!(
                 method == "rpc_response",
@@ -1507,6 +1557,13 @@ mod macos {
         this.set("audio.gain", json!(4.0))?;
         this.scroll_to("calibrate-whisper")?;
         this.click("calibrate-whisper")?;
+        let stop_count = this
+            .terminal
+            .values()
+            .filter(|(_, params)| {
+                params["method"] == "ui_action" && params["params"]["action"] == "stopMicTest"
+            })
+            .count();
         this.click("start-calibration")?;
         let start_count = this
             .intents
@@ -1519,38 +1576,58 @@ mod macos {
             } else {
                 start_count + 1
             };
-            this.wait(|this| {
+            this.wait_preview(&format!("calibration {phase} start intent"), |this| {
                 this.intents
                     .iter()
                     .filter(|(_, params)| params["action"] == "startMicTest")
                     .count()
                     >= count
             })?;
-            // Correlation makes the fresh generation authoritative before PCM.
-            this.settle()?;
-            let status = this.call("status", json!({}))?;
+            // The RPC status barrier alone does not prove mic_test_started was
+            // delivered or that the virtual phase timer was registered.
+            this.wait_preview(&format!("calibration {phase} recording"), |this| {
+                this.cx.update(|cx| this.view.read(cx).testing_mic_state()) == "recording"
+            })?;
+            let status = this.call_preview("status", json!({}))?;
+            ensure!(
+                status["state"] == "recording",
+                "calibration {phase} preview not recording: {status}"
+            );
             let generation = status["generation"]
                 .as_u64()
                 .context("preview generation missing")?;
             for _ in 0..12 {
-                this.call("append", json!({"generation":generation,"pcm_base64":STANDARD.encode(sample.to_le_bytes().repeat(640))}))?;
+                let status = this.call_preview("status", json!({}))?;
+                ensure!(
+                    status["state"] == "recording" && status["generation"] == generation,
+                    "calibration {phase} generation {generation} ended before PCM (real preview deadline): {status}; events: {:?}",
+                    this.preview_events
+                );
+                this.call_preview("append", json!({"generation":generation,"pcm_base64":STANDARD.encode(sample.to_le_bytes().repeat(640))}))
+                    .with_context(|| format!("calibration {phase} append generation {generation}"))?;
                 // Allow the actual preview worker to publish a new RMS sample.
                 thread::sleep(Duration::from_millis(45));
-                this.pump()?;
+                this.pump_backend()?;
             }
             this.shot(&format!("calibration-{phase}-real-preview"))?;
+            let status = this.call_preview("status", json!({}))?;
+            ensure!(
+                status["state"] == "recording" && status["generation"] == generation,
+                "calibration {phase} generation {generation} ended before virtual phase deadline: {status}; events: {:?}",
+                this.preview_events
+            );
             this.cx.advance_clock(Duration::from_millis(duration));
-            this.pump()?;
-            this.settle()?;
+            this.pump_backend()?;
+            this.call_preview("status", json!({}))?;
         }
-        this.wait(|this| {
+        this.wait_preview("calibration two UI phase stops", |this| {
             this.terminal
                 .values()
                 .filter(|(_, params)| {
                     params["method"] == "ui_action" && params["params"]["action"] == "stopMicTest"
                 })
                 .count()
-                >= 2
+                >= stop_count + 2
         })?;
         this.pump()?;
         ensure!(
