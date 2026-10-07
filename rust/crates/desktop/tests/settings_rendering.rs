@@ -1557,6 +1557,7 @@ mod macos {
         this.set("audio.gain", json!(4.0))?;
         this.scroll_to("calibrate-whisper")?;
         this.click("calibrate-whisper")?;
+        this.shot("calibration-ready")?;
         let stop_count = this
             .terminal
             .values()
@@ -1609,7 +1610,10 @@ mod macos {
                 thread::sleep(Duration::from_millis(45));
                 this.pump_backend()?;
             }
-            this.shot(&format!("calibration-{phase}-real-preview"))?;
+            // Capturing a Metal image can block beyond the backend's real
+            // five-second safety timer on hosted runners. Capture the dialog
+            // before sampling and the recommendation after both previews;
+            // keep active PCM/phase checks independent of screenshot latency.
             let status = this.call_preview("status", json!({}))?;
             ensure!(
                 status["state"] == "recording" && status["generation"] == generation,
@@ -1658,6 +1662,7 @@ mod macos {
         this.pump()?;
         this.settle()?;
         assert_eq!(this.call("status", json!({}))?["state"], "idle");
+        this.shot("calibration-cancelled")?;
         Ok(())
     }
 
