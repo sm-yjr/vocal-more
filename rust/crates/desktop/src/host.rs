@@ -1247,7 +1247,11 @@ impl DesktopHost {
             self.notify(&error.to_string());
             self.driver.close();
         }
-        self.platform.take();
+        // Close admission now, but keep the clipboard cleanup owner until the
+        // deferred quit loop has observed its read grace and bounded retry.
+        if let Some(platform) = &mut self.platform {
+            platform.close();
+        }
     }
     fn retain_shutdown_error(&mut self, event: &UiEvent) {
         if let UiEvent::Backend { method, params, .. } = event
@@ -1310,6 +1314,7 @@ impl DesktopHost {
                 Err(_) => return,
             };
             let _ = host.update(cx, |host, _| {
+                host.platform.take();
                 host.activity.take();
             });
             if display_failure {
