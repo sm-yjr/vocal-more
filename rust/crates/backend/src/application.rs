@@ -89,6 +89,7 @@ struct Active {
     mode: String,
     microphone_test: bool,
     mic_started: bool,
+    finish_at: Option<Instant>,
     core_done: bool,
     prepared: Option<(Outcome, PreparedHistory)>,
     streamed: String,
@@ -587,6 +588,7 @@ impl State {
             mode: self.mode.clone(),
             microphone_test,
             mic_started: false,
+            finish_at: None,
             core_done: false,
             prepared: None,
             streamed: String::new(),
@@ -631,6 +633,9 @@ impl State {
         Ok(json!({"ok":true,"generation":generation,"recording_id":core.recording_id}))
     }
     fn finish(&mut self) -> Result<Value> {
+        if let Some(active) = &mut self.active {
+            active.finish_at.get_or_insert_with(Instant::now);
+        }
         let Some(active) = &self.active else {
             return Ok(json!({"ok":true}));
         };
@@ -1368,6 +1373,12 @@ impl State {
                         self.emit(
                             "warning",
                             json!({"message":warning,"generation":generation}),
+                        );
+                    }
+                    if let Some(start) = self.active.as_ref().and_then(|active| active.finish_at) {
+                        vocal_more_core::diagnostics::record(
+                            vocal_more_core::diagnostics::Stage::FinishToFinalResult,
+                            start.elapsed(),
                         );
                     }
                     self.last_result = json!({"text":result.final_text,"raw_text":result.raw_text,"generation":generation});

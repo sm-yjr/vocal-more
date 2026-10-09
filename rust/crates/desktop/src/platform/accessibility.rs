@@ -14,13 +14,25 @@ use std::{
         mpsc::{self, SyncSender},
     },
     thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 
+/// Optional correction learning must not dominate result delivery. The budget
+/// includes time queued behind an earlier AX operation, not just each IPC call.
+pub const AX_CAPTURE_BUDGET: Duration = Duration::from_millis(150);
+fn remaining_timeout(deadline: Instant, now: Instant) -> Option<f32> {
+    let remaining = deadline.checked_duration_since(now)?;
+    (!remaining.is_zero()).then(|| remaining.min(Duration::from_millis(40)).as_secs_f32())
+}
 struct Snapshot {
     element: ffi::Owned,
     value: Value,
 }
-fn attribute(element: ffi::Ref, name: &str) -> Option<ffi::Owned> {
+fn attribute(element: ffi::Ref, name: &str, deadline: Instant) -> Option<ffi::Owned> {
+    let timeout = remaining_timeout(deadline, Instant::now())?;
+    unsafe {
+        ffi::AXUIElementSetMessagingTimeout(element, timeout);
+    }
     let mut out = ptr::null();
     let error = unsafe {
         ffi::AXUIElementCopyAttributeValue(
@@ -30,30 +42,34 @@ fn attribute(element: ffi::Ref, name: &str) -> Option<ffi::Owned> {
         )
     };
     let value = unsafe { ffi::Owned::from_create(out) };
-    if error == 0 { value } else { None }
-}
-fn text_attribute(element: ffi::Ref, name: &str) -> Option<String> {
-    attribute(element, name).and_then(|v| ffi::cf_string(v.as_ptr()))
-}
-fn snapshot(element: ffi::Owned, expected: Option<&Value>) -> Option<Snapshot> {
-    unsafe {
-        ffi::AXUIElementSetMessagingTimeout(element.as_ptr(), 0.2);
+    if error == 0 && Instant::now() < deadline {
+        value
+    } else {
+        None
     }
+}
+fn text_attribute(element: ffi::Ref, name: &str, deadline: Instant) -> Option<String> {
+    attribute(element, name, deadline).and_then(|v| ffi::cf_string(v.as_ptr()))
+}
+fn snapshot(element: ffi::Owned, expected: Option<&Value>, deadline: Instant) -> Option<Snapshot> {
+    remaining_timeout(deadline, Instant::now())?;
     let mut pid = 0;
     if unsafe { ffi::AXUIElementGetPid(element.as_ptr(), &mut pid) } != 0 {
         return None;
     }
-    let role = text_attribute(element.as_ptr(), "AXRole")?;
+    let role = text_attribute(element.as_ptr(), "AXRole", deadline)?;
     if !matches!(
         role.as_str(),
         "AXTextField" | "AXTextArea" | "AXComboBox" | "AXSearchField"
     ) {
         return None;
     }
-    let subrole = text_attribute(element.as_ptr(), "AXSubrole").unwrap_or_default();
+    // A timed-out subrole cannot prove this is a non-secure field. Optional
+    // learning fails closed instead of reading AXValue under that uncertainty.
+    let subrole = text_attribute(element.as_ptr(), "AXSubrole", deadline)?;
     let secure_marker = format!("{role} {subrole}").to_lowercase();
     let secure = secure_marker.contains("secure") || secure_marker.contains("password");
-    let identifier = text_attribute(element.as_ptr(), "AXIdentifier").unwrap_or_default();
+    let identifier = text_attribute(element.as_ptr(), "AXIdentifier", deadline).unwrap_or_default();
     let target_id = format!("{pid}:{identifier}:{}", unsafe {
         ffi::CFHash(element.as_ptr())
     });
@@ -65,12 +81,15 @@ fn snapshot(element: ffi::Owned, expected: Option<&Value>) -> Option<Snapshot> {
     let value = if secure {
         String::new()
     } else {
-        text_attribute(element.as_ptr(), "AXValue")?
+        text_attribute(element.as_ptr(), "AXValue", deadline)?
     };
+    if value.chars().take(8001).count() > 8000 || Instant::now() >= deadline {
+        return None;
+    }
     let range = if secure {
         None
     } else {
-        attribute(element.as_ptr(), "AXSelectedTextRange").and_then(|v| {
+        attribute(element.as_ptr(), "AXSelectedTextRange", deadline).and_then(|v| {
             let mut range = ffi::Range::default();
             if unsafe {
                 ffi::AXValueGetType(v.as_ptr()) == 4
@@ -106,6 +125,9 @@ fn snapshot(element: ffi::Owned, expected: Option<&Value>) -> Option<Snapshot> {
             .unwrap_or_default()
         }
     };
+    if Instant::now() >= deadline {
+        return None;
+    }
     Some(Snapshot {
         element,
         value: json!({"target_id":target_id,"pid":pid,"value":value,"role":role,"subrole":subrole,
@@ -113,15 +135,16 @@ fn snapshot(element: ffi::Owned, expected: Option<&Value>) -> Option<Snapshot> {
         "selection_start":range.map(|v|v.0),"selection_length":range.map(|v|v.1)}),
     })
 }
-fn focused() -> Option<Snapshot> {
+fn focused(deadline: Instant) -> Option<Snapshot> {
     if !unsafe { ffi::AXIsProcessTrusted() } {
         return None;
     }
     let system = unsafe { ffi::Owned::from_create(ffi::AXUIElementCreateSystemWide()) }?;
-    unsafe {
-        ffi::AXUIElementSetMessagingTimeout(system.as_ptr(), 0.2);
-    }
-    snapshot(attribute(system.as_ptr(), "AXFocusedUIElement")?, None)
+    snapshot(
+        attribute(system.as_ptr(), "AXFocusedUIElement", deadline)?,
+        None,
+        deadline,
+    )
 }
 pub fn utf16_range(text: &str, start: isize, length: isize) -> Option<(usize, usize)> {
     let start = usize::try_from(start).ok()?;
@@ -150,7 +173,7 @@ pub fn utf16_range(text: &str, start: isize, length: isize) -> Option<(usize, us
 }
 
 enum Command {
-    Capture(Value),
+    Capture(Value, Instant),
     Retain(String, Value),
     Poll(String),
     End(String),
@@ -170,16 +193,18 @@ impl AccessibilityWorker {
             while let Ok(command)=receiver.recv() {
                 if stopping.load(Ordering::Acquire) {break;}
                 autoreleasepool(|_|match command {
-                    Command::Capture(request_id)=>{
-                        let captured=focused();let value=captured.as_ref().map(|s|s.value.clone()).unwrap_or(Value::Null);
+                    Command::Capture(request_id,deadline)=>{
+                        let _span=vocal_more_core::diagnostics::Span::new(vocal_more_core::diagnostics::Stage::AxCapture);
+                        let captured=focused(deadline);let value=captured.as_ref().map(|s|s.value.clone()).unwrap_or(Value::Null);
                         if let Some(captured)=captured {pending.clear();pending.insert(captured.value["target_id"].as_str().unwrap_or_default().into(),captured);}
                         if !stopping.load(Ordering::Acquire) {commands.request("platform_event",json!({"method":"platform_focused_snapshot","params":{"request_id":request_id,"snapshot":value}}));}
                     },
                     Command::Retain(id,value)=>{if let Some(snapshot)=pending.remove(value["target_id"].as_str().unwrap_or_default()) && snapshot.value["pid"]==value["pid"] {retained.insert(id,snapshot);}},
                     Command::Poll(id)=>{
-                        let current=focused();let original=retained.get(&id);
+                        let deadline=Instant::now()+AX_CAPTURE_BUDGET;
+                        let current=focused(deadline);let original=retained.get(&id);
                         let same=current.as_ref().zip(original).is_some_and(|(a,b)|a.value["target_id"]==b.value["target_id"]&&a.value["pid"]==b.value["pid"]);
-                        let final_read=if same {None} else {original.and_then(|old|snapshot(old.element.clone(),Some(&old.value)))};
+                        let final_read=if same {None} else {original.and_then(|old|snapshot(old.element.clone(),Some(&old.value),deadline))};
                         if !stopping.load(Ordering::Acquire) {commands.request("poll_observation",json!({"observation_id":id,"focused":current.map(|v|v.value),"retained":final_read.map(|v|v.value)}));}
                     },
                     // Ending the previous observation can arrive between a new
@@ -206,7 +231,7 @@ impl AccessibilityWorker {
             .map_err(|_| anyhow::anyhow!("系统操作繁忙，请稍后再试"))
     }
     pub fn capture(&self, id: Value) -> Result<()> {
-        self.submit(Command::Capture(id))
+        self.submit(Command::Capture(id, Instant::now() + AX_CAPTURE_BUDGET))
     }
     pub fn retain(&self, id: &str, snapshot: &Value) -> Result<()> {
         self.submit(Command::Retain(id.into(), snapshot.clone()))
@@ -239,6 +264,21 @@ impl Drop for AccessibilityWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn queued_capture_uses_one_total_deadline_and_bounded_ipc() {
+        let now = Instant::now();
+        let deadline = now + AX_CAPTURE_BUDGET;
+        assert_eq!(remaining_timeout(deadline, now), Some(0.04));
+        assert_eq!(
+            remaining_timeout(deadline, now + Duration::from_millis(140)),
+            Some(0.01)
+        );
+        assert_eq!(remaining_timeout(deadline, deadline), None);
+        assert_eq!(
+            remaining_timeout(deadline, deadline + Duration::from_millis(1)),
+            None
+        );
+    }
     #[test]
     fn ax_utf16_offsets_keep_scalar_indices_and_reject_split_surrogate() {
         assert_eq!(utf16_range("a🦀中b", 1, 2), Some((1, 1)));

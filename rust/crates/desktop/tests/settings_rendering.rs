@@ -67,7 +67,7 @@ mod macos {
             let (driver, sink, events) = BackendDriver::start(options)?;
             let deadline = Instant::now() + Duration::from_secs(5);
             let snapshot = loop {
-                if let Ok(UiEvent::Backend { method, params }) = events.try_recv()
+                if let Ok(UiEvent::Backend { method, params, .. }) = events.try_recv()
                     && method == "initialized"
                 {
                     break params;
@@ -143,7 +143,7 @@ mod macos {
                         }
                         self.driver.send(request);
                     }
-                    UiEvent::Backend { method, params } => {
+                    UiEvent::Backend { method, params, .. } => {
                         if method.starts_with("mic_test_") || method == "state_changed" {
                             self.preview_events
                                 .push(json!({"event":method,"params":params}));

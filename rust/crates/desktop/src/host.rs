@@ -28,7 +28,10 @@ struct PasteWork {
 }
 impl PasteWork {
     fn accepts_ax(&self, request: &Value) -> bool {
-        self.waiting_for_ax.is_some()
+        self.accepts_ax_at(request, Instant::now())
+    }
+    fn accepts_ax_at(&self, request: &Value, now: Instant) -> bool {
+        self.waiting_for_ax.is_some_and(|deadline| now < deadline)
             && request["epoch"].as_u64() == Some(self.epoch)
             && request["generation"] == self.data["generation"]
     }
@@ -112,6 +115,9 @@ pub struct DesktopHost {
     pending: HashMap<u64, Pending>,
     pastes: HashMap<String, PasteWork>,
     deliveries: PasteLane,
+    native_delivery: Option<Delivery>,
+    activity: Option<gpui_kit::ActivityGuard>,
+    hotkey_start: Option<(u64, u64, Instant)>,
     last_text: String,
     prompt_hint: String,
     screen: Option<ScreenSession>,
@@ -160,6 +166,9 @@ impl DesktopHost {
                 pending: HashMap::new(),
                 pastes: HashMap::new(),
                 deliveries: PasteLane::default(),
+                native_delivery: None,
+                activity: None,
+                hotkey_start: None,
                 last_text: String::new(),
                 prompt_hint: String::new(),
                 screen: None,
@@ -239,7 +248,22 @@ impl DesktopHost {
         }
         match event {
             UiEvent::Request(request) => self.request(request, cx),
-            UiEvent::Backend { method, params } => self.backend_event(&method, params, cx),
+            UiEvent::Backend {
+                method,
+                params,
+                queued_at,
+            } => {
+                if matches!(
+                    method.as_str(),
+                    "state_changed" | "partial_result" | "final_result" | "paste_requested"
+                ) {
+                    vocal_more_core::diagnostics::record(
+                        vocal_more_core::diagnostics::Stage::BackendToMain,
+                        queued_at.elapsed(),
+                    );
+                }
+                self.backend_event(&method, params, cx)
+            }
         }
         if !self.closing && self.commands.take_quit_request() {
             self.begin_quit(cx);
@@ -268,6 +292,27 @@ impl DesktopHost {
         }
     }
     fn request(&mut self, mut request: Request, cx: &mut Context<Self>) {
+        if matches!(
+            request.method.as_str(),
+            "hotkey_pressed" | "hotkey_released" | "toggle_recording"
+        ) {
+            vocal_more_core::diagnostics::record(
+                vocal_more_core::diagnostics::Stage::HotkeyToMain,
+                request.admitted_at.elapsed(),
+            );
+            if self.snapshot["state"] == "idle" && request.method != "hotkey_released" {
+                self.hotkey_start = Some((request.id, request.epoch, request.admitted_at));
+                // The nonactivating accessory app is often entirely occluded.
+                // Acquire activity as soon as this user intent reaches AppKit,
+                // keeping timers/network responsive through result delivery.
+                if self.activity.is_none() {
+                    self.activity = Some(
+                        cx.background_executor()
+                            .prevent_app_nap("Vocal More dictation"),
+                    );
+                }
+            }
+        }
         if request.method == "platform_event" {
             let method = request.params["method"].as_str().unwrap_or("").to_owned();
             self.backend_event(&method, request.params["params"].clone(), cx);
@@ -345,6 +390,7 @@ impl DesktopHost {
             self.capture_screen(true);
         }
         if request.method == "cancel" {
+            self.hotkey_start.take();
             self.screen = None;
             self.pastes.clear();
             self.deliveries.clear();
@@ -357,6 +403,15 @@ impl DesktopHost {
             && self.snapshot["config"]["llm"]["polish_mode"] == "prompt"
     }
     fn backend_event(&mut self, method: &str, params: Value, cx: &mut Context<Self>) {
+        let _ui_span = match method {
+            "state_changed" => Some(vocal_more_core::diagnostics::Span::new(
+                vocal_more_core::diagnostics::Stage::StateUiUpdate,
+            )),
+            "partial_result" => Some(vocal_more_core::diagnostics::Span::new(
+                vocal_more_core::diagnostics::Stage::PreviewUiUpdate,
+            )),
+            _ => None,
+        };
         match method {
             "initialized" => {
                 self.snapshot = params.clone();
@@ -386,6 +441,16 @@ impl DesktopHost {
             }
             "rpc_response" => self.response(&params, cx),
             "rpc_error" => {
+                if matches!(
+                    params["method"].as_str(),
+                    Some("hotkey_pressed" | "toggle_recording")
+                ) && self.hotkey_start.is_some_and(|(id, epoch, _)| {
+                    params["request_id"].as_u64() == Some(id)
+                        && params["_ui_epoch"].as_u64() == Some(epoch)
+                }) {
+                    self.hotkey_start.take();
+                    self.update_activity(cx);
+                }
                 let id = params["request_id"].as_u64().unwrap_or(0);
                 if let Some(Pending::Claim(delivery) | Pending::Prepare(delivery)) =
                     self.pending.remove(&id)
@@ -430,6 +495,12 @@ impl DesktopHost {
                         };
                         self.capsule
                             .show(mode, self.prompt_enabled(), &self.prompt_hint);
+                        if let Some((_, _, start)) = self.hotkey_start.take() {
+                            vocal_more_core::diagnostics::record(
+                                vocal_more_core::diagnostics::Stage::CapsuleShow,
+                                start.elapsed(),
+                            );
+                        }
                     } else if state == "idle" {
                         if self.screen.as_ref().is_some_and(|screen| {
                             screen.epoch == params["_ui_epoch"].as_u64().unwrap_or(u64::MAX)
@@ -449,8 +520,12 @@ impl DesktopHost {
                     }
                 }
                 if let Some(platform) = &mut self.platform {
-                    platform.update_snapshot(&self.snapshot);
+                    // A session transition changes only the status item. Full
+                    // menu reconstruction and hotkey/updater configuration
+                    // belong to config/device updates, outside this hot path.
+                    platform.set_status(state);
                 }
+                self.update_activity(cx);
                 let _ = self.wake.try_send(());
             }
             "gesture_changed" => {
@@ -734,9 +809,10 @@ impl DesktopHost {
                         epoch,
                         snapshot: Value::Null,
                         waiting_for_ax: (result["observe_correction"] == true)
-                            .then(|| Instant::now() + Duration::from_secs(5)),
+                            .then(|| Instant::now() + platform::AX_CAPTURE_BUDGET),
                     },
                 );
+                let _ = self.wake.try_send(());
                 if result["observe_correction"] == true {
                     let request = json!({"token":token,"epoch":epoch,"generation":generation});
                     if let Some(platform) = &mut self.platform {
@@ -765,26 +841,47 @@ impl DesktopHost {
                     if let Some(id) = result["observation_id"].as_str() {
                         let _ = platform.retain_observation(id, &work.snapshot);
                     }
-                    match platform.paste_guarded(
+                    let deferred = match platform.paste_guarded(
                         work.data["text"].as_str().unwrap_or(""),
                         work.data["restore_clipboard"] == true,
                         work.data["native_fast_paste"] == true,
                         work.epoch,
                         generation,
                     ) {
-                        Ok(true) => {}
+                        Ok(true) => platform.paste_is_delivering(),
                         Ok(false) => {
                             self.send("cancel_observation", json!({}), None);
+                            false
                         }
                         Err(error) => {
                             self.send("cancel_observation", json!({}), None);
                             self.notify(&error.to_string());
+                            false
                         }
+                    };
+                    if deferred {
+                        self.native_delivery = Some(delivery);
+                        self.update_activity(cx);
+                        let _ = self.wake.try_send(());
+                        return;
                     }
                 }
                 self.complete_delivery(&delivery);
             }
             None => {
+                if response["result"]["ignored"] == true
+                    && matches!(
+                        response["method"].as_str(),
+                        Some("hotkey_pressed" | "toggle_recording")
+                    )
+                    && self.hotkey_start.is_some_and(|(id, epoch, _)| {
+                        response["request_id"].as_u64() == Some(id)
+                            && response["_ui_epoch"].as_u64() == Some(epoch)
+                    })
+                {
+                    self.hotkey_start.take();
+                    self.update_activity(cx);
+                }
                 if response["method"] == "snapshot" {
                     self.backend_event("resync", result.clone(), cx);
                 }
@@ -839,6 +936,9 @@ impl DesktopHost {
         params["_ui_epoch"].as_u64() == Some(self.commands.paste_epoch())
     }
     fn next_delivery(&mut self) {
+        if self.native_delivery.is_some() {
+            return;
+        }
         while let Some(delivery) = self
             .deliveries
             .next(self.commands.paste_epoch(), self.commands.generation())
@@ -1013,6 +1113,25 @@ impl DesktopHost {
             eprintln!("Vocal More: {message}");
         }
     }
+    fn update_activity(&mut self, cx: &Context<Self>) {
+        let active = self.hotkey_start.is_some()
+            || self.snapshot["state"] != "idle"
+            || self.native_delivery.is_some()
+            || self.deliveries.has_work()
+            || !self.pastes.is_empty()
+            || self
+                .platform
+                .as_ref()
+                .is_some_and(Platform::paste_is_pending);
+        if active && self.activity.is_none() {
+            self.activity = Some(
+                cx.background_executor()
+                    .prevent_app_nap("Vocal More dictation"),
+            );
+        } else if !active {
+            self.activity.take();
+        }
+    }
     fn tick_interval(&self) -> Duration {
         let mut ui = if self.capsule.needs_tick() {
             Duration::from_secs_f64(1. / 60.)
@@ -1047,9 +1166,22 @@ impl DesktopHost {
             self.prepare_paste(&token, Value::Null);
         }
         self.capsule.tick();
+        let delivery = self.platform.as_mut().and_then(Platform::poll_paste);
+        if let Some(result) = delivery {
+            if !matches!(result, Ok(true)) {
+                self.send("cancel_observation", json!({}), None);
+            }
+            if let Err(error) = result {
+                self.notify(&error.to_string());
+            }
+            if let Some(delivery) = self.native_delivery.take() {
+                self.complete_delivery(&delivery);
+            }
+        }
         if let Some(platform) = &mut self.platform {
             platform.tick();
         }
+        self.update_activity(cx);
         if self.watchdog.elapsed() >= Duration::from_secs(2) {
             self.watchdog = Instant::now();
             self.platform_status();
@@ -1110,6 +1242,7 @@ impl DesktopHost {
         self.pastes.clear();
         self.deliveries.clear();
         self.capsule.close();
+        self.native_delivery.take();
         if let Err(error) = self.driver.close_with_requests(durable) {
             self.notify(&error.to_string());
             self.driver.close();
@@ -1117,7 +1250,7 @@ impl DesktopHost {
         self.platform.take();
     }
     fn retain_shutdown_error(&mut self, event: &UiEvent) {
-        if let UiEvent::Backend { method, params } = event
+        if let UiEvent::Backend { method, params, .. } = event
             && method == "rpc_error"
             && durable_method(params["method"].as_str().unwrap_or(""), &params["params"])
         {
@@ -1131,7 +1264,13 @@ impl DesktopHost {
         self.close(cx);
         cx.spawn(async move |host, cx| {
             loop {
-                match host.update(cx, |host, _| host.driver.finished()) {
+                match host.update(cx, |host, _| {
+                    let platform_done = host
+                        .platform
+                        .as_mut()
+                        .is_none_or(Platform::shutdown_finished);
+                    host.driver.finished() && platform_done
+                }) {
                     Ok(true) => break,
                     Ok(false) => {
                         cx.background_executor()
@@ -1154,7 +1293,11 @@ impl DesktopHost {
                     failures
                         .failed_durable_requests
                         .saturating_add(host.shutdown_failed_requests),
-                    failures.cleanup_failed,
+                    failures.cleanup_failed
+                        || host
+                            .platform
+                            .as_ref()
+                            .is_some_and(Platform::shutdown_failed),
                 ) {
                     host.notify(&message);
                     host.capsule.show_failure(&message);
@@ -1166,6 +1309,9 @@ impl DesktopHost {
                 Ok(value) => value,
                 Err(_) => return,
             };
+            let _ = host.update(cx, |host, _| {
+                host.activity.take();
+            });
             if display_failure {
                 // Ordinary host ticks stop at close. Keep only the established
                 // four-second failure notice alive before final termination.
@@ -1286,15 +1432,29 @@ mod tests {
         assert_eq!(recovered_text(&stale, 3), None);
     }
     #[test]
+    fn ax_snapshot_after_deadline_is_rejected_even_with_matching_session() {
+        let work = PasteWork {
+            data: json!({"generation":8}),
+            epoch: 3,
+            snapshot: Value::Null,
+            waiting_for_ax: Some(Instant::now() - Duration::from_millis(1)),
+        };
+        assert!(!work.accepts_ax(&json!({"epoch":3,"generation":8})));
+    }
+    #[test]
     fn lost_ax_callback_expires_and_late_callbacks_cannot_prepare_twice() {
         let now = Instant::now();
         let mut work = PasteWork {
             data: json!({"generation":8}),
             epoch: 3,
             snapshot: Value::Null,
-            waiting_for_ax: Some(now + Duration::from_secs(5)),
+            waiting_for_ax: Some(now + platform::AX_CAPTURE_BUDGET),
         };
-        assert!(work.accepts_ax(&json!({"epoch":3,"generation":8})));
+        assert!(work.accepts_ax_at(&json!({"epoch":3,"generation":8}), now));
+        assert!(!work.accepts_ax_at(
+            &json!({"epoch":3,"generation":8}),
+            now + platform::AX_CAPTURE_BUDGET
+        ));
         assert!(!work.accepts_ax(&json!({"epoch":1,"generation":8})));
         assert!(!work.ax_expired(now));
         assert!(work.ax_expired(now + Duration::from_secs(5)));

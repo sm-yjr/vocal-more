@@ -65,6 +65,9 @@ fn pump(platform: &mut Platform, time: Duration) {
             }
             let _: () = msg_send![&*app, updateWindows];
         }
+        if let Some(result) = platform.poll_paste() {
+            result.expect("native paste delivery");
+        }
         platform.tick();
         std::thread::sleep(Duration::from_millis(2));
     }

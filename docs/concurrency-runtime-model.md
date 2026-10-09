@@ -25,7 +25,10 @@ A bounded generation-to-epoch registry attaches original provenance to results,
 including snapshot recovery, rather than relabeling an old result on delivery.
 
 Paste delivery has one active FIFO item across claim, asynchronous AX capture,
-prepare and guarded native insertion. Cancellation clears queued work, and both
+prepare and guarded native insertion. Compatibility paste retains its 50 ms
+clipboard settling window as a scheduled main-thread transaction, not a sleep.
+The FIFO item stays active until the actual guarded post or rollback; later
+chunks cannot overwrite its payload while it is waiting. Cancellation clears queued work, and both
 the original epoch and generation are checked before insertion. An old AX
 callback cannot complete or replace a newer queue item. The AX worker owns
 retained accessibility references and applies bounded messaging timeouts.
@@ -60,9 +63,15 @@ the host presents any failure through the existing four-second capsule notice
 before final termination. A finished driver alone does not mean every save
 succeeded.
 
-AX capture has a five-second host deadline. If its callback is lost under queue
-pressure, the active paste proceeds without an edit-learning snapshot; the
-whole delivery lane remains serial. A late callback must still match the
+AX capture has a 150 ms host deadline, including time queued behind earlier AX
+work. Each attribute request uses the remaining budget, capped at 40 ms. If its
+callback is late or lost under queue pressure, the active paste proceeds without
+an edit-learning snapshot; the whole delivery lane remains serial. A subrole
+read failure cannot prove a field is non-secure, so it skips learning without
+reading AXValue. State transitions update only the menu status, rather than
+reconstructing menu entries and reconfiguring the listener. A scoped App Nap
+activity covers admitted hotkey startup, recording, processing, queued delivery
+and clipboard cleanup, and is released when these finish. A late callback must still match the
 original epoch/generation and the waiting phase, so it cannot prepare twice.
 
 The domains below describe the Python reference implementation, retained for

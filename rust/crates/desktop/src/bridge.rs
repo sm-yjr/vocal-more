@@ -44,6 +44,8 @@ impl Drop for RequestPermit {
 #[derive(Debug)]
 pub struct Request {
     pub id: u64,
+    pub admitted_at: std::time::Instant,
+    forwarded_at: std::time::Instant,
     /// Delivery epoch at admission, before this request's main-thread hop.
     pub epoch: u64,
     pub method: String,
@@ -133,7 +135,11 @@ pub fn durable_method(method: &str, params: &Value) -> bool {
 #[derive(Debug)]
 pub enum UiEvent {
     Request(Request),
-    Backend { method: String, params: Value },
+    Backend {
+        method: String,
+        params: Value,
+        queued_at: std::time::Instant,
+    },
 }
 
 struct Shared {
@@ -205,6 +211,8 @@ impl CommandSink {
         };
         let mut request = Request {
             id,
+            admitted_at: std::time::Instant::now(),
+            forwarded_at: std::time::Instant::now(),
             epoch,
             method: method.into(),
             params,
@@ -289,6 +297,7 @@ impl CommandSink {
     }
     pub fn emit(&self, method: &str, params: Value) {
         let _ = self.events.try_send(UiEvent::Backend {
+            queued_at: std::time::Instant::now(),
             method: method.into(),
             params,
         });
@@ -408,6 +417,7 @@ impl BackendDriver {
                 if let Err(error) = result {
                     failures.cleanup_failed = true;
                     let _ = thread_sink.events.send_blocking(UiEvent::Backend {
+                        queued_at: std::time::Instant::now(),
                         method: "backend_disconnected".into(),
                         params: json!({"message":error.to_string()}),
                     });
@@ -430,7 +440,8 @@ impl BackendDriver {
         ))
     }
 
-    pub fn send(&self, request: Request) {
+    pub fn send(&self, mut request: Request) {
+        request.forwarded_at = std::time::Instant::now();
         if let Err(error) = self.commands.try_send(request) {
             let request = error.into_inner();
             let error = RequestError {
@@ -441,6 +452,7 @@ impl BackendDriver {
                 .sink
                 .events
                 .try_send(UiEvent::Backend {
+                    queued_at: std::time::Instant::now(),
                     method: "rpc_error".into(),
                     params: error.params(),
                 })
@@ -573,7 +585,7 @@ fn run_driver(
         let mut epochs = SessionEpochs::default();
         let mut snapshot = app.call("initialize", json!({})).await?;
         epochs.annotate(&mut snapshot);
-        let _=sink.events.send(UiEvent::Backend { method: "initialized".into(), params: snapshot }).await;
+        let _=sink.events.send(UiEvent::Backend { queued_at: std::time::Instant::now(), method: "initialized".into(), params: snapshot }).await;
         let mut fatal = None;
         loop {
             if sink.shared.closing.load(Ordering::Acquire) {
@@ -582,7 +594,11 @@ fn run_driver(
             tokio::select! {
                 request = commands.recv() => {
                     let Ok(request) = request else { break };
-                    let result = app.call(&request.method, request.params.clone()).await;
+                    vocal_more_core::diagnostics::record(vocal_more_core::diagnostics::Stage::MainToBackend, request.forwarded_at.elapsed());
+                    let result = {
+                        let _span = vocal_more_core::diagnostics::Span::new(vocal_more_core::diagnostics::Stage::BackendRequest);
+                        app.call(&request.method, request.params.clone()).await
+                    };
                     let durable_failed = durable_request(&request) && result.is_err();
                     let (method, params) = match result {
                         Ok(mut result) => {
@@ -598,7 +614,7 @@ fn run_driver(
                         Err(error) => ("rpc_error", json!({"request_id":request.id,
                             "_ui_epoch":request.epoch,"method":request.method,"params":request.params,"message":error.to_string()})),
                     };
-                    let response_lost = sink.events.send(UiEvent::Backend { method:method.into(), params }).await.is_err();
+                    let response_lost = sink.events.send(UiEvent::Backend { queued_at: std::time::Instant::now(), method:method.into(), params }).await.is_err();
                     if response_lost && durable_failed {
                         // Closing also releases a response already blocked by
                         // a full UI queue. Preserve that in-flight write's
@@ -613,6 +629,7 @@ fn run_driver(
                             let mut params = event["params"].clone();
                             epochs.annotate(&mut params);
                             UiEvent::Backend {
+            queued_at: std::time::Instant::now(),
                                 method:event["method"].as_str().unwrap_or("error").into(), params,
                             }
                         },
@@ -623,7 +640,7 @@ fn run_driver(
                                 Err(error) => { fatal = Some(error); break; }
                             };
                             epochs.annotate(&mut params);
-                            UiEvent::Backend { method:"resync".into(), params }
+                            UiEvent::Backend { queued_at: std::time::Instant::now(), method:"resync".into(), params }
                         }
                         Err(_) => break,
                     };
@@ -825,6 +842,8 @@ mod tests {
         for generation in 1..=SESSION_EPOCH_CAPACITY as u64 + 1 {
             let request = Request {
                 id: generation,
+                admitted_at: std::time::Instant::now(),
+                forwarded_at: std::time::Instant::now(),
                 epoch: generation * 2,
                 method: "start".into(),
                 params: json!({}),
@@ -848,6 +867,8 @@ mod tests {
         epochs.remember_start(
             &Request {
                 id: 200,
+                admitted_at: std::time::Instant::now(),
+                forwarded_at: std::time::Instant::now(),
                 epoch: 999,
                 method: "hotkey_pressed".into(),
                 params: json!({}),

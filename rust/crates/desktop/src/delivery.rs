@@ -16,6 +16,9 @@ pub struct PasteLane {
     queued: VecDeque<Delivery>,
 }
 impl PasteLane {
+    pub fn has_work(&self) -> bool {
+        self.active.is_some() || !self.queued.is_empty()
+    }
     pub fn enqueue(&mut self, delivery: Delivery) -> Result<(), &'static str> {
         if self
             .active
@@ -88,7 +91,9 @@ mod tests {
         let mut lane = PasteLane::default();
         lane.enqueue(job("old", 1, 7)).unwrap();
         let old = lane.next(1, 7).unwrap();
+        assert!(lane.has_work());
         lane.clear();
+        assert!(!lane.has_work());
         lane.enqueue(job("new", 3, 8)).unwrap();
         let new = lane.next(3, 8).unwrap();
         lane.complete(&old);

@@ -457,3 +457,65 @@ async fn failed_commit(history_failure: bool) -> Result<()> {
     app.call("shutdown", json!({})).await?;
     Ok(())
 }
+
+/// Offline latency control: generated PCM, loopback provider, disposable history.
+/// Prints only elapsed milliseconds; no provider text, settings or credentials.
+#[tokio::test]
+async fn offline_dictation_latency_probe() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    let temp = tempfile::tempdir()?;
+    let app = fixture.app(temp.path()).await?;
+    app.call(
+        "set_config",
+        json!({"key":"default_mode","value":"walkie_talkie"}),
+    )
+    .await?;
+    let mut events = app.subscribe();
+    let mut start_ms = Vec::new();
+    let mut final_ms = Vec::new();
+    let mut claim_ms = Vec::new();
+    for _ in 0..8 {
+        let start = std::time::Instant::now();
+        let session = app
+            .call("hotkey_pressed", json!({"source":{"kind":"stream"}}))
+            .await?;
+        start_ms.push(start.elapsed().as_secs_f64() * 1000.0);
+        for _ in 0..5 {
+            app.call("append",json!({"generation":session["generation"],"pcm_base64":STANDARD.encode(vec![0u8;1280])})).await?;
+        }
+        let finish = std::time::Instant::now();
+        app.call("hotkey_released", json!({})).await?;
+        let result = event(&mut events, "final_result").await?;
+        final_ms.push(finish.elapsed().as_secs_f64() * 1000.0);
+        assert_eq!(result["generation"], session["generation"]);
+        let paste = event(&mut events, "paste_requested").await?;
+        let claim = std::time::Instant::now();
+        let claimed = app
+            .call("claim_paste", json!({"token":paste["token"]}))
+            .await?;
+        assert_ne!(claimed["cancelled"], true);
+        assert_eq!(claimed["token"], paste["token"]);
+        app.call(
+            "prepare_paste_observation",
+            json!({"token":paste["token"],"snapshot":null}),
+        )
+        .await?;
+        claim_ms.push(claim.elapsed().as_secs_f64() * 1000.0);
+        idle(&app).await?;
+    }
+    for (stage, mut values) in [
+        ("start_rpc", start_ms),
+        ("stop_to_durable_final", final_ms),
+        ("claim_prepare", claim_ms),
+    ] {
+        values.sort_by(f64::total_cmp);
+        println!(
+            "offline_latency stage={stage} samples={} median_ms={:.3} max_ms={:.3}",
+            values.len(),
+            values[values.len() / 2],
+            values[values.len() - 1]
+        );
+    }
+    app.call("shutdown", json!({})).await?;
+    Ok(())
+}

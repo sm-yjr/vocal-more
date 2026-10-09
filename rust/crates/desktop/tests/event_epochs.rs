@@ -52,7 +52,7 @@ impl Host {
                         held.push(request);
                     }
                 }
-                Ok(UiEvent::Backend { method, params }) => {
+                Ok(UiEvent::Backend { method, params, .. }) => {
                     ensure!(method != "backend_disconnected", "{}", params["message"]);
                     if method == "state_changed" {
                         self.sink.update_session(
