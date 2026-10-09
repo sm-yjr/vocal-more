@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! macOS services for the Rust desktop host. AppKit objects never cross threads.
 mod accessibility;
+pub use accessibility::AX_CAPTURE_BUDGET;
 mod ffi;
 mod hotkeys;
 mod menu;
@@ -88,6 +89,18 @@ impl Platform {
             self.update_config(&snapshot["config"]);
         }
         self.menu.update(snapshot);
+    }
+    pub fn paste_is_delivering(&self) -> bool {
+        self.clipboard.is_delivering()
+    }
+    pub fn paste_is_pending(&self) -> bool {
+        self.clipboard.is_pending() || self.clipboard.is_delivering()
+    }
+    pub fn poll_paste(&mut self) -> Option<Result<bool>> {
+        match self.clipboard.poll_delivery() {
+            Ok(value) => value.map(Ok),
+            Err(error) => Some(Err(error)),
+        }
     }
     pub fn set_status(&mut self, state: &str) {
         self.menu.set_status(state);
@@ -335,10 +348,20 @@ impl Platform {
             return;
         }
         self.closed = true;
+        if self.clipboard.cancel_delivery().is_err() {
+            self.clipboard.mark_failed();
+        }
         self.playback.close();
         self.menu.close();
         self.hotkeys.take();
         self.accessibility.take();
+    }
+    pub fn shutdown_finished(&mut self) -> bool {
+        self.clipboard.tick();
+        self.closed && !self.clipboard.is_pending() && !self.clipboard.is_delivering()
+    }
+    pub fn shutdown_failed(&self) -> bool {
+        self.clipboard.failed()
     }
 }
 impl Drop for Platform {
@@ -405,4 +428,33 @@ fn choose_diagnostics_path() -> Result<Option<String>> {
         let path: Option<Retained<NSString>> = msg_send![&*url, path];
         Ok(path.map(|v| v.to_string()))
     }
+}
+
+/// Synthetic, nonactivating benchmark: no hotkeys, AX, clipboard or microphone.
+#[cfg(feature = "perf-test")]
+pub fn measure_status_updates(mtm: MainThreadMarker, commands: CommandSink) -> Value {
+    fn distribution(mut values: Vec<f64>) -> Value {
+        values.sort_by(f64::total_cmp);
+        json!({"samples":values.len(),"median_ms":values[values.len()/2],
+            "p95_ms":values[(values.len()*95/100).min(values.len()-1)]})
+    }
+    let mut menu = menu::Menu::new(mtm, commands, false);
+    let mut snapshot = json!({"config":vocal_more_backend::catalog::CONTRACT["defaults"],
+        "devices":[{"name":"Synthetic microphone","uid":"fixture-device"}],
+        "asr_models":vocal_more_backend::catalog::CONTRACT["asr_models"],"state":"idle"});
+    menu.update(&snapshot);
+    let mut rebuild = Vec::new();
+    let mut status = Vec::new();
+    for _ in 0..40 {
+        for state in ["starting", "recording", "processing", "idle"] {
+            snapshot["state"] = json!(state);
+            let start = Instant::now();
+            menu.update(&snapshot); // The exact release 0.6.0 state-change path.
+            rebuild.push(start.elapsed().as_secs_f64() * 1000.0);
+            let start = Instant::now();
+            menu.set_status(state); // The revised state-change path.
+            status.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+    }
+    json!({"legacy_menu_rebuild":distribution(rebuild),"status_only":distribution(status)})
 }

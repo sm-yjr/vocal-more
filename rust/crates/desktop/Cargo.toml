@@ -16,6 +16,7 @@ name = "vocal-more-native-termination-acceptance"
 path = "src/platform/tests/termination_harness.rs"
 
 [features]
+perf-test = []
 ui-test = ["gpui-kit/test-support"]
 
 [[test]]
@@ -47,3 +48,8 @@ regex = "1.11"
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[[bin]]
+name = "vocal-more-latency-fixture"
+path = "src/platform/tests/latency_fixture.rs"
+required-features = ["perf-test"]

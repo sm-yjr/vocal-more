@@ -33,11 +33,11 @@ impl Host {
         let deadline = Instant::now() + DEADLINE;
         loop {
             match host.events.try_recv() {
-                Ok(UiEvent::Backend { method, params }) if method == "initialized" => {
+                Ok(UiEvent::Backend { method, params, .. }) if method == "initialized" => {
                     ensure!(params["config"]["api_key"] == "");
                     return Ok(host);
                 }
-                Ok(UiEvent::Backend { method, params }) if method == "backend_disconnected" => {
+                Ok(UiEvent::Backend { method, params, .. }) if method == "backend_disconnected" => {
                     bail!("{}", params["message"])
                 }
                 Err(async_channel::TryRecvError::Empty) => {
@@ -61,7 +61,7 @@ impl Host {
                     ensure!(request.id == id, "unexpected queued UI request");
                     return Ok(request);
                 }
-                Ok(UiEvent::Backend { method, params }) if method == "backend_disconnected" => {
+                Ok(UiEvent::Backend { method, params, .. }) if method == "backend_disconnected" => {
                     bail!("{}", params["message"])
                 }
                 Err(async_channel::TryRecvError::Empty) => {

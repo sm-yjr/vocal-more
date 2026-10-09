@@ -134,6 +134,12 @@ impl NetworkReporter {
         self.ready.store(true, Ordering::Release);
         self.state.send_modify(|s| {
             s.asr_ready = true;
+            if s.startup_timing_ms.asr_ready_ms.is_none() {
+                crate::diagnostics::record(
+                    crate::diagnostics::Stage::AsrReady,
+                    self.started_at.elapsed(),
+                );
+            }
             s.startup_timing_ms
                 .asr_ready_ms
                 .get_or_insert(self.started_at.elapsed().as_secs_f64() * 1000.0);
@@ -611,6 +617,7 @@ impl Session {
                 Arc::new(record)
             });
         });
+        let _commit_span = crate::diagnostics::Span::new(crate::diagnostics::Stage::DurableCommit);
         match self.writer.finish(status, text, error.clone()).await {
             Ok(record) => self.state.send_modify(|s| {
                 s.recording = Some(Arc::new(record.clone()));
@@ -638,6 +645,7 @@ impl Session {
         let mut network_error = None;
         let mut ready = matches!(self.source, Source::Stream);
         let mut finished = false;
+        let mut finish_at: Option<Instant> = None;
         let start_deadline = Instant::now() + SOURCE_START_TIMEOUT;
         let mut audio_deadline = start_deadline;
         let mut stop_deadline = None;
@@ -681,6 +689,12 @@ impl Session {
                     stop_deadline = Some(Instant::now() + NATIVE_STOP_TIMEOUT);
                 }
                 Event::Network(result) => {
+                    if let Some(start) = finish_at {
+                        crate::diagnostics::record(
+                            crate::diagnostics::Stage::FinishToAsrDone,
+                            start.elapsed(),
+                        );
+                    }
                     *network = None;
                     if !finished && recover_network_failure {
                         let error = result.err().unwrap_or_else(|| {
@@ -698,6 +712,10 @@ impl Session {
                     return result;
                 }
                 Event::Input(Some(Input::Ready)) => {
+                    crate::diagnostics::record(
+                        crate::diagnostics::Stage::AudioSourceReady,
+                        self.started_at.elapsed(),
+                    );
                     audio_deadline = Instant::now() + SOURCE_START_TIMEOUT;
                     ready = true;
                     self.state.send_modify(|s| {
@@ -725,6 +743,12 @@ impl Session {
                     let rms = (energy / (pcm.len() / 2).max(1) as f64).sqrt();
                     self.state.send_modify(|s| {
                         s.audio_rms = rms;
+                        if s.startup_timing_ms.first_pcm_ms.is_none() {
+                            crate::diagnostics::record(
+                                crate::diagnostics::Stage::FirstPcm,
+                                self.started_at.elapsed(),
+                            );
+                        }
                         s.startup_timing_ms
                             .first_pcm_ms
                             .get_or_insert(self.started_at.elapsed().as_secs_f64() * 1000.0);
@@ -800,6 +824,7 @@ impl Session {
                 Event::Image(None) => {}
                 Event::Input(Some(Input::Finish)) => {
                     finished = true;
+                    finish_at = Some(Instant::now());
                     stop_deadline = None;
                     self.input_rx.close();
                     self.state.send_modify(|s| s.phase = Phase::Finishing);

@@ -58,7 +58,7 @@ impl Host {
         loop {
             match self.events.try_recv() {
                 Ok(UiEvent::Request(request)) => self.driver.send(request),
-                Ok(UiEvent::Backend { method, params }) => {
+                Ok(UiEvent::Backend { method, params, .. }) => {
                     ensure!(
                         method != "backend_disconnected",
                         "backend disconnected: {}",
@@ -139,7 +139,7 @@ impl Host {
             match self.events.try_recv() {
                 Ok(UiEvent::Request(request)) if request.id == id => return Ok(request),
                 Ok(UiEvent::Request(request)) => self.driver.send(request),
-                Ok(UiEvent::Backend { method, params }) => {
+                Ok(UiEvent::Backend { method, params, .. }) => {
                     self.backlog.push_back(Event { method, params });
                 }
                 Err(async_channel::TryRecvError::Empty) => {
