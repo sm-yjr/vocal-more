@@ -24,9 +24,9 @@
 | 离线 stop 到 durable final 中位 | 48.683 ms | 54.458 ms | 负载、文件同步和 mock 调度影响小样本，没有后端提速证据 |
 | 离线 claim + prepare 中位 | 0.227 ms | 0.162 ms | 未做原生注入，不能外推目标应用 |
 
-C ABI mock 故意延迟握手 600 ms，首块 PCM 在 43.354 ms 到达且首段完整保留，证明采集不等待握手；真实设备耗时未知。过期 AX 快照回归在准确发布基线 09977b7 失败，在修复版通过。原有取消、队列、durable 失败和音频恢复测试保留。
+C ABI mock 故意延迟握手 600 ms，首块 PCM 在 43.354 ms 到达且首段完整保留，证明采集不等待握手；真实设备耗时未知。过期 AX 快照回归在准确发布基线 09977b7 失败，在修复版通过。原有取消、队列、durable 失败和音频恢复测试保留。快速连续切换的回归在旧活动标记清理条件下失败，修复后通过；只有匹配 request ID 和 epoch 的终结响应释放标记，真实开始响应仍保留到胶囊展示。
 
-本地源码验证：Rust workspace 157 passed / 0 failed / 0 ignored；Python 分两部分合计 1086 passed / 11 skipped。核心 1.90 和桌面 1.98 Clippy、格式、release 构建、合成慢 Cocoa 下的原生退出验收通过。这些不等于用户桌面或真实听写验收。正式交付还须以最终提交的 CI、签名、公证和公开资产验证为准。
+本地源码验证：Rust workspace 160 passed / 0 failed / 0 ignored；Python 分两部分合计 1086 passed / 11 skipped。核心 1.90 和桌面 1.98 Clippy、格式、release 构建、合成慢 Cocoa 下的原生退出验收通过。这些不等于用户桌面或真实听写验收。正式交付还须以最终提交的 CI、签名、公证和公开资产验证为准。
 
 ## 复现
 

@@ -20,6 +20,32 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Request completion and session presentation have different epochs when
+/// several toggles are admitted before the first starting event reaches AppKit.
+fn complete_hotkey_marker(
+    marker: &mut Option<(u64, u64, Instant)>,
+    response: &Value,
+    failed: bool,
+) -> bool {
+    let matching = matches!(
+        response["method"].as_str(),
+        Some("hotkey_pressed" | "toggle_recording")
+    ) && marker.is_some_and(|(id, epoch, _)| {
+        response["request_id"].as_u64() == Some(id) && response["_ui_epoch"].as_u64() == Some(epoch)
+    });
+    // A finish response is {ok:true} without a new generation. It must release
+    // this admission's marker even when earlier session events have old epochs.
+    let terminal = failed
+        || response["result"]["ignored"] == true
+        || response["result"]["generation"].as_u64().is_none();
+    if matching && terminal {
+        marker.take();
+        true
+    } else {
+        false
+    }
+}
+
 struct PasteWork {
     data: Value,
     epoch: u64,
@@ -441,14 +467,7 @@ impl DesktopHost {
             }
             "rpc_response" => self.response(&params, cx),
             "rpc_error" => {
-                if matches!(
-                    params["method"].as_str(),
-                    Some("hotkey_pressed" | "toggle_recording")
-                ) && self.hotkey_start.is_some_and(|(id, epoch, _)| {
-                    params["request_id"].as_u64() == Some(id)
-                        && params["_ui_epoch"].as_u64() == Some(epoch)
-                }) {
-                    self.hotkey_start.take();
+                if complete_hotkey_marker(&mut self.hotkey_start, &params, true) {
                     self.update_activity(cx);
                 }
                 let id = params["request_id"].as_u64().unwrap_or(0);
@@ -869,17 +888,7 @@ impl DesktopHost {
                 self.complete_delivery(&delivery);
             }
             None => {
-                if response["result"]["ignored"] == true
-                    && matches!(
-                        response["method"].as_str(),
-                        Some("hotkey_pressed" | "toggle_recording")
-                    )
-                    && self.hotkey_start.is_some_and(|(id, epoch, _)| {
-                        response["request_id"].as_u64() == Some(id)
-                            && response["_ui_epoch"].as_u64() == Some(epoch)
-                    })
-                {
-                    self.hotkey_start.take();
+                if complete_hotkey_marker(&mut self.hotkey_start, response, false) {
                     self.update_activity(cx);
                 }
                 if response["method"] == "snapshot" {
@@ -1435,6 +1444,55 @@ mod tests {
         assert_eq!(recovered_text(&snapshot, 4), None);
         let stale = json!({"generation":9,"last_result":snapshot["last_result"]});
         assert_eq!(recovered_text(&stale, 3), None);
+    }
+    #[test]
+    fn rapid_second_toggle_finish_releases_its_activity_marker() {
+        // Both intents see the cached idle state, so the second owns the marker.
+        let mut marker = Some((2, 2, Instant::now()));
+        assert!(!complete_hotkey_marker(
+            &mut marker,
+            &json!({"request_id":1,"_ui_epoch":1,"method":"toggle_recording",
+                "result":{"ok":true,"generation":8}}),
+            false,
+        ));
+        // The second intent finishes the first session. Its response is neither
+        // ignored nor a new generation, and state events still carry epoch 1.
+        assert!(complete_hotkey_marker(
+            &mut marker,
+            &json!({"request_id":2,"_ui_epoch":2,"method":"toggle_recording",
+                "result":{"ok":true}}),
+            false,
+        ));
+        assert!(marker.is_none());
+    }
+    #[test]
+    fn successful_start_keeps_marker_until_capsule_presentation() {
+        let mut marker = Some((2, 2, Instant::now()));
+        assert!(!complete_hotkey_marker(
+            &mut marker,
+            &json!({"request_id":2,"_ui_epoch":2,"method":"hotkey_pressed",
+                "result":{"ok":true,"generation":8}}),
+            false,
+        ));
+        assert!(marker.is_some());
+    }
+    #[test]
+    fn foreign_or_failed_hotkey_responses_preserve_request_ownership() {
+        let mut marker = Some((2, 2, Instant::now()));
+        for response in [
+            json!({"request_id":1,"_ui_epoch":2,"method":"hotkey_pressed"}),
+            json!({"request_id":2,"_ui_epoch":1,"method":"hotkey_pressed"}),
+            json!({"request_id":2,"_ui_epoch":2,"method":"set_config"}),
+        ] {
+            assert!(!complete_hotkey_marker(&mut marker, &response, true));
+            assert!(marker.is_some());
+        }
+        assert!(complete_hotkey_marker(
+            &mut marker,
+            &json!({"request_id":2,"_ui_epoch":2,"method":"hotkey_pressed"}),
+            true,
+        ));
+        assert!(marker.is_none());
     }
     #[test]
     fn ax_snapshot_after_deadline_is_rejected_even_with_matching_session() {
