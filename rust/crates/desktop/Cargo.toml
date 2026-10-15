@@ -45,6 +45,8 @@ objc2-core-foundation = "0.3"
 objc2-core-graphics = "0.3"
 block2 = "0.6"
 regex = "1.11"
+libloading.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -107,8 +107,8 @@ pub fn wav_bytes(pcm: &[u8]) -> Result<Vec<u8>> {
             sample_format: hound::SampleFormat::Int,
         },
     )?;
-    for p in pcm.chunks_exact(2) {
-        writer.write_sample(i16::from_le_bytes([p[0], p[1]]))?;
+    for p in pcm.as_chunks::<2>().0 {
+        writer.write_sample(i16::from_le_bytes(*p))?;
     }
     writer.finalize()?;
     Ok(cursor.into_inner())

@@ -152,6 +152,8 @@ def main():
         ("hotkey.active_hotkeys", ["right_cmd", "f13"]),
         ("asr.realtime_url", "wss://example.maas.aliyuncs.com:443/api-ws/v1/realtime/"),
         ("llm.prompt_overrides", {"tone": {"enabled": "yes", "prompt": "测试"}}),
+        ("bluetooth.receive_into_current_app", True),
+        ("bluetooth.receive_into_current_app", "no"),
     ]:
         config = AppConfig()
         config.apply_update(field, value)
@@ -161,7 +163,8 @@ def main():
                   {"asr": {"model": "fun-asr-realtime", "backend": "omni_offline"}},
                   {"ui": {"onboarding_completed": False}}, {"unknown": 1},
                   {"audio": {"sample_rate": 48000, "unknown": 1, "gain_mode": "automatic"}},
-                  {"hotkey": {"custom_keys": [], "custom_key": CUSTOM_HOTKEY_KEYS[0].to_config()}}]
+                  {"hotkey": {"custom_keys": [], "custom_key": CUSTOM_HOTKEY_KEYS[0].to_config()}},
+                  {"bluetooth": {"mode": "receive", "output_target": "peer", "auto_connect": True}}]
     write(ROOT / "tests/fixtures/config-migrations.json", [
         {"input": raw, "expected": AppConfig.from_dict(raw).to_dict()} for raw in migrations
     ])

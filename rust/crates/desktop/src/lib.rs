@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pub mod assets;
+pub mod bluetooth_delivery;
+pub mod bluetooth_protocol;
 pub mod bridge;
 pub mod capsule;
 pub mod delivery;

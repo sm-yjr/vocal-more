@@ -3854,6 +3854,510 @@
     "changes": {}
   },
   {
+    "key": "bluetooth.mode",
+    "input": "off",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": null,
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": true,
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": false,
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": 0,
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": 1,
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": -10,
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": 999999,
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": 0.25,
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": "",
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": "invalid",
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": "false",
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": "yes",
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": "42.5",
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": [],
+    "error": true
+  },
+  {
+    "key": "bluetooth.mode",
+    "input": {},
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": null,
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": true,
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": false,
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": 0,
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": 1,
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": -10,
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": 999999,
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": 0.25,
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": "invalid",
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": "false",
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": "yes",
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": "42.5",
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": [],
+    "error": true
+  },
+  {
+    "key": "bluetooth.peer_id",
+    "input": {},
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": null,
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": true,
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": false,
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": 0,
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": 1,
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": -10,
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": 999999,
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": 0.25,
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": "invalid",
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": "false",
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": "yes",
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": "42.5",
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": [],
+    "error": true
+  },
+  {
+    "key": "bluetooth.trusted_peer_id",
+    "input": {},
+    "error": true
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": true,
+    "changes": {
+      "bluetooth.auto_connect": true
+    }
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": 1,
+    "changes": {
+      "bluetooth.auto_connect": true
+    }
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": -10,
+    "changes": {
+      "bluetooth.auto_connect": true
+    }
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": 999999,
+    "changes": {
+      "bluetooth.auto_connect": true
+    }
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": 0.25,
+    "changes": {
+      "bluetooth.auto_connect": true
+    }
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": "yes",
+    "changes": {
+      "bluetooth.auto_connect": true
+    }
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.auto_connect",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": true,
+    "changes": {
+      "bluetooth.receive_into_current_app": true
+    }
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": false,
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": 0,
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": 1,
+    "changes": {
+      "bluetooth.receive_into_current_app": true
+    }
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": -10,
+    "changes": {
+      "bluetooth.receive_into_current_app": true
+    }
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": 999999,
+    "changes": {
+      "bluetooth.receive_into_current_app": true
+    }
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": 0.25,
+    "changes": {
+      "bluetooth.receive_into_current_app": true
+    }
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": "yes",
+    "changes": {
+      "bluetooth.receive_into_current_app": true
+    }
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": {},
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": "follow_uc",
+    "changes": {}
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": null,
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": true,
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": false,
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": 0,
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": 1,
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": -10,
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": 999999,
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": 0.25,
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": "",
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": "invalid",
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": "false",
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": "yes",
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": "42.5",
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": [],
+    "error": true
+  },
+  {
+    "key": "bluetooth.output_target",
+    "input": {},
+    "error": true
+  },
+  {
     "key": "enable_polish",
     "input": true,
     "changes": {}
@@ -4734,5 +5238,17 @@
         "prompt": "测试"
       }
     }
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": true,
+    "changes": {
+      "bluetooth.receive_into_current_app": true
+    }
+  },
+  {
+    "key": "bluetooth.receive_into_current_app",
+    "input": "no",
+    "changes": {}
   }
 ]

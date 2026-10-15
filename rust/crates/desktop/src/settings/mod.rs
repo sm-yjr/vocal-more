@@ -507,6 +507,28 @@ impl Settings {
         let result = if action == "openMicrophoneSettings" {
             self.commands
                 .request_checked("open_microphone_settings", json!({}))
+        } else if matches!(
+            action,
+            "startBluetooth"
+                | "stopBluetooth"
+                | "testBluetooth"
+                | "openBluetoothSettings"
+                | "openBluetoothEditor"
+        ) {
+            self.commands.request_checked(
+                match action {
+                    "startBluetooth" => "platform_bluetooth_start",
+                    "stopBluetooth" => "platform_bluetooth_stop",
+                    "openBluetoothSettings" => "open_bluetooth_settings",
+                    "openBluetoothEditor" => "platform_bluetooth_editor",
+                    _ => "platform_bluetooth_test",
+                },
+                if action == "openBluetoothEditor" {
+                    json!({"external_fixture": params["external_fixture"] == true})
+                } else {
+                    json!({})
+                },
+            )
         } else {
             self.commands.request_checked("ui_action", params)
         };
@@ -775,6 +797,7 @@ impl Settings {
             return;
         }
         match method {
+            "bluetooth_status" => self.snapshot["bluetooth_status"] = params.clone(),
             "resync" | "snapshot" => {
                 self.snapshot = params.clone();
                 normalize_snapshot(&mut self.snapshot);

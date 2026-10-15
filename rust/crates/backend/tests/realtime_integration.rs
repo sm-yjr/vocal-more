@@ -15,10 +15,10 @@ use tokio::{
     time::{sleep, timeout},
 };
 use tokio_tungstenite::{
-    WebSocketStream, accept_hdr_async,
+    WebSocketStream, accept_async, accept_hdr_async,
     tungstenite::{
         Message,
-        handshake::server::{Request, Response},
+        handshake::server::{Callback, ErrorResponse, Request, Response},
     },
 };
 use vocal_more_backend::{
@@ -31,6 +31,23 @@ use vocal_more_core::{
     recording::RecordingStore,
     runtime::{Host, Phase, wait_terminal},
 };
+
+// The external callback trait fixes the ErrorResponse type; no error is
+// constructed here. Keep the credential check without a large-error closure.
+struct AuthObserver(Arc<AtomicBool>);
+impl Callback for AuthObserver {
+    fn on_request(
+        self,
+        request: &Request,
+        response: Response,
+    ) -> std::result::Result<Response, ErrorResponse> {
+        self.0.store(
+            request.headers().contains_key("Authorization"),
+            Ordering::Relaxed,
+        );
+        Ok(response)
+    }
+}
 
 fn provider(config: Config, endpoint: &str) -> Provider {
     Provider::new(
@@ -83,15 +100,7 @@ async fn serve(
 ) -> Result<Vec<u8>> {
     let (stream, _) = listener.accept().await?;
     let auth = Arc::new(AtomicBool::new(false));
-    let observed = auth.clone();
-    let mut socket = accept_hdr_async(stream, move |request: &Request, response: Response| {
-        observed.store(
-            request.headers().contains_key("Authorization"),
-            Ordering::Relaxed,
-        );
-        Ok(response)
-    })
-    .await?;
+    let mut socket = accept_hdr_async(stream, AuthObserver(auth.clone())).await?;
     ensure!(
         !auth.load(Ordering::Relaxed),
         "fixture received a credential"
@@ -275,8 +284,7 @@ async fn qwen38_screen_context_sends_jpeg_after_audio_and_uses_semantic_response
     let endpoint = format!("ws://{}", listener.local_addr()?);
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await?;
-        let mut socket =
-            accept_hdr_async(stream, |_: &Request, response: Response| Ok(response)).await?;
+        let mut socket = accept_async(stream).await?;
         let update: Value = serde_json::from_str(next(&mut socket).await?.to_text()?)?;
         ensure!(update["type"] == "session.update");
         ensure!(update["session"]["video"]["input"]["representation_compact"] == "normal");
@@ -344,8 +352,7 @@ async fn qwen38_rolls_over_before_the_context_limit_and_merges_results() -> Resu
         let mut received = Vec::new();
         for index in 1..=2 {
             let (stream, _) = listener.accept().await?;
-            let mut socket =
-                accept_hdr_async(stream, |_: &Request, response: Response| Ok(response)).await?;
+            let mut socket = accept_async(stream).await?;
             let update: Value = serde_json::from_str(next(&mut socket).await?.to_text()?)?;
             ensure!(update["type"] == "session.update");
             send(&mut socket, json!({"type":"session.updated"})).await?;

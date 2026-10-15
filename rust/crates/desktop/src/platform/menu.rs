@@ -42,6 +42,8 @@ pub struct Menu {
     state_item: Option<Retained<AnyObject>>,
     copy_item: Option<Retained<AnyObject>>,
     button: Option<Retained<AnyObject>>,
+    status_images: [Option<Retained<AnyObject>>; 2],
+    recording_image: Option<bool>,
     language: String,
     /// Name of the first active trigger key, shown in the idle status line;
     /// `None` when no key starts a recording (all off, or `--no-hotkeys`).
@@ -56,6 +58,38 @@ fn menu(title: &str) -> Retained<AnyObject> {
         let result: Retained<AnyObject> = msg_send![allocated,initWithTitle:&*ns(title)];
         let _: () = msg_send![&*result,setAutoenablesItems:false];
         result
+    }
+}
+fn status_image(recording: bool) -> Option<Retained<AnyObject>> {
+    // Packaged apps must never open a build-machine/workspace path on the
+    // AppKit thread. In particular, Documents/File Provider reads can block
+    // initialization before the first platform tick. Decode each small,
+    // embedded public asset once and retain it for subsequent state changes.
+    let bytes: &[u8] = if recording {
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../resources/icons/icon_recording.png"
+        ))
+    } else {
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../resources/icons/icon_idle.png"
+        ))
+    };
+    unsafe {
+        let data: Retained<AnyObject> = msg_send![class(c"NSData"),
+            dataWithBytes:bytes.as_ptr().cast::<std::ffi::c_void>(),length:bytes.len()];
+        let allocated: objc2::rc::Allocated<AnyObject> = msg_send![class(c"NSImage"), alloc];
+        let image: Option<Retained<AnyObject>> = msg_send![allocated,initWithData:&*data];
+        let image = image.or_else(|| {
+            msg_send![class(c"NSImage"),
+            imageWithSystemSymbolName:&*ns(if recording {"mic.fill"} else {"waveform"}),
+            accessibilityDescription:&*ns("Vocal More")]
+        });
+        if let Some(image) = &image {
+            let _: () = msg_send![&**image,setTemplate:true];
+        }
+        image
     }
 }
 impl Menu {
@@ -79,6 +113,8 @@ impl Menu {
             state_item: None,
             copy_item: None,
             button,
+            status_images: [status_image(false), status_image(true)],
+            recording_image: None,
             language: "zh".into(),
             trigger: Some("Fn".into()),
             hotkeys_enabled,
@@ -397,42 +433,12 @@ impl Menu {
         if let Some(button) = &self.button {
             unsafe {
                 let _: () = msg_send![&**button,setToolTip:&*ns(&title)];
-                let name = if matches!(state, "starting" | "recording") {
-                    "icon_recording"
-                } else {
-                    "icon_idle"
-                };
-                let main: Retained<AnyObject> = msg_send![class(c"NSBundle"), mainBundle];
-                let root: Option<Retained<NSString>> = msg_send![&*main, resourcePath];
-                let mut paths = Vec::new();
-                if let Some(root) = root {
-                    paths.push(
-                        std::path::PathBuf::from(root.to_string())
-                            .join("resources/icons")
-                            .join(format!("{name}.png")),
-                    );
-                    paths.push(
-                        std::path::PathBuf::from(root.to_string())
-                            .join("icons")
-                            .join(format!("{name}.png")),
-                    );
-                }
-                if let Some(root) = std::env::var_os("VOCAL_MORE_RESOURCE_ROOT") {
-                    paths.push(
-                        std::path::PathBuf::from(root)
-                            .join("resources/icons")
-                            .join(format!("{name}.png")),
-                    );
-                }
-                paths.push(
-                    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                        .join("../../../resources/icons")
-                        .join(format!("{name}.png")),
-                );
-                let image:Option<Retained<AnyObject>>=paths.iter().find(|p|p.is_file()).and_then(|path|path.to_str()).and_then(|path| {let allocated:objc2::rc::Allocated<AnyObject>=msg_send![class(c"NSImage"),alloc];msg_send![allocated,initWithContentsOfFile:&*ns(path)]}).or_else(||msg_send![class(c"NSImage"),imageWithSystemSymbolName:&*ns(if matches!(state,"starting"|"recording"){"mic.fill"}else{"waveform"}),accessibilityDescription:&*ns("Vocal More")]);
-                if let Some(image) = image {
-                    let _: () = msg_send![&*image,setTemplate:true];
-                    let _: () = msg_send![&**button,setImage:&*image];
+                let recording = matches!(state, "starting" | "recording");
+                if self.recording_image != Some(recording) {
+                    if let Some(image) = &self.status_images[usize::from(recording)] {
+                        let _: () = msg_send![&**button,setImage:&**image];
+                    }
+                    self.recording_image = Some(recording);
                 }
             }
         }

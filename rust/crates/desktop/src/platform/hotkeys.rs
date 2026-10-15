@@ -802,6 +802,37 @@ pub fn key_definition(code: u16) -> Option<(&'static str, bool, u64)> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn configured_f1_dictation_edges_work_in_both_connection_roles() {
+        for mode in ["off", "send", "receive"] {
+            let mut state = super::State::default();
+            state.configure(&serde_json::json!({
+                "bluetooth":{"mode":mode},
+                "hotkey":{"active_hotkeys":["custom"],"custom_keys":[
+                    {"key_code":122,"is_modifier":false,"flag_mask":0}
+                ]}
+            }));
+            let (consumed, pressed) = state.event(10, 122, 0, false);
+            assert!(consumed);
+            assert_eq!(
+                pressed
+                    .iter()
+                    .filter(|(method, _)| *method == "hotkey_pressed")
+                    .count(),
+                1
+            );
+            assert!(state.event(10, 122, 0, true).1.is_empty());
+            let (consumed, released) = state.event(11, 122, 0, false);
+            assert!(consumed);
+            assert_eq!(
+                released
+                    .iter()
+                    .filter(|(method, _)| *method == "hotkey_released")
+                    .count(),
+                1
+            );
+        }
+    }
     use super::*;
     #[test]
     fn held_sibling_and_regular_repeats_preserve_edges() {

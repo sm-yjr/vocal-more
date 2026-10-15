@@ -15,6 +15,39 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_bluetooth_candidate_keeps_release_identity_and_existing_candidates_safe(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "packaging/macos"))
+    spec = importlib.util.spec_from_file_location(
+        "bluetooth_candidate_stager", ROOT / "packaging/macos/build_bluetooth_candidate.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls = []
+    monkeypatch.setattr(module, "code_sections", lambda path: {"synthetic-section": "fixture-digest"})
+    monkeypatch.setattr(module.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    monkeypatch.setattr(module.subprocess, "check_output", lambda *args, **kwargs: "")
+    binary = tmp_path / "fake-build-output"
+    binary.write_bytes(b"synthetic-not-executable")
+    notices = tmp_path / "notices.txt"
+    notices.write_text("synthetic license fixture")
+    output = tmp_path / "candidate"
+    app = module.package(output, binary, binary, binary, notices)
+    info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+    assert info["CFBundleIdentifier"] == "com.sm-yjr.vocal-more.dev.bluetooth-candidate"
+    assert not any(key.startswith("SU") for key in info)
+    assert (app / "Contents/Resources/BluetoothProductCandidate").is_file()
+    assert not (app / "Contents/Resources/BluetoothFixedTextPrototype").exists()
+    manifest = json.loads((output / "candidate-manifest.json").read_text())
+    assert not any(manifest[key] for key in (
+        "default_audio", "default_hotkeys", "default_current_app_input", "credential_import", "launched"
+    ))
+    assert all(command[3] == "-" for command in calls if command[:2] == ["codesign", "--force"])
+    before = (app / "Contents/Info.plist").read_bytes()
+    with pytest.raises(FileExistsError):
+        module.package(output, binary, binary, binary, notices)
+    assert (app / "Contents/Info.plist").read_bytes() == before
+
+
 def _load_py2app_plist() -> dict[str, ast.AST]:
     tree = ast.parse((ROOT / "packaging" / "macos" / "setup.py").read_text())
 

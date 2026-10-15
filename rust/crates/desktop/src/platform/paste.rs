@@ -37,6 +37,14 @@ struct PendingPaste {
     generation: u64,
     at: Instant,
     admitted: Instant,
+    foreground_pid: i32,
+}
+fn foreground_pid() -> Option<i32> {
+    unsafe {
+        let workspace: Retained<AnyObject> = msg_send![class(c"NSWorkspace"), sharedWorkspace];
+        let application: Option<Retained<AnyObject>> = msg_send![&*workspace, frontmostApplication];
+        application.map(|application| msg_send![&*application, processIdentifier])
+    }
 }
 struct PasteEvents {
     down: ffi::Owned,
@@ -149,6 +157,7 @@ impl Clipboard {
             return Ok(false);
         }
         ensure!(self.pending.is_none(), "粘贴仍在等待提交");
+        let target = foreground_pid().context("当前应用不可用")?;
         // Allocate all events before mutating the clipboard. Even a failure to
         // create one half of the shortcut must not replace the user's content.
         let source = unsafe { ffi::Owned::from_create(ffi::CGEventSourceCreate(1)) }
@@ -183,7 +192,7 @@ impl Clipboard {
             &mut board,
             text,
             restore,
-            || commands.can_paste(epoch, generation),
+            || commands.can_paste(epoch, generation) && foreground_pid() == Some(target),
             Instant::now(),
         )?
         else {
@@ -199,7 +208,7 @@ impl Clipboard {
             self.finish(
                 &mut board,
                 write,
-                || commands.can_paste(epoch, generation),
+                || commands.can_paste(epoch, generation) && foreground_pid() == Some(target),
                 || events.post(),
                 Instant::now(),
             )
@@ -214,6 +223,7 @@ impl Clipboard {
                 generation,
                 at: Instant::now() + Duration::from_millis(50),
                 admitted: Instant::now(),
+                foreground_pid: target,
             });
             Ok(true)
         }
@@ -223,7 +233,9 @@ impl Clipboard {
     }
     pub fn poll_delivery(&mut self) -> Result<Option<bool>> {
         if self.pending.as_ref().is_none_or(|entry| {
-            entry.at > Instant::now() && entry.commands.can_paste(entry.epoch, entry.generation)
+            entry.at > Instant::now()
+                && entry.commands.can_paste(entry.epoch, entry.generation)
+                && foreground_pid() == Some(entry.foreground_pid)
         }) {
             return Ok(None);
         }
@@ -235,7 +247,10 @@ impl Clipboard {
         self.finish(
             &mut SystemPasteboard(pasteboard()),
             entry.write,
-            || entry.commands.can_paste(entry.epoch, entry.generation),
+            || {
+                entry.commands.can_paste(entry.epoch, entry.generation)
+                    && foreground_pid() == Some(entry.foreground_pid)
+            },
             || entry.events.post(),
             Instant::now(),
         )

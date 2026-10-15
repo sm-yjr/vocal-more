@@ -112,6 +112,82 @@ macro_rules! field {
 }
 pub const FIELDS: &[Field] = &[
     field!(
+        "bluetooth.receive_into_current_app",
+        General,
+        "允许已配对 Mac 输入当前应用",
+        "Allow paired Mac to type into the current app",
+        false,
+        Kind::Toggle,
+        "默认关闭。仅接受已验证设备；焦点、光标、锁屏或安全输入变化会停止输入。粘贴动作不能证明应用已接收，请核对结果。",
+        "Off by default. Only verified peers may type. Focus, caret, lock or secure input changes stop delivery. A posted paste does not prove the app accepted it."
+    ),
+    field!(
+        "bluetooth.mode",
+        General,
+        "蓝牙文本传输",
+        "Bluetooth text transfer",
+        false,
+        Kind::Choice(&[
+            ("off", "关闭", "Off"),
+            ("send", "查找另一台 Mac", "Find another Mac"),
+            (
+                "receive",
+                "允许另一台 Mac 连接",
+                "Accept a connection from another Mac"
+            )
+        ]),
+        "两台 Mac 都可以听写。分别选择输出到本机或对端；蓝牙只传文字，快捷键继续走 Universal Control。",
+        "Both Macs can dictate. Choose local or peer output on each Mac; Bluetooth carries text while hotkeys continue through Universal Control."
+    ),
+    field!(
+        "bluetooth.peer_id",
+        General,
+        "已批准的蓝牙设备",
+        "Approved Bluetooth peer",
+        true,
+        Kind::Text,
+        "选择附近设备或批准连接后自动填写；留空可重新选择。",
+        "Filled when you select a receiver or approve a connection; clear to choose again."
+    ),
+    field!(
+        "bluetooth.trusted_peer_id",
+        General,
+        "已验证的设备记录",
+        "Verified peer record",
+        true,
+        Kind::Text,
+        "连接码核验通过后填写；清空可撤销自动连接资格。",
+        "Recorded after code verification; clear to revoke automatic connection."
+    ),
+    field!(
+        "bluetooth.auto_connect",
+        General,
+        "已配对设备自动连接",
+        "Reconnect trusted peer automatically",
+        false,
+        Kind::Toggle,
+        "只恢复已验证设备的连接，不自动重发听写。停止按钮暂停本轮，关闭此项禁用下次启动自动连接。",
+        "Reconnect verified peers without replaying text. Stop pauses this run; disable this to stop automatic connection on the next launch."
+    ),
+    field!(
+        "bluetooth.output_target",
+        General,
+        "文字输出设备",
+        "Text output device",
+        false,
+        Kind::Choice(&[
+            (
+                "follow_uc",
+                "跟随UC（不明确时需选择）",
+                "Follow UC (choose when uncertain)"
+            ),
+            ("local", "本机", "This device"),
+            ("peer", "已配对的对端", "Paired peer")
+        ]),
+        "当前公开接口不能可靠确认 UC 操作设备，请明确选择本机或对端。测试只写入专用空白编辑器。",
+        "UC target cannot be reliably confirmed by the current public interface. Choose this device or its peer; tests write only to the dedicated editor."
+    ),
+    field!(
         "api_key",
         General,
         "DashScope API Key",
@@ -553,6 +629,11 @@ pub const PROMPT_CATEGORIES: &[(&str, &str, &str)] = &[
     ("persona", "风格", "Persona"),
 ];
 pub const ACTIONS: &[&str] = &[
+    "startBluetooth",
+    "stopBluetooth",
+    "testBluetooth",
+    "openBluetoothSettings",
+    "openBluetoothEditor",
     "revealApiKey",
     "checkDashScopeModels",
     "openExternal",
@@ -609,6 +690,19 @@ impl Tab {
 /// Visual grouping of fields within each page, in display order. Advanced
 /// fields stay in their natural group and are filtered at render time.
 pub const SECTIONS: &[(Tab, &str, &str, &[&str])] = &[
+    (
+        Tab::General,
+        "设备间文本",
+        "Device text transfer",
+        &[
+            "bluetooth.mode",
+            "bluetooth.peer_id",
+            "bluetooth.trusted_peer_id",
+            "bluetooth.auto_connect",
+            "bluetooth.receive_into_current_app",
+            "bluetooth.output_target",
+        ],
+    ),
     (
         Tab::General,
         "录音与输入",

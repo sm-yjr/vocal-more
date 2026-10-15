@@ -11,6 +11,18 @@ playback objects on the main thread. Callbacks admit intents through
 `CommandSink`; the UI event channel holds at most 1,024 events and the backend
 command channel holds at most 64 requests. Event handling yields after 128
 events so a ready queue cannot monopolize animation and platform timers.
+Current-app Bluetooth input has a separate `vocal-more-bluetooth-input` owner
+and one-slot submission queue. It owns AX handles, bounded role/caret probes,
+the current-app delivery ledger and its file synchronization. Its cache holds
+numeric target revisions only; AXValue and selected text are never read.
+Clipboard fallback marshals pasteboard changes to main, waits its settling
+window on the input worker, then rechecks target, cancellation, expiry, session,
+permissions and clipboard ownership. Posting a paste is an unconfirmed outcome,
+not proof of actual text input; it cannot cause an automatic retry. Stop revokes
+the worker token without joining on main. Final quit keeps the main run loop
+available until the worker finishes. Dictation output binds target/connection
+and epoch/generation at start and consumes that binding once at final delivery.
+
 Requests with pending UI state use checked admission and reserve one of 1,088
 bounded completion/error slots. Queue rejection is returned before pending
 state is created; backend rejection retains its request ID even when the event

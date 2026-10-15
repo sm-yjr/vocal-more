@@ -20,7 +20,7 @@ use tokio_tungstenite::{
     accept_hdr_async,
     tungstenite::{
         Message,
-        handshake::server::{Request, Response},
+        handshake::server::{Callback, ErrorResponse, Request, Response},
     },
 };
 use vocal_more_backend::{
@@ -34,6 +34,7 @@ struct Fixture {
     ws: String,
     requests: Arc<Mutex<Vec<Value>>>,
     fail_ws: Arc<AtomicBool>,
+    partials: Arc<AtomicBool>,
     stall: Arc<AtomicBool>,
     arrived: Arc<Notify>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
@@ -43,6 +44,17 @@ impl Drop for Fixture {
         for task in &self.tasks {
             task.abort();
         }
+    }
+}
+struct CredentialGuard;
+impl Callback for CredentialGuard {
+    fn on_request(
+        self,
+        request: &Request,
+        response: Response,
+    ) -> std::result::Result<Response, ErrorResponse> {
+        assert!(!request.headers().contains_key("authorization"));
+        Ok(response)
     }
 }
 async fn request(stream: &mut TcpStream) -> Result<(String, Value)> {
@@ -85,6 +97,7 @@ impl Fixture {
             ws: format!("ws://{}", ws.local_addr()?),
             requests: Arc::new(Mutex::new(vec![])),
             fail_ws: Arc::new(AtomicBool::new(false)),
+            partials: Arc::new(AtomicBool::new(false)),
             stall: Arc::new(AtomicBool::new(false)),
             arrived: Arc::new(Notify::new()),
             tasks: vec![],
@@ -110,11 +123,12 @@ impl Fixture {
             }
         }));
         let broken = fixture.fail_ws.clone();
+        let partials = fixture.partials.clone();
         fixture.tasks.push(tokio::spawn(async move {
             let mut clients=tokio::task::JoinSet::new();
-            loop {tokio::select!{client=ws.accept()=>{let Ok((stream,_))=client else{break};let broken=broken.clone();
+            loop {tokio::select!{client=ws.accept()=>{let Ok((stream,_))=client else{break};let broken=broken.clone();let partials=partials.clone();
                 clients.spawn(async move {
-                    let mut socket=accept_hdr_async(stream,|r:&Request,response:Response|{assert!(!r.headers().contains_key("authorization"));Ok(response)}).await.unwrap();
+                    let mut socket=accept_hdr_async(stream,CredentialGuard).await.unwrap();
                     let first=socket.next().await.unwrap().unwrap();let first:Value=serde_json::from_str(first.to_text().unwrap()).unwrap();
                     let recognition=first["header"]["action"]=="run-task";let task=first["header"]["task_id"].clone();
                     let ready=if recognition {json!({"header":{"event":"task-started","task_id":task}})}else{json!({"type":"session.updated"})};
@@ -122,6 +136,10 @@ impl Fixture {
                     while let Some(Ok(message))=socket.next().await {
                         if broken.load(Ordering::Relaxed) && (message.is_binary() || message.to_text().is_ok_and(|t|t.contains("input_audio_buffer.append"))) {
                             let _=socket.send(Message::Text(json!({"type":"error","error":{"code":"FixtureNetworkDown"}}).to_string().into())).await;break
+                        }
+                        if recognition && message.is_binary() && partials.load(Ordering::Relaxed) {
+                            let reply=json!({"header":{"event":"result-generated","task_id":task},"payload":{"output":{"sentence":{"sentence_end":true,"sentence_id":1,"text":"原始的rust文本"}}}});
+                            socket.send(Message::Text(reply.to_string().into())).await.unwrap();
                         }
                         let Ok(raw)=message.to_text() else{continue};let Ok(value)=serde_json::from_str::<Value>(raw) else{continue};
                         let replies=if value["type"]=="input_audio_buffer.commit" {vec![json!({"type":"conversation.item.input_audio_transcription.completed","item_id":"final","transcript":"原始的rust文本"})]}
@@ -219,6 +237,129 @@ async fn every_shipped_model_runs_through_application_dictionary_history_and_pas
             .len(),
         CONTRACT["all_asr_models"].as_array().unwrap().len()
     );
+    app.call("shutdown", json!({})).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn bluetooth_output_target_routes_both_roles_without_local_fallback() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    fixture.partials.store(true, Ordering::Relaxed);
+    let temp = tempfile::tempdir()?;
+    let app = fixture.app(temp.path()).await?;
+    app.call(
+        "set_config",
+        json!({"key":"asr.model","value":"fun-asr-realtime"}),
+    )
+    .await?;
+    app.call("set_mode", json!({"mode":"realtime_long"}))
+        .await?;
+    app.call("set_config", json!({"key":"enable_polish","value":false}))
+        .await?;
+    app.call("set_config", json!({"key":"streaming_paste","value":true}))
+        .await?;
+    for (mode, target, local_expected, automatic) in [
+        ("send", "local", true, true),
+        ("receive", "local", true, true),
+        ("send", "peer", false, true),
+        ("receive", "peer", false, true),
+        ("send", "follow_uc", false, true),
+        ("receive", "follow_uc", false, true),
+        ("off", "peer", true, true),
+        ("off", "local", true, true),
+        ("send", "peer", false, false),
+        ("receive", "local", true, false),
+    ] {
+        app.call("set_config", json!({"key":"auto_paste","value":automatic}))
+            .await?;
+        app.call(
+            "set_config",
+            json!({"key":"bluetooth.output_target","value":target}),
+        )
+        .await?;
+        app.call("set_config", json!({"key":"bluetooth.mode","value":mode}))
+            .await?;
+        let mut events = app.subscribe();
+        let started = app
+            .call("start", json!({"source":{"kind":"stream"}}))
+            .await?;
+        // A role change must not move an already active result to another device.
+        assert!(
+            app.call(
+                "set_config",
+                json!({"key":"bluetooth.mode","value":"receive"})
+            )
+            .await
+            .is_err()
+        );
+        for _ in 0..5 {
+            app.call("append", json!({"generation":started["generation"],"pcm_base64":STANDARD.encode(vec![1u8;1280])})).await?;
+        }
+        let mut local_pastes = 0;
+        timeout(Duration::from_secs(5), async {
+            loop {
+                let message = events.recv().await?;
+                local_pastes += usize::from(message["method"] == "paste_requested");
+                if message["method"] == "partial_result" {
+                    return Ok::<_, anyhow::Error>(());
+                }
+            }
+        })
+        .await??;
+        app.call("finish", json!({})).await?;
+        idle(&app).await?;
+        let mut final_result = None;
+        while let Ok(message) = events.try_recv() {
+            local_pastes += usize::from(message["method"] == "paste_requested");
+            if message["method"] == "final_result" {
+                final_result = Some(message["params"].clone());
+            }
+        }
+        let result = final_result.context("completed text must remain available for Bluetooth")?;
+        assert!(!result["text"].as_str().unwrap().is_empty());
+        assert_eq!(result["generation"], started["generation"]);
+        assert_eq!(result["bluetooth_output"], !local_expected);
+        assert_eq!(result["output_target"], target);
+        assert_eq!(result["auto_paste"], automatic);
+        if !local_expected || !automatic {
+            assert_eq!(
+                local_pastes, 0,
+                "peer or unresolved output must never fall back to local typing"
+            );
+        } else {
+            assert!(
+                local_pastes > 0,
+                "explicit local output must use normal paste regardless of connection role"
+            );
+        }
+        assert_eq!(
+            app.call("list_recordings", json!({})).await?[0]["status"],
+            "success"
+        );
+    }
+    app.call("shutdown", json!({})).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn bluetooth_connection_role_alone_never_starts_recording_or_provider_work() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    let temp = tempfile::tempdir()?;
+    let app = fixture.app(temp.path()).await?;
+    app.call(
+        "set_config",
+        json!({"key":"bluetooth.mode","value":"receive"}),
+    )
+    .await?;
+    assert_eq!(app.call("status", json!({})).await?["state"], "idle");
+    assert!(
+        app.call("list_recordings", json!({}))
+            .await?
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(fixture.requests.lock().unwrap().is_empty());
     app.call("shutdown", json!({})).await?;
     Ok(())
 }

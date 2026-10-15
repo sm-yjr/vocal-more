@@ -163,6 +163,23 @@ pub struct CommandSink {
 }
 
 impl CommandSink {
+    #[cfg(test)]
+    pub(crate) fn fixture() -> Self {
+        Self {
+            events: async_channel::bounded(8).0,
+            shared: Arc::new(Shared {
+                sequence: AtomicU64::new(0),
+                admission: AtomicU64::new(0),
+                generation: AtomicU64::new(7),
+                idle: AtomicBool::new(false),
+                closing: AtomicBool::new(false),
+                quit_requested: AtomicBool::new(false),
+                budget: Arc::new(AtomicUsize::new(0)),
+                overflow: Mutex::new(Overflow::default()),
+                shutdown_requests: Mutex::new(None),
+            }),
+        }
+    }
     /// Enqueue a UI intent without blocking a key event tap or Cocoa callback.
     /// Epoch revocation happens before the main-thread hop, so a queued paste
     /// cannot outrun a cancel received on the keyboard listener thread.

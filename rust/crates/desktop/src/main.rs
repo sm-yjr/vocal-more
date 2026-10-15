@@ -7,6 +7,10 @@ fn main() {
 }
 
 fn run() -> anyhow::Result<()> {
+    if std::env::args().skip(1).collect::<Vec<_>>() == ["--bluetooth-preflight"] {
+        println!("{}", vocal_more_desktop::platform::bluetooth_preflight()?);
+        return Ok(());
+    }
     let options = vocal_more_desktop::options::DesktopOptions::parse()?;
     if let Some(directory) = &options.capsule_fixtures {
         let directory = directory.clone();

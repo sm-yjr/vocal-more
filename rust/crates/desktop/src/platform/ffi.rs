@@ -148,6 +148,7 @@ unsafe extern "C" {
 
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
+    pub fn CGPreflightPostEventAccess() -> bool;
     pub fn CGMainDisplayID() -> u32;
     pub fn CGSessionCopyCurrentDictionary() -> Ref;
     pub fn CGDisplayCreateImage(display: u32) -> Ref;

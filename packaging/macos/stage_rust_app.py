@@ -6,8 +6,9 @@ import argparse
 import plistlib
 import shutil
 import sys
-import tomllib
 from pathlib import Path
+
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "packaging"))
@@ -42,6 +43,7 @@ def app_info(release: Version, *, development: bool = False) -> dict:
         "LSMinimumSystemVersion": "14.0",
         "NSPrincipalClass": "NSApplication",
         "NSMicrophoneUsageDescription": "Vocal More needs microphone access to convert your voice to text.",
+        "NSBluetoothAlwaysUsageDescription": "Vocal More uses Bluetooth to send completed dictation text to a device you approve.",
         "NSAppleEventsUsageDescription": "Vocal More may use macOS automation to paste recognized text into the active app.",
     }
 

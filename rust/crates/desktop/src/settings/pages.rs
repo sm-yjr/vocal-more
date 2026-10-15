@@ -403,11 +403,212 @@ impl Settings {
     fn general_page(&self, cx: &mut Context<Self>) -> Div {
         let advanced = self.advanced();
         let mut page = v_flex().gap_5().children(
-            ["Recording and typing", "Interface", "Service and updates"]
-                .into_iter()
-                .filter_map(|section| self.section(Tab::General, section, cx))
-                .collect::<Vec<_>>(),
+            [
+                "Recording and typing",
+                "Device text transfer",
+                "Interface",
+                "Service and updates",
+            ]
+            .into_iter()
+            .filter_map(|section| self.section(Tab::General, section, cx))
+            .collect::<Vec<_>>(),
         );
+        if get(self.config(), "bluetooth.mode") != "off" {
+            let status = &self.snapshot["bluetooth_status"];
+            let label = match status["state"].as_u64().unwrap_or(0) {
+                2 => self.text("正在等待设备连接", "Waiting for a device"),
+                3 => self.text("正在连接", "Connecting"),
+                4 => self.text(
+                    "请核对两端连接码并在等待连接的一端批准",
+                    "Check both codes and approve on the accepting Mac",
+                ),
+                5 => self.text("已连接", "Connected"),
+                6 => self.text("已断开，请重新连接", "Disconnected; reconnect to continue"),
+                7 => self.text(
+                    "需要蓝牙权限，点击开启",
+                    "Bluetooth access required; choose Start",
+                ),
+                8 => self.text(
+                    "此设备不支持所需的蓝牙功能",
+                    "Required Bluetooth functionality is unsupported",
+                ),
+                9 => self.text(
+                    "蓝牙组件不可用或连接失败",
+                    "Bluetooth component unavailable or connection failed",
+                ),
+                _ => self.text("尚未开启", "Stopped"),
+            };
+            let mut bluetooth =
+                panel(cx).child(readout(self.text("连接状态", "Connection"), label, cx));
+            if status["input_worker_failed"] == true {
+                bluetooth=bluetooth.child(div().text_sm().child(self.text(
+                    "本机输入组件或去重记录未就绪，请关闭后重新开启外部输入。",
+                    "Local input component or delivery ledger is unavailable. Turn current-app input off and on to retry.",
+                )));
+            }
+            if let Some(code) = status["pairing_code"].as_str().filter(|s| s.len() == 6) {
+                bluetooth =
+                    bluetooth.child(readout(self.text("连接码", "Connection code"), code, cx));
+            }
+            let developer = status["development_actions"] == true;
+            let mut buttons =
+                actions()
+                    .when(developer, |buttons| {
+                        buttons.child(
+                            Button::new("bluetooth-editor")
+                                .label(self.text(
+                                    "打开本机专用测试编辑器",
+                                    "Open this device's test editor",
+                                ))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.action("openBluetoothEditor", json!({}), cx);
+                                })),
+                        )
+                    })
+                    .child(
+                        Button::new("bluetooth-start")
+                            .label(self.text("开启 / 重新连接", "Start / reconnect"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.action("startBluetooth", json!({}), cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("bluetooth-stop")
+                            .label(self.text("停止连接", "Stop connection"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.action("stopBluetooth", json!({}), cx);
+                            })),
+                    );
+            if developer {
+                buttons = buttons.child(
+                    Button::new("bluetooth-external-fixture")
+                        .label(
+                            self.text("选择单独的外部测试编辑器", "Select separate input fixture"),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.action(
+                                "openBluetoothEditor",
+                                json!({"external_fixture":true}),
+                                cx,
+                            );
+                        })),
+                );
+                buttons = buttons.child(
+                    Button::new("bluetooth-test")
+                        .label(self.text(
+                            "向所选设备发送固定文字",
+                            "Send fixed text to selected device",
+                        ))
+                        .disabled(
+                            get(self.config(), "bluetooth.output_target") == "follow_uc"
+                                || (get(self.config(), "bluetooth.output_target") == "peer"
+                                    && (status["state"] != 5
+                                        || status["peer_target_ready"] != true)),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.action("testBluetooth", json!({}), cx);
+                        })),
+                );
+            }
+            if get(self.config(), "bluetooth.mode") == "send" {
+                bluetooth = bluetooth.child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(self.text(
+                            "蓝牙只传识别完成后的整段文字，快捷键继续走 UC。",
+                            "Bluetooth sends completed text; hotkeys continue through UC.",
+                        )),
+                );
+                for (index, device) in status["devices"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                {
+                    if let Some(id) = device.as_str() {
+                        let id = id.to_owned();
+                        let label = format!(
+                            "{} {}",
+                            self.text("连接接收端", "Connect receiver"),
+                            index + 1
+                        );
+                        bluetooth = bluetooth.child(
+                            Button::new(format!("bluetooth-peer-{index}"))
+                                .label(label)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.set_config("bluetooth.peer_id", json!(id), window, cx);
+                                })),
+                        );
+                    }
+                }
+            } else if let Some(id) = status["pending_peer"].as_str().filter(|s| !s.is_empty()) {
+                let id = id.to_owned();
+                buttons = buttons.child(
+                    Button::new("bluetooth-approve")
+                        .label(
+                            self.text("连接码一致，允许此发送端", "Codes match; allow this sender"),
+                        )
+                        .disabled(status["pairing_code"].as_str().is_none_or(|s| s.len() != 6))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.set_config("bluetooth.peer_id", json!(id), window, cx);
+                        })),
+                );
+            }
+            let delivery = match status["delivery"].as_str().unwrap_or("none") {
+                // This status describes native submission, not target-editor verification.
+                "sending" => self.text("正在传送文字", "Transferring text"),
+                "submitted" => self.text("接收端已提交输入", "Receiver submitted input"),
+                "rejected" => self.text(
+                    "接收端未确认输入，请先核对目标应用，避免重复输入",
+                    "Input was not confirmed; check the target app before trying again",
+                ),
+                "unknown" => self.text(
+                    "未收到确认，请先核对目标应用；不会自动重发",
+                    "No receipt; check the target app. Text will not be replayed automatically",
+                ),
+                "failed" | "receipt_failed" | "invalid_packet" => {
+                    self.text("传输未完成", "Transfer failed")
+                }
+                _ => "—",
+            };
+            bluetooth = bluetooth
+                .child(readout(
+                    self.text("本机输入位置", "Local input target"),
+                    if status["local_target"]["ready"] == true {
+                        self.text("可输入", "Ready")
+                    } else {
+                        self.text("未打开或未聚焦", "Closed or unfocused")
+                    },
+                    cx,
+                ))
+                .child(readout(
+                    self.text("对端输入位置", "Peer input target"),
+                    if status["peer_target_ready"] == true {
+                        self.text("可输入", "Ready")
+                    } else {
+                        self.text(
+                            "未确认目标，禁止发送",
+                            "No confirmed target; sending blocked",
+                        )
+                    },
+                    cx,
+                ))
+                .child(
+                    Button::new("bluetooth-permission-settings")
+                        .label(self.text("打开蓝牙权限设置", "Open Bluetooth permission settings"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.action("openBluetoothSettings", json!({}), cx);
+                        })),
+                )
+                .child(readout(
+                    self.text("文字送达", "Text delivery"),
+                    delivery,
+                    cx,
+                ))
+                .child(buttons);
+            page = page.child(bluetooth);
+        }
         if advanced {
             let mut checks = panel(cx).child(
                 actions()

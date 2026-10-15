@@ -3,12 +3,22 @@ use crate::{
     catalog::{CONTRACT, asr_model, llm_model},
     persistence,
 };
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
 pub struct Config(pub Value);
+
+/// Connection roles select discovery/advertising, not where dictation types.
+/// Unknown UC focus must stay out of the local paste lane, just like a peer
+/// destination that is temporarily disconnected.
+pub fn bluetooth_output_selected(config: &Value) -> bool {
+    matches!(
+        config["bluetooth"]["mode"].as_str(),
+        Some("send" | "receive")
+    ) && config["bluetooth"]["output_target"] != "local"
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -154,6 +164,7 @@ impl Config {
             "ui",
             "dictionary_learning",
             "network",
+            "bluetooth",
         ] {
             let Some(fields) = value[section].as_object() else {
                 continue;
@@ -290,6 +301,35 @@ impl Config {
             "asr.batch_mode" => json!("manual"),
             "asr.realtime_url" => json!(normalize_realtime_url(value)?),
             "network.proxy_url" => json!(normalize_proxy_url(value)?),
+            "bluetooth.mode" => {
+                ensure!(
+                    matches!(value.as_str(), Some("off" | "send" | "receive")),
+                    "蓝牙模式无效"
+                );
+                value.clone()
+            }
+            "bluetooth.peer_id" | "bluetooth.trusted_peer_id" => {
+                let peer = value.as_str().context("蓝牙设备必须为UUID或留空")?.trim();
+                if peer.is_empty() {
+                    json!("")
+                } else {
+                    json!(
+                        uuid::Uuid::parse_str(peer)
+                            .context("蓝牙设备UUID无效")?
+                            .to_string()
+                            .to_uppercase()
+                    )
+                }
+            }
+            "bluetooth.auto_connect" => json!(boolean(value, false)),
+            "bluetooth.receive_into_current_app" => json!(boolean(value, false)),
+            "bluetooth.output_target" => {
+                ensure!(
+                    matches!(value.as_str(), Some("follow_uc" | "local" | "peer")),
+                    "输出设备无效"
+                );
+                value.clone()
+            }
             "asr.extra_corpus_terms" => json!(
                 value
                     .as_array()

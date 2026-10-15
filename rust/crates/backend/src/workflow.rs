@@ -135,7 +135,9 @@ pub async fn finish(
     {
         final_text = text::sanitize_prompt(&final_text);
     }
-    let paste_text = if provider.config.get("auto_paste") != true {
+    let paste_text = if provider.config.get("auto_paste") != true
+        || crate::config::bluetooth_output_selected(&provider.config.0)
+    {
         None
     } else if streamed.is_empty() {
         Some(final_text.clone())

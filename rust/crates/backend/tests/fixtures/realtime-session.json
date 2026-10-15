@@ -61,6 +61,14 @@
       "network": {
         "proxy_url": ""
       },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
@@ -147,6 +155,14 @@
       "network": {
         "proxy_url": ""
       },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
+      },
       "enable_polish": false,
       "auto_paste": true,
       "streaming_paste": false,
@@ -233,6 +249,14 @@
       "network": {
         "proxy_url": ""
       },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
@@ -319,6 +343,14 @@
       "network": {
         "proxy_url": ""
       },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
+      },
       "enable_polish": false,
       "auto_paste": true,
       "streaming_paste": false,
@@ -403,6 +435,14 @@
       },
       "network": {
         "proxy_url": ""
+      },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
       },
       "enable_polish": true,
       "auto_paste": true,
@@ -490,6 +530,14 @@
       "network": {
         "proxy_url": ""
       },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
+      },
       "enable_polish": false,
       "auto_paste": true,
       "streaming_paste": false,
@@ -575,6 +623,14 @@
       "network": {
         "proxy_url": ""
       },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
@@ -657,6 +713,14 @@
       },
       "network": {
         "proxy_url": ""
+      },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
       },
       "enable_polish": false,
       "auto_paste": true,
@@ -741,6 +805,14 @@
       "network": {
         "proxy_url": ""
       },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
@@ -823,6 +895,14 @@
       },
       "network": {
         "proxy_url": ""
+      },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
       },
       "enable_polish": false,
       "auto_paste": true,
@@ -906,6 +986,14 @@
       },
       "network": {
         "proxy_url": ""
+      },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
       },
       "enable_polish": true,
       "auto_paste": true,
@@ -991,6 +1079,14 @@
       },
       "network": {
         "proxy_url": ""
+      },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
       },
       "enable_polish": false,
       "auto_paste": true,

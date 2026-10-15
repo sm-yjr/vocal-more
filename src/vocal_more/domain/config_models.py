@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from ..localization import UILanguage, normalize_ui_language
@@ -30,9 +30,9 @@ from .config_parsing import (
 )
 from .hotkey_catalog import normalize_custom_key
 from .model_catalog import (
-    ASRBackend,
     ASR_MODEL_IDS,
     LLM_MODEL_IDS,
+    ASRBackend,
     asr_model_handles_inline_polish,
     default_asr_model_for_backend,
     get_asr_model_info,
@@ -43,7 +43,6 @@ from .waveform_calibration import (
     MAX_WAVEFORM_CEILING_DBFS,
     MIN_WAVEFORM_CEILING_DBFS,
 )
-
 
 VALID_HOTKEYS = (
     "fn",
@@ -157,7 +156,7 @@ class AudioConfig:
     # to be the best latency/stability point across the supported realtime
     # models while keeping callback and queue overhead bounded.
     blocksize: int = 1280
-    input_device: Optional[str] = None
+    input_device: str | None = None
     capture_backend: CaptureBackend = "low_latency"
     gain_mode: GainMode = "automatic"
     gain: float = 2.0
@@ -221,7 +220,7 @@ class HotkeyConfig:
     fallback_key: str = "fn"
     double_tap_threshold: float = 0.3
     active_hotkeys: list[str] = field(default_factory=lambda: ["fn"])
-    custom_key: Optional[dict] = None
+    custom_key: dict | None = None
     custom_keys: list[dict] = field(default_factory=list)
 
 
@@ -250,7 +249,19 @@ class NetworkConfig:
     proxy_url: str = ""
 
 
-def _validate_custom_key(raw: object) -> Optional[dict]:
+@dataclass
+class BluetoothConfig:
+    """macOS text transport; keyboard events remain on Universal Control."""
+
+    mode: str = "off"
+    peer_id: str = ""
+    trusted_peer_id: str = ""
+    auto_connect: bool = False
+    receive_into_current_app: bool = False
+    output_target: str = "follow_uc"
+
+
+def _validate_custom_key(raw: object) -> dict | None:
     return normalize_custom_key(raw)
 
 
@@ -437,6 +448,7 @@ class AppConfig:
         default_factory=DictionaryLearningConfig
     )
     network: NetworkConfig = field(default_factory=NetworkConfig)
+    bluetooth: BluetoothConfig = field(default_factory=BluetoothConfig)
     enable_polish: bool = True
     auto_paste: bool = True
     streaming_paste: bool = False
@@ -450,7 +462,7 @@ class AppConfig:
     update_channel: UpdateChannel | None = None
 
     @classmethod
-    def _from_dict(cls, data: dict) -> "AppConfig":
+    def _from_dict(cls, data: dict) -> AppConfig:
         if not isinstance(data, dict):
             return cls()
 
@@ -481,6 +493,7 @@ class AppConfig:
             "ui",
             "dictionary_learning",
             "network",
+            "bluetooth",
         ):
             section_data = data.get(section)
             if not isinstance(section_data, dict):
@@ -528,7 +541,7 @@ class AppConfig:
         return config
 
     @classmethod
-    def from_dict(cls, data: dict) -> "AppConfig":
+    def from_dict(cls, data: dict) -> AppConfig:
         return cls._from_dict(data)
 
     def apply_update(self, key: str, value: Any) -> None:
@@ -543,7 +556,7 @@ class AppConfig:
 
     def apply_form_state(self, form_state: dict[str, Any]) -> None:
         if not isinstance(form_state, dict):
-            raise ValueError("Form state must be a dict")
+            raise ValueError("Form state must be a dict")  # noqa: TRY004 - preserve the public ValueError contract
 
         for key in (
             "api_key",
@@ -567,6 +580,7 @@ class AppConfig:
             "ui",
             "dictionary_learning",
             "network",
+            "bluetooth",
         ):
             section_data = form_state.get(section)
             if not isinstance(section_data, dict):
@@ -639,6 +653,27 @@ class AppConfig:
             if field_name != "proxy_url":
                 raise ValueError(f"Unknown config key: network.{field_name}")
             self.network.proxy_url = _parse_proxy_url(value)
+        elif section == "bluetooth":
+            if field_name == "mode":
+                if value not in ("off", "send", "receive"):
+                    raise ValueError("Invalid Bluetooth mode")
+                self.bluetooth.mode = value
+            elif field_name in ("peer_id", "trusted_peer_id"):
+                import uuid
+
+                if not isinstance(value, str):
+                    raise ValueError("Bluetooth peer must be a UUID or blank")
+                setattr(self.bluetooth, field_name, str(uuid.UUID(value.strip())).upper() if value.strip() else "")
+            elif field_name == "auto_connect":
+                self.bluetooth.auto_connect = parse_bool(value, False)
+            elif field_name == "receive_into_current_app":
+                self.bluetooth.receive_into_current_app = parse_bool(value, False)
+            elif field_name == "output_target":
+                if value not in ("follow_uc", "local", "peer"):
+                    raise ValueError("Invalid Bluetooth output target")
+                self.bluetooth.output_target = value
+            else:
+                raise ValueError(f"Unknown config key: bluetooth.{field_name}")
         else:
             raise ValueError(f"Unknown config section: {section}")
 
@@ -924,6 +959,14 @@ class AppConfig:
             "network": {
                 "proxy_url": self.network.proxy_url,
             },
+            "bluetooth": {
+                "mode": self.bluetooth.mode,
+                "peer_id": self.bluetooth.peer_id,
+                "trusted_peer_id": self.bluetooth.trusted_peer_id,
+                "auto_connect": self.bluetooth.auto_connect,
+                "receive_into_current_app": self.bluetooth.receive_into_current_app,
+                "output_target": self.bluetooth.output_target,
+            },
 
             "enable_polish": self.enable_polish,
             "auto_paste": self.auto_paste,
@@ -940,7 +983,7 @@ class AppConfig:
         data["api_key"] = ""
         return data
 
-    def ensure_api_key(self, config_path: Path | None = None) -> Optional[str]:
+    def ensure_api_key(self, config_path: Path | None = None) -> str | None:
         if not self.api_key:
             path_display = config_path or Path("config.yaml")
             return (
@@ -952,25 +995,25 @@ class AppConfig:
 
 
 __all__ = [
+    "HOTKEY_ALIASES",
+    "LEGACY_BUILT_IN_HOTKEYS",
+    "MAX_CUSTOM_POLISH_PROMPT_LENGTH",
+    "POLISH_PROMPT_OVERRIDE_CATEGORIES",
+    "VALID_DEFAULT_MODES",
+    "VALID_HOTKEYS",
+    "VALID_PROXY_SCHEMES",
+    "VALID_UPDATE_CHANNELS",
     "ASRBackend",
     "ASRConfig",
     "ASRLanguage",
     "AppConfig",
     "AudioConfig",
     "DictionaryLearningConfig",
-    "HOTKEY_ALIASES",
     "HotkeyConfig",
-    "LEGACY_BUILT_IN_HOTKEYS",
     "LLMConfig",
-    "MAX_CUSTOM_POLISH_PROMPT_LENGTH",
     "NetworkConfig",
-    "POLISH_PROMPT_OVERRIDE_CATEGORIES",
     "PolishOutputLanguage",
     "UIConfig",
-    "VALID_DEFAULT_MODES",
-    "VALID_HOTKEYS",
-    "VALID_PROXY_SCHEMES",
-    "VALID_UPDATE_CHANNELS",
     "UpdateChannel",
     "_parse_asr_language",
     "_parse_asr_model",

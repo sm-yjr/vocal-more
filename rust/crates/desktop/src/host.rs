@@ -137,6 +137,7 @@ pub struct DesktopHost {
     settings: Option<(AnyWindowHandle, Entity<Settings>)>,
     snapshot: Value,
     no_hotkeys: bool,
+    data_dir: PathBuf,
     show_settings_on_start: bool,
     pending: HashMap<u64, Pending>,
     pastes: HashMap<String, PasteWork>,
@@ -145,6 +146,7 @@ pub struct DesktopHost {
     activity: Option<gpui_kit::ActivityGuard>,
     hotkey_start: Option<(u64, u64, Instant)>,
     last_text: String,
+    bluetooth_session: Option<crate::bluetooth_delivery::SessionTarget>,
     prompt_hint: String,
     screen: Option<ScreenSession>,
     screen_worker: ScreenWorker,
@@ -166,6 +168,7 @@ impl DesktopHost {
             quit_after_ms,
             capsule_fixtures: _,
         } = options;
+        let data_dir = backend.data_dir.clone();
         let (driver, commands, events) = BackendDriver::start(backend)?;
         let (wake, wake_rx) = async_channel::bounded(1);
         let capsule = Capsule::new(
@@ -188,6 +191,7 @@ impl DesktopHost {
                 settings: None,
                 snapshot: json!({}),
                 no_hotkeys,
+                data_dir,
                 show_settings_on_start: show_settings,
                 pending: HashMap::new(),
                 pastes: HashMap::new(),
@@ -196,6 +200,7 @@ impl DesktopHost {
                 activity: None,
                 hotkey_start: None,
                 last_text: String::new(),
+                bluetooth_session: None,
                 prompt_hint: String::new(),
                 screen: None,
                 screen_worker,
@@ -454,6 +459,9 @@ impl DesktopHost {
                     self.no_hotkeys,
                 ) {
                     Ok(mut platform) => {
+                        if let Err(error) = platform.configure_bluetooth_storage(&self.data_dir) {
+                            self.notify(&error.to_string());
+                        }
                         platform.set_has_result(!self.last_text.is_empty());
                         platform.update_snapshot(&self.snapshot);
                         self.platform = Some(platform);
@@ -507,6 +515,12 @@ impl DesktopHost {
                     .update_session(state, params["generation"].as_u64().unwrap_or(0));
                 if params["microphone_test"] != true && self.event_epoch(&params) {
                     if state == "starting" {
+                        self.bluetooth_session = self.platform.as_ref().and_then(|platform| {
+                            platform.bluetooth_session_target(
+                                params["_ui_epoch"].as_u64().unwrap_or(u64::MAX),
+                                params["generation"].as_u64().unwrap_or(0),
+                            )
+                        });
                         let mode = if params["current_mode"] == "realtime_long" {
                             "handsFree"
                         } else {
@@ -521,6 +535,7 @@ impl DesktopHost {
                             );
                         }
                     } else if state == "idle" {
+                        self.bluetooth_session = None;
                         if self.screen.as_ref().is_some_and(|screen| {
                             screen.epoch == params["_ui_epoch"].as_u64().unwrap_or(u64::MAX)
                                 && screen.generation == params["generation"].as_u64()
@@ -531,6 +546,9 @@ impl DesktopHost {
                             self.capsule.update_state("hidden");
                         }
                     } else {
+                        if state == "cancelling" {
+                            self.bluetooth_session = None;
+                        }
                         self.capsule.update_state(if state == "cancelling" {
                             "processing"
                         } else {
@@ -593,7 +611,28 @@ impl DesktopHost {
                     if let Some(platform) = &mut self.platform {
                         platform.set_has_result(!self.last_text.is_empty());
                     }
-                    if self.snapshot["config"]["auto_paste"] != true
+                    if params["bluetooth_output"] == true && !self.last_text.is_empty() {
+                        let destination = self.bluetooth_session.take();
+                        if params["auto_paste"] != true {
+                            self.notify("转写完成，未自动发送；结果保留在历史记录中");
+                        } else if params["output_target"] != "peer" {
+                            self.notify("无法可靠确认 UC 当前设备，请先明确选择本机或对端");
+                        } else if let Some(destination) = destination {
+                            if let Some(platform) = &mut self.platform
+                                && let Err(error) = platform.bluetooth_send_bound(
+                                    &self.last_text,
+                                    &destination,
+                                    params["peer_id"].as_str().unwrap_or_default(),
+                                )
+                            {
+                                self.notify(&error.to_string());
+                            }
+                        } else {
+                            self.notify("听写开始时没有已确认的对端输入目标，结果保留在历史记录中");
+                        }
+                        return;
+                    }
+                    if params["auto_paste"] != true
                         && !self.last_text.is_empty()
                         && self.commands.can_paste(
                             params["_ui_epoch"].as_u64().unwrap_or(u64::MAX),
@@ -708,6 +747,16 @@ impl DesktopHost {
             "copy_transcript" => {
                 if let Some(platform) = &mut self.platform {
                     let _ = platform.action(method, &params);
+                }
+            }
+            "platform_bluetooth_start"
+            | "platform_bluetooth_stop"
+            | "platform_bluetooth_test"
+            | "platform_bluetooth_editor" => {
+                if let Some(platform) = &mut self.platform
+                    && let Err(error) = platform.action(method, &params)
+                {
+                    self.notify(&error.to_string());
                 }
             }
             "play_recording" => {
@@ -1124,6 +1173,10 @@ impl DesktopHost {
     }
     fn update_activity(&mut self, cx: &Context<Self>) {
         let active = self.hotkey_start.is_some()
+            || self
+                .platform
+                .as_ref()
+                .is_some_and(Platform::bluetooth_connected)
             || self.snapshot["state"] != "idle"
             || self.native_delivery.is_some()
             || self.deliveries.has_work()
@@ -1194,6 +1247,10 @@ impl DesktopHost {
         if self.watchdog.elapsed() >= Duration::from_secs(2) {
             self.watchdog = Instant::now();
             self.platform_status();
+            if let Some(platform) = &self.platform {
+                let status = platform.bluetooth_status();
+                self.forward_settings("bluetooth_status", &status, cx);
+            }
         }
         if let Some(screen) = &mut self.screen
             && screen.generation.is_some()

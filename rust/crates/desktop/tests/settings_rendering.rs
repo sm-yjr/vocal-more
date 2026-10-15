@@ -1678,7 +1678,8 @@ mod macos {
                 "calibration",
                 "onboarding",
                 "admission",
-                "configuration-coverage"
+                "configuration-coverage",
+                "bluetooth"
             ]
             .contains(&case.as_str()),
             "unknown UI acceptance case"
@@ -1719,6 +1720,25 @@ mod macos {
             configuration_coverage(&mut this)?;
             println!(
                 "Configuration coverage: every independent field and composite entry used native controls + real backend disk readback at 640x480"
+            );
+        }
+        if case == "bluetooth" {
+            this.resize(640., 480.)?;
+            ensure!(saved_value(&mut this, "bluetooth.receive_into_current_app")? == false);
+            for key in [
+                "bluetooth.mode",
+                "bluetooth.output_target",
+                "bluetooth.receive_into_current_app",
+            ] {
+                let field = *schema::FIELDS
+                    .iter()
+                    .find(|field| field.key == key)
+                    .context("Bluetooth field missing")?;
+                configuration_field(&mut this, field)?;
+            }
+            this.shot("bluetooth-current-app-controls")?;
+            println!(
+                "Bluetooth controls: default-off, native pointer interaction, backend and disk readback passed; hardware not invoked"
             );
         }
         this.close()?;

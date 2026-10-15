@@ -747,6 +747,13 @@ impl State {
             method
         };
         match method {
+            "platform_bluetooth_start"
+            | "platform_bluetooth_stop"
+            | "platform_bluetooth_test"
+            | "platform_bluetooth_editor" => {
+                self.emit(method, params);
+                Ok(json!({"ok":true}))
+            }
             "initialize" | "snapshot" => self.snapshot(),
             "status" => Ok(
                 json!({"state":self.state,"generation":self.generation,"latched":self.latched,"current_mode":self.mode,"history_compacting":self.compacting,
@@ -762,6 +769,10 @@ impl State {
             }
             "set_config" => {
                 let key = required(&params, "key")?;
+                ensure!(
+                    !key.starts_with("bluetooth.") || self.state == "idle",
+                    "请在录音结束后修改蓝牙设置"
+                );
                 self.config.update(key, &params["value"])?;
                 self.preview_setting(key, &params["value"])?;
                 self.config_changed();
@@ -777,6 +788,12 @@ impl State {
                     .or_else(|| params.get("payload"))
                     .context("state is required")?
                     .clone();
+                ensure!(
+                    self.state == "idle"
+                        || form.get("bluetooth").is_none()
+                        || form["bluetooth"] == self.config.config.0["bluetooth"],
+                    "请在录音结束后修改蓝牙设置"
+                );
                 // Public UI snapshots intentionally mask the stored key. A
                 // form flush of that unchanged blank field must not erase it;
                 // an explicit set_config(api_key, "") still clears the key.
@@ -1382,7 +1399,13 @@ impl State {
                         );
                     }
                     self.last_result = json!({"text":result.final_text,"raw_text":result.raw_text,"generation":generation});
-                    self.emit("final_result",json!({"text":result.final_text,"raw_text":result.raw_text,"recording_id":id,"billing":result.billing,"generation":generation}));
+                    // Capture output policy from this recording's provider,
+                    // never from settings changed after the result was queued.
+                    self.emit("final_result",json!({"text":result.final_text,"raw_text":result.raw_text,"recording_id":id,"billing":result.billing,"generation":generation,
+                        "bluetooth_output":crate::config::bluetooth_output_selected(&provider.config.0),
+                        "output_target":provider.config.get("bluetooth.output_target"),
+                        "peer_id":provider.config.get("bluetooth.peer_id"),
+                        "auto_paste":provider.config.get("auto_paste")}));
                     if let Some(text) = result.paste_text {
                         self.paste(text, result.raw_text, id.clone(), &provider, false);
                     }
@@ -1646,6 +1669,7 @@ impl State {
                 && mode == "realtime_long"
                 && provider.config.get("streaming_paste") == true
                 && provider.config.get("auto_paste") == true
+                && !crate::config::bluetooth_output_selected(&provider.config.0)
                 && provider.config.get("llm.polish_mode") != "prompt"
                 && provider.model_info()["handles_inline_polish"] != true;
             let stream = if stream_enabled
@@ -1952,6 +1976,11 @@ fn ui_method(action: &str) -> Result<&'static str> {
         "checkDashScopeModels" => "check_dashscope_models",
         "openAccessibilitySettings" => "open_accessibility_settings",
         "openConfigFile" => "open_config_file",
+        "startBluetooth" => "platform_bluetooth_start",
+        "stopBluetooth" => "platform_bluetooth_stop",
+        "testBluetooth" => "platform_bluetooth_test",
+        "openBluetoothSettings" => "open_bluetooth_settings",
+        "openBluetoothEditor" => "platform_bluetooth_editor",
         "openDictFile" => "open_dict_file",
         "openExternal" => "open_external",
         "getRecordings" => "get_recordings",

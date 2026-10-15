@@ -62,6 +62,14 @@
       "network": {
         "proxy_url": ""
       },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
@@ -136,6 +144,14 @@
       },
       "network": {
         "proxy_url": ""
+      },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
       },
       "enable_polish": true,
       "auto_paste": true,
@@ -215,6 +231,14 @@
       "network": {
         "proxy_url": ""
       },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
@@ -293,6 +317,14 @@
       "network": {
         "proxy_url": ""
       },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
@@ -370,6 +402,14 @@
       "network": {
         "proxy_url": ""
       },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
+      },
       "enable_polish": true,
       "auto_paste": true,
       "streaming_paste": false,
@@ -444,6 +484,14 @@
       },
       "network": {
         "proxy_url": ""
+      },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
       },
       "enable_polish": true,
       "auto_paste": true,
@@ -523,6 +571,14 @@
       },
       "network": {
         "proxy_url": ""
+      },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
       },
       "enable_polish": true,
       "auto_paste": true,
@@ -606,6 +662,101 @@
       },
       "network": {
         "proxy_url": ""
+      },
+      "bluetooth": {
+        "mode": "off",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": false,
+        "receive_into_current_app": false,
+        "output_target": "follow_uc"
+      },
+      "enable_polish": true,
+      "auto_paste": true,
+      "streaming_paste": false,
+      "native_fast_paste": false,
+      "restore_clipboard": true,
+      "screen_context_enabled": false,
+      "default_mode": "realtime_long",
+      "update_channel": null
+    }
+  },
+  {
+    "input": {
+      "bluetooth": {
+        "mode": "receive",
+        "output_target": "peer",
+        "auto_connect": true
+      }
+    },
+    "expected": {
+      "api_key": "",
+      "audio": {
+        "sample_rate": 16000,
+        "channels": 1,
+        "capture_channels": 1,
+        "blocksize": 1280,
+        "input_device": null,
+        "capture_backend": "low_latency",
+        "gain_mode": "manual",
+        "gain": 2.0,
+        "highpass_filter": true,
+        "highpass_freq": 200,
+        "soft_limiter": true,
+        "waveform_ceiling_dbfs": -6.0
+      },
+      "asr": {
+        "backend": "realtime_ws",
+        "model": "qwen3.5-omni-flash-realtime",
+        "language": "auto",
+        "batch_mode": "manual",
+        "realtime_url": "",
+        "use_dictionary_corpus": true,
+        "extra_corpus_terms": []
+      },
+      "llm": {
+        "model": "qwen3.5-plus",
+        "temperature": 0.0,
+        "enable_thinking": false,
+        "max_tokens": 1024,
+        "polish_mode": "dictation",
+        "level": "minimal",
+        "structured": false,
+        "tone": "neutral",
+        "persona": "default",
+        "output_language": "auto",
+        "prompt_overrides": {}
+      },
+      "hotkey": {
+        "primary_key": "fn",
+        "fallback_key": "fn",
+        "double_tap_threshold": 0.3,
+        "active_hotkeys": [
+          "fn"
+        ],
+        "custom_key": null,
+        "custom_keys": []
+      },
+      "ui": {
+        "language": "zh",
+        "onboarding_completed": true,
+        "onboarding_skipped": false,
+        "advanced_settings": true
+      },
+      "dictionary_learning": {
+        "enabled": false,
+        "excluded_bundle_ids": []
+      },
+      "network": {
+        "proxy_url": ""
+      },
+      "bluetooth": {
+        "mode": "receive",
+        "peer_id": "",
+        "trusted_peer_id": "",
+        "auto_connect": true,
+        "receive_into_current_app": false,
+        "output_target": "peer"
       },
       "enable_polish": true,
       "auto_paste": true,

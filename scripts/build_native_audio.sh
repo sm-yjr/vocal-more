@@ -55,8 +55,16 @@ xcrun --sdk macosx clang++ \
   -framework Accelerate \
   -framework CoreAudio \
   -framework AudioToolbox \
+  -framework CoreBluetooth \
+  -framework AppKit \
+  -framework ApplicationServices \
+  -framework Carbon \
   "$ROOT/native/audio/src/VocalMoreAudio.mm" \
   "$ROOT/native/audio/src/PlatformText.mm" \
+  "$ROOT/native/audio/src/BluetoothText.mm" \
+  "$ROOT/native/audio/src/BluetoothTestEditor.mm" \
+  "$ROOT/native/audio/src/BluetoothExternalTarget.mm" \
+  "$ROOT/native/audio/src/BluetoothCurrentTarget.mm" \
   -o "$OUTPUT"
 
 echo "Built $OUTPUT"
