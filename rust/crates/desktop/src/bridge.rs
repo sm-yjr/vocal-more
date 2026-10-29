@@ -118,6 +118,9 @@ pub fn durable_method(method: &str, params: &Value) -> bool {
     matches!(
         method,
         "set_config"
+            | "linux_input_enable"
+            | "linux_input_disable"
+            | "linux_input_codex"
             | "sync_form_state"
             | "set_asr_model"
             | "set_device"
@@ -167,7 +170,15 @@ impl CommandSink {
     /// Epoch revocation happens before the main-thread hop, so a queued paste
     /// cannot outrun a cancel received on the keyboard listener thread.
     pub fn request(&self, method: &str, params: Value) -> u64 {
-        match self.enqueue(method, params, false) {
+        self.request_admitted(method, params, std::time::Instant::now())
+    }
+    pub fn request_admitted(
+        &self,
+        method: &str,
+        params: Value,
+        admitted_at: std::time::Instant,
+    ) -> u64 {
+        match self.enqueue(method, params, false, admitted_at) {
             Ok(id) => id,
             Err(error) => {
                 let id = error.request.id;
@@ -190,7 +201,16 @@ impl CommandSink {
         method: &str,
         params: Value,
     ) -> std::result::Result<u64, RequestError> {
-        self.enqueue(method, params, true)
+        self.enqueue(method, params, true, std::time::Instant::now())
+    }
+    #[cfg(target_os = "linux")]
+    pub fn request_checked_admitted(
+        &self,
+        method: &str,
+        params: Value,
+        admitted_at: std::time::Instant,
+    ) -> std::result::Result<u64, RequestError> {
+        self.enqueue(method, params, true, admitted_at)
     }
 
     fn enqueue(
@@ -198,6 +218,7 @@ impl CommandSink {
         method: &str,
         params: Value,
         checked: bool,
+        admitted_at: std::time::Instant,
     ) -> std::result::Result<u64, RequestError> {
         let id = self.shared.sequence.fetch_add(1, Ordering::Relaxed) + 1;
         let closing = self.shared.closing.load(Ordering::Acquire);
@@ -211,7 +232,7 @@ impl CommandSink {
         };
         let mut request = Request {
             id,
-            admitted_at: std::time::Instant::now(),
+            admitted_at,
             forwarded_at: std::time::Instant::now(),
             epoch,
             method: method.into(),
@@ -597,7 +618,7 @@ fn run_driver(
                     vocal_more_core::diagnostics::record(vocal_more_core::diagnostics::Stage::MainToBackend, request.forwarded_at.elapsed());
                     let result = {
                         let _span = vocal_more_core::diagnostics::Span::new(vocal_more_core::diagnostics::Stage::BackendRequest);
-                        app.call(&request.method, request.params.clone()).await
+                        app.call_admitted(&request.method, request.params.clone(), request.admitted_at).await
                     };
                     let durable_failed = durable_request(&request) && result.is_err();
                     let (method, params) = match result {

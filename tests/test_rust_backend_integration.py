@@ -100,7 +100,9 @@ def test_native_preparation_and_reuse_through_real_application_process(tmp_path)
     """The shipped actor must prepare its configured source, not just Host tests."""
     native = tmp_path / "fixture.dylib"
     subprocess.run(["cc", "-dynamiclib" if sys.platform == "darwin" else "-shared",
-        "-fPIC", "-pthread", "-O1", "-DVM_TEST_WARM", "-I", str(ROOT / "native/audio/include"),
+        "-fPIC", "-pthread", "-O1", "-DVM_TEST_WARM",
+        *(["-DVM_TEST_CAPTURE_CHANNELS=1"] if sys.platform == "linux" else []),
+        "-I", str(ROOT / "native/audio/include"),
         str(ROOT / "rust/crates/core/tests/native_fixture.c"), "-o", str(native)], check=True)
     data = tmp_path / "data"
     data.mkdir()
@@ -134,6 +136,8 @@ def test_native_preparation_and_reuse_through_real_application_process(tmp_path)
                     time.sleep(0.005)
                 snapshot = connection.call("snapshot")
                 audio_status = snapshot["audio_input_status"]
+                if sys.platform == "linux":
+                    assert audio_status["capture_channels"] == 1
                 assert audio_status["warm_prepared"]
                 assert audio_status["last_session"]["warm_reused"]
                 assert audio_status["session_startup_timing_ms"]["first_pcm_ms"] < 150

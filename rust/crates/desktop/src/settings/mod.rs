@@ -2,6 +2,8 @@
 //! Native settings window. It holds view state and sends nonblocking intents;
 //! the application backend owns all durable configuration and recordings.
 mod calibration;
+#[cfg(target_os = "linux")]
+mod linux_shortcuts;
 mod pages;
 pub mod schema;
 mod shortcut;
@@ -66,6 +68,8 @@ pub struct Settings {
     pub(super) aliases: Entity<InputState>,
     pub(super) filter: Entity<InputState>,
     pub(super) capture: shortcut::Capture,
+    #[cfg(target_os = "linux")]
+    pub(super) linux_shortcuts: linux_shortcuts::State,
     pub(super) show_key: bool,
     pub(super) model_checking: bool,
     pub(super) model_results: Value,
@@ -117,6 +121,8 @@ impl Settings {
         cx: &mut Context<Self>,
     ) -> Self {
         normalize_snapshot(&mut snapshot);
+        #[cfg(target_os = "linux")]
+        let linux_status = snapshot["linux_shortcuts"].clone();
         let mut this = Self {
             committed_config: snapshot["config"].clone(),
             tab: Tab::from_id(snapshot["initial_tab"].as_str().unwrap_or("general")),
@@ -131,6 +137,11 @@ impl Settings {
             aliases: cx.new(|cx| InputState::new(window, cx)),
             filter: cx.new(|cx| InputState::new(window, cx)),
             capture: Default::default(),
+            #[cfg(target_os = "linux")]
+            linux_shortcuts: linux_shortcuts::State {
+                status: linux_status,
+                ..Default::default()
+            },
             show_key: false,
             model_checking: false,
             model_results: json!([]),
@@ -340,6 +351,9 @@ impl Settings {
     /// Advanced fields stay hidden for everyday use, except when a saved value
     /// or an enabled feature means the user needs to see or undo them.
     pub(super) fn shown(&self, field: Field) -> bool {
+        if cfg!(target_os = "linux") && field.key == "update_channel" {
+            return false;
+        }
         if !field.advanced || self.advanced() {
             return true;
         }
@@ -353,6 +367,21 @@ impl Settings {
         }
     }
     pub(super) fn disabled(&self, key: &str) -> bool {
+        if cfg!(target_os = "linux")
+            && matches!(
+                key,
+                "native_fast_paste" | "audio.capture_backend" | "audio.capture_channels"
+            )
+        {
+            return true;
+        }
+        if cfg!(target_os = "linux")
+            && key == "restore_clipboard"
+            && std::env::var_os("WAYLAND_DISPLAY").is_some()
+        {
+            return true;
+        }
+
         if key.starts_with("audio.") && key != "audio.waveform_ceiling_dbfs" && self.audio_busy() {
             return true;
         }
@@ -662,6 +691,10 @@ impl Settings {
             self.capture = Default::default();
         }
         self.tab = tab;
+        #[cfg(target_os = "linux")]
+        if tab == Tab::Shortcuts && self.linux_shortcuts.pending.is_none() {
+            self.linux_shortcut_request("linux_shortcuts_refresh", json!({}), cx);
+        }
         if tab == Tab::History {
             self.action("getRecordings", json!({}), cx);
         }
@@ -990,6 +1023,43 @@ impl Settings {
                     .map(|_| params["results"].clone())
                     .unwrap_or_else(|| params.clone());
             }
+            #[cfg(target_os = "linux")]
+            "linux_input_changed" => {
+                if let Some(status) = params.get("status") {
+                    self.snapshot["linux_input"] = status.clone();
+                }
+                if self.linux_shortcuts.pending == params["request_id"].as_u64() {
+                    self.linux_shortcuts.pending = None;
+                }
+                self.linux_shortcuts.message = params["error"].as_str().map(str::to_owned);
+            }
+            #[cfg(target_os = "linux")]
+            "linux_shortcuts_changed" => {
+                if let Some(status) = params.get("status") {
+                    self.linux_shortcuts.status = status.clone();
+                }
+                if self.linux_shortcuts.pending == params["request_id"].as_u64() {
+                    self.linux_shortcuts.pending = None;
+                    self.linux_shortcuts.message = Some(
+                        params["error"]
+                            .as_str()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| {
+                                if self.linux_shortcuts.operation == "linux_shortcuts_refresh" {
+                                    self.text("快捷键已刷新", "Shortcuts refreshed").into()
+                                } else {
+                                    self.text("快捷键已保存", "Shortcut saved").into()
+                                }
+                            }),
+                    );
+                }
+            }
+            #[cfg(target_os = "linux")]
+            "linux_shortcut_captured" => {
+                self.finish_linux_capture(params["accelerator"].as_str().map(str::to_owned), cx)
+            }
+            #[cfg(target_os = "linux")]
+            "linux_shortcut_capture_cancelled" => self.finish_linux_capture(None, cx),
             "hotkey_capture" => match self.capture.receive(params) {
                 shortcut::Outcome::Commit(key) => {
                     if let Some(keys) = shortcut::append(&shortcut::custom_keys(self.config()), key)

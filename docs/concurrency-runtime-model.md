@@ -651,3 +651,211 @@ Rust 应用 actor 是配置和会话的单一命令入口，Tokio 固定两个�
 薄 UI 壳改为事件到达时用 `NSOperationQueue.mainQueue()` 唤醒主线程；一次最多处理 128 条，多余事件继续排队并再次唤醒。突发消息合并唤醒，关闭后的回调不再触碰 UI。两秒定时器只负责快捷键/权限恢复与队列兜底，不再承担 40 ms 周期的业务事件投递。JSON-RPC 输出线程复用字节缓冲区，每条消息一次写入标准输出。薄 UI 输入端使用 64 KiB `BufferedReader` 读取标准输出，保留 40 MiB 单条消息上限；标准错误使用 8 KiB 缓冲区。标准输入继续无缓冲写入并处理部分写入，避免请求滞留。
 
 可选环境变量 `VOCAL_MORE_TRACE_TIMINGS=1` 将阶段耗时写入 stderr；默认关闭，不记录音频、文本、路径或凭据。测试边界与数据见 [性能优化记录](rust-performance-optimization-2026-09-12.md)。
+
+
+## Linux desktop boundaries
+
+The Linux GPUI frontend reuses `BackendDriver`, `CommandSink`, bounded queues,
+delivery epochs and durable shutdown handoff from 0.6.1+2. Its private per-profile
+Unix datagram control socket is polled on the main thread (at most 32 commands
+per tick: 50 ms idle, 16 ms while the capsule is visible). Desktop-managed shortcuts send an allowlisted command; a lock
+prevents a second host from owning the same profile. It creates no key listener
+thread and does not interpret macOS key codes.
+
+One bounded output worker serializes clipboard subprocesses and X11 paste,
+with cancellation/generation checks before admission and before key posting.
+An active FIFO delivery keeps its place through the 50 ms settling interval,
+600 ms receiver read grace, and owned-text clipboard restoration. Its completion
+has a separate bounded channel polled by the UI, so lossy visual event pressure
+cannot strand the FIFO. The same worker owns nonblocking playback subprocesses;
+shutdown closes its queue, stops playback and waits asynchronously for cleanup.
+Wayland consumes backend paste tokens without sending chunks externally and
+copies the full final result. The frontend never runs X11 injection in Wayland.
+
+The existing native-audio owner loads Linux ABI 2. PortAudio capture and
+libsamplerate conversion run through a preallocated SPSC PCM ring, never on the
+GPUI thread; the callback has no allocations, locks, network or disk access.
+The shared backend keeps PCM, providers, cancellation, history and preview
+ownership. Linux archival uses a kill-on-drop ffmpeg subprocess through the
+existing serialized archive lane and verifies decoded PCM before replacement.
+
+Linux runs with GPUI Explicit quit mode and no permanent control window. Closing
+Settings flushes its edits and keeps the host alive. Explicit Quit flushes accepted
+edits, closes admission and waits for actual backend/output completion before GPUI quits.
+System appearance and windows remain owned by the foreground executor while
+that wait is in progress. Forced process termination cannot guarantee a drain.
+
+Linux screen context owns one portal/PipeWire/GStreamer lane with a capacity-one
+start queue and two-frame output queue. Replacement/cancel/close advances an
+atomic serial and wakes the active permission/capture future; the session is
+explicitly closed before its owner advances. The UI accepts only the matching
+request/epoch and binds frames to the backend generation. The low-rate raw RGB lane
+honors VideoCropMeta and VideoFrame row stride, bounds the copied crop to 64 MiB,
+and then downsizes/encodes in Rust. Small sources are never enlarged. No production
+pixels or restore tokens go to disk; the explicitly isolated real-portal acceptance
+fixture saves only its synthetic selected window and reports that cloud is untested.
+
+Linux opt-in AT-SPI owns a separate bounded worker (eight jobs/eight replies).
+Every focused capture expires after 150 ms; stale replies cannot delay output or
+prepare an observation. Metadata, secure roles, own PID and excluded IDs are checked
+before Text.GetText. Polling reads only the retained paste target; a newly focused field contributes no text.
+Retained targets and Unicode offsets feed the unchanged backend
+observation owner. Wayland manual observation has a 15-second insertion window and
+requires an exact baseline before projecting edits. Backend polling still owns its
+expiry; dropped worker replies cannot extend it. Shutdown disables reads immediately,
+closes admission and waits for both workers. GNOME capsule transport owns one bounded
+model and a 100 ms sender; only its actor/timer lives in GNOME Shell. Acceptance modes
+do not connect to the user's Shell extension.
+
+Linux GNOME shortcut settings use one bounded GSettings owner (eight queued jobs,
+sixteen reserved replies), with a private GLib context. GPUI captures keys locally;
+GNOME owns the actual global grabs. Per-binding control commands retain shortcut
+identity, allowing already-bound keys to be captured without toggling recording.
+Only bindings owned by the active data profile may be changed or removed. External
+bindings are checked for conflicts. Shutdown stops admission, drains accepted saves
+and continues polling their completions before quitting. The GSettings adapter provides a toggle fallback; a separate portal owner now
+supplies authorized press/release gestures as described below.
+
+
+The Linux StatusNotifierItem/dbusmenu adapter owns one session-bus thread and a
+single bounded state snapshot. Menu callbacks enqueue allowlisted UI intents on
+the existing CommandSink; they never touch the backend directly. It re-registers
+when the watcher owner changes. Shutdown keeps the saving/error status available
+until durable owners finish, then drops the tray connection and waits for its
+thread completion before exiting.
+
+GPUI rendering prefers X11/Xwayland via GraphicalEnvironment/with_windowing;
+the process's real session environment is unchanged. Therefore a Wayland host
+continues using Wayland clipboard/portal security boundaries and never starts
+X11 keyboard injection. GNOME Shell remains the preferred capsule renderer;
+unavailable Shell transport falls back to the focus-free GPUI notification popup
+when Xwayland is available. The Shell owner also observes ScreenSaver.GetActive,
+cancels the current epoch on lock/blank and suppresses popup rendering while
+locked. A native Wayland-only host without a working Shell renderer refuses an
+invisible recording and opens Settings with recovery instructions.
+
+
+## Linux Wayland input and shortcut owners (2026-10-21)
+
+Native output has one OS thread/current-thread Tokio runtime, four admitted jobs
+and eight reserved completion slots. It seeds focused metadata within 500 ms,
+subscribes to focused-state changes, and captures only the original active target
+at recording admission (500 ms expiry). Initial metadata recovery prioritizes
+active top-level windows and skips broken providers; it never reads their values.
+Each serialized output checks the original epoch/generation, secure/exclusion
+metadata, focused active window, unchanged value/selection and an 800 ms bound.
+Caret edits use InsertText; atomic selection replacement is restricted to plain
+single-line controls outside document trees. Confirmation precedes FIFO completion.
+Unconfirmed writes are not retried or copied automatically. Cancellation/close
+revokes admission before the next native edit; an already posted atomic edit
+cannot be recalled. Shutdown closes jobs and waits for actual owner completion.
+
+GlobalShortcuts has one owner thread/runtime, one bounded latest configuration,
+a revision counter and eight status events. Native host identity registration,
+connection setup and session creation are cancellable/time bounded. One ordered
+bus signal stream (64 messages) preserves Activated/Deactivated wire order and
+suppresses repeats per session/shortcut. Session loss/rebind/close cancels a
+gesture-owned recording. Stale status revisions cannot reactivate an old session.
+No keyboard events outside authorized shortcut IDs are captured. User consent
+waits at most 120 seconds; close interrupts the wait and closes the session.
+
+The GSettings owner durably backs up only this profile's bindings before releasing
+their toggle grabs. Rejection/disable/shutdown restores those owned grabs, without
+changing other applications' shortcuts. The durable preference survives restart;
+initialization restores a crashed owner's backup before establishing a new session.
+All native press/release callbacks retain their monotonic admission Instant across
+UI and backend queues through typed in-process APIs. The private profile IPC
+also carries bounded CLOCK_MONOTONIC times for press/release diagnostic clients;
+other commands reject timestamps. Hybrid gesture duration uses
+release admission minus press admission, excluding microphone/provider startup
+and dispatch delay. Serialized JSON callers cannot forge that timestamp.
+
+GNOME capsule active/state transitions notify the existing sender immediately;
+waveform updates remain coalesced into its 100 ms heartbeat. Screen-lock reads
+are capped at 50 ms so they cannot hold an urgent hide behind a long D-Bus wait.
+Terminal Linux capsule notices use a main-thread four-second deadline matching
+macOS; no extra timer thread is created, and the tray keeps the error details.
+
+Chromium compatibility shares the insertion owner's runtime. Its single latest
+authorization task requests a keyboard-only RemoteDesktop session (120-second
+consent deadline); preferences and restore tokens are atomically saved as private
+files. Close aborts the pending authorization, closes the session, and drains
+already-admitted durable settings replies before reporting owner completion.
+An absent EditableText interface or a multiline/document selection routes to
+compatibility before any write. Native single-line replacement remains atomic. Clipboard preparation/restoration uses one bounded blocking job at a time.
+The retained field is rechecked after preparation; Ctrl+V is sent through the
+authorized portal, both keys are released on cancellation/failure, and exact text
+confirmation precedes completion. Temporary clipboard ownership is checked before
+restoration; non-plain formats are refused without changing them. The operation
+is allowed to finish cleanup rather than being dropped by an outer timeout.
+
+Both AT-SPI owners subscribe only to focused-state signals: admitting all object
+state changes can saturate Chromium's bounded signal queue and block method
+replies. Cold metadata recovery first queries Collection for focused/editable
+objects in active windows; all unused match criteria explicitly use MatchAll.
+It does not enumerate conversation text. Privacy and active-window ancestry checks
+remain bounded to 32 levels, supporting deeply nested composers without skipping
+secure-ancestor validation.
+
+
+### Linux input bounds (2026-10-29)
+
+Insertion snapshots allow up to 262,144 Unicode scalars with the existing bounded
+capture/insertion deadlines. Correction-learning snapshots independently retain
+the 8,000-scalar limit; a large output target does not expand learning collection.
+Selection offsets use checked arithmetic and must fit the captured value. A
+virtualized Chromium field that exposes only a viewport with document-relative
+selection offsets fails closed. It is not treated as a fully readable target.
+
+
+The October 29 continuation adds no clipboard runtime or helper process. The
+existing bounded output operation snapshots a single byte payload and equivalent
+MIME aliases, verifies they remain unchanged, and restores it with the existing
+clipboard utility only while it still owns the temporary selection. Different
+payloads across MIME types are refused before modifying the clipboard. GNOME
+capsule monitor selection and lock suppression stay in the existing Shell actor.
+
+
+Ghostty terminal delivery uses the existing insertion owner and keyboard portal.
+Its focused non-text surface is captured by process/object identity, with active
+window, exclusion and secure-ancestor checks. No terminal buffer is read and no
+correction observation is admitted. Ctrl+Shift+V is followed by the existing
+600 ms receiver grace before owned clipboard restoration. Completion means keys
+were submitted to the checked target; it does not fabricate a readable-text
+confirmation. No Enter is sent, and terminal paste protection remains active.
+
+
+Clipboard image snapshots have a dedicated 64 MiB response cap; other desktop
+subprocess responses retain 4 MiB. Both paths check the temporary file size
+before allocating the response, cap the reader, and enforce the existing child
+deadline. This does not enlarge the recognized-text or observation limits.
+
+
+Background service launches use `--background`. A duplicate background launch
+only sends the allowlisted per-profile `ping` and exits; it never activates
+Settings. First-run/automatic readiness handling is also suppressed for service
+launches, while explicit tray/Settings requests still open the window. Desktop
+launches without this flag preserve the existing open-Settings behavior.
+
+
+After preparing a temporary clipboard selection, insertion can wait inside its
+existing 800 ms validation deadline for the same target to regain focus. A
+new accessible input target aborts that wait. The original field contents and
+selection must still match, and clipboard ownership is checked again after
+waiting. This adds no thread and does not relax the cancellation generation.
+
+
+### GNOME clipboard transport (2026-10-29)
+
+Compatible input keeps the existing single insertion owner. Its blocking pool
+reads and writes the clipboard through bounded calls to the companion Shell
+extension when that protocol is available. The Shell creates a native
+`Meta.SelectionSourceMemory`; it never maps or activates a clipboard window.
+Reads use bounded asynchronous selection transfers (64 MiB plus one overflow
+byte, 2.5 s cancellation). Source identity and an opaque serial guard restoration;
+a user copy during delivery is never overwritten. The compositor owns restored
+clipboard bytes after the app exits, as with any normal clipboard source. No
+clipboard payload is logged or used for correction learning. The previous
+wl-clipboard path remains for environments without the new extension protocol.
+Ghostty uses the dedicated Paste key instead of modifier-key chords, preventing
+extended keyboard-protocol release sequences from leaking into the terminal.

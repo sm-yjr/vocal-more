@@ -376,7 +376,7 @@ fn launch(cx: &mut gpui_kit::App, host_quit: bool, slow_cocoa: bool) -> Result<(
     .detach();
     Ok(())
 }
-fn main() {
+pub fn main() {
     // A background watchdog cannot be blocked by AppKit/GPUI run-loop stalls.
     std::thread::spawn(|| {
         std::thread::sleep(Duration::from_secs(8));

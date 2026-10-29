@@ -1,0 +1,8 @@
+{
+  "uuid": "vocal-more@sm-yjr",
+  "name": "Vocal More Capsule",
+  "description": "A focus-preserving dictation capsule controlled by the Vocal More desktop app",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "version": 1,
+  "url": "https://github.com/sm-yjr/vocal-more"
+}

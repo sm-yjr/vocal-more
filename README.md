@@ -112,3 +112,8 @@ The Windows workflow runs the Python test suite, checks Tk availability, generat
 ## License
 
 Vocal-More is licensed under GPL-3.0-only. See [LICENSE](LICENSE).
+
+## Linux Rust desktop development
+
+The Linux port based on 0.6.1+2 uses GPUI Kit and the shared Rust backend.
+See [Linux build, installation and platform support](docs/linux.md).

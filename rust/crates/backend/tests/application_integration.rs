@@ -519,3 +519,108 @@ async fn offline_dictation_latency_probe() -> Result<()> {
     app.call("shutdown", json!({})).await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn manual_observation_uses_only_current_durable_result_and_honors_opt_in() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    let temp = tempfile::tempdir()?;
+    let app = fixture.app(temp.path()).await?;
+    app.call(
+        "set_config",
+        json!({"key":"dictionary_learning.enabled","value":true}),
+    )
+    .await?;
+    let mut events = app.subscribe();
+    let session = audio(&app).await?;
+    let final_result = event(&mut events, "final_result").await?;
+    idle(&app).await?;
+    let snapshot = json!({"pid":42,"target_id":"synthetic-editor","value":"","selection_start":0,"selection_length":0,
+        "is_secure":false,"app_bundle_id":"org.example.editor","app_name":"Fixture"});
+    let prepared = app
+        .call(
+            "prepare_manual_observation",
+            json!({"generation":session["generation"],"snapshot":snapshot,
+        "text":"untrusted replacement must be ignored"}),
+        )
+        .await?;
+    assert!(prepared["observation_id"].is_string());
+    let paste = event(&mut events, "paste_requested").await?;
+    app.call("discard_paste", json!({"token":paste["token"]}))
+        .await?;
+    app.call("cancel_observation", json!({"observation_id":"stale-id"}))
+        .await?;
+    let poll = event(&mut events, "observation_poll").await?;
+    assert_eq!(
+        poll["observation_id"], prepared["observation_id"],
+        "discarding chunks/stale cancellation ended manual learning"
+    );
+    let current = app.call("snapshot", json!({})).await?;
+    assert_eq!(current["last_result"]["text"], final_result["text"]);
+    assert_eq!(
+        current["last_result"]["recording_id"],
+        final_result["recording_id"]
+    );
+    assert!(
+        app.call(
+            "prepare_manual_observation",
+            json!({"generation":0,"snapshot":snapshot})
+        )
+        .await
+        .is_err()
+    );
+    app.call(
+        "set_config",
+        json!({"key":"dictionary_learning.enabled","value":false}),
+    )
+    .await?;
+    let disabled = app
+        .call(
+            "prepare_manual_observation",
+            json!({"generation":session["generation"],"snapshot":snapshot}),
+        )
+        .await?;
+    assert!(disabled["observation_id"].is_null());
+    app.call("shutdown", json!({})).await?;
+    Ok(())
+}
+
+/// Slow startup/queue handling must not turn a real 80 ms tap into a long hold.
+#[tokio::test]
+async fn admitted_hotkey_time_survives_slow_dispatch_and_preserves_mode_gestures() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    let temp = tempfile::tempdir()?;
+    let app = fixture.app(temp.path()).await?;
+    for (mode, held_ms, latches) in [
+        ("realtime_long", 80, true),
+        ("realtime_long", 400, false),
+        ("walkie_talkie", 80, false),
+    ] {
+        app.call("set_config", json!({"key":"default_mode","value":mode}))
+            .await?;
+        let pressed = std::time::Instant::now();
+        app.call_admitted(
+            "hotkey_pressed",
+            json!({"source":{"kind":"stream"}}),
+            pressed,
+        )
+        .await?;
+        sleep(Duration::from_millis(420)).await;
+        app.call_admitted(
+            "hotkey_released",
+            json!({}),
+            pressed + Duration::from_millis(held_ms),
+        )
+        .await?;
+        let status = app.call("status", json!({})).await?;
+        if latches {
+            assert_eq!(status["state"], "recording");
+            assert_eq!(status["latched"], true);
+            app.call("hotkey_pressed", json!({})).await?;
+        } else {
+            assert_ne!(status["state"], "recording");
+        }
+        idle(&app).await?;
+    }
+    app.call("shutdown", json!({})).await?;
+    Ok(())
+}

@@ -8,6 +8,10 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#ifndef VM_TEST_CAPTURE_CHANNELS
+#define VM_TEST_CAPTURE_CHANNELS 3
+#endif
+
 struct vm_audio_stream { pthread_t owner; int mode; int stopped; int prepared; int blocks; uint32_t frames; };
 static _Atomic int released = 0;
 static _Atomic int entered = 0;
@@ -37,7 +41,7 @@ vm_audio_stream *vm_audio_create(int32_t rate, uint32_t frames, uint32_t queue,
 vm_audio_stream *vm_audio_create_configured(int32_t rate, uint32_t frames, uint32_t queue,
     bool automatic, float gain, bool hp, float hz, bool limiter, bool voice,
     const char *device, uint32_t channels, char *error, size_t size) {
-    if (frames != 1280 || voice || device == NULL || strcmp(device, "fixture mic") != 0 || channels != 3) abort();
+    if (frames != 1280 || voice || device == NULL || strcmp(device, "fixture mic") != 0 || channels != VM_TEST_CAPTURE_CHANNELS) abort();
     vm_audio_stream *s = vm_audio_create(rate, 640, queue, automatic, gain, hp, hz, limiter, error, size);
     s->frames = frames; return s;
 }

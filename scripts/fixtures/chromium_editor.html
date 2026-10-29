@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Vocal More Compatible Input Fixture</title>
+<style>body{padding:60px;font:22px sans-serif;background:#eef2f6}#editor{padding:18px;background:white;border:1px solid #555;min-width:500px}input{display:block;margin-top:30px}</style>
+<section id="history" role="region" aria-label="synthetic history"></section>
+<div role="group"><div role="group"><div role="group"><div role="group"><div role="group"><div role="group"><div role="group"><div role="group"><div id="editor" role="textbox" contenteditable="true" aria-multiline="true" tabindex="0">前缀：旧值后缀</div></div></div></div></div></div></div></div></div>
+<input aria-label="unrelated owned field" value="unrelated-field-unchanged">
+<script>for(let i=0;i<1800;i++){const p=document.createElement("p");p.textContent="Owned history fixture "+i;document.querySelector("#history").append(p);}let editor=document.querySelector('#editor');
+const scenario=new URLSearchParams(location.search).get('scenario')||'default';
+if(scenario==='mixed')document.addEventListener('copy',e=>{e.preventDefault();e.clipboardData.setData('text/plain','owned plain');e.clipboardData.setData('text/html','<b>owned rich</b>');});
+if(scenario==='multiline'||scenario==='long'){
+ const textarea=document.createElement(scenario==='long'?'input':'textarea');textarea.id='editor';textarea.rows=8;textarea.cols=60;
+ textarea.value=scenario==='long'?'前文'.repeat(6000)+'旧值后缀':'前缀：旧\n值后缀';
+ editor.replaceWith(textarea);editor=textarea;editor.focus();
+ const start=scenario==='long'?12000:3;editor.setSelectionRange(start,start+(scenario==='long'?2:3));
+}else{editor.focus();const range=document.createRange();range.setStart(editor.firstChild,3);range.setEnd(editor.firstChild,5);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);}</script></html>

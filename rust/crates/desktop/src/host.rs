@@ -165,6 +165,8 @@ impl DesktopHost {
             show_settings,
             quit_after_ms,
             capsule_fixtures: _,
+            test_audio: _,
+            background: _,
         } = options;
         let (driver, commands, events) = BackendDriver::start(backend)?;
         let (wake, wake_rx) = async_channel::bounded(1);

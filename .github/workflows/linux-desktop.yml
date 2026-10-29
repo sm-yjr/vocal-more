@@ -1,0 +1,71 @@
+name: Linux Desktop Development
+
+on:
+  push:
+    branches: [main, codex/linux-desktop]
+    paths: ["rust/**", "native/audio/**", "packaging/linux/**", "scripts/*linux*", "tests/test_linux*", "tests/native/linux*", ".github/workflows/linux-desktop.yml"]
+  pull_request:
+    paths: ["rust/**", "native/audio/**", "packaging/linux/**", "scripts/*linux*", "tests/test_linux*", "tests/native/linux*", ".github/workflows/linux-desktop.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libclang-dev libssl-dev \
+            libfontconfig1-dev libfreetype-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev libx11-xcb-dev libxcb1-dev libxcb-xkb-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libvulkan-dev libasound2-dev libudev-dev libdbus-1-dev \
+            portaudio19-dev libsamplerate0-dev mesa-vulkan-drivers wl-clipboard xclip xdotool \
+            ffmpeg pipewire-bin xvfb desktop-file-utils python3-xlib dpkg-dev gnupg \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-pipewire \
+            gstreamer1.0-plugins-good at-spi2-core python3-gi gir1.2-gtk-4.0 dbus-x11 \
+            gnome-settings-daemon-common gsettings-desktop-schemas
+      - name: Install desktop Rust toolchain
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+          rustup override set 1.98.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+          shared-key: linux-desktop
+      - uses: astral-sh/setup-uv@v6
+      - name: Verify Python and device-free native DSP
+        run: |
+          cargo build --locked --manifest-path rust/Cargo.toml -p vocal-more-backend
+          uv sync --group dev
+          uv run python -m pytest -q
+      - name: Verify Rust desktop and backend
+        run: |
+          cargo fmt --all --manifest-path rust/Cargo.toml -- --check
+          cargo clippy --locked --no-deps --manifest-path rust/Cargo.toml -p vocal-more-desktop --all-targets -- -D warnings
+          cargo test --locked --manifest-path rust/Cargo.toml --workspace
+          VOCAL_MORE_PRIVATE_PORTAL_TEST=1 dbus-run-session -- cargo test --locked --manifest-path rust/Cargo.toml -p vocal-more-desktop --lib linux_portal_pending -- --ignored
+          cargo test --locked --manifest-path rust/Cargo.toml -p vocal-more-backend linux_lossless_roundtrip -- --ignored
+      - name: Build native application and run GUI smoke test
+        run: |
+          bash scripts/build_linux_audio.sh
+          cargo build --locked --manifest-path rust/Cargo.toml -p vocal-more-desktop --bin vocal-more-desktop
+          python3 scripts/smoke_linux_desktop.py
+          python3 scripts/smoke_linux_accessibility.py
+          python3 scripts/smoke_linux_shortcuts.py
+      - name: Package Linux development archive
+        run: bash scripts/build_linux_desktop.sh
+      - name: Retain development artifact and GUI evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: vocal-more-linux-development-x86_64
+          path: |
+            .build/linux/*.tar.gz
+            .build/linux/*.deb
+            .build/linux-smoke/*.png
+            .build/linux-smoke/*.log
+            .build/linux-shortcuts-acceptance/*.png
+            .build/linux-shortcuts-acceptance/*.json

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
+#[cfg(not(target_os = "linux"))]
+use super::shortcut;
 use super::{
     Control, MicState, Settings, calibration,
     schema::{self, Kind, Tab, get},
-    shortcut,
 };
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
@@ -39,7 +40,7 @@ fn heading(title: impl Into<SharedString>, cx: &App) -> Div {
         .child(title.into())
 }
 /// Bordered group with inner padding, for content that is not setting rows.
-fn panel(cx: &App) -> Div {
+pub(super) fn panel(cx: &App) -> Div {
     group(cx).gap_3().py_4()
 }
 /// Self-contained item (a recording, a stat, a dialog) titled inside its border.
@@ -47,7 +48,7 @@ fn card(title: impl Into<SharedString>, cx: &App) -> Div {
     panel(cx).child(heading(title, cx))
 }
 /// Page section: heading above the bordered group, as every settings page shows.
-fn titled(title: impl Into<SharedString>, body: impl IntoElement, cx: &App) -> Div {
+pub(super) fn titled(title: impl Into<SharedString>, body: impl IntoElement, cx: &App) -> Div {
     v_flex()
         .gap_2()
         .child(heading(title, cx).px_1())
@@ -58,7 +59,7 @@ fn actions() -> Div {
     h_flex().gap_2().flex_wrap()
 }
 /// Secondary explanation under a title, the same size everywhere.
-fn note(text: impl Into<SharedString>, cx: &App) -> Div {
+pub(super) fn note(text: impl Into<SharedString>, cx: &App) -> Div {
     div()
         .text_size(px(13.))
         .whitespace_normal()
@@ -403,7 +404,17 @@ impl Settings {
     fn general_page(&self, cx: &mut Context<Self>) -> Div {
         let advanced = self.advanced();
         let mut page = v_flex().gap_5().children(
-            ["Recording and typing", "Interface", "Service and updates"]
+            ["Recording and typing"]
+                .into_iter()
+                .filter_map(|section| self.section(Tab::General, section, cx))
+                .collect::<Vec<_>>(),
+        );
+        #[cfg(target_os = "linux")]
+        {
+            page = page.child(self.linux_input_panel(cx));
+        }
+        page = page.children(
+            ["Interface", "Service and updates"]
                 .into_iter()
                 .filter_map(|section| self.section(Tab::General, section, cx))
                 .collect::<Vec<_>>(),
@@ -949,13 +960,19 @@ impl Settings {
         page
     }
     fn shortcuts_page(&self, cx: &mut Context<Self>) -> Div {
-        let active = get(self.config(), "hotkey.active_hotkeys")
-            .as_array()
-            .cloned()
-            .unwrap_or_else(|| vec![json!("fn")]);
-        let fn_enabled = active.iter().any(|key| key == "fn");
-        // Same row layout as every other switch: title and note left, switch right.
-        let built_in = group(cx).child(
+        #[cfg(target_os = "linux")]
+        {
+            self.linux_shortcuts_page(cx)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let active = get(self.config(), "hotkey.active_hotkeys")
+                .as_array()
+                .cloned()
+                .unwrap_or_else(|| vec![json!("fn")]);
+            let fn_enabled = active.iter().any(|key| key == "fn");
+            // Same row layout as every other switch: title and note left, switch right.
+            let built_in = group(cx).child(
             h_flex()
                 .w_full()
                 .items_center()
@@ -994,94 +1011,95 @@ impl Settings {
                     })),
                 ),
         );
-        let keys = shortcut::custom_keys(self.config());
-        let mut custom = panel(cx);
-        for key in &keys {
-            let code = key["key_code"].clone();
-            custom = custom.child(
-                h_flex()
-                    .justify_between()
-                    .items_center()
-                    .child(
-                        div()
-                            .text_sm()
-                            .child(key["display_name"].as_str().unwrap_or("Key").to_owned()),
+            let keys = shortcut::custom_keys(self.config());
+            let mut custom = panel(cx);
+            for key in &keys {
+                let code = key["key_code"].clone();
+                custom = custom.child(
+                    h_flex()
+                        .justify_between()
+                        .items_center()
+                        .child(
+                            div()
+                                .text_sm()
+                                .child(key["display_name"].as_str().unwrap_or("Key").to_owned()),
+                        )
+                        .child(
+                            Button::new(("remove-key", code.as_u64().unwrap_or_default() as usize))
+                                .label(self.text("移除", "Remove"))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    let keys = shortcut::custom_keys(this.config())
+                                        .into_iter()
+                                        .filter(|key| key["key_code"] != code)
+                                        .collect::<Vec<_>>();
+                                    this.set_config("hotkey.custom_keys", json!(keys), window, cx);
+                                })),
+                        ),
+                );
+            }
+            let hint = if self.capture.active {
+                if self.capture.pending.is_some() {
+                    self.text(
+                        "再次按下同一修饰键确认；Esc 取消。",
+                        "Press the same modifier again to confirm; Escape cancels.",
                     )
-                    .child(
-                        Button::new(("remove-key", code.as_u64().unwrap_or_default() as usize))
-                            .label(self.text("移除", "Remove"))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                let keys = shortcut::custom_keys(this.config())
-                                    .into_iter()
-                                    .filter(|key| key["key_code"] != code)
-                                    .collect::<Vec<_>>();
-                                this.set_config("hotkey.custom_keys", json!(keys), window, cx);
-                            })),
-                    ),
-            );
-        }
-        let hint = if self.capture.active {
-            if self.capture.pending.is_some() {
-                self.text(
-                    "再次按下同一修饰键确认；Esc 取消。",
-                    "Press the same modifier again to confirm; Escape cancels.",
-                )
+                } else {
+                    self.text(
+                        "请按下触发键；修饰键需按两次确认。",
+                        "Press a trigger key; bare modifiers require two presses.",
+                    )
+                }
             } else {
                 self.text(
-                    "请按下触发键；修饰键需按两次确认。",
-                    "Press a trigger key; bare modifiers require two presses.",
+                    "最多 8 个独立触发键，支持左右修饰键。",
+                    "Up to 8 independent trigger keys, including left and right modifiers.",
                 )
-            }
-        } else {
-            self.text(
-                "最多 8 个独立触发键，支持左右修饰键。",
-                "Up to 8 independent trigger keys, including left and right modifiers.",
-            )
-        };
-        custom = custom.child(note(hint, cx)).child(
-            actions().child(
-                Button::new("capture-key")
-                    .label(self.text(
-                        if self.capture.active {
-                            "取消录入"
-                        } else {
-                            "添加触发键"
-                        },
-                        if self.capture.active {
-                            "Cancel capture"
-                        } else {
-                            "Add trigger key"
-                        },
-                    ))
-                    .disabled(!self.capture.active && keys.len() >= 8)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.capture.active = !this.capture.active;
-                        this.capture.pending = None;
-                        this.commands.request(
-                            if this.capture.active {
-                                "begin_hotkey_capture"
+            };
+            custom = custom.child(note(hint, cx)).child(
+                actions().child(
+                    Button::new("capture-key")
+                        .label(self.text(
+                            if self.capture.active {
+                                "取消录入"
                             } else {
-                                "end_hotkey_capture"
+                                "添加触发键"
                             },
-                            json!({}),
-                        );
-                        cx.notify();
-                    })),
-            ),
-        );
-        v_flex()
-            .gap_5()
-            .child(titled(
-                self.text("内置快捷键", "Built-in shortcut"),
-                built_in,
-                cx,
-            ))
-            .child(titled(
-                self.text("自定义触发键", "Custom trigger keys"),
-                custom,
-                cx,
-            ))
-            .child(self.fields(Tab::Shortcuts, cx))
+                            if self.capture.active {
+                                "Cancel capture"
+                            } else {
+                                "Add trigger key"
+                            },
+                        ))
+                        .disabled(!self.capture.active && keys.len() >= 8)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.capture.active = !this.capture.active;
+                            this.capture.pending = None;
+                            this.commands.request(
+                                if this.capture.active {
+                                    "begin_hotkey_capture"
+                                } else {
+                                    "end_hotkey_capture"
+                                },
+                                json!({}),
+                            );
+                            cx.notify();
+                        })),
+                ),
+            );
+            v_flex()
+                .gap_5()
+                .child(titled(
+                    self.text("内置快捷键", "Built-in shortcut"),
+                    built_in,
+                    cx,
+                ))
+                .child(titled(
+                    self.text("自定义触发键", "Custom trigger keys"),
+                    custom,
+                    cx,
+                ))
+                .child(self.fields(Tab::Shortcuts, cx))
+        }
     }
     fn dictionary_page(&self, cx: &mut Context<Self>) -> Div {
         let mut terms = panel(cx);
@@ -1661,6 +1679,9 @@ impl Settings {
             ("accessibility", "辅助功能权限", "Accessibility permission"),
             ("hotkey_listener", "快捷键监听", "Hotkey listener"),
         ] {
+            if cfg!(target_os = "linux") && matches!(key, "accessibility" | "hotkey_listener") {
+                continue;
+            }
             let ready = self.readiness(key);
             permissions = permissions.child(status_row(
                 self.text(zh, en),
@@ -1675,20 +1696,22 @@ impl Settings {
         }
         permissions = permissions.child(
             actions()
-                .child(
-                    Button::new("onboarding-accessibility")
-                        .label(self.text("打开辅助功能设置", "Open Accessibility settings"))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.action("openAccessibilitySettings", json!({}), cx);
-                        })),
-                )
-                .child(
-                    Button::new("onboarding-microphone")
-                        .label(self.text("打开麦克风设置", "Open Microphone settings"))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.action("openMicrophoneSettings", json!({}), cx);
-                        })),
-                )
+                .when(!cfg!(target_os = "linux"), |row| {
+                    row.child(
+                        Button::new("onboarding-accessibility")
+                            .label(self.text("打开辅助功能设置", "Open Accessibility settings"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.action("openAccessibilitySettings", json!({}), cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("onboarding-microphone")
+                            .label(self.text("打开麦克风设置", "Open Microphone settings"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.action("openMicrophoneSettings", json!({}), cx);
+                            })),
+                    )
+                })
                 .child(
                     Button::new("onboarding-refresh")
                         .label(self.text("重新检查", "Check again"))
@@ -1722,8 +1745,8 @@ impl Settings {
         let missing = [
             get(self.config(), "_api_key_set") == true,
             !self.array("devices").is_empty() && self.readiness("input_device"),
-            self.readiness("accessibility"),
-            self.readiness("hotkey_listener"),
+            cfg!(target_os = "linux") || self.readiness("accessibility"),
+            cfg!(target_os = "linux") || self.readiness("hotkey_listener"),
             self.mic == MicState::Done,
         ]
         .into_iter()
@@ -1913,6 +1936,13 @@ impl Render for Settings {
             .font_family(cx.theme().font_family.clone())
             .text_color(cx.theme().foreground)
             .bg(cx.theme().background);
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(focus) = &self.linux_shortcuts.focus {
+                root = root.track_focus(focus);
+            }
+            root = root.capture_key_down(cx.listener(Self::linux_key_down));
+        }
         if get(self.config(), "ui.onboarding_completed") != true {
             root = root.child(
                 div()
@@ -2046,6 +2076,25 @@ impl Render for Settings {
                             )
                     })
                     .child(page.max_w(px(720.))),
+            );
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(notice) = self.snapshot["linux_notice"]
+            .as_str()
+            .filter(|value| !value.is_empty())
+        {
+            root = root.child(
+                div()
+                    .absolute()
+                    .bottom_2()
+                    .left_2()
+                    .right_2()
+                    .p_3()
+                    .bg(cx.theme().background)
+                    .border_1()
+                    .border_color(cx.theme().warning)
+                    .text_sm()
+                    .child(notice.to_owned()),
             );
         }
         if let Some(error) = &self.error {

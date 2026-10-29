@@ -14,7 +14,7 @@ fn normalized(value: &str) -> String {
         .collect()
 }
 fn bounded(value: &Value) -> Option<String> {
-    if value.is_null() || value["is_secure"] == true {
+    if value.is_null() || value["is_secure"] == true || value["terminal"] == true {
         return None;
     }
     let text = normalized(string(value, "value"));
@@ -107,6 +107,7 @@ pub struct Observation {
     span: Option<(usize, usize)>,
     latest: String,
     last_change: Option<f64>,
+    manual: bool,
     post_deadline: f64,
     deadline: f64,
 }
@@ -134,9 +135,18 @@ impl Observation {
             span: None,
             latest: String::new(),
             last_change: None,
+            manual: false,
             post_deadline: now + 1.0,
             deadline: now + 16.0,
         })
+    }
+    /// A manual clipboard paste must be observed exactly before projecting edits.
+    /// Merely changing a field during the waiting period is not paste evidence.
+    pub fn prepare_manual(id: String, original: Value, paste: &Value, now: f64) -> Option<Self> {
+        let mut observation = Self::prepare(id, original, paste, now)?;
+        observation.manual = true;
+        observation.post_deadline = now + 15.0;
+        Some(observation)
     }
     pub fn target_id(&self) -> &str {
         string(&self.original, "target_id")
@@ -249,6 +259,18 @@ impl Observation {
             let Some(value) = bounded(current) else {
                 return Progress::Finished(None);
             };
+            if self.manual {
+                if committed || now >= self.post_deadline {
+                    return Progress::Finished(None);
+                }
+                if self.expected().as_ref() == Some(&value)
+                    && value != self.original_text
+                    && !self.set_baseline(value, None, now)
+                {
+                    return Progress::Finished(None);
+                }
+                return Progress::Pending;
+            }
             let reconstruction = if committed {
                 self.reconstruct(&value).map(|b| (b, Some(value.clone())))
             } else if let Some(expected) = self.expected()

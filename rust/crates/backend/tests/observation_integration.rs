@@ -70,3 +70,68 @@ fn next_paste_commits_previous_edit_without_observing_new_paste() {
     ));
     assert!(!plausible("一段需要保留的听写内容", ""));
 }
+
+#[test]
+fn manual_paste_waits_for_real_baseline_before_learning_unicode_edits() {
+    let mut original = snapshot("前缀：后缀");
+    original["selection_start"] = json!(3);
+    let mut observation = Observation::prepare_manual(
+        "manual".into(),
+        original.clone(),
+        &json!({"text":"github","raw_text":"github","recording_id":"manual-r"}),
+        0.,
+    )
+    .unwrap();
+    assert!(matches!(
+        observation.poll(&original, &Value::Null, 5., false),
+        Progress::Pending
+    ));
+    assert!(!observation.expired(5.));
+    // Unrelated typing does not manufacture a paste baseline.
+    assert!(matches!(
+        observation.poll(&snapshot("前缀：hello后缀"), &Value::Null, 6., false),
+        Progress::Pending
+    ));
+    assert!(matches!(
+        observation.poll(&snapshot("前缀：github后缀"), &Value::Null, 7., false),
+        Progress::Pending
+    ));
+    observation.poll(&snapshot("前缀：GitHub后缀"), &Value::Null, 8., false);
+    let evidence =
+        result(observation.poll(&Value::Null, &snapshot("前缀：GitHub后缀"), 9., false)).unwrap();
+    assert_eq!(evidence["baseline_text"], "github");
+    assert_eq!(evidence["edited_text"], "GitHub");
+    assert_eq!(evidence["recording_id"], "manual-r");
+}
+
+#[test]
+fn manual_paste_without_observed_insertion_never_learns() {
+    for (focused, retained, time) in [
+        (snapshot("GitHub"), Value::Null, 15.),
+        (Value::Null, snapshot("GitHub"), 0.1),
+    ] {
+        let mut observation = Observation::prepare_manual(
+            "manual".into(),
+            snapshot(""),
+            &json!({"text":"github"}),
+            0.,
+        )
+        .unwrap();
+        assert!(result(observation.poll(&focused, &retained, time, false)).is_none());
+    }
+}
+
+#[test]
+fn terminal_delivery_never_starts_correction_learning() {
+    let target = serde_json::json!({"pid":42,"target_id":"terminal","terminal":true,"value":null});
+    let paste = serde_json::json!({"text":"synthetic test only"});
+    assert!(
+        vocal_more_backend::observation::Observation::prepare(
+            "terminal".into(),
+            target,
+            &paste,
+            0.
+        )
+        .is_none()
+    );
+}

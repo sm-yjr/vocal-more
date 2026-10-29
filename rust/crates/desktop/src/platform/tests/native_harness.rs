@@ -480,7 +480,7 @@ fn run() -> Result<()> {
     );
     Ok(())
 }
-fn main() {
+pub fn main() {
     // Run a real Cocoa application loop. finishLaunching + NSRunLoop alone
     // leaves NSApplication.isRunning false and activation may be ignored.
     let result = std::rc::Rc::new(std::cell::RefCell::new(None));

@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use objc2::{MainThreadMarker, rc::autoreleasepool};
 use vocal_more_backend::application::Options;
 use vocal_more_desktop::{bridge::BackendDriver, platform};
-fn main() -> Result<()> {
+pub fn main() -> Result<()> {
     let data = std::env::args_os()
         .nth(1)
         .context("supply a fresh isolated data directory")?;

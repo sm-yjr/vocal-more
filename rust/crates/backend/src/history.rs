@@ -658,19 +658,37 @@ async fn convert(
     encode: bool,
     cancel: &CancellationToken,
 ) -> Result<()> {
-    ensure!(
-        cfg!(target_os = "macos"),
-        "lossless archival requires the macOS audio converter"
-    );
-    let mut command = tokio::process::Command::new("/usr/bin/afconvert");
-    command
-        .arg(source)
-        .arg(destination)
-        .args(if encode {
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = tokio::process::Command::new("/usr/bin/afconvert");
+        command.arg(source).arg(destination).args(if encode {
             ["-f", "flac", "-d", "flac"]
         } else {
             ["-f", "WAVE", "-d", "LEI16@16000"]
-        })
+        });
+        command
+    };
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut command = tokio::process::Command::new("ffmpeg");
+        command
+            .args(["-nostdin", "-v", "error", "-y", "-i"])
+            .arg(source);
+        if encode {
+            command.args(["-c:a", "flac", "-f", "flac"]);
+        } else {
+            command.args(["-c:a", "pcm_s16le", "-ar", "16000", "-ac", "1", "-f", "wav"]);
+        }
+        command.arg(destination);
+        command
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let mut command = {
+        anyhow::bail!("lossless archival is unavailable on this platform");
+        #[allow(unreachable_code)]
+        tokio::process::Command::new("unsupported")
+    };
+    command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -715,4 +733,41 @@ fn pcm_digest(path: &Path, cancel: &CancellationToken) -> Result<(Vec<u8>, u32, 
         spec.bits_per_sample,
         duration,
     ))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_converter_tests {
+    use super::*;
+    #[tokio::test]
+    #[ignore = "requires ffmpeg; Linux desktop CI runs this explicitly"]
+    async fn linux_lossless_roundtrip_preserves_pcm() {
+        let data = tempfile::tempdir().unwrap();
+        let source = data.path().join("source.wav");
+        let compressed = data.path().join("archive.flac");
+        let decoded = data.path().join("decoded.wav");
+        let mut writer = hound::WavWriter::create(
+            &source,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 16000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for sample in 0..32000 {
+            writer.write_sample(((sample % 160) * 64) as i16).unwrap();
+        }
+        writer.finalize().unwrap();
+        let cancel = CancellationToken::new();
+        convert(&source, &compressed, true, &cancel).await.unwrap();
+        convert(&compressed, &decoded, false, &cancel)
+            .await
+            .unwrap();
+        assert_eq!(
+            pcm_digest(&source, &cancel).unwrap(),
+            pcm_digest(&decoded, &cancel).unwrap()
+        );
+        assert!(compressed.metadata().unwrap().len() < source.metadata().unwrap().len());
+    }
 }

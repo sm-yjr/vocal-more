@@ -7,6 +7,12 @@
 - 当前稳定版 `0.5.0` 已交付 Rust 业务后端及现有 Python/PyObjC 薄 UI；GPUI 前端迁移尚未完成。维护时继续区分稳定版、预发布版和开发进程，使用下述验证流程。
 - 决策与调研依据见 [Rust 技术路线记录](docs/rust-direction-research-2026-09-09.md)。
 
+## Linux 迁移验收约束（2026-10-18）
+
+- 必须遵循 [Linux 迁移要求](docs/linux-migration-requirements.md)：跨平台核心用户体验与 macOS 保持一致。
+- 常驻听写窗口不能替代后台运行与悬浮胶囊；系统手工绑定不能替代应用内快捷键 UI；Wayland 手动粘贴不能作为自动插入已完成的验收结果。
+- 隔离测试、编译或安装通过不能代替安装后的实际桌面体验验收。保留差距登记，不得将临时降级宣称为迁移完成。
+
 ## 当前交付代码
 
 - **Python source**: `src/vocal_more/`
@@ -19,7 +25,7 @@
 
 - Install development dependencies with `uv sync --group dev`.
 - Run the full test suite with `uv run python -m pytest -q`.
-- Do not build a local DMG as part of routine development or feature verification. Run the test suite locally; when publishing a version, use the release CI workflow directly.
+- Do not build a local DMG as part of routine development or feature verification. Run the test suite locally. For a release, compile and package the candidate locally, then upload it for GitHub Actions to sign, notarize, prepare signed updates, and publish; Actions must not repeat the product build.
 - Treat `pyproject.toml` as the version source of truth. The macOS bundle metadata and artifact names derive from it (with `[tool.vocal-more].build`) through `packaging/release/model.py` and `packaging/macos/read_version.py`; keep the editable `vocal-more` entry in `uv.lock` aligned.
 - A version-only change should not rewrite unrelated registry metadata in `uv.lock`. If it does, verify the local `uv` version before accepting the diff.
 - Read `docs/concurrency-runtime-model.md` before changing worker ownership, queues, shutdown behavior, or background runtimes.
@@ -33,7 +39,10 @@
 
 - 改动发布工具或处理发布失败前，阅读 `docs/release-postmortem-0.5.0a1.md`。重试前核对实际脚本 SHA、草稿/资产摘要和 feed 状态；不要用重复 rerun 代替诊断。main 上的修复不会自动进入旧 tag 检出的发布脚本。
 
-- `.github/workflows/release-prepare.yml` 从 `main` 提前准备并验证 macOS 候选；`.github/workflows/release.yml` 按版本 tag 发布对应候选，必要时调用公共完整准备流程。遵循 `docs/release.md`，不得绕过候选来源或摘要校验。
+- **发布方向（2026-10-29 用户已确定）：本地编译并上传候选包，GitHub Actions 完成 Developer ID 签名、公证及 staple、生成 Sparkle 更新签名和发布，不再远端重复编译产品。** Developer ID 证书私钥、公证凭据和 Sparkle 私钥继续保存在 GitHub Secrets，不下发到本地。
+- 本地候选必须绑定已提交并推送的完整 source SHA、版本/构建号、锁文件、工具链、测试结果和文件摘要。Actions 校验候选来源与完整性，再签名、公证、验证最终产物并发布；本地上传包不等于可公开发布的成品。签名/公证改变产物字节后，必须重新计算最终摘要并生成 Sparkle 签名。
+- 候选缺失、过期或校验失败时停止，要求重新上传或修复候选；不得自动回退到 Actions 完整编译。基线变化可复用已验证产物刷新更新元数据，已公开资产仍按同名同摘要规则恢复。
+- `.github/workflows/release-prepare.yml`、`_release-candidate.yml` 和 `release.yml` 目前仍实现旧的远端构建流程，尚待按上述方向迁移；更新说明不代表实现或验收已完成。遵循 `docs/release.md`，保留候选来源、摘要和最终产物校验。
 - 版本为 `x.y.z+构建号`（stable `0.6.0+1`，beta `0.6.1-beta.1+58`），alpha 已停用。`pyproject.toml` 的 `[project].version`（`X.Y.Z` / `X.Y.ZbN`）和 `[tool.vocal-more].build` 是来源；构建号 stable/beta 共用且每次发布递增，写入 `CFBundleVersion` 供 Sparkle 比较。tag 不含构建号：stable `vX.Y.Z`，beta `vX.Y.Z-beta.N`。兼容裸 tag 和 PEP 440 别名，但同一版本只能发布一个 tag。
 - 所有版本共用 `sparkle-feed`，beta 条目带 `sparkle:channel=beta`：stable 只升 stable，beta 可升 beta 或 stable，旧 alpha 经镜像的 `sparkle-feed-alpha` 直接升 stable。beta 必须标记 GitHub prerelease 且不得替换 Latest stable；不得把 beta 产物改名作为正式版。
 - Do not consider a release complete until the workflow has passed tests, Developer ID signing, notarization and stapling, artifact verification, GitHub Release upload, and signed Sparkle appcast publication.

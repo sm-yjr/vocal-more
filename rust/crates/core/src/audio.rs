@@ -650,7 +650,11 @@ fn capture(handle: &Handle<'_>, request: &worker::Capture, resume: bool) -> Resu
         state["voice_processing_enabled_observed"] =
             json!(device.is_none_or(|d| d.voice_processing));
         state["diagnostics_fresh"] = json!(true);
-        state["native_backend"] = json!("objective_cpp");
+        state["native_backend"] = json!(if cfg!(target_os = "linux") {
+            "portaudio"
+        } else {
+            "objective_cpp"
+        });
         state["warm_reused"] = json!(resume);
         state["startup_timing_ms"] = json!({"native_start":started.elapsed().as_secs_f64()*1000.0});
     }

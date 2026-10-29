@@ -63,6 +63,7 @@ pub struct Application {
     events: broadcast::Sender<Value>,
 }
 struct Command {
+    admitted_at: Instant,
     method: String,
     params: Value,
     reply: oneshot::Sender<Result<Value>>,
@@ -182,12 +183,22 @@ impl Application {
         let (commands, mut receiver) = mpsc::channel::<Command>(64);
         let (events, _) = broadcast::channel(256);
         let (internal, mut incoming) = mpsc::channel(128);
-        let cached_devices = options
+        let initial_devices = options
             .native
             .as_ref()
             .map(NativeAudio::list_devices)
-            .transpose()?
+            .transpose();
+        // A missing/unavailable Linux audio service must not prevent opening
+        // Settings to diagnose it or configure unrelated features.
+        #[cfg(target_os = "linux")]
+        let cached_devices = initial_devices
+            .unwrap_or_else(|_| {
+                eprintln!("Vocal More: Linux input device enumeration unavailable");
+                None
+            })
             .unwrap_or(json!([]));
+        #[cfg(not(target_os = "linux"))]
+        let cached_devices = initial_devices?.unwrap_or(json!([]));
         let mut state = State {
             cached_devices,
             host: Host::new(store, options.native.clone(), None),
@@ -231,7 +242,7 @@ impl Application {
                     command=receiver.recv()=>{
                         let Some(command)=command else {break};
                         let closing=command.method=="shutdown";
-                        let result=state.dispatch(&command.method,command.params).await;
+                        let result=state.dispatch(&command.method,command.params,command.admitted_at).await;
                         let _=command.reply.send(result);
                         if closing {break}
                     },
@@ -247,10 +258,25 @@ impl Application {
         self.events.subscribe()
     }
     pub async fn call(&self, method: &str, params: Value) -> Result<Value> {
+        self.call_admitted(method, params, Instant::now()).await
+    }
+    /// Preserve an in-process input callback's monotonic admission time across
+    /// UI/backend queues. Network callers use call(), never serialized timestamps.
+    pub async fn call_admitted(
+        &self,
+        method: &str,
+        params: Value,
+        admitted_at: Instant,
+    ) -> Result<Value> {
+        ensure!(
+            admitted_at <= Instant::now(),
+            "input admission cannot be in the future"
+        );
         ensure!(params.is_object(), "params must be an object");
         let (reply, result) = oneshot::channel();
         self.commands
             .send(Command {
+                admitted_at,
                 method: method.into(),
                 params,
                 reply,
@@ -360,13 +386,17 @@ impl State {
             .map(NativeAudio::diagnostics)
             .unwrap_or(json!({}));
         let active = native["phase"] == "active" && self.active.is_some();
-        let voice = cfg.get("audio.capture_backend") == "voice_processing";
+        let voice =
+            cfg!(target_os = "macos") && cfg.get("audio.capture_backend") == "voice_processing";
         let automatic = cfg.get("audio.gain_mode") == "automatic";
+        #[cfg(not(target_os = "linux"))]
         let channels = device
             .and_then(|d| d["max_input_channels"].as_u64())
             .unwrap_or(1)
             .min(cfg.get("audio.capture_channels").as_u64().unwrap_or(1))
             .max(1);
+        #[cfg(target_os = "linux")]
+        let channels = 1;
         let permission = self
             .options
             .native
@@ -401,7 +431,7 @@ impl State {
             "requested_gain_mode":cfg.get("audio.gain_mode"),"gain_control":if automatic {if voice {"apple_agc"}else{"software_fallback"}}else{"software"},
             "gain_control_verified":active && (!voice || native["agc_enabled_observed"].as_bool()==Some(automatic)),
             "microphone_permission":match permission{Some(3)=>"authorized",Some(0)=>"not_determined",Some(1)=>"restricted",Some(2)=>"denied",_=>"unknown"},
-            "native_backend":"objective_cpp","output_sample_rate_hz":16000,"output_channels":1,"capture_block_frames":cfg.get("audio.blocksize"),
+            "native_backend":if cfg!(target_os = "linux") {"portaudio"}else{"objective_cpp"},"output_sample_rate_hz":16000,"output_channels":1,"capture_block_frames":cfg.get("audio.blocksize"),
             "software_gain_effective":if software {cfg.get("audio.gain").clone()}else{Value::Null},
             "soft_limiter_effective":active.then_some(software && cfg.get("audio.soft_limiter")==true),
             "highpass_effective":active.then_some(cfg.get("audio.highpass_filter")==true),"fallback_reason":null,
@@ -441,12 +471,27 @@ impl State {
             Some(false) => "error",
             None => "unknown",
         };
-        json!([{"key":"api_key","status":if self.key_present(){"ok"}else{"error"},"details":if self.key_present(){"configured"}else{"API key is missing"}},
+        let checks = json!([{"key":"api_key","status":if self.key_present(){"ok"}else{"error"},"details":if self.key_present(){"configured"}else{"API key is missing"}},
             {"key":"microphone_permission","status":match permission{Some(3)=>"ok",Some(1|2)=>"error",_=>"unknown"},
                 "details":match permission{Some(3)=>"authorized",Some(0)=>"not_determined",Some(1)=>"restricted",Some(2)=>"denied",_=>"unavailable"}},
             {"key":"input_device","status":if permission!=Some(3){"unknown"}else if count>0{"ok"}else{"error"},"details":if permission!=Some(3){"visibility_limited".into()}else{format!("{count} available")}},
             {"key":"accessibility","status":platform("accessibility"),"details":if self.platform_status["accessibility"]==true{"trusted"}else{"missing"}},
-            {"key":"hotkey_listener","status":platform("hotkey_listener"),"details":if self.platform_status["hotkey_listener"]==true{"running"}else{"not started"}}])
+            {"key":"hotkey_listener","status":platform("hotkey_listener"),"details":if self.platform_status["hotkey_listener"]==true{"running"}else{"not started"}}]);
+        if cfg!(target_os = "linux") {
+            json!(
+                checks
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|check| !matches!(
+                        check["key"].as_str(),
+                        Some("accessibility" | "hotkey_listener")
+                    ))
+                    .collect::<Vec<_>>()
+            )
+        } else {
+            checks
+        }
     }
     fn learning_records(&self) -> Result<Value> {
         Ok(json!(self.learning.list(100)?.into_iter().map(|j|json!({"id":j.id,"status":j.status,"created_at":j.created_at,"updated_at":j.updated_at,
@@ -498,9 +543,14 @@ impl State {
         Source::ConfiguredNative {
             dsp: dsp(cfg),
             device: DeviceOptions {
-                voice_processing: cfg.get("audio.capture_backend") == "voice_processing",
+                voice_processing: cfg!(target_os = "macos")
+                    && cfg.get("audio.capture_backend") == "voice_processing",
                 input_device: cfg.get("audio.input_device").as_str().map(str::to_owned),
-                capture_channels: cfg.get("audio.capture_channels").as_u64().unwrap() as u32,
+                capture_channels: if cfg!(target_os = "linux") {
+                    1
+                } else {
+                    cfg.get("audio.capture_channels").as_u64().unwrap() as u32
+                },
                 block_frames: cfg.get("audio.blocksize").as_u64().unwrap() as u32,
             },
         }
@@ -740,7 +790,12 @@ impl State {
         self.pending_pastes.insert(id, data.clone());
         self.emit("paste_requested", data);
     }
-    async fn dispatch(&mut self, method: &str, params: Value) -> Result<Value> {
+    async fn dispatch(
+        &mut self,
+        method: &str,
+        params: Value,
+        admitted_at: Instant,
+    ) -> Result<Value> {
         let method = if method == "ui_action" {
             ui_method(required(&params, "action")?)?
         } else {
@@ -823,13 +878,24 @@ impl State {
                 Ok(json!({"ok":true,"mode":params["mode"]}))
             }
             "list_devices" | "refresh_devices" => {
-                self.cached_devices = self
+                let devices = self
                     .options
                     .native
                     .as_ref()
                     .map(NativeAudio::list_devices)
-                    .transpose()?
-                    .unwrap_or(json!([]));
+                    .transpose();
+                #[cfg(target_os = "linux")]
+                {
+                    self.cached_devices = devices
+                        .map_err(|_| {
+                            anyhow::anyhow!("无法读取麦克风，请检查音频服务或连接输入设备后刷新")
+                        })?
+                        .unwrap_or(json!([]));
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    self.cached_devices = devices?.unwrap_or(json!([]));
+                }
                 self.prepare_audio();
                 let devices = self.devices()?;
                 self.emit("devices_changed",json!({"devices":devices,"selected_device":self.config.config.get("audio.input_device"),"audio_input_status":self.input_status()}));
@@ -859,7 +925,7 @@ impl State {
             "hotkey_pressed" => {
                 if self.state == "idle" {
                     self.latched = false;
-                    self.pressed_at = Some(Instant::now());
+                    self.pressed_at = Some(admitted_at);
                     self.start(&params, false).await
                 } else if ["starting", "recording"].contains(&self.state.as_str()) && self.latched {
                     self.finish()
@@ -872,7 +938,8 @@ impl State {
                     && ["starting", "recording"].contains(&self.state.as_str())
                 {
                     if self.mode == "walkie_talkie"
-                        || pressed.elapsed() >= Duration::from_millis(350)
+                        || admitted_at.saturating_duration_since(pressed)
+                            >= Duration::from_millis(350)
                     {
                         return self.finish();
                     }
@@ -921,6 +988,18 @@ impl State {
                 self.active_host().append_image(generation, jpeg.into())?;
                 Ok(json!({"accepted":true}))
             }
+            "discard_paste" => {
+                let token = required(&params, "token")?;
+                self.pending_pastes.remove(token);
+                if self
+                    .claimed_paste
+                    .as_ref()
+                    .is_some_and(|paste| paste["token"] == token)
+                {
+                    self.claimed_paste = None;
+                }
+                Ok(json!({"ok":true}))
+            }
             "claim_paste" => {
                 let data = self
                     .pending_pastes
@@ -967,6 +1046,32 @@ impl State {
                     Ok(json!({"observation_id":null}))
                 }
             }
+            "prepare_manual_observation" => {
+                ensure!(
+                    params["generation"].as_u64() == Some(self.generation)
+                        && self.last_result["generation"] == params["generation"],
+                    "stale manual paste"
+                );
+                self.end_observation(None);
+                if !self
+                    .learning_allowed(&json!({"app_bundle_id":params["snapshot"]["app_bundle_id"]}))
+                {
+                    return Ok(json!({"observation_id":null}));
+                }
+                let id = Uuid::new_v4().to_string();
+                self.observation = Observation::prepare_manual(
+                    id.clone(),
+                    params["snapshot"].clone(),
+                    &self.last_result,
+                    self.started_at.elapsed().as_secs_f64(),
+                );
+                if self.observation.is_some() {
+                    self.schedule_observation(id.clone());
+                    Ok(json!({"observation_id":id}))
+                } else {
+                    Ok(json!({"observation_id":null}))
+                }
+            }
             "poll_observation" | "finish_observation" => {
                 if let Some(observation) = &mut self.observation
                     && params["observation_id"] == observation.id
@@ -982,6 +1087,14 @@ impl State {
                 Ok(json!({"ok":true}))
             }
             "cancel_observation" => {
+                if params["observation_id"].is_string()
+                    && self
+                        .observation
+                        .as_ref()
+                        .is_none_or(|o| params["observation_id"] != o.id)
+                {
+                    return Ok(json!({"ok":true}));
+                }
                 self.end_observation(None);
                 Ok(json!({"ok":true}))
             }
@@ -1381,7 +1494,7 @@ impl State {
                             start.elapsed(),
                         );
                     }
-                    self.last_result = json!({"text":result.final_text,"raw_text":result.raw_text,"generation":generation});
+                    self.last_result = json!({"text":result.final_text,"raw_text":result.raw_text,"generation":generation,"recording_id":id,"mode":self.mode});
                     self.emit("final_result",json!({"text":result.final_text,"raw_text":result.raw_text,"recording_id":id,"billing":result.billing,"generation":generation}));
                     if let Some(text) = result.paste_text {
                         self.paste(text, result.raw_text, id.clone(), &provider, false);

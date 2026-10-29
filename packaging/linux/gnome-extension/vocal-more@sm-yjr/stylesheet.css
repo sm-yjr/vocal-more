@@ -1,0 +1,13 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+.vocal-more-capsule {
+    width: 384px; height: 54px; padding: 12px 18px; spacing: 12px;
+    background-color: black; color: rgba(255,255,255,0.9);
+    border: 1px solid rgba(255,255,255,0.32); border-radius: 30px;
+    box-shadow: 0 8px 26px rgba(0,0,0,0.35);
+}
+.vocal-more-wave { width: 100px; height: 34px; spacing: 2px; }
+.vocal-more-bar { width: 3px; background-color: rgba(255,255,255,0.8); border-radius: 2px; }
+.vocal-more-text { width: 180px; font-size: 13px; }
+.vocal-more-cancel, .vocal-more-finish { width: 20px; padding: 4px; font-size: 20px; }
+.vocal-more-cancel { color: rgb(255,59,48); }
+.vocal-more-finish { color: rgb(52,199,89); }
