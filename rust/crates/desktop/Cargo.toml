@@ -36,7 +36,7 @@ vocal-more-backend = { path = "../backend" }
 vocal-more-core = { path = "../core" }
 async-channel = "2.5"
 futures-lite = "2.6"
-gpui-kit = "=0.7.0"
+gpui-kit = "=0.9.1"
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-app-kit = "0.3"

@@ -1444,6 +1444,7 @@ mod macos {
     }
 
     fn admission_rejection(this: &mut Harness) -> Result<()> {
+        this.resize(900., 740.)?;
         this.click("general")?;
         this.top()?;
         this.scroll_to("auto_paste")?;
@@ -1610,6 +1611,17 @@ mod macos {
                 thread::sleep(Duration::from_millis(45));
                 this.pump_backend()?;
             }
+            this.wait_preview(&format!("calibration {phase} samples"), |this| {
+                this.preview_events
+                    .iter()
+                    .filter(|event| {
+                        event["event"] == "mic_test_level"
+                            && event["params"]["generation"] == generation
+                            && event["params"]["rms"].as_f64().is_some_and(|rms| rms > 0.)
+                    })
+                    .count()
+                    >= 8
+            })?;
             // Capturing a Metal image can block beyond the backend's real
             // five-second safety timer on hosted runners. Capture the dialog
             // before sampling and the recommendation after both previews;
@@ -1633,9 +1645,14 @@ mod macos {
                 .count()
                 >= stop_count + 2
         })?;
+        this.wait_preview("calibration final recording complete", |this| {
+            this.cx.update(|cx| this.view.read(cx).testing_mic_state()) == "done"
+        })?;
         this.pump()?;
         ensure!(
-            this.find("apply-calibration")?.visible(),
+            this.window(|window, _| window
+                .try_find("apply-calibration")
+                .is_some_and(|button| button.visible()))?,
             "valid hardware-free preview did not produce a recommendation"
         );
         this.shot("calibration-recommendation")?;
@@ -1666,6 +1683,73 @@ mod macos {
         Ok(())
     }
 
+    fn scenes(this: &mut Harness) -> Result<()> {
+        this.resize(640., 480.)?;
+        this.set("ui.language", json!("zh"))?;
+        this.click("recognition")?;
+        this.top()?;
+        this.click("scene-add")?;
+        let (name, description) = this
+            .cx
+            .update(|cx| this.view.read(cx).testing_scene_input_ids())
+            .context("missing scene editor")?;
+        this.scroll_to(name.clone())?;
+        this.click(name)?;
+        this.window(|window, cx| window.input("巫师 3", cx))?;
+        this.scroll_to(description.clone())?;
+        this.click(description)?;
+        this.window(|window, cx| {
+            window.input("我在玩《巫师 3》。常提到杰洛特、史凯利杰和昆特牌。", cx)
+        })?;
+        this.scroll_to("scene-save")?;
+        this.shot("dictation-scene-editor")?;
+        this.click("scene-save")?;
+        this.settle()?;
+        let created = saved_value(this, "asr.scenes")?;
+        assert_eq!(created["entries"][0]["name"], "巫师 3");
+        assert!(created["active_id"].is_null());
+        let id = created["entries"][0]["id"]
+            .as_str()
+            .context("missing new scene ID")?;
+        let activate = format!("scene-select-{id}");
+        this.scroll_to(activate.clone())?;
+        this.click(activate)?;
+        this.settle()?;
+        assert_eq!(saved_value(this, "asr.scenes")?["active_id"], id);
+        this.shot("dictation-scene-active")?;
+        let edit = format!("scene-edit-{id}");
+        this.click(edit)?;
+        let (_, description) = this
+            .cx
+            .update(|cx| this.view.read(cx).testing_scene_input_ids())
+            .context("missing scene editor")?;
+        this.scroll_to(description.clone())?;
+        this.click(description)?;
+        this.window(|window, cx| {
+            window.press("cmd-a", cx);
+            window.input("在《巫师 3》里打昆特牌。", cx);
+        })?;
+        this.scroll_to("scene-save")?;
+        this.click("scene-save")?;
+        this.settle()?;
+        assert_eq!(
+            saved_value(this, "asr.scenes")?["entries"][0]["description"],
+            "在《巫师 3》里打昆特牌。"
+        );
+        this.scroll_to(format!("scene-edit-{id}"))?;
+        this.click(format!("scene-edit-{id}"))?;
+        this.scroll_to("scene-delete")?;
+        this.click("scene-delete")?;
+        this.click("scene-delete")?;
+        this.settle()?;
+        assert_eq!(
+            saved_value(this, "asr.scenes")?,
+            json!({"entries":[],"active_id":null})
+        );
+        this.set("ui.language", json!("en"))?;
+        Ok(())
+    }
+
     pub fn run() -> Result<()> {
         let mut this = Harness::start()?;
         let case = std::env::var("VOCAL_MORE_UI_CASE").unwrap_or_else(|_| "all".into());
@@ -1675,6 +1759,7 @@ mod macos {
                 "matrix",
                 "key",
                 "controls",
+                "scenes",
                 "calibration",
                 "onboarding",
                 "admission",
@@ -1698,6 +1783,10 @@ mod macos {
             println!(
                 "Native dropdown, slider drag, text/textarea focus, dictionary add/remove, history filter/delete/undo passed"
             );
+        }
+        if case == "all" || case == "scenes" {
+            scenes(&mut this)?;
+            println!("Native scene create, select, edit and delete persisted");
         }
         if case == "all" || case == "calibration" {
             calibration(&mut this)?;
@@ -1735,7 +1824,7 @@ mod macos {
                 serde_json::to_vec_pretty(&this.configuration_coverage)?,
             )?;
         }
-        let report = json!({"case":case,"renderer":"real GPUI Kit 0.7.0 Metal","ui":"production Settings + native GPUI controls","backend":"real BackendDriver + Application","native_microphone":false,"provider_requests":false,"real_credentials":false,"driver_finished":this.driver.finished(),"screenshots":this.shots,"accepted_ui_intents":this.intents.len(),"configuration_coverage":this.configuration_coverage});
+        let report = json!({"case":case,"renderer":"real GPUI Kit Metal","ui":"production Settings + native GPUI controls","backend":"real BackendDriver + Application","native_microphone":false,"provider_requests":false,"real_credentials":false,"driver_finished":this.driver.finished(),"screenshots":this.shots,"accepted_ui_intents":this.intents.len(),"configuration_coverage":this.configuration_coverage});
         let report_data = serde_json::to_vec_pretty(&report)?;
         fs::write(
             this.output.join(format!("report-{case}.json")),

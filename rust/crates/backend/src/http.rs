@@ -144,8 +144,13 @@ impl Provider {
         let audio = format!("data:audio/wav;base64,{}", STANDARD.encode(wav_bytes(pcm)?));
         let corpus = self.corpus();
         let mut messages = Vec::new();
-        if !corpus.is_empty() {
-            messages.push(json!({"role":"system","content":[{"text":corpus}]}));
+        let context = [self.scene.as_str(), corpus.as_str()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !context.is_empty() {
+            messages.push(json!({"role":"system","content":[{"text":context}]}));
         }
         messages.push(json!({"role":"user","content":[{"audio":audio}]}));
         let mut options = json!({"enable_itn":true});
@@ -160,12 +165,9 @@ impl Provider {
     pub fn omni_request(&self, model: &str, pcm: &[u8]) -> Result<Value> {
         let audio = format!("data:;base64,{}", STANDARD.encode(wav_bytes(pcm)?));
         let prompt = if self.config.get("enable_polish") == true {
-            text::build_prompt(
-                &self.config,
-                PromptKind::Inline,
-                &dictionary::format_prompt(&self.entries),
-                &self.context,
-            )
+            self.prompt(PromptKind::Inline)
+        } else if !self.scene.is_empty() {
+            self.prompt(PromptKind::Native)
         } else {
             "请将以下音频准确转录为文字，直接输出转录结果。".into()
         };
@@ -176,12 +178,7 @@ impl Provider {
 
     pub fn polish_request(&self, text: &str, _stream: bool) -> Value {
         let llm = &self.config.0["llm"];
-        let system = text::build_prompt(
-            &self.config,
-            PromptKind::System,
-            &dictionary::format_prompt(&self.entries),
-            &self.context,
-        );
+        let system = self.prompt(PromptKind::System);
         json!({"model":llm["model"],"input":{"messages":[{"role":"system","content":[{"text":system}]},{"role":"user","content":[{"text":text}]}]},
             "parameters":{"enable_thinking":llm["enable_thinking"],"temperature":llm["temperature"],"max_tokens":llm["max_tokens"],"incremental_output":true}})
     }

@@ -39,7 +39,7 @@ fn heading(title: impl Into<SharedString>, cx: &App) -> Div {
         .child(title.into())
 }
 /// Bordered group with inner padding, for content that is not setting rows.
-fn panel(cx: &App) -> Div {
+pub(super) fn panel(cx: &App) -> Div {
     group(cx).gap_3().py_4()
 }
 /// Self-contained item (a recording, a stat, a dialog) titled inside its border.
@@ -47,18 +47,18 @@ fn card(title: impl Into<SharedString>, cx: &App) -> Div {
     panel(cx).child(heading(title, cx))
 }
 /// Page section: heading above the bordered group, as every settings page shows.
-fn titled(title: impl Into<SharedString>, body: impl IntoElement, cx: &App) -> Div {
+pub(super) fn titled(title: impl Into<SharedString>, body: impl IntoElement, cx: &App) -> Div {
     v_flex()
         .gap_2()
         .child(heading(title, cx).px_1())
         .child(body)
 }
 /// Buttons keep their natural width instead of stretching across a card.
-fn actions() -> Div {
+pub(super) fn actions() -> Div {
     h_flex().gap_2().flex_wrap()
 }
 /// Secondary explanation under a title, the same size everywhere.
-fn note(text: impl Into<SharedString>, cx: &App) -> Div {
+pub(super) fn note(text: impl Into<SharedString>, cx: &App) -> Div {
     div()
         .text_size(px(13.))
         .whitespace_normal()
@@ -819,7 +819,10 @@ impl Settings {
             .array("asr_models")
             .iter()
             .find(|model| &model["id"] == get(self.config(), "asr.model"));
-        let mut page = v_flex().gap_5().child(self.fields(Tab::Recognition, cx));
+        let mut page = v_flex()
+            .gap_5()
+            .child(self.dictation_scenes(cx))
+            .child(self.fields(Tab::Recognition, cx));
         if let Some(model) = selected.filter(|_| self.advanced()) {
             let mut capabilities = panel(cx);
             for (key, zh, en) in [

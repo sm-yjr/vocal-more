@@ -207,6 +207,36 @@ impl Menu {
                 config["default_mode"] == id,
             );
         }
+        let scenes = self.sub(&menu, self.t("听写场景", "Dictation Scene"));
+        let scene_config = &config["asr"]["scenes"];
+        self.add(
+            &scenes,
+            self.t("无场景", "No Scene"),
+            Some("select_dictation_scene"),
+            json!({"id":null}),
+            scene_config["active_id"].is_null(),
+        );
+        if let Some(entries) = scene_config["entries"].as_array() {
+            for scene in entries {
+                if let Some(name) = scene["name"].as_str() {
+                    self.add(
+                        &scenes,
+                        name,
+                        Some("select_dictation_scene"),
+                        json!({"id":scene["id"]}),
+                        scene_config["active_id"] == scene["id"],
+                    );
+                }
+            }
+        }
+        Self::separator(&scenes);
+        self.add(
+            &scenes,
+            self.t("管理场景…", "Manage Scenes…"),
+            Some("platform_show_settings"),
+            json!({"tab":"recognition"}),
+            false,
+        );
         let devices = self.sub(&menu, self.t("麦克风", "Microphone"));
         self.add(
             &devices,

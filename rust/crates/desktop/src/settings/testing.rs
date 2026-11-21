@@ -29,6 +29,10 @@ impl Settings {
             _ => None,
         }
     }
+    pub fn testing_scene_input_ids(&self) -> Option<(ElementId, ElementId)> {
+        let editor = self.scene_editor.as_ref()?;
+        Some(editor.testing_input_ids())
+    }
     pub fn testing_prompt_id(&self, category: &str) -> Option<ElementId> {
         Some(("input", self.prompts.get(category)?.entity_id()).into())
     }

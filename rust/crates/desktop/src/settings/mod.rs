@@ -3,6 +3,7 @@
 //! the application backend owns all durable configuration and recordings.
 mod calibration;
 mod pages;
+mod scenes;
 pub mod schema;
 mod shortcut;
 #[cfg(feature = "ui-test")]
@@ -61,6 +62,7 @@ pub struct Settings {
     pub(super) narrow: bool,
     pub(super) controls: HashMap<&'static str, Control>,
     pub(super) prompts: HashMap<&'static str, Entity<TextareaState>>,
+    scene_editor: Option<scenes::Editor>,
     pub(super) prompt_category: &'static str,
     pub(super) term: Entity<InputState>,
     pub(super) aliases: Entity<InputState>,
@@ -126,6 +128,7 @@ impl Settings {
             commands,
             controls: HashMap::new(),
             prompts: HashMap::new(),
+            scene_editor: None,
             prompt_category: "output_type",
             term: cx.new(|cx| InputState::new(window, cx)),
             aliases: cx.new(|cx| InputState::new(window, cx)),
@@ -807,7 +810,14 @@ impl Settings {
             }
             "rpc_response" => {
                 let id = params["request_id"].as_u64().unwrap_or_default();
-                self.pending.remove(&id);
+                if self.pending.remove(&id).is_some_and(|method| {
+                    matches!(
+                        method.as_str(),
+                        "save_dictation_scene" | "delete_dictation_scene"
+                    )
+                }) {
+                    self.scene_editor = None;
+                }
                 if params["method"] == "snapshot" {
                     self.snapshot = params["result"].clone();
                     normalize_snapshot(&mut self.snapshot);

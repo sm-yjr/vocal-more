@@ -13,6 +13,7 @@ pub mod migration;
 pub mod observation;
 pub mod persistence;
 pub mod provider;
+pub mod scenes;
 pub mod text;
 pub mod wave;
 pub mod workflow;

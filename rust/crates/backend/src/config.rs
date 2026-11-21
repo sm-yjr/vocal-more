@@ -2,6 +2,7 @@
 use crate::{
     catalog::{CONTRACT, asr_model, llm_model},
     persistence,
+    scenes::Scenes,
 };
 use anyhow::{Result, bail, ensure};
 use serde_json::{Value, json};
@@ -89,6 +90,10 @@ impl Config {
             value = &value[part];
         }
         value
+    }
+
+    pub fn scenes(&self) -> Scenes {
+        serde_json::from_value(self.get("asr.scenes").clone()).unwrap_or_default()
     }
 
     pub fn public(&self) -> Value {
@@ -287,6 +292,15 @@ impl Config {
                 &["zh", "en", "auto"],
                 "auto",
             ),
+            "asr.scenes" => {
+                let mut scenes: Scenes = serde_json::from_value(value.clone())?;
+                for scene in &mut scenes.entries {
+                    scene.name = scene.name.trim().into();
+                    scene.description = scene.description.trim().into();
+                }
+                scenes.validate()?;
+                serde_json::to_value(scenes)?
+            }
             "asr.batch_mode" => json!("manual"),
             "asr.realtime_url" => json!(normalize_realtime_url(value)?),
             "network.proxy_url" => json!(normalize_proxy_url(value)?),

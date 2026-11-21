@@ -516,6 +516,9 @@ impl State {
         );
         let source = self.source(params)?;
         let mut provider = self.provider(params["context"].as_str().unwrap_or(""));
+        if !microphone_test && let Some(scene) = provider.config.scenes().active() {
+            provider.scene.clone_from(&scene.description);
+        }
         let screen_context = !microphone_test && params["screen_context"] == true;
         let initial_screen_frame = if screen_context {
             provider
@@ -786,6 +789,22 @@ impl State {
                         .remove("api_key");
                 }
                 self.config.update_form(&form)?;
+                self.config_changed();
+                Ok(json!({"ok":true}))
+            }
+            "save_dictation_scene" | "select_dictation_scene" | "delete_dictation_scene" => {
+                let id: Option<Uuid> = serde_json::from_value(params["id"].clone())?;
+                let mut scenes = self.config.config.scenes();
+                match method {
+                    "save_dictation_scene" => scenes.save(
+                        id,
+                        required(&params, "name")?,
+                        required(&params, "description")?,
+                    )?,
+                    "select_dictation_scene" => scenes.active_id = id,
+                    _ => scenes.delete(id.context("Dictation scene ID is required")?),
+                }
+                self.config.update("asr.scenes", &json!(scenes))?;
                 self.config_changed();
                 Ok(json!({"ok":true}))
             }

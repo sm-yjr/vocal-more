@@ -33,6 +33,7 @@ struct Fixture {
     http: String,
     ws: String,
     requests: Arc<Mutex<Vec<Value>>>,
+    sessions: Arc<Mutex<Vec<Value>>>,
     fail_ws: Arc<AtomicBool>,
     stall: Arc<AtomicBool>,
     arrived: Arc<Notify>,
@@ -84,6 +85,7 @@ impl Fixture {
             http: format!("http://{}", http.local_addr()?),
             ws: format!("ws://{}", ws.local_addr()?),
             requests: Arc::new(Mutex::new(vec![])),
+            sessions: Arc::new(Mutex::new(vec![])),
             fail_ws: Arc::new(AtomicBool::new(false)),
             stall: Arc::new(AtomicBool::new(false)),
             arrived: Arc::new(Notify::new()),
@@ -110,12 +112,14 @@ impl Fixture {
             }
         }));
         let broken = fixture.fail_ws.clone();
+        let sessions = fixture.sessions.clone();
         fixture.tasks.push(tokio::spawn(async move {
             let mut clients=tokio::task::JoinSet::new();
-            loop {tokio::select!{client=ws.accept()=>{let Ok((stream,_))=client else{break};let broken=broken.clone();
+            loop {tokio::select!{client=ws.accept()=>{let Ok((stream,_))=client else{break};let broken=broken.clone();let sessions=sessions.clone();
                 clients.spawn(async move {
                     let mut socket=accept_hdr_async(stream,|r:&Request,response:Response|{assert!(!r.headers().contains_key("authorization"));Ok(response)}).await.unwrap();
                     let first=socket.next().await.unwrap().unwrap();let first:Value=serde_json::from_str(first.to_text().unwrap()).unwrap();
+                    sessions.lock().unwrap().push(first.clone());
                     let recognition=first["header"]["action"]=="run-task";let task=first["header"]["task_id"].clone();
                     let ready=if recognition {json!({"header":{"event":"task-started","task_id":task}})}else{json!({"type":"session.updated"})};
                     socket.send(Message::Text(ready.to_string().into())).await.unwrap();
@@ -218,6 +222,110 @@ async fn every_shipped_model_runs_through_application_dictionary_history_and_pas
             .unwrap()
             .len(),
         CONTRACT["all_asr_models"].as_array().unwrap().len()
+    );
+    app.call("shutdown", json!({})).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn dictation_scene_is_persisted_and_snapshotted_for_realtime_and_fallback() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    let temp = tempfile::tempdir()?;
+    let app = fixture.app(temp.path()).await?;
+    let mut events = app.subscribe();
+    let description = "我在玩《巫师 3》，会提到杰洛特和昆特牌。";
+
+    app.call("set_config", json!({"key":"enable_polish","value":false}))
+        .await?;
+    app.call(
+        "save_dictation_scene",
+        json!({"name":"巫师 3","description":description}),
+    )
+    .await?;
+    assert!(
+        app.call(
+            "save_dictation_scene",
+            json!({"name":"无效","description":"词".repeat(401)})
+        )
+        .await
+        .is_err()
+    );
+    let config = app.call("get_config", json!({})).await?;
+    let scene_id = &config["asr"]["scenes"]["entries"][0]["id"];
+    assert!(config["asr"]["scenes"]["active_id"].is_null());
+    app.call("select_dictation_scene", json!({"id":scene_id}))
+        .await?;
+    assert_eq!(
+        vocal_more_backend::config::ConfigRepository::open(&temp.path().join("config.yaml"))?
+            .config
+            .scenes()
+            .active()
+            .unwrap()
+            .description,
+        description
+    );
+
+    let started = app
+        .call(
+            "start",
+            json!({"source":{"kind":"stream"},"context":"本地应用语境"}),
+        )
+        .await?;
+    // The next selection must not affect the session in progress or its recovery.
+    app.call("select_dictation_scene", json!({"id":null}))
+        .await?;
+    for _ in 0..5 {
+        app.call("append", json!({"generation":started["generation"],"pcm_base64":STANDARD.encode(vec![1u8;1280])})).await?;
+    }
+    app.call("finish", json!({})).await?;
+    let result = event(&mut events, "final_result").await?;
+    assert_eq!(result["raw_text"], "生成的rust文本");
+    let session = fixture.sessions.lock().unwrap()[0].clone();
+    let instructions = session["session"]["instructions"].as_str().unwrap();
+    assert!(instructions.contains(description));
+    assert!(instructions.contains("本地应用语境"));
+    assert!(instructions.contains("不要复述场景"));
+    idle(&app).await?;
+
+    audio(&app).await?;
+    let result = event(&mut events, "final_result").await?;
+    assert_eq!(result["raw_text"], "原始的rust文本");
+    assert!(fixture.sessions.lock().unwrap()[1]["session"]["instructions"].is_null());
+    idle(&app).await?;
+
+    app.call(
+        "set_asr_model",
+        json!({"model":"qwen-audio-3.0-asr-flash-streaming"}),
+    )
+    .await?;
+    app.call("select_dictation_scene", json!({"id":scene_id}))
+        .await?;
+    fixture.fail_ws.store(true, Ordering::Relaxed);
+    audio(&app).await?;
+    event(&mut events, "final_result").await?;
+    assert_eq!(
+        fixture.sessions.lock().unwrap()[2]["payload"]["input"]["context"][0]["content"][0]["text"],
+        description
+    );
+    assert!(
+        fixture.requests.lock().unwrap()[0]["input"]["messages"][0]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains(description)
+    );
+    idle(&app).await?;
+
+    app.call("delete_dictation_scene", json!({"id":scene_id}))
+        .await?;
+    assert!(
+        app.call("select_dictation_scene", json!({"id":scene_id}))
+            .await
+            .is_err()
+    );
+    let config = app.call("get_config", json!({})).await?;
+    assert_eq!(
+        config["asr"]["scenes"],
+        json!({"entries":[],"active_id":null})
     );
     app.call("shutdown", json!({})).await?;
     Ok(())

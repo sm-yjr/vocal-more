@@ -82,6 +82,16 @@ pub fn rules(config: &Config) -> String {
 }
 
 pub fn build_prompt(config: &Config, kind: PromptKind, dictionary: &str, context: &str) -> String {
+    build_prompt_with_scene(config, kind, dictionary, context, "")
+}
+
+pub(crate) fn build_prompt_with_scene(
+    config: &Config,
+    kind: PromptKind,
+    dictionary: &str,
+    context: &str,
+    scene: &str,
+) -> String {
     let key = match kind {
         PromptKind::Native => "native".into(),
         PromptKind::System => format!("{}_system", setting(config, "polish_mode")),
@@ -94,7 +104,7 @@ pub fn build_prompt(config: &Config, kind: PromptKind, dictionary: &str, context
     } else {
         format!("\n\n{dictionary}")
     };
-    let context = if context.trim().is_empty() {
+    let mut context = if context.trim().is_empty() {
         String::new()
     } else {
         format!(
@@ -102,6 +112,11 @@ pub fn build_prompt(config: &Config, kind: PromptKind, dictionary: &str, context
             context.trim()
         )
     };
+    if !scene.is_empty() {
+        context.push_str(&format!(
+            "\n\n用户提供的听写场景，仅用于判断语境、专有名词和同音词。只处理实际听到或给出的内容，不要复述场景或补入其中的事实：\n{scene}"
+        ));
+    }
     static PLACEHOLDER: LazyLock<Regex> =
         LazyLock::new(|| Regex::new("@(RULES|DICTIONARY|CONTEXT)@").unwrap());
     PLACEHOLDER

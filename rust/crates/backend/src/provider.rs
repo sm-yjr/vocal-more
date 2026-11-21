@@ -83,6 +83,7 @@ pub struct Provider {
     pub config: Config,
     pub entries: Vec<Entry>,
     pub context: String,
+    pub(crate) scene: String,
     pub endpoints: Endpoints,
     screen_context: bool,
     key: Arc<str>,
@@ -107,6 +108,7 @@ impl Provider {
             config,
             entries,
             context: context.trim().to_string(),
+            scene: String::new(),
             endpoints,
             screen_context: false,
             key: Arc::from(key),
@@ -120,8 +122,8 @@ impl Provider {
     }
     pub fn wants_response(&self) -> bool {
         self.model_info()["always_request_response"] == true
-            || (self.config.get("enable_polish") == true
-                && self.model_info()["handles_inline_polish"] == true)
+            || (self.model_info()["handles_inline_polish"] == true
+                && (self.config.get("enable_polish") == true || !self.scene.is_empty()))
     }
     pub fn supports_screen_context(&self) -> bool {
         self.model_info()["supports_screen_context"] == true
@@ -172,10 +174,19 @@ impl Provider {
         })
     }
 
+    pub(crate) fn prompt(&self, kind: PromptKind) -> String {
+        text::build_prompt_with_scene(
+            &self.config,
+            kind,
+            &dictionary::format_prompt(&self.entries),
+            &self.context,
+            &self.scene,
+        )
+    }
+
     pub fn session_update(&self) -> Value {
         let info = self.model_info();
         let mut session = json!({"modalities":["text"], "voice":null,"input_audio_format":"pcm16", "output_audio_format":"pcm16", "input_audio_transcription":{"model":null},"turn_detection":null});
-        let dict = dictionary::format_prompt(&self.entries);
         if self.screen_context {
             session["video"] = json!({"input":{"representation_compact":"normal"}});
         }
@@ -190,8 +201,7 @@ impl Provider {
             } else {
                 PromptKind::Native
             };
-            session["instructions"] =
-                json!(text::build_prompt(&self.config, kind, &dict, &self.context));
+            session["instructions"] = json!(self.prompt(kind));
         } else if info
             .get("input_audio_transcription_model")
             .is_some_and(|m| !m.is_null())
@@ -206,8 +216,7 @@ impl Provider {
                 } else {
                     PromptKind::Native
                 };
-                session["instructions"] =
-                    json!(text::build_prompt(&self.config, kind, &dict, &self.context));
+                session["instructions"] = json!(self.prompt(kind));
             }
         } else {
             let mut params = json!({});
@@ -247,10 +256,15 @@ impl Provider {
         if self.config.get("asr.language") != "auto" {
             parameters["language_hints"] = json!([self.config.get("asr.language")]);
         }
-        let input = if self.context.is_empty() {
+        let context = [self.scene.as_str(), self.context.as_str()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let input = if context.is_empty() {
             json!({})
         } else {
-            json!({"context":[{"role":"user","content":[{"type":"input_text","text":self.context.chars().take(400).collect::<String>()}]}]})
+            json!({"context":[{"role":"user","content":[{"type":"input_text","text":context.chars().take(crate::scenes::DESCRIPTION_LIMIT).collect::<String>()}]}]})
         };
         json!({"header":{"action":"run-task","task_id":task,"streaming":"duplex"},"payload":{"task_group":"audio","task":"asr","function":"recognition","model":self.model(),"parameters":parameters,"input":input}})
     }

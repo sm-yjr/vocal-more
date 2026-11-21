@@ -1,6 +1,6 @@
 # Rust 桌面与后端
 
-工作区包含 macOS 桌面程序 `vocal-more-desktop`、完整应用服务 `vocal-more-backend` 和独立会话工具 `vocal-more-host`。桌面设置页使用锁定的 GPUI Kit 0.7.0，胶囊使用 Rust AppKit / Core Animation，直接嵌入既有 Rust 业务服务，并复用 Objective-C++ 原生音频 C ABI。正式 macOS 构建入口已切换到 Rust 桌面；本地开发分支的改动尚未发布。
+工作区包含 macOS 桌面程序 `vocal-more-desktop`、完整应用服务 `vocal-more-backend` 和独立会话工具 `vocal-more-host`。桌面设置页使用锁定的 GPUI Kit 0.9.1，胶囊使用 Rust AppKit / Core Animation，直接嵌入既有 Rust 业务服务，并复用 Objective-C++ 原生音频 C ABI。正式 macOS 构建入口已切换到 Rust 桌面；本地开发分支的改动尚未发布。
 
 已发布的 0.5.1 仍使用 Python/PyObjC 薄 UI，`uv run vocal-more --backend rust` 保留这条参考路径。它与新的 Rust 桌面是不同入口；后端集成说明见 [完整集成说明](../docs/rust-backend-integration.md)。
 
