@@ -11,10 +11,12 @@ import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
+RUST_LOCKFILE = Path(__file__).resolve().parents[2] / "rust/Cargo.lock"
 NATIVE_LIBRARY_NAME = "libvocal_more_audio.dylib"
 EXPECTED_ARCHITECTURE = "arm64"
 EXPECTED_MIN_MACOS = "14.0"
@@ -99,9 +101,18 @@ def verify_rust_frontend(app: Path, *, command_runner: CommandRunner = subproces
         name = path.name.lower()
         if name.startswith("python") or name in {"lib-dynload", "site-packages", "webkit.framework"} or path.suffix in {".py", ".pyc", ".html", ".js"}:
             raise RuntimeError(f"Legacy UI runtime payload remains: {path.relative_to(app)}")
-    notices = app / "Contents/Resources/Rust-Third-Party-Notices.txt"
-    if not notices.is_file() or "gpui-kit 0.7.0" not in notices.read_text():
-        raise RuntimeError("Locked Rust dependency notices are missing")
+    verify_rust_dependency_notices(app / "Contents/Resources/Rust-Third-Party-Notices.txt")
+
+
+def verify_rust_dependency_notices(notices: Path) -> None:
+    with RUST_LOCKFILE.open("rb") as source:
+        packages = tomllib.load(source)["package"]
+    versions = [package["version"] for package in packages if package["name"] == "gpui-kit"]
+    if len(versions) != 1:
+        raise RuntimeError("Cargo.lock must identify exactly one gpui-kit version")
+    heading = f"gpui-kit {versions[0]}"
+    if not notices.is_file() or heading not in notices.read_text(encoding="utf-8").splitlines():
+        raise RuntimeError(f"Locked Rust dependency notices are missing: expected {heading}")
 
 
 def verify_native_audio_library(

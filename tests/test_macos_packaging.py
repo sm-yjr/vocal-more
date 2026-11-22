@@ -597,7 +597,26 @@ def test_rust_staging_preserves_metadata_license_and_has_no_python_payload(tmp_p
     assert stager.app_info(version, development=True)["CFBundleIdentifier"].endswith(".dev")
 
 
-def test_rust_frontend_verifier_rejects_legacy_runtime_and_version_mismatch(tmp_path):
+def test_rust_dependency_notices_require_the_exact_locked_version(tmp_path, monkeypatch):
+    verifier = _load_release_artifact_verifier()
+    lock = tmp_path / "Cargo.lock"
+    lock.write_text('[[package]]\nname = "gpui-kit"\nversion = "9.8.7"\n')
+    monkeypatch.setattr(verifier, "RUST_LOCKFILE", lock)
+    notices = tmp_path / "Rust-Third-Party-Notices.txt"
+    with pytest.raises(RuntimeError, match="Locked Rust dependency notices are missing"):
+        verifier.verify_rust_dependency_notices(notices)
+    for heading in ("gpui-kit 0.7.0", "gpui-kit 9.8.70", "not-gpui-kit 9.8.7"):
+        notices.write_text(f"{heading}\nLicense: Apache-2.0\n")
+        with pytest.raises(RuntimeError, match="Locked Rust dependency notices are missing"):
+            verifier.verify_rust_dependency_notices(notices)
+    notices.write_text("gpui-kit 9.8.7\nLicense: Apache-2.0\n")
+    verifier.verify_rust_dependency_notices(notices)
+    lock.write_text(lock.read_text() + '[[package]]\nname = "gpui-kit"\nversion = "9.8.8"\n')
+    with pytest.raises(RuntimeError, match="exactly one gpui-kit"):
+        verifier.verify_rust_dependency_notices(notices)
+
+
+def test_rust_frontend_verifier_rejects_legacy_runtime_and_version_mismatch(tmp_path, monkeypatch):
     stager = _load_rust_stager()
     verifier = _load_release_artifact_verifier()
     app = tmp_path / "Vocal More.app"
@@ -608,7 +627,10 @@ def test_rust_frontend_verifier_rejects_legacy_runtime_and_version_mismatch(tmp_
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
     resources = app / "Contents/Resources"
     resources.mkdir()
-    (resources / "Rust-Third-Party-Notices.txt").write_text("gpui-kit 0.7.0\nApache-2.0")
+    lock = tmp_path / "Cargo.lock"
+    lock.write_text('[[package]]\nname = "gpui-kit"\nversion = "9.8.7"\n')
+    monkeypatch.setattr(verifier, "RUST_LOCKFILE", lock)
+    (resources / "Rust-Third-Party-Notices.txt").write_text("gpui-kit 9.8.7\nApache-2.0")
     def runner(command, **kwargs):
         if command[0] == str(binary):
             output = "Vocal More 0.5.2+3\n"
