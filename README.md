@@ -107,6 +107,13 @@ Automatic dictionary learning from post-paste edits currently requires macOS Acc
 
 ## Verification
 
+Run the Python test suite locally the same way CI does. The tests do not need a real DashScope key, so a placeholder is enough:
+
+```bash
+uv sync --group dev
+DASHSCOPE_API_KEY=test-api-key uv run python -m pytest -q
+```
+
 The Windows workflow runs the Python test suite, checks Tk availability, generates the application icon, builds the PyInstaller folder, smoke-tests the portable executable, compiles the Inno Setup installer, silently installs it, smoke-tests the installed executable, silently uninstalls it, and uploads both artifacts. Physical microphone quality, OEM keyboard hooks, multi-monitor visual behavior, and paste behavior across Windows integrity levels still require interactive hardware testing.
 
 ## License
