@@ -19,7 +19,7 @@
 
 - Install development dependencies with `uv sync --group dev`.
 - Run the full test suite with `uv run python -m pytest -q`.
-- Do not build a local DMG as part of routine development or feature verification. Run the test suite locally; when publishing a version, use the release CI workflow directly.
+- Do not build a local DMG as part of routine development or feature verification; run the test suite locally instead. When publishing a version, build, sign, notarize, verify, and publish directly on the local Apple Silicon Mac (do not wait on slow GitHub-hosted macOS runners).
 - Treat `pyproject.toml` as the version source of truth. The macOS bundle metadata and artifact names derive from it (with `[tool.vocal-more].build`) through `packaging/release/model.py` and `packaging/macos/read_version.py`; keep the editable `vocal-more` entry in `uv.lock` aligned.
 - A version-only change should not rewrite unrelated registry metadata in `uv.lock`. If it does, verify the local `uv` version before accepting the diff.
 - Read `docs/concurrency-runtime-model.md` before changing worker ownership, queues, shutdown behavior, or background runtimes.
@@ -31,13 +31,12 @@
 
 ### macOS Releases
 
-- 改动发布工具或处理发布失败前，阅读 `docs/release-postmortem-0.5.0a1.md`。重试前核对实际脚本 SHA、草稿/资产摘要和 feed 状态；不要用重复 rerun 代替诊断。main 上的修复不会自动进入旧 tag 检出的发布脚本。
-
-- `.github/workflows/release-prepare.yml` 从 `main` 提前准备并验证 macOS 候选；`.github/workflows/release.yml` 按版本 tag 发布对应候选，必要时调用公共完整准备流程。遵循 `docs/release.md`，不得绕过候选来源或摘要校验。
+- 改动发布工具或处理发布失败前，阅读 `docs/release-postmortem-0.5.0a1.md`。重试前核对实际脚本 SHA、草稿/资产摘要和 feed 状态；不要用重复 rerun 代替诊断。
+- **默认本地发布（用户已确定，2026-11-25）**：后续 macOS 正式版与 Beta 版统一在本机完成 **构建 DMG → Developer ID 签名 → Apple 公证与 staple → 产物校验 → 生成签名 Sparkle feed/delta → 上传 GitHub Release 与更新源并读回校验**，不再依赖缓慢的 GitHub macOS 托管机。具体命令见 `docs/release.md`「本地直接发布」；`.github/workflows/release-prepare.yml` 与 `.github/workflows/release.yml` 仅保留作兜底备选（注意推送 tag 时不要同时误触发慢路径重建）。
 - 版本为 `x.y.z+构建号`（stable `0.6.0+1`，beta `0.6.1-beta.1+58`），alpha 已停用。`pyproject.toml` 的 `[project].version`（`X.Y.Z` / `X.Y.ZbN`）和 `[tool.vocal-more].build` 是来源；构建号 stable/beta 共用且每次发布递增，写入 `CFBundleVersion` 供 Sparkle 比较。tag 不含构建号：stable `vX.Y.Z`，beta `vX.Y.Z-beta.N`。兼容裸 tag 和 PEP 440 别名，但同一版本只能发布一个 tag。
 - 所有版本共用 `sparkle-feed`，beta 条目带 `sparkle:channel=beta`：stable 只升 stable，beta 可升 beta 或 stable，旧 alpha 经镜像的 `sparkle-feed-alpha` 直接升 stable。beta 必须标记 GitHub prerelease 且不得替换 Latest stable；不得把 beta 产物改名作为正式版。
-- Do not consider a release complete until the workflow has passed tests, Developer ID signing, notarization and stapling, artifact verification, GitHub Release upload, and signed Sparkle appcast publication.
-- Use `docs/release.md` for prerequisites and secret names. Never commit certificate material, notarization credentials, or the Sparkle private key.
+- Do not consider a release complete until tests, Developer ID signing, notarization and stapling, artifact verification, GitHub Release upload, and signed Sparkle appcast publication have all passed.
+- Use `docs/release.md` for prerequisites and credential names. Never commit certificate material, notarization credentials, or the Sparkle private key.
 - `VOCAL_MORE_ALLOW_UNSIGNED_DMG=1` is for local packaging checks only; never publish that unsigned artifact as an official release.
 
 ## Design Context
