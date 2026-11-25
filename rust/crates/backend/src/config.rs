@@ -402,6 +402,14 @@ impl Config {
                 &["zh", "en"],
                 "en",
             ),
+            "ui.capsule_position" => choice(value, &["bottom", "top", "custom"], "bottom"),
+            "ui.capsule_custom_x" | "ui.capsule_custom_y" => {
+                if value.is_null() {
+                    Value::Null
+                } else {
+                    json!(number(value, current.as_f64().unwrap_or(0.5)).clamp(0.0, 1.0))
+                }
+            }
             "dictionary_learning.excluded_bundle_ids" => {
                 let mut result = Vec::new();
                 if let Some(items) = value.as_array() {

@@ -1193,8 +1193,14 @@ impl State {
         }
     }
     fn preview_setting(&mut self, key: &str, value: &Value) -> Result<()> {
+        let nullable_key = matches!(
+            key,
+            "ui.capsule_custom_x" | "ui.capsule_custom_y" | "update_channel" | "hotkey.custom_key"
+        );
         ensure!(
-            key.starts_with("audio.") || self.config.config.get(key) != &Value::Null,
+            key.starts_with("audio.")
+                || nullable_key
+                || self.config.config.get(key) != &Value::Null,
             "unknown setting"
         );
         if !key.starts_with("audio.") {

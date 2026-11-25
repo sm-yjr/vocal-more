@@ -119,6 +119,7 @@ pub fn durable_method(method: &str, params: &Value) -> bool {
         method,
         "set_config"
             | "sync_form_state"
+            | "platform_apply_audio_preset"
             | "set_asr_model"
             | "set_device"
             | "set_active_hotkeys"

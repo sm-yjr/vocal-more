@@ -68,7 +68,7 @@ impl PasteWork {
 enum Pending {
     Claim(Delivery),
     Prepare(Delivery),
-    SnapshotForSettings(String),
+    SnapshotForSettings(String, bool),
 }
 struct ScreenSession {
     request: u64,
@@ -353,11 +353,42 @@ impl DesktopHost {
             "platform_show_settings" | "show_settings"
         ) {
             let tab = request.params["tab"].as_str().unwrap_or("").to_owned();
+            let open_calibration = request.params["open_calibration"] == true;
             self.send("refresh_devices", json!({}), None);
             self.send(
                 "snapshot",
                 json!({}),
-                Some(Pending::SnapshotForSettings(tab)),
+                Some(Pending::SnapshotForSettings(tab, open_calibration)),
+            );
+            return;
+        }
+        if request.method == "platform_apply_audio_preset" {
+            let audio_busy = self.snapshot["state"] != "idle"
+                || self.snapshot["audio_input_status"]["phase"]
+                    .as_str()
+                    .is_some_and(|phase| ["starting", "active", "stopping"].contains(&phase));
+            if audio_busy {
+                return;
+            }
+            let (gain, freq) = match request.params["preset"].as_str() {
+                Some("whisper") => (8.0, 220),
+                Some("noisy") => (6.0, 280),
+                _ => (4.0, 200),
+            };
+            self.send(
+                "sync_form_state",
+                json!({
+                    "state": {
+                        "audio": {
+                            "gain_mode": "manual",
+                            "gain": gain,
+                            "highpass_filter": true,
+                            "highpass_freq": freq,
+                            "soft_limiter": true,
+                        }
+                    }
+                }),
+                None,
             );
             return;
         }
@@ -447,6 +478,7 @@ impl DesktopHost {
                     params["generation"].as_u64().unwrap_or(0),
                 );
                 self.capsule.set_language(language(&self.snapshot));
+                self.capsule.set_placement(&self.snapshot["config"]);
                 match Platform::new(
                     MainThreadMarker::new().unwrap(),
                     self.commands.clone(),
@@ -462,7 +494,7 @@ impl DesktopHost {
                 }
                 self.platform_status();
                 if self.show_settings_on_start {
-                    self.open_settings("", cx);
+                    self.open_settings("", false, cx);
                 }
             }
             "rpc_response" => self.response(&params, cx),
@@ -553,7 +585,7 @@ impl DesktopHost {
                     && self.event_epoch(&params)
                 {
                     self.capsule
-                        .show("handsFree", self.prompt_enabled(), &self.prompt_hint);
+                        .latch_hands_free(self.prompt_enabled(), &self.prompt_hint);
                 }
             }
             "audio_level" => {
@@ -648,6 +680,7 @@ impl DesktopHost {
                 self.snapshot["config"] = params["config"].clone();
                 self.snapshot["api_key_set"] = params["api_key_set"].clone();
                 self.capsule.set_language(language(&self.snapshot));
+                self.capsule.set_placement(&self.snapshot["config"]);
                 if self.snapshot["config"]["screen_context_enabled"] != true {
                     self.screen = None;
                 }
@@ -663,8 +696,18 @@ impl DesktopHost {
                     platform.update_snapshot(&self.snapshot);
                 }
             }
-            "audio_input_status" => self.snapshot["audio_input_status"] = params.clone(),
-            "environment_changed" => self.snapshot["environment_checks"] = params.clone(),
+            "audio_input_status" => {
+                self.snapshot["audio_input_status"] = params.clone();
+                if let Some(platform) = &mut self.platform {
+                    platform.update_snapshot(&self.snapshot);
+                }
+            }
+            "environment_changed" => {
+                self.snapshot["environment_checks"] = params.clone();
+                if let Some(platform) = &mut self.platform {
+                    platform.update_snapshot(&self.snapshot);
+                }
+            }
             "dictionary_changed" => self.snapshot["dictionary"] = params.clone(),
             "dictionary_learning_changed" => {
                 self.snapshot["dictionary"] = params["dictionary"].clone();
@@ -768,6 +811,7 @@ impl DesktopHost {
                 }
             }
             "error" | "warning" => {
+                let message = params["message"].as_str().unwrap_or("Operation failed");
                 if method == "error"
                     && params.get("generation").is_some()
                     && current(&self.snapshot, &params)
@@ -776,8 +820,21 @@ impl DesktopHost {
                     self.capsule
                         .show_failure(params["message"].as_str().unwrap_or("Dictation failed"));
                     let _ = self.wake.try_send(());
+                } else if method == "warning"
+                    && params.get("generation").is_some()
+                    && current(&self.snapshot, &params)
+                    && self.event_epoch(&params)
+                    && (message.to_lowercase().contains("polish") || message.contains("润色"))
+                {
+                    self.capsule
+                        .show_warning(if language(&self.snapshot) == "zh" {
+                            "润色未完成，已保留原始识别文本。"
+                        } else {
+                            "Polishing failed; original transcript preserved."
+                        });
+                    let _ = self.wake.try_send(());
                 }
-                self.notify(params["message"].as_str().unwrap_or("Operation failed"));
+                self.notify(message);
             }
             "backend_disconnected" => {
                 self.capsule.hide();
@@ -805,9 +862,9 @@ impl DesktopHost {
         let id = response["request_id"].as_u64().unwrap_or(0);
         let result = &response["result"];
         match self.pending.remove(&id) {
-            Some(Pending::SnapshotForSettings(tab)) => {
+            Some(Pending::SnapshotForSettings(tab, open_calibration)) => {
                 self.snapshot = result.clone();
-                self.open_settings(&tab, cx);
+                self.open_settings(&tab, open_calibration, cx);
             }
             Some(Pending::Claim(delivery)) => {
                 let epoch = delivery.epoch;
@@ -1041,13 +1098,18 @@ impl DesktopHost {
             None,
         );
     }
-    fn open_settings(&mut self, tab: &str, cx: &mut Context<Self>) {
+    fn open_settings(&mut self, tab: &str, open_calibration: bool, cx: &mut Context<Self>) {
         if let Some((window, view)) = &self.settings {
             let view = view.clone();
             if window
                 .update(cx, |_, window, cx| {
                     view.update(cx, |settings, cx| {
-                        settings.on_event("select_tab", &json!({"tab":tab}), window, cx)
+                        settings.on_event(
+                            "settings_focus",
+                            &json!({"tab":tab,"open_calibration":open_calibration}),
+                            window,
+                            cx,
+                        )
                     });
                     window.activate_window();
                 })
@@ -1059,6 +1121,7 @@ impl DesktopHost {
         }
         let mut snapshot = self.snapshot.clone();
         snapshot["initial_tab"] = json!(tab);
+        snapshot["open_calibration"] = json!(open_calibration);
         self.display_channel(&mut snapshot["config"]);
         match settings::open(snapshot, self.commands.clone(), cx) {
             Ok(settings) => {

@@ -127,3 +127,22 @@ fn skipped_onboarding_survives_reload() -> anyhow::Result<()> {
     assert_eq!(reload.config.get("ui.onboarding_completed"), &json!(false));
     Ok(())
 }
+
+#[test]
+fn capsule_position_and_custom_coords_persist_safely() -> anyhow::Result<()> {
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("config.yaml");
+    let mut repo = ConfigRepository::open(&path)?;
+    repo.update("ui.capsule_position", &json!("top"))?;
+    repo.update("ui.capsule_custom_x", &json!(1.5))?;
+    repo.update("ui.capsule_custom_y", &json!(-0.2))?;
+    let reload = ConfigRepository::open(&path)?;
+    assert_eq!(reload.config.get("ui.capsule_position"), &json!("top"));
+    assert_eq!(reload.config.get("ui.capsule_custom_x"), &json!(1.0));
+    assert_eq!(reload.config.get("ui.capsule_custom_y"), &json!(0.0));
+    repo.update("ui.capsule_position", &json!("invalid-mode"))?;
+    assert_eq!(repo.config.get("ui.capsule_position"), &json!("bottom"));
+    repo.update("ui.capsule_custom_x", &Value::Null)?;
+    assert!(repo.config.get("ui.capsule_custom_x").is_null());
+    Ok(())
+}

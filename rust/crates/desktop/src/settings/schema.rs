@@ -5,58 +5,86 @@ use serde_json::{Value, json};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
-    General,
-    Audio,
-    Recognition,
-    Polish,
-    Shortcuts,
-    Dictionary,
+    Home,
     History,
+    Dictionary,
+    Audio,
+    Ai,
+    Shortcuts,
+    General,
 }
 impl Tab {
+    pub const WORKSPACE: [Self; 3] = [Self::Home, Self::History, Self::Dictionary];
+    pub const SETTINGS: [Self; 4] = [Self::Audio, Self::Ai, Self::Shortcuts, Self::General];
     pub const ALL: [Self; 7] = [
-        Self::General,
-        Self::Audio,
-        Self::Recognition,
-        Self::Polish,
-        Self::Shortcuts,
-        Self::Dictionary,
+        Self::Home,
         Self::History,
+        Self::Dictionary,
+        Self::Audio,
+        Self::Ai,
+        Self::Shortcuts,
+        Self::General,
     ];
     pub fn id(self) -> &'static str {
         match self {
-            Self::General => "general",
-            Self::Audio => "audio",
-            Self::Recognition => "recognition",
-            Self::Polish => "polish",
-            Self::Shortcuts => "shortcuts",
-            Self::Dictionary => "dictionary",
+            Self::Home => "home",
             Self::History => "history",
+            Self::Dictionary => "dictionary",
+            Self::Audio => "audio",
+            Self::Ai => "ai",
+            Self::Shortcuts => "shortcuts",
+            Self::General => "general",
         }
     }
     pub fn title(self, english: bool) -> &'static str {
         match (self, english) {
-            (Self::General, false) => "通用",
-            (Self::Audio, false) => "音频",
-            (Self::Recognition, false) => "识别",
-            (Self::Polish, false) => "润色",
-            (Self::Shortcuts, false) => "快捷键",
-            (Self::Dictionary, false) => "词典",
+            (Self::Home, false) => "概览",
             (Self::History, false) => "录音历史",
-            (Self::General, true) => "General",
-            (Self::Audio, true) => "Audio",
-            (Self::Recognition, true) => "Recognition",
-            (Self::Polish, true) => "Polish",
-            (Self::Shortcuts, true) => "Shortcuts",
-            (Self::Dictionary, true) => "Dictionary",
+            (Self::Dictionary, false) => "个人词典",
+            (Self::Audio, false) => "声音与低声",
+            (Self::Ai, false) => "识别与润色",
+            (Self::Shortcuts, false) => "快捷键与输入",
+            (Self::General, false) => "通用与连接",
+            (Self::Home, true) => "Home",
             (Self::History, true) => "History",
+            (Self::Dictionary, true) => "Dictionary",
+            (Self::Audio, true) => "Audio & Whisper",
+            (Self::Ai, true) => "AI & Output",
+            (Self::Shortcuts, true) => "Shortcuts & Input",
+            (Self::General, true) => "General",
+        }
+    }
+    pub fn subtitle(self, english: bool) -> &'static str {
+        match (self, english) {
+            (Self::Home, false) => "系统就绪状态、常用快捷切换与最近听写记录",
+            (Self::History, false) => "搜索、回放、重新识别并管理本地历史录音",
+            (Self::Dictionary, false) => "审核自动学习建议并维护专有名词表",
+            (Self::Audio, false) => "为办公室低声或日常环境选择拾音方案并试音校准",
+            (Self::Ai, false) => "配置识别模型、自定义听写场景、看屏幕说话与文本润色风格",
+            (Self::Shortcuts, false) => "自定义全局触发键、录音手势与自动粘贴行为",
+            (Self::General, false) => "服务密钥、网络代理、悬浮胶囊位置与应用偏好",
+            (Self::Home, true) => "Readiness status, quick toggles, and recent dictations",
+            (Self::History, true) => "Search, replay, retry, and manage local recordings",
+            (Self::Dictionary, true) => "Review learned suggestions and manage custom terms",
+            (Self::Audio, true) => "Tailor pickup for office whispering or everyday speech",
+            (Self::Ai, true) => {
+                "Configure ASR models, dictation scenes, screen context, and polish styles"
+            }
+            (Self::Shortcuts, true) => {
+                "Customize trigger hotkeys, recording gestures, and paste behavior"
+            }
+            (Self::General, true) => "API key, proxy, capsule placement, and app preferences",
         }
     }
     pub fn from_id(value: &str) -> Self {
-        Self::ALL
-            .into_iter()
-            .find(|tab| tab.id() == value)
-            .unwrap_or(Self::General)
+        match value {
+            "" | "home" => Self::Home,
+            "recognition" | "polish" | "ai" => Self::Ai,
+            other => Self::ALL
+                .into_iter()
+                .find(|tab| tab.id() == other)
+                .unwrap_or(Self::Home),
+        }
     }
 }
 
@@ -116,33 +144,34 @@ pub const FIELDS: &[Field] = &[
         General,
         "DashScope API Key",
         "DashScope API Key",
-        true,
+        false,
         Kind::Secret,
-        "密钥只保存在本机，点击「显示」时才会读取。",
-        "The key stays on this Mac and is only read when you choose Show."
+        "仅在本机明确点击显示时读取已保存的密钥。",
+        "Read the saved key only when you explicitly choose Show."
     ),
     field!(
-        "default_mode",
+        "network.proxy_url",
         General,
-        "默认录音模式",
-        "Default recording mode",
+        "网络代理",
+        "Network proxy",
+        false,
+        Kind::Text,
+        "留空为直连；支持 http://host:port 和 socks5://host:port。",
+        "Leave blank for direct access; supports http://host:port and socks5://host:port."
+    ),
+    field!(
+        "ui.capsule_position",
+        General,
+        "悬浮胶囊位置",
+        "Floating capsule position",
         false,
         Kind::Choice(&[
-            ("walkie_talkie", "按住说话", "Push to talk"),
-            ("realtime_long", "免提长录音", "Hands free")
+            ("bottom", "底部居中", "Bottom center"),
+            ("top", "顶部居中", "Top center"),
+            ("custom", "记住拖拽位置", "Remember dragged")
         ]),
-        "快捷键按住时录音、松开结束；免提模式下短按开始，再按一次结束。",
-        "Hold the shortcut to talk and release to finish, or tap once to start hands free and tap again to stop."
-    ),
-    field!(
-        "screen_context_enabled",
-        Recognition,
-        "屏幕上下文",
-        "Screen context",
-        false,
-        Kind::Toggle,
-        "参考屏幕上的文字来认准专有名词，屏幕内容不会被输入。需要选用支持此功能的识别模型，并填写阿里云百炼业务空间的实时端点。",
-        "Uses on-screen text to get names and terms right; it is never typed out. Requires a recognition model that supports it and an Alibaba Cloud Model Studio workspace realtime endpoint."
+        "选择胶囊默认停靠位置；在免提录音时可直接拖动胶囊调整。",
+        "Choose where the capsule appears; drag it during hands-free recording to customize."
     ),
     field!(
         "ui.language",
@@ -151,42 +180,65 @@ pub const FIELDS: &[Field] = &[
         "Interface language",
         false,
         Kind::Choice(&[("zh", "简体中文", "简体中文"), ("en", "English", "English")]),
-        "",
-        ""
+        "立即切换菜单栏、悬浮胶囊与主窗口语言。",
+        "Immediately switch language across the menu bar, capsule, and main window."
     ),
     field!(
         "update_channel",
         General,
         "更新通道",
         "Update channel",
-        true,
+        false,
         Kind::Choice(&[("stable", "稳定版", "Stable"), ("beta", "Beta", "Beta")]),
-        "稳定版只接收正式版本；Beta 同时接收 Beta 和正式版本，以较新的为准。",
-        "Stable receives releases only. Beta receives both betas and releases, whichever is newer."
+        "选择接收稳定版或 Beta 预发布更新。",
+        "Choose whether to receive stable or Beta prerelease updates."
     ),
     field!(
-        "network.proxy_url",
+        "ui.advanced_settings",
         General,
-        "网络代理",
-        "Network proxy",
-        true,
-        Kind::Text,
-        "留空为直连；支持 http://host:port 和 socks5://host:port。",
-        "Leave blank for direct access; supports http://host:port and socks5://host:port."
+        "默认展开高级参数",
+        "Expand advanced sections",
+        false,
+        Kind::Toggle,
+        "打开各设置页时默认展开所有工程参数与诊断面板。",
+        "Keep advanced technical panels expanded by default across settings pages."
+    ),
+    field!(
+        "default_mode",
+        Shortcuts,
+        "默认录音模式",
+        "Default recording mode",
+        false,
+        Kind::Choice(&[
+            ("walkie_talkie", "按住说话", "Push to talk"),
+            ("realtime_long", "免提长录音", "Hands free")
+        ]),
+        "短按并松开进入免提；按住说话，松开结束。",
+        "Tap to latch hands free; hold to speak and release to finish."
     ),
     field!(
         "auto_paste",
-        General,
-        "自动输入到当前应用",
-        "Type into the current app",
+        Shortcuts,
+        "自动输入识别结果",
+        "Automatically paste results",
         false,
         Kind::Toggle,
-        "说完后把文字直接输入到光标所在位置；关闭后只复制到剪贴板。",
-        "Insert the text at the cursor when you finish. When off, the text is only copied."
+        "完成识别后输入到原来聚焦的应用。",
+        "Insert the completed result into the previously focused application."
+    ),
+    field!(
+        "streaming_paste",
+        Shortcuts,
+        "边说边输入",
+        "Streaming paste",
+        false,
+        Kind::Toggle,
+        "在录音过程中输入实时识别结果。",
+        "Insert interim recognition while recording."
     ),
     field!(
         "native_fast_paste",
-        General,
+        Shortcuts,
         "原生快速输入",
         "Native fast paste",
         true,
@@ -196,33 +248,13 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "restore_clipboard",
-        General,
+        Shortcuts,
         "恢复原剪贴板",
         "Restore clipboard",
         true,
         Kind::Toggle,
         "粘贴后恢复此前的剪贴板内容。",
         "Restore the previous clipboard content after pasting."
-    ),
-    field!(
-        "streaming_paste",
-        General,
-        "边说边输入",
-        "Streaming paste",
-        false,
-        Kind::Toggle,
-        "一边说一边看到文字出现，而不是说完后一次输入。",
-        "See words appear while you talk instead of all at once at the end."
-    ),
-    field!(
-        "ui.advanced_settings",
-        General,
-        "高级设置",
-        "Advanced settings",
-        false,
-        Kind::Toggle,
-        "显示 API Key、网络、输入方式和音频诊断等细节；日常使用无需打开。",
-        "Show API key, network, input and audio diagnostics. Not needed for everyday use."
     ),
     field!(
         "audio.input_device",
@@ -323,8 +355,8 @@ pub const FIELDS: &[Field] = &[
             unit: "Hz",
             gain_db: false
         },
-        "",
-        ""
+        "过滤该频率以下的环境低频轰鸣。",
+        "Cuts low-frequency ambient rumble below this cutoff."
     ),
     field!(
         "audio.soft_limiter",
@@ -338,17 +370,17 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "asr.model",
-        Recognition,
+        Ai,
         "识别模型",
         "Recognition model",
         false,
         Kind::Model,
-        "不同模型在速度、语言和方言支持上有所区别。",
-        "Models differ in speed and language and dialect support."
+        "模型列表和能力来自后端产品契约。",
+        "Models and capabilities come from the backend product contract."
     ),
     field!(
         "asr.language",
-        Recognition,
+        Ai,
         "识别语言",
         "Recognition language",
         false,
@@ -357,32 +389,42 @@ pub const FIELDS: &[Field] = &[
             ("zh", "中文", "Chinese"),
             ("en", "英语", "English")
         ]),
-        "",
-        ""
+        "保持自动识别可流畅支持中英双语混说。",
+        "Automatic works best for bilingual Chinese and English dictation."
+    ),
+    field!(
+        "screen_context_enabled",
+        Ai,
+        "看屏幕说话",
+        "Screen context",
+        false,
+        Kind::Toggle,
+        "屏幕内容用于辅助识别专有名词和代码，不会成为口述文本；需要兼容模型和空间端点。",
+        "Screen content assists recognition and does not become dictated text; requires a compatible model and workspace endpoint."
     ),
     field!(
         "asr.realtime_url",
-        Recognition,
-        "业务空间实时端点",
+        Ai,
+        "空间实时端点",
         "Workspace realtime endpoint",
         true,
         Kind::Text,
-        "留空使用公共端点；业务空间地址形如 wss://…maas.aliyuncs.com/api-ws/v1/realtime。",
+        "留空使用公共端点；空间地址必须为 wss://…maas.aliyuncs.com/api-ws/v1/realtime。",
         "Leave blank for the public endpoint; workspace URLs must use wss://…maas.aliyuncs.com/api-ws/v1/realtime."
     ),
     field!(
         "enable_polish",
-        Polish,
+        Ai,
         "启用润色",
         "Enable polish",
         false,
         Kind::Toggle,
-        "去掉口头语和重复，把说的话整理成通顺的文字。",
-        "Remove filler words and repetition, and turn speech into clean text."
+        "原生 ASR 模型直接转写，跳过第二阶段润色。",
+        "Native ASR transcribes directly and skips second-stage polish."
     ),
     field!(
         "llm.polish_mode",
-        Polish,
+        Ai,
         "输出类型",
         "Output type",
         false,
@@ -390,12 +432,12 @@ pub const FIELDS: &[Field] = &[
             ("dictation", "口述文本", "Dictation"),
             ("prompt", "提示词", "Prompt")
         ]),
-        "",
-        ""
+        "选择常规文本输出或结构化 AI 提示词模式。",
+        "Choose general dictation output or AI prompt mode."
     ),
     field!(
         "llm.output_language",
-        Polish,
+        Ai,
         "输出语言",
         "Output language",
         false,
@@ -404,12 +446,12 @@ pub const FIELDS: &[Field] = &[
             ("zh", "中文", "Chinese"),
             ("en", "英语", "English")
         ]),
-        "",
-        ""
+        "可在润色时保持原语言或统一输出为中文/英文。",
+        "Keep spoken language or output consistently in Chinese or English."
     ),
     field!(
         "llm.level",
-        Polish,
+        Ai,
         "润色程度",
         "Polish level",
         false,
@@ -418,12 +460,12 @@ pub const FIELDS: &[Field] = &[
             ("balanced", "适中", "Balanced"),
             ("strong", "深度", "Strong")
         ]),
-        "",
-        ""
+        "控制清理口语词与改写句式的力度。",
+        "Controls how strongly filler words and phrasing are refined."
     ),
     field!(
         "llm.structured",
-        Polish,
+        Ai,
         "结构化输出",
         "Structured output",
         false,
@@ -433,7 +475,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "llm.tone",
-        Polish,
+        Ai,
         "表达语气",
         "Tone",
         false,
@@ -442,12 +484,12 @@ pub const FIELDS: &[Field] = &[
             ("gentle", "温和", "Gentle"),
             ("direct", "直接", "Direct")
         ]),
-        "",
-        ""
+        "调整成文的情感色彩与直接程度。",
+        "Adjust the politeness and directness of polished text."
     ),
     field!(
         "llm.persona",
-        Polish,
+        Ai,
         "写作风格",
         "Persona",
         false,
@@ -458,22 +500,22 @@ pub const FIELDS: &[Field] = &[
             ("professional", "专业", "Professional"),
             ("chat", "聊天", "Chat")
         ]),
-        "",
-        ""
+        "匹配代码文档、商务沟通或日常聊天习惯。",
+        "Match technical docs, professional writing, or casual chat."
     ),
     field!(
         "llm.model",
-        Polish,
+        Ai,
         "润色模型",
         "Polish model",
         true,
         Kind::Model,
-        "",
-        ""
+        "用于第二阶段文本润色的大语言模型。",
+        "Language model used for second-stage text polishing."
     ),
     field!(
         "llm.temperature",
-        Polish,
+        Ai,
         "生成温度",
         "Temperature",
         true,
@@ -484,12 +526,12 @@ pub const FIELDS: &[Field] = &[
             unit: "",
             gain_db: false
         },
-        "",
-        ""
+        "较低温度输出更稳定克制，较高温度更具表达变化。",
+        "Lower values keep output faithful; higher values add variety."
     ),
     field!(
         "llm.enable_thinking",
-        Polish,
+        Ai,
         "深度思考",
         "Thinking",
         true,
@@ -510,8 +552,8 @@ pub const FIELDS: &[Field] = &[
             unit: "s",
             gain_db: false
         },
-        "",
-        ""
+        "用于判定修饰键双击手势的时间窗口。",
+        "Time window used to detect modifier double-tap gestures."
     ),
     field!(
         "dictionary_learning.enabled",
@@ -530,8 +572,101 @@ pub const FIELDS: &[Field] = &[
         "Excluded applications",
         true,
         Kind::List,
-        "用逗号分隔应用 Bundle ID。",
-        "Separate application bundle IDs with commas."
+        "用逗号分隔应用 Bundle ID，失焦或按回车保存。",
+        "Separate application bundle IDs with commas; saves on blur or Enter."
+    ),
+];
+
+/// Visual grouping for fields inside each tab; every field belongs to exactly one section.
+pub const SECTIONS: &[(Tab, &str, &str, &[&str])] = &[
+    (
+        Tab::General,
+        "语音服务与网络连接",
+        "Speech Service & Network",
+        &["api_key", "network.proxy_url"],
+    ),
+    (
+        Tab::General,
+        "外观与交互偏好",
+        "Appearance & Experience",
+        &["ui.capsule_position", "ui.language", "update_channel"],
+    ),
+    (
+        Tab::General,
+        "应用与维护",
+        "Application & Maintenance",
+        &["ui.advanced_settings"],
+    ),
+    (Tab::Audio, "麦克风", "Microphone", &["audio.input_device"]),
+    (
+        Tab::Audio,
+        "高级音频参数",
+        "Advanced Audio DSP",
+        &[
+            "audio.capture_backend",
+            "audio.gain_mode",
+            "audio.gain",
+            "audio.highpass_filter",
+            "audio.highpass_freq",
+            "audio.soft_limiter",
+            "audio.waveform_ceiling_dbfs",
+        ],
+    ),
+    (
+        Tab::Ai,
+        "语音识别",
+        "Speech Recognition",
+        &["asr.model", "asr.language", "screen_context_enabled"],
+    ),
+    (
+        Tab::Ai,
+        "文本润色与输出风格",
+        "Text Polish & Output Style",
+        &[
+            "enable_polish",
+            "llm.polish_mode",
+            "llm.output_language",
+            "llm.level",
+            "llm.structured",
+            "llm.tone",
+            "llm.persona",
+        ],
+    ),
+    (
+        Tab::Ai,
+        "高级模型端点与参数",
+        "Workspace Endpoint & LLM",
+        &[
+            "asr.realtime_url",
+            "llm.model",
+            "llm.temperature",
+            "llm.enable_thinking",
+        ],
+    ),
+    (
+        Tab::Shortcuts,
+        "录音模式与文本输入",
+        "Recording Mode & Text Insertion",
+        &["default_mode", "auto_paste", "streaming_paste"],
+    ),
+    (
+        Tab::Shortcuts,
+        "高级输入与热键参数",
+        "Advanced Input & Hotkey Tuning",
+        &[
+            "hotkey.double_tap_threshold",
+            "native_fast_paste",
+            "restore_clipboard",
+        ],
+    ),
+    (
+        Tab::Dictionary,
+        "自动学习",
+        "Automatic Learning",
+        &[
+            "dictionary_learning.enabled",
+            "dictionary_learning.excluded_bundle_ids",
+        ],
     ),
 ];
 
@@ -580,115 +715,6 @@ pub const ACTIONS: &[&str] = &[
     "stopRecording",
     "copyTranscript",
     "compactRecordingHistory",
-];
-
-impl Tab {
-    /// One line under the page title that says what the page is for.
-    pub fn subtitle(self, english: bool) -> &'static str {
-        match (self, english) {
-            (Self::General, false) => "录音模式、文字如何输入，以及界面语言。",
-            (Self::General, true) => "How you record, where text goes, and the interface language.",
-            (Self::Audio, false) => "选择麦克风，并让低声说话也能被听清。",
-            (Self::Audio, true) => {
-                "Pick a microphone and tune it so even a whisper is heard clearly."
-            }
-            (Self::Recognition, false) => "选择识别模型和语言。",
-            (Self::Recognition, true) => "Choose the recognition model and language.",
-            (Self::Polish, false) => "让口语变成通顺、可直接使用的文字。",
-            (Self::Polish, true) => "Turn spoken words into clean, ready-to-use text.",
-            (Self::Shortcuts, false) => "设置开始和结束录音的按键。",
-            (Self::Shortcuts, true) => "Choose the keys that start and stop recording.",
-            (Self::Dictionary, false) => "教它认识人名、术语和常用写法。",
-            (Self::Dictionary, true) => "Teach it names, terms and the spellings you prefer.",
-            (Self::History, false) => "回听、复制或重新识别之前的录音。",
-            (Self::History, true) => "Replay, copy or re-transcribe earlier recordings.",
-        }
-    }
-}
-
-/// Visual grouping of fields within each page, in display order. Advanced
-/// fields stay in their natural group and are filtered at render time.
-pub const SECTIONS: &[(Tab, &str, &str, &[&str])] = &[
-    (
-        Tab::General,
-        "录音与输入",
-        "Recording and typing",
-        &[
-            "default_mode",
-            "auto_paste",
-            "streaming_paste",
-            "restore_clipboard",
-            "native_fast_paste",
-        ],
-    ),
-    (Tab::General, "界面", "Interface", &["ui.language"]),
-    (
-        Tab::General,
-        "服务与更新",
-        "Service and updates",
-        &["api_key", "network.proxy_url", "update_channel"],
-    ),
-    (Tab::General, "高级", "Advanced", &["ui.advanced_settings"]),
-    (Tab::Audio, "麦克风", "Microphone", &["audio.input_device"]),
-    (
-        Tab::Audio,
-        "低声增强",
-        "Low-voice enhancement",
-        &[
-            "audio.gain_mode",
-            "audio.gain",
-            "audio.highpass_filter",
-            "audio.highpass_freq",
-            "audio.soft_limiter",
-            "audio.capture_backend",
-            "audio.waveform_ceiling_dbfs",
-        ],
-    ),
-    (
-        Tab::Recognition,
-        "识别",
-        "Recognition",
-        &["asr.model", "asr.language"],
-    ),
-    (
-        Tab::Recognition,
-        "屏幕上下文",
-        "Screen context",
-        &["screen_context_enabled", "asr.realtime_url"],
-    ),
-    (
-        Tab::Polish,
-        "润色",
-        "Polish",
-        &["enable_polish", "llm.polish_mode", "llm.output_language"],
-    ),
-    (
-        Tab::Polish,
-        "风格",
-        "Style",
-        &["llm.level", "llm.tone", "llm.persona", "llm.structured"],
-    ),
-    (
-        Tab::Polish,
-        "模型",
-        "Model",
-        &["llm.model", "llm.temperature", "llm.enable_thinking"],
-    ),
-    (
-        Tab::Shortcuts,
-        "按键判定",
-        "Key timing",
-        &["hotkey.double_tap_threshold"],
-    ),
-    (
-        Tab::Dictionary,
-        "自动学习",
-        "Automatic learning",
-        &[
-            "dictionary_learning.enabled",
-            "dictionary_learning.excluded_bundle_ids",
-        ],
-    ),
 ];
 
 pub fn get<'a>(config: &'a Value, key: &str) -> &'a Value {
@@ -824,6 +850,16 @@ mod tests {
         assert_eq!(get(&config, "llm.tone"), "direct");
         assert_eq!(get(&config, "llm.unknown.future"), true);
         assert_eq!(get(&config, "audio.gain"), 2);
+    }
+    #[test]
+    fn legacy_tab_ids_resolve_to_redesigned_destinations() {
+        assert_eq!(Tab::from_id(""), Tab::Home);
+        assert_eq!(Tab::from_id("home"), Tab::Home);
+        assert_eq!(Tab::from_id("recognition"), Tab::Ai);
+        assert_eq!(Tab::from_id("polish"), Tab::Ai);
+        assert_eq!(Tab::from_id("ai"), Tab::Ai);
+        assert_eq!(Tab::from_id("general"), Tab::General);
+        assert_eq!(Tab::from_id("unknown-future-tab"), Tab::Home);
     }
     #[test]
     fn endpoint_and_proxy_validation() {

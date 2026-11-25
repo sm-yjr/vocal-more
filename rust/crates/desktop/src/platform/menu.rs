@@ -49,6 +49,8 @@ pub struct Menu {
     hotkeys_enabled: bool,
     /// Whether there is a last result for "Copy Last Result" to copy.
     has_result: bool,
+    /// True when API key or any macOS environment check needs user action.
+    has_issue: bool,
 }
 fn menu(title: &str) -> Retained<AnyObject> {
     unsafe {
@@ -83,6 +85,7 @@ impl Menu {
             trigger: Some("Fn".into()),
             hotkeys_enabled,
             has_result: false,
+            has_issue: false,
         }
     }
     fn item(
@@ -170,6 +173,14 @@ impl Menu {
                 .and_then(|key| key["display_name"].as_str())
                 .map(str::to_owned)
         };
+        self.has_issue = snapshot["api_key_set"] != true
+            || snapshot["environment_checks"]
+                .as_array()
+                .is_some_and(|checks| checks.iter().any(|check| check["status"] != "ok"));
+        let audio_busy = snapshot["state"] != "idle"
+            || snapshot["audio_input_status"]["phase"]
+                .as_str()
+                .is_some_and(|phase| ["starting", "active", "stopping"].contains(&phase));
         let menu = menu("Vocal More");
         // Status first: what is happening and how to start, in one line.
         self.state_item = Some(self.add(
@@ -190,9 +201,68 @@ impl Menu {
             let _: () = msg_send![&*copy,setEnabled:self.has_result];
         }
         self.copy_item = Some(copy);
+        let open_home = self.add(
+            &menu,
+            self.t("打开 Vocal More…", "Open Vocal More…"),
+            Some("platform_show_settings"),
+            json!({"tab":"home"}),
+            false,
+        );
+        Self::shortcut(&open_home, ",");
+        self.add(
+            &menu,
+            self.t("录音历史…", "Recording History…"),
+            Some("platform_show_settings"),
+            json!({"tab":"history"}),
+            false,
+        );
 
         Self::separator(&menu);
         Self::header(&menu, self.t("录音", "Recording"));
+        let voice_scenes = self.sub(&menu, self.t("声音场景", "Voice Scene"));
+        let gain_mode = config["audio"]["gain_mode"].as_str().unwrap_or("manual");
+        let gain = config["audio"]["gain"].as_f64().unwrap_or(0.0);
+        let hp_on = config["audio"]["highpass_filter"] == true;
+        let hp_freq = config["audio"]["highpass_freq"].as_f64().unwrap_or(0.0);
+        let limiter = config["audio"]["soft_limiter"] == true;
+        let active_preset = if gain_mode == "manual" && hp_on && limiter {
+            if (gain - 8.0).abs() < 0.25 && (hp_freq - 220.0).abs() < 5.0 {
+                Some("whisper")
+            } else if (gain - 6.0).abs() < 0.25 && (hp_freq - 280.0).abs() < 5.0 {
+                Some("noisy")
+            } else if (gain - 4.0).abs() < 0.25 && (hp_freq - 200.0).abs() < 5.0 {
+                Some("normal")
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        for (id, zh, en) in [
+            (
+                "whisper",
+                "办公室低声（推荐）",
+                "Office Whisper (Recommended)",
+            ),
+            ("normal", "正常说话", "Normal Voice"),
+            ("noisy", "嘈杂环境", "Noisy Room"),
+        ] {
+            self.add(
+                &voice_scenes,
+                self.t(zh, en),
+                (!audio_busy).then_some("platform_apply_audio_preset"),
+                json!({"preset":id}),
+                active_preset == Some(id),
+            );
+        }
+        Self::separator(&voice_scenes);
+        self.add(
+            &voice_scenes,
+            self.t("8 秒低声校准…", "8s Whisper Calibration…"),
+            (!audio_busy).then_some("platform_show_settings"),
+            json!({"tab":"audio","open_calibration":true}),
+            false,
+        );
         let modes = self.sub(&menu, self.t("录音模式", "Recording Mode"));
         // Same wording as the settings window.
         for (id, zh, en) in [
@@ -323,14 +393,13 @@ impl Menu {
         );
 
         Self::separator(&menu);
-        let item = self.add(
+        self.add(
             &menu,
             self.t("设置…", "Settings…"),
             Some("platform_show_settings"),
-            json!({}),
+            json!({"tab":"general"}),
             false,
         );
-        Self::shortcut(&item, ",");
         self.add(
             &menu,
             self.t("检查更新…", "Check for Updates…"),
@@ -344,7 +413,7 @@ impl Menu {
                 "环境检查…",
                 "Environment Check…",
                 "platform_show_settings",
-                json!({"tab":"general"}),
+                json!({"tab":"home"}),
             ),
             (
                 "导出诊断包…",
@@ -391,6 +460,14 @@ impl Menu {
     }
     fn status_title(&self, state: &str) -> String {
         if state == "idle" {
+            if self.has_issue {
+                return self
+                    .t(
+                        "需要完成配置 · 点击打开设置",
+                        "Setup needed · Open Vocal More",
+                    )
+                    .to_owned();
+            }
             return match (&self.trigger, self.language == "en") {
                 (Some(key), true) => format!("Ready · Hold {key} to talk"),
                 (Some(key), false) => format!("就绪 · 按住 {key} 说话"),

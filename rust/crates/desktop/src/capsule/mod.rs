@@ -96,12 +96,29 @@ fn cgrect(frame: Frame) -> CGRect {
         CGSize::new(frame.width, frame.height),
     )
 }
-fn configure_layer(view: &NSView, white: f64, alpha: f64, radius: f64) -> Retained<CALayer> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NoticeTone {
+    Default,
+    Warning,
+    Danger,
+}
+
+fn configure_layer_rgba(
+    view: &NSView,
+    r: f64,
+    g: f64,
+    b: f64,
+    a: f64,
+    radius: f64,
+) -> Retained<CALayer> {
     view.setWantsLayer(true);
     let layer = view.layer().expect("layer-backed view must have a layer");
-    layer.setBackgroundColor(Some(&CGColor::new_generic_rgb(white, white, white, alpha)));
+    layer.setBackgroundColor(Some(&CGColor::new_generic_rgb(r, g, b, a)));
     layer.setCornerRadius(radius);
     layer
+}
+fn configure_layer(view: &NSView, white: f64, alpha: f64, radius: f64) -> Retained<CALayer> {
+    configure_layer_rgba(view, white, white, white, alpha, radius)
 }
 fn label(mtm: MainThreadMarker) -> Retained<NSTextField> {
     let label = NSTextField::labelWithString(&NSString::from_str(""), mtm);
@@ -112,6 +129,16 @@ fn label(mtm: MainThreadMarker) -> Retained<NSTextField> {
     label.setAlignment(NSTextAlignment::Center);
     label
 }
+fn timer_label_view(mtm: MainThreadMarker) -> Retained<NSTextField> {
+    let label = NSTextField::labelWithString(&NSString::from_str(""), mtm);
+    label.setFont(Some(&NSFont::monospacedDigitSystemFontOfSize_weight(
+        11.0,
+        unsafe { NSFontWeightMedium },
+    )));
+    label.setTextColor(Some(&NSColor::colorWithWhite_alpha(1.0, 0.58)));
+    label.setAlignment(NSTextAlignment::Center);
+    label
+}
 
 struct Renderer {
     view: Retained<NSView>,
@@ -119,6 +146,7 @@ struct Renderer {
     cancel_button: Retained<NSButton>,
     finish_button: Retained<NSButton>,
     recording_label: Retained<NSTextField>,
+    timer_label: Retained<NSTextField>,
     thinking_label: Retained<NSTextField>,
     streaming_scroll: Retained<NSScrollView>,
     streaming_label: Retained<NSTextView>,
@@ -133,7 +161,9 @@ struct Renderer {
     language: String,
     stage: String,
     streaming_text: String,
+    timer_text: String,
     connection_title: String,
+    notice_tone: NoticeTone,
     expanded: bool,
     reduce_motion: bool,
     animation: Animation,
@@ -165,29 +195,44 @@ impl Renderer {
             finish_count: Cell::new(0),
         });
         let target: Retained<CapsuleActionTarget> = unsafe { msg_send![super(target), init] };
-        let make_button = |title: &str, action| {
-            let b = NSButton::initWithFrame(
-                NSButton::alloc(mtm),
-                rect(Frame::new(0.0, 0.0, 22.0, 22.0)),
-            );
-            b.setTitle(&NSString::from_str(title));
-            b.setBordered(false);
-            b.setFont(Some(&NSFont::systemFontOfSize_weight(13.0, unsafe {
-                NSFontWeightMedium
-            })));
-            b.setContentTintColor(Some(&NSColor::colorWithWhite_alpha(1.0, 0.82)));
-            // SAFETY: Retained target outlives buttons, selectors have matching
-            // sender signatures, and buttons cannot change the key window.
-            unsafe {
-                b.setTarget(Some(&target));
-                b.setAction(Some(action));
-            }
-            configure_layer(&b, 1.0, 0.15, 11.0);
-            b
-        };
-        let cancel_button = make_button("×", sel!(cancel:));
-        let finish_button = make_button("✓", sel!(finish:));
+        let make_button =
+            |title: &str, action, bg: (f64, f64, f64, f64), fg: (f64, f64, f64, f64)| {
+                let b = NSButton::initWithFrame(
+                    NSButton::alloc(mtm),
+                    rect(Frame::new(0.0, 0.0, 26.0, 26.0)),
+                );
+                b.setTitle(&NSString::from_str(title));
+                b.setBordered(false);
+                b.setFont(Some(&NSFont::systemFontOfSize_weight(13.0, unsafe {
+                    NSFontWeightMedium
+                })));
+                b.setContentTintColor(Some(&NSColor::colorWithSRGBRed_green_blue_alpha(
+                    fg.0, fg.1, fg.2, fg.3,
+                )));
+                // SAFETY: Retained target outlives buttons, selectors have matching
+                // sender signatures, and buttons cannot change the key window.
+                unsafe {
+                    b.setTarget(Some(&target));
+                    b.setAction(Some(action));
+                }
+                configure_layer_rgba(&b, bg.0, bg.1, bg.2, bg.3, 13.0);
+                b
+            };
+        // Apple system red for cancel, Apple system green for confirm.
+        let cancel_button = make_button(
+            "×",
+            sel!(cancel:),
+            (1.0, 0.231, 0.188, 0.24),
+            (1.0, 0.42, 0.39, 0.96),
+        );
+        let finish_button = make_button(
+            "✓",
+            sel!(finish:),
+            (0.204, 0.780, 0.349, 0.24),
+            (0.32, 0.88, 0.46, 0.96),
+        );
         let recording_label = label(mtm);
+        let timer_label = timer_label_view(mtm);
         let thinking_label = label(mtm);
         let streaming_scroll = NSScrollView::initWithFrame(
             NSScrollView::alloc(mtm),
@@ -233,6 +278,7 @@ impl Renderer {
             &*cancel_button as &NSView,
             &*finish_button,
             &*recording_label,
+            &*timer_label,
             &*thinking_label,
             &*streaming_scroll,
             &*progress_track,
@@ -247,6 +293,7 @@ impl Renderer {
             state: State::Hidden,
             expanded: false,
             label_width: 0.0,
+            timer_width: 0.0,
             thinking_width: 112.0,
             progress: 0.0,
             bar_heights: &animation.heights,
@@ -257,6 +304,7 @@ impl Renderer {
             cancel_button,
             finish_button,
             recording_label,
+            timer_label,
             thinking_label,
             streaming_scroll,
             streaming_label,
@@ -271,7 +319,9 @@ impl Renderer {
             language: "en".into(),
             stage: "transcribing".into(),
             streaming_text: String::new(),
+            timer_text: String::new(),
             connection_title: String::new(),
+            notice_tone: NoticeTone::Default,
             expanded: false,
             reduce_motion: Self::read_reduce_motion(),
             animation,
@@ -327,9 +377,36 @@ impl Renderer {
         self.update_labels();
         self.relayout();
     }
+    fn set_timer(&mut self, text: &str) {
+        if self.timer_text == text {
+            return;
+        }
+        self.timer_text = text.into();
+        self.timer_label.setStringValue(&NSString::from_str(text));
+        self.relayout();
+    }
+    fn set_notice_tone(&mut self, tone: NoticeTone) {
+        if self.notice_tone == tone {
+            return;
+        }
+        self.notice_tone = tone;
+        if let Some(layer) = self.surface.layer() {
+            let color = match tone {
+                NoticeTone::Default => CGColor::new_generic_rgb(1.0, 1.0, 1.0, 0.32),
+                NoticeTone::Warning => CGColor::new_generic_rgb(1.0, 0.62, 0.04, 0.68),
+                NoticeTone::Danger => CGColor::new_generic_rgb(1.0, 0.27, 0.23, 0.68),
+            };
+            layer.setBorderColor(Some(&color));
+        }
+    }
     fn relayout(&mut self) {
         let _transaction = NoLayerActions::begin();
         let previous_scroll_x = self.streaming_scroll.contentView().bounds().origin.x;
+        let timer_width = if self.timer_text.is_empty() {
+            0.0
+        } else {
+            self.timer_label.intrinsicContentSize().width
+        };
         self.layout = layout(LayoutInput {
             width: self.width,
             height: self.height,
@@ -337,6 +414,7 @@ impl Renderer {
             state: self.state,
             expanded: self.is_expanded(),
             label_width: self.recording_label.intrinsicContentSize().width,
+            timer_width,
             thinking_width: self.thinking_label.intrinsicContentSize().width,
             progress: self.animation.progress,
             bar_heights: &self.animation.heights,
@@ -346,6 +424,7 @@ impl Renderer {
         self.cancel_button.setHidden(!l.cancel_visible);
         self.finish_button.setHidden(!l.finish_visible);
         self.recording_label.setHidden(!l.recording_label_visible);
+        self.timer_label.setHidden(!l.timer_visible);
         self.thinking_label.setHidden(!l.thinking_label_visible);
         self.progress_track.setHidden(!l.progress_visible);
         self.streaming_scroll.setHidden(!l.streaming_visible);
@@ -355,6 +434,7 @@ impl Renderer {
         self.cancel_button.setFrame(rect(l.cancel));
         self.finish_button.setFrame(rect(l.finish));
         self.recording_label.setFrame(rect(l.recording_label));
+        self.timer_label.setFrame(rect(l.timer_label));
         for (i, frame) in l.bars.iter().enumerate() {
             self.waveform[i].setFrame(cgrect(*frame));
         }
@@ -488,7 +568,14 @@ pub struct Capsule {
     mtm: MainThreadMarker,
     panel: Retained<CapsulePanel>,
     renderer: Renderer,
+    commands: CommandSink,
     state: State,
+    placement: PlacementMode,
+    custom_x: Option<f64>,
+    custom_y: Option<f64>,
+    expected_frame: Option<NSRect>,
+    recording_started: Option<Instant>,
+    last_timer_second: u64,
     connection_notice: Option<Value>,
     failure_deadline: Option<Instant>,
     hide_deadline: Option<Instant>,
@@ -526,6 +613,7 @@ impl Capsule {
         panel.setOpaque(false);
         panel.setHasShadow(false);
         panel.setIgnoresMouseEvents(true);
+        panel.setMovableByWindowBackground(false);
         panel.setCollectionBehavior(
             NSWindowCollectionBehavior::CanJoinAllSpaces
                 | NSWindowCollectionBehavior::FullScreenAuxiliary
@@ -533,13 +621,20 @@ impl Capsule {
         );
         panel.setHidesOnDeactivate(false);
         let pending_cancel = Rc::new(Cell::new(false));
-        let renderer = Renderer::new(mtm, commands, pending_cancel.clone());
+        let renderer = Renderer::new(mtm, commands.clone(), pending_cancel.clone());
         panel.setContentView(Some(&renderer.view));
         Ok(Self {
             mtm,
             panel,
             renderer,
+            commands,
             state: State::Hidden,
+            placement: PlacementMode::Bottom,
+            custom_x: None,
+            custom_y: None,
+            expected_frame: None,
+            recording_started: None,
+            last_timer_second: 0,
             connection_notice: None,
             failure_deadline: None,
             hide_deadline: None,
@@ -551,6 +646,72 @@ impl Capsule {
             pending_cancel,
         })
     }
+    pub fn set_placement(&mut self, config: &Value) {
+        self.placement = PlacementMode::parse(
+            config["ui"]["capsule_position"]
+                .as_str()
+                .unwrap_or("bottom"),
+        );
+        self.custom_x = config["ui"]["capsule_custom_x"].as_f64();
+        self.custom_y = config["ui"]["capsule_custom_y"].as_f64();
+    }
+    fn active_screen(&self) -> Option<Retained<NSScreen>> {
+        let mouse = NSEvent::mouseLocation();
+        NSScreen::screens(self.mtm)
+            .iter()
+            .find(|screen| {
+                let f = screen.frame();
+                mouse.x >= f.origin.x
+                    && mouse.x < f.origin.x + f.size.width
+                    && mouse.y >= f.origin.y
+                    && mouse.y < f.origin.y + f.size.height
+            })
+            .or_else(|| NSScreen::mainScreen(self.mtm))
+    }
+    fn persist_drag_if_moved(&mut self) {
+        let Some(expected) = self.expected_frame.take() else {
+            return;
+        };
+        if self.panel.ignoresMouseEvents() {
+            return;
+        }
+        let frame = self.panel.frame();
+        // Compare against the last programmatic frame (which tracks resize
+        // recentering) so live transcript expansion is never mistaken for a drag.
+        let expected_cx = expected.origin.x + expected.size.width / 2.0;
+        let current_cx = frame.origin.x + frame.size.width / 2.0;
+        let dy = (frame.origin.y - expected.origin.y).abs();
+        if (current_cx - expected_cx).abs() <= 8.0 && dy <= 8.0 {
+            return;
+        }
+        let Some(screen) = self.panel.screen().or_else(|| self.active_screen()) else {
+            return;
+        };
+        let visible = screen.visibleFrame();
+        // Normalize using compact dimensions anchored at the dragged center/bottom
+        // so restoring on the next session places the capsule at the exact spot.
+        let compact_x = current_cx - COMPACT_WIDTH / 2.0;
+        let compact_y = frame.origin.y;
+        let max_x = (visible.size.width - COMPACT_WIDTH).max(1.0);
+        let max_y = (visible.size.height - COMPACT_HEIGHT).max(1.0);
+        let nx = ((compact_x - visible.origin.x) / max_x).clamp(0.0, 1.0);
+        let ny = ((compact_y - visible.origin.y) / max_y).clamp(0.0, 1.0);
+        self.placement = PlacementMode::Custom;
+        self.custom_x = Some(nx);
+        self.custom_y = Some(ny);
+        let _ = self.commands.request_checked(
+            "sync_form_state",
+            json!({
+                "state": {
+                    "ui": {
+                        "capsule_position": "custom",
+                        "capsule_custom_x": nx,
+                        "capsule_custom_y": ny,
+                    }
+                }
+            }),
+        );
+    }
     pub fn show(&mut self, mode: &str, prompt_mode: bool, hint: &str) {
         self.connection_notice = None;
         self.failure_deadline = None;
@@ -560,26 +721,29 @@ impl Capsule {
         self.prompt_hint = hint.into();
         self.state = State::Recording;
         self.renderer.mode = display_mode(mode, prompt_mode);
+        self.renderer.set_notice_tone(NoticeTone::Default);
+        self.renderer.set_timer("");
+        self.recording_started = None;
+        self.last_timer_second = 0;
         self.resize(false, "");
-        self.panel
-            .setIgnoresMouseEvents(is_push_to_talk(&self.renderer.mode));
-        let mouse = NSEvent::mouseLocation();
-        let active = NSScreen::screens(self.mtm)
-            .iter()
-            .find(|screen| {
-                let f = screen.frame();
-                mouse.x >= f.origin.x
-                    && mouse.x < f.origin.x + f.size.width
-                    && mouse.y >= f.origin.y
-                    && mouse.y < f.origin.y + f.size.height
-            })
-            .or_else(|| NSScreen::mainScreen(self.mtm));
-        if let Some(screen) = active {
+        let ptt = is_push_to_talk(&self.renderer.mode);
+        self.panel.setIgnoresMouseEvents(ptt);
+        self.panel.setMovableByWindowBackground(!ptt);
+        if let Some(screen) = self.active_screen() {
             let f = screen.frame();
-            self.panel.setFrameOrigin(NSPoint::new(
-                f.origin.x + (f.size.width - COMPACT_WIDTH) / 2.0,
-                f.origin.y + 20.0,
-            ));
+            let v = screen.visibleFrame();
+            let (ox, oy) = compute_origin(
+                Frame::new(f.origin.x, f.origin.y, f.size.width, f.size.height),
+                Frame::new(v.origin.x, v.origin.y, v.size.width, v.size.height),
+                COMPACT_WIDTH,
+                COMPACT_HEIGHT,
+                self.placement,
+                self.custom_x,
+                self.custom_y,
+            );
+            let origin = NSPoint::new(ox, oy);
+            self.panel.setFrameOrigin(origin);
+            self.expected_frame = Some(self.panel.frame());
         }
         self.renderer.update_labels();
         self.renderer.relayout();
@@ -597,14 +761,34 @@ impl Capsule {
         self.progress_active = false;
         self.last_animation_tick = Instant::now();
     }
+    /// Switch an already-visible recording capsule to hands-free presentation
+    /// without restarting the elapsed timer or wiping partial transcript text.
+    pub fn latch_hands_free(&mut self, prompt_mode: bool, hint: &str) {
+        if self.state != State::Recording {
+            self.show("handsFree", prompt_mode, hint);
+            return;
+        }
+        self.renderer.mode = display_mode("handsFree", prompt_mode);
+        self.panel.setIgnoresMouseEvents(false);
+        self.panel.setMovableByWindowBackground(true);
+        self.expected_frame = Some(self.panel.frame());
+        self.renderer.update_labels();
+        self.renderer.relayout();
+    }
     pub fn hide(&mut self) {
         if self.failure_deadline.is_some() {
             return;
         }
+        self.persist_drag_if_moved();
         self.connection_notice = None;
+        self.recording_started = None;
+        self.last_timer_second = 0;
         self.state = State::Hidden;
+        self.renderer.set_timer("");
+        self.renderer.set_notice_tone(NoticeTone::Default);
         self.renderer.set_state(State::Hidden);
         self.panel.setIgnoresMouseEvents(true);
+        self.panel.setMovableByWindowBackground(false);
         self.resize(false, "");
         self.hide_deadline = Some(Instant::now() + std::time::Duration::from_secs_f64(HIDE_DELAY));
     }
@@ -614,12 +798,18 @@ impl Capsule {
         self.failure_deadline = None;
         self.hide_deadline = None;
         self.connection_notice = None;
+        self.expected_frame = None;
+        self.recording_started = None;
+        self.last_timer_second = 0;
         self.progress_active = false;
         self.latest_audio_level = 0.0;
         self.pending_cancel.set(false);
         self.state = State::Hidden;
+        self.renderer.set_timer("");
+        self.renderer.set_notice_tone(NoticeTone::Default);
         self.renderer.set_state(State::Hidden);
         self.panel.setIgnoresMouseEvents(true);
+        self.panel.setMovableByWindowBackground(false);
         self.panel.orderOut(None);
     }
     pub fn update_state(&mut self, state: &str) {
@@ -639,8 +829,17 @@ impl Capsule {
             self.hide();
             return;
         }
+        if next == State::Recording && self.recording_started.is_none() {
+            self.recording_started = Some(Instant::now());
+            self.last_timer_second = 0;
+        }
         if self.state == State::Hidden || self.state == next {
             return;
+        }
+        if next == State::Processing {
+            self.persist_drag_if_moved();
+            self.recording_started = None;
+            self.renderer.set_timer("");
         }
         self.state = next;
         self.renderer.set_state(next);
@@ -649,6 +848,7 @@ impl Capsule {
             self.resize(false, "");
             self.progress_active = true;
             self.panel.setIgnoresMouseEvents(true);
+            self.panel.setMovableByWindowBackground(false);
         }
     }
     pub fn set_language(&mut self, language: &str) {
@@ -719,9 +919,12 @@ impl Capsule {
         }
         self.hide_deadline = None;
         self.progress_active = false;
+        self.recording_started = None;
+        self.renderer.set_timer("");
         self.failure_deadline =
             Some(Instant::now() + std::time::Duration::from_secs_f64(FAILURE_DURATION));
         self.state = State::ConnectionError;
+        self.renderer.set_notice_tone(NoticeTone::Danger);
         self.renderer.connection_title = translation(&self.renderer.language, "failure").into();
         self.resize(!message.trim().is_empty(), message);
         self.renderer.set_state(State::ConnectionError);
@@ -729,6 +932,32 @@ impl Capsule {
         self.renderer.set_text(message);
         self.renderer.relayout();
         self.panel.setIgnoresMouseEvents(true);
+        self.panel.setMovableByWindowBackground(false);
+        self.panel.orderFront(None);
+    }
+    /// Non-blocking amber notice when raw text was delivered but optional
+    /// second-stage polishing fell back.
+    pub fn show_warning(&mut self, message: &str) {
+        if self.connection_notice.is_some() || self.failure_deadline.is_some() {
+            return;
+        }
+        self.hide_deadline = None;
+        self.progress_active = false;
+        self.recording_started = None;
+        self.renderer.set_timer("");
+        self.failure_deadline =
+            Some(Instant::now() + std::time::Duration::from_secs_f64(WARNING_DURATION));
+        self.state = State::ConnectionError;
+        self.renderer.set_notice_tone(NoticeTone::Warning);
+        self.renderer.connection_title =
+            translation(&self.renderer.language, "polish_warning").into();
+        self.resize(!message.trim().is_empty(), message);
+        self.renderer.set_state(State::ConnectionError);
+        self.renderer.update_labels();
+        self.renderer.set_text(message);
+        self.renderer.relayout();
+        self.panel.setIgnoresMouseEvents(true);
+        self.panel.setMovableByWindowBackground(false);
         self.panel.orderFront(None);
     }
     pub fn show_connection(&mut self, status: &Value) {
@@ -796,14 +1025,37 @@ impl Capsule {
         };
         let frame = self.panel.frame();
         let center = frame.origin.x + frame.size.width / 2.0;
-        if frame.size.width != width || frame.size.height != height {
-            self.panel.setFrame_display(
-                NSRect::new(
-                    NSPoint::new(center - width / 2.0, frame.origin.y),
-                    NSSize::new(width, height),
-                ),
-                true,
-            );
+        let raw_x = center - width / 2.0;
+        let raw_y = if self.placement == PlacementMode::Top {
+            frame.origin.y + frame.size.height - height
+        } else {
+            frame.origin.y
+        };
+        let (origin_x, origin_y) = if self.placement != PlacementMode::Bottom
+            && let Some(screen) = self.panel.screen().or_else(|| self.active_screen())
+        {
+            let v = screen.visibleFrame();
+            clamp_frame_to_visible(
+                raw_x,
+                raw_y,
+                width,
+                height,
+                Frame::new(v.origin.x, v.origin.y, v.size.width, v.size.height),
+            )
+        } else {
+            (raw_x, raw_y)
+        };
+        if frame.size.width != width
+            || frame.size.height != height
+            || (frame.origin.x - origin_x).abs() > 0.5
+            || (frame.origin.y - origin_y).abs() > 0.5
+        {
+            let new_frame =
+                NSRect::new(NSPoint::new(origin_x, origin_y), NSSize::new(width, height));
+            self.panel.setFrame_display(new_frame, true);
+            if self.expected_frame.is_some() {
+                self.expected_frame = Some(self.panel.frame());
+            }
         }
         self.renderer.set_container(width, height, expanded);
     }
@@ -831,6 +1083,15 @@ impl Capsule {
         let elapsed = now.duration_since(self.last_animation_tick).as_secs_f64();
         self.last_animation_tick = now;
         if self.state == State::Recording {
+            if matches!(self.renderer.mode.as_str(), "handsFree" | "prompt")
+                && let Some(started) = self.recording_started
+            {
+                let secs = now.duration_since(started).as_secs();
+                if secs >= 1 && secs != self.last_timer_second {
+                    self.last_timer_second = secs;
+                    self.renderer.set_timer(&format_elapsed(secs));
+                }
+            }
             self.renderer.waveform_tick(
                 self.latest_audio_level,
                 elapsed,

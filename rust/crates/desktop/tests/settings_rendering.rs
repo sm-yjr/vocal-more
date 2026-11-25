@@ -524,13 +524,13 @@ mod macos {
                         let button = this.find(tab.id())?;
                         assert_eq!(button.label(), Some(tab.title(english)));
                         let anchor = match tab {
-                            Tab::General => "api_key",
-                            Tab::Audio => "calibrate-whisper",
-                            Tab::Recognition => "asr.model",
-                            Tab::Polish => "enable_polish",
-                            Tab::Shortcuts => "fn-hotkey",
-                            Tab::Dictionary => "dictionary-term",
+                            Tab::Home => "home-goto-audio",
                             Tab::History => "history-filter",
+                            Tab::Dictionary => "dictionary-term",
+                            Tab::Audio => "calibrate-whisper",
+                            Tab::Ai => "asr.model",
+                            Tab::Shortcuts => "fn-hotkey",
+                            Tab::General => "api_key",
                         };
                         assert!(
                             this.find(anchor)?.role().is_some(),
@@ -617,15 +617,47 @@ mod macos {
         let mut gates = vec![];
         this.click("general")?;
         this.ensure_toggle("ui.advanced_settings", false)?;
+        this.click("audio")?;
+        let gain_id = this.control_id("audio.gain")?;
         ensure!(
-            this.window(|window, _| window.try_find("api_key").is_none())?,
-            "advanced key remained rendered after switching off advanced settings"
+            this.window(|window, _| window.try_find(gain_id.clone()).is_none())?,
+            "advanced audio control remained visible while disclosure was collapsed"
         );
+        this.scroll_to("disclosure-audio")?;
+        this.click("disclosure-audio")?;
+        ensure!(
+            this.window(|window, _| window.try_find(gain_id.clone()).is_some())?,
+            "clicking disclosure header did not expand advanced audio controls"
+        );
+        this.click("general")?;
         this.ensure_toggle("ui.advanced_settings", true)?;
-        this.scroll_to("api_key")?;
-        ensure!(this.find("api_key")?.role() == Some(gpui_kit::Role::PasswordInput));
-        gates.push(json!({"dependency":"ui.advanced_settings","pointer_off_hides_advanced_control":true,"pointer_on_restores_native_control":true}));
+        this.click("audio")?;
+        this.scroll_to(gain_id.clone())?;
+        ensure!(this.find(gain_id)?.role() == Some(gpui_kit::Role::Slider));
+        gates.push(json!({"dependency":"ui.advanced_settings","pointer_off_hides_advanced_control":true,"per_section_disclosure_toggle":true,"pointer_on_restores_native_control":true}));
 
+        this.click("general")?;
+        this.select_index("ui.capsule_position", 2)?;
+        ensure!(saved_value(this, "ui.capsule_position")? == "custom");
+        this.scroll_to("reset-capsule-position")?;
+        let reset_mark = this.intents.len();
+        this.click("reset-capsule-position")?;
+        this.settle()?;
+        ensure!(saved_value(this, "ui.capsule_position")? == "bottom");
+        ensure!(saved_value(this, "ui.capsule_custom_x")?.is_null());
+        ensure!(saved_value(this, "ui.capsule_custom_y")?.is_null());
+        ensure!(
+            this.intents[reset_mark..]
+                .iter()
+                .any(|(method, _)| method == "sync_form_state"),
+            "reset-capsule-position must submit atomic sync_form_state"
+        );
+        ensure!(
+            this.window(|window, _| window.try_find("dismiss-settings-error").is_none())?,
+            "reset-capsule-position produced an unexpected RPC error"
+        );
+
+        this.click("shortcuts")?;
         this.ensure_toggle("auto_paste", false)?;
         for key in ["native_fast_paste", "restore_clipboard"] {
             let field = *schema::FIELDS
@@ -660,7 +692,7 @@ mod macos {
         gate["enabled_interaction_verified_by_field"] = json!(frequency.key);
         gates.push(gate);
 
-        this.click("recognition")?;
+        this.click("ai")?;
         let snapshot = this.call("snapshot", json!({}))?;
         let models = snapshot["asr_models"]
             .as_array()
@@ -674,15 +706,12 @@ mod macos {
             .position(|model| model["pipeline"] != "native_asr" && model["id"].is_string())
             .context("catalog has no polish-capable ASR")?;
         this.select_index("asr.model", native)?;
-        this.click("polish")?;
         let field = *schema::FIELDS
             .iter()
             .find(|field| field.key == "enable_polish")
             .unwrap();
         let mut gate = disabled_control(this, field)?;
-        this.click("recognition")?;
         this.select_index("asr.model", inline)?;
-        this.click("polish")?;
         this.scroll_to("enable_polish")?;
         ensure!(this.find("enable_polish")?.disabled() != Some(true));
         gate["dependency"] = json!("asr.model: native_asr -> non-native pipeline");
@@ -916,7 +945,7 @@ mod macos {
 
     fn configuration_composites(this: &mut Harness) -> Result<Vec<Value>> {
         let mut records = vec![];
-        this.click("polish")?;
+        this.click("ai")?;
         this.ensure_toggle("enable_polish", true)?;
         let mut prompt_categories = vec![];
         for &(category, _, _) in schema::PROMPT_CATEGORIES {
@@ -1189,12 +1218,14 @@ mod macos {
 
         // A real persistence failure restores the optimistic UI from backend
         // readback; no forged rpc_error and no provider or actual credential.
+        this.click("shortcuts")?;
         this.scroll_to("auto_paste")?;
         let before = this.find("auto_paste")?.checked();
         let config_path = this.data.path().join("config.yaml");
         let backup = fs::read(&config_path)?;
         fs::remove_file(&config_path)?;
         fs::create_dir(&config_path)?;
+        this.click("general")?;
         this.scroll_to("api_key")?;
         this.edit("api_key", "rejected-synthetic-key")?;
         let public = this.call("snapshot", json!({}))?;
@@ -1211,6 +1242,7 @@ mod macos {
                 .update(|cx| view.read(cx).testing_input_masked("api_key", cx)),
             Some(true)
         );
+        this.click("shortcuts")?;
         this.scroll_to("auto_paste")?;
         this.click("auto_paste")?;
         this.settle()?;
@@ -1230,7 +1262,7 @@ mod macos {
     }
 
     fn controls_and_history(this: &mut Harness) -> Result<()> {
-        this.click("general")?;
+        this.click("shortcuts")?;
         this.top()?;
         let original = this.call("snapshot", json!({}))?["config"]["default_mode"].clone();
         this.scroll_to("default_mode")?;
@@ -1246,6 +1278,8 @@ mod macos {
             original, changed,
             "dropdown interaction did not change backend mode"
         );
+        this.click("general")?;
+        this.top()?;
         this.scroll_to("network.proxy_url")?;
         this.edit("network.proxy_url", "http://127.0.0.1:7890")?;
         assert_eq!(
@@ -1306,7 +1340,7 @@ mod macos {
         );
         this.shot("slider-native-drag-readback")?;
 
-        this.click("polish")?;
+        this.click("ai")?;
         this.top()?;
         this.set("enable_polish", json!(true))?;
         this.scroll_to("custom-prompt-enabled")?;
@@ -1445,7 +1479,7 @@ mod macos {
 
     fn admission_rejection(this: &mut Harness) -> Result<()> {
         this.resize(900., 740.)?;
-        this.click("general")?;
+        this.click("shortcuts")?;
         this.top()?;
         this.scroll_to("auto_paste")?;
         let before = this.find("auto_paste")?.checked();
@@ -1471,6 +1505,8 @@ mod macos {
         this.shot("full-ui-queue-rejects-toggle-and-restores")?;
         this.click("dismiss-settings-error")?;
 
+        this.click("general")?;
+        this.top()?;
         this.scroll_to("api_key")?;
         this.click("api_key")?;
         this.window(|window, cx| {
@@ -1686,8 +1722,9 @@ mod macos {
     fn scenes(this: &mut Harness) -> Result<()> {
         this.resize(640., 480.)?;
         this.set("ui.language", json!("zh"))?;
-        this.click("recognition")?;
+        this.click("ai")?;
         this.top()?;
+        this.scroll_to("scene-add")?;
         this.click("scene-add")?;
         let (name, description) = this
             .cx
@@ -1718,6 +1755,7 @@ mod macos {
         assert_eq!(saved_value(this, "asr.scenes")?["active_id"], id);
         this.shot("dictation-scene-active")?;
         let edit = format!("scene-edit-{id}");
+        this.scroll_to(edit.clone())?;
         this.click(edit)?;
         let (_, description) = this
             .cx

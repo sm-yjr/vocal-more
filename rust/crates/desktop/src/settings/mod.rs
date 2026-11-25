@@ -2,6 +2,7 @@
 //! Native settings window. It holds view state and sends nonblocking intents;
 //! the application backend owns all durable configuration and recordings.
 mod calibration;
+pub mod components;
 mod pages;
 mod scenes;
 pub mod schema;
@@ -19,7 +20,10 @@ use gpui_kit::component::{
 use gpui_kit::*;
 use schema::{Field, Kind, Tab, get, put};
 use serde_json::{Value, json};
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 #[derive(Clone)]
 pub(super) struct OptionItem {
@@ -86,6 +90,10 @@ pub struct Settings {
     pub(super) compacting: bool,
     pub(super) error: Option<String>,
     pub(super) rerun_confirm: bool,
+    pub(super) advanced_sections: HashMap<&'static str, bool>,
+    pub(super) onboarding_step: usize,
+    pub(super) history_filter: &'static str,
+    pub(super) expanded_meetings: HashSet<String>,
     pending: HashMap<u64, String>,
     rejected_action: Option<String>,
     closed: bool,
@@ -121,7 +129,7 @@ impl Settings {
         normalize_snapshot(&mut snapshot);
         let mut this = Self {
             committed_config: snapshot["config"].clone(),
-            tab: Tab::from_id(snapshot["initial_tab"].as_str().unwrap_or("general")),
+            tab: Tab::from_id(snapshot["initial_tab"].as_str().unwrap_or("home")),
             narrow: false,
             focus_recording: snapshot["focus_recording_id"].as_str().map(str::to_owned),
             snapshot,
@@ -151,6 +159,10 @@ impl Settings {
             compacting: false,
             error: None,
             rerun_confirm: false,
+            advanced_sections: HashMap::new(),
+            onboarding_step: 0,
+            history_filter: "all",
+            expanded_meetings: HashSet::new(),
             pending: HashMap::new(),
             rejected_action: None,
             closed: false,
@@ -298,6 +310,9 @@ impl Settings {
         cx.subscribe(&this.filter, |_, _, _: &InputEvent, cx| cx.notify())
             .detach();
         this.sync_placeholders(window, cx);
+        if this.snapshot["open_calibration"] == true && !this.audio_busy() {
+            this.calibration.open = true;
+        }
         // Geist light/dark follows the macOS appearance while the window is open.
         crate::theme::follow_appearance(window, cx);
         cx.observe_window_appearance(window, |_, window, cx| {
@@ -336,24 +351,6 @@ impl Settings {
                 .as_str()
                 .is_some_and(|phase| ["starting", "active", "stopping"].contains(&phase))
             || self.calibration.phase.is_some()
-    }
-    pub(super) fn advanced(&self) -> bool {
-        get(self.config(), "ui.advanced_settings") == true
-    }
-    /// Advanced fields stay hidden for everyday use, except when a saved value
-    /// or an enabled feature means the user needs to see or undo them.
-    pub(super) fn shown(&self, field: Field) -> bool {
-        if !field.advanced || self.advanced() {
-            return true;
-        }
-        let saved = |key| !schema::display_value(get(self.config(), key)).is_empty();
-        match field.key {
-            "network.proxy_url" => saved("network.proxy_url"),
-            "asr.realtime_url" => {
-                saved("asr.realtime_url") || get(self.config(), "screen_context_enabled") == true
-            }
-            _ => false,
-        }
     }
     pub(super) fn disabled(&self, key: &str) -> bool {
         if key.starts_with("audio.") && key != "audio.waveform_ceiling_dbfs" && self.audio_busy() {
@@ -494,11 +491,147 @@ impl Settings {
         };
         self.pending.insert(request, key.to_owned());
         put(self.config_mut(), key, value);
+        if key == "ui.advanced_settings" {
+            self.advanced_sections.clear();
+        }
         if key == "ui.language" {
             self.sync_controls(window, cx, false);
         }
         self.error = None;
         cx.notify();
+    }
+    pub(super) fn section_expanded(&self, section: &str) -> bool {
+        self.advanced_sections
+            .get(section)
+            .copied()
+            .unwrap_or_else(|| get(self.config(), "ui.advanced_settings") == true)
+    }
+    pub(super) fn toggle_section(&mut self, section: &'static str, cx: &mut Context<Self>) {
+        let next = !self.section_expanded(section);
+        self.advanced_sections.insert(section, next);
+        cx.notify();
+    }
+    pub(super) fn active_audio_preset(&self) -> Option<&'static str> {
+        if get(self.config(), "audio.gain_mode") != "manual"
+            || get(self.config(), "audio.highpass_filter") != true
+            || get(self.config(), "audio.soft_limiter") != true
+        {
+            return None;
+        }
+        let gain = get(self.config(), "audio.gain").as_f64()?;
+        let freq = get(self.config(), "audio.highpass_freq").as_f64()?;
+        if (gain - 8.0).abs() < 0.25 && (freq - 220.0).abs() < 5.0 {
+            Some("whisper")
+        } else if (gain - 6.0).abs() < 0.25 && (freq - 280.0).abs() < 5.0 {
+            Some("noisy")
+        } else if (gain - 4.0).abs() < 0.25 && (freq - 200.0).abs() < 5.0 {
+            Some("normal")
+        } else {
+            None
+        }
+    }
+    pub(super) fn active_dictation_scene_name(&self) -> Option<String> {
+        let scenes = &self.config()["asr"]["scenes"];
+        let active_id = scenes["active_id"].as_str()?;
+        scenes["entries"]
+            .as_array()?
+            .iter()
+            .find(|entry| entry["id"].as_str() == Some(active_id))
+            .and_then(|entry| entry["name"].as_str())
+            .map(str::to_owned)
+    }
+    pub(super) fn active_polish_style(&self) -> Option<&'static str> {
+        let mode = get(self.config(), "llm.polish_mode")
+            .as_str()
+            .unwrap_or("dictation");
+        let level = get(self.config(), "llm.level")
+            .as_str()
+            .unwrap_or("minimal");
+        let structured = get(self.config(), "llm.structured") == true;
+        let tone = get(self.config(), "llm.tone").as_str().unwrap_or("neutral");
+        let persona = get(self.config(), "llm.persona")
+            .as_str()
+            .unwrap_or("default");
+        match (mode, level, structured, tone, persona) {
+            ("prompt", _, _, _, _) => Some("prompt"),
+            ("dictation", "minimal", false, "neutral", "default") => Some("minimal"),
+            ("dictation", "balanced", true, "neutral", "default") => Some("structured"),
+            ("dictation", "balanced", true, "direct", "technical") => Some("technical"),
+            ("dictation", "minimal", false, "gentle", "chat") => Some("chat"),
+            _ => None,
+        }
+    }
+    pub(super) fn apply_form_patch(
+        &mut self,
+        patch: Value,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let request = match self
+            .commands
+            .request_checked("sync_form_state", json!({"state": patch}))
+        {
+            Ok(request) => request,
+            Err(error) => {
+                self.error = Some(error.to_string());
+                self.sync_controls(window, cx, true);
+                cx.notify();
+                return;
+            }
+        };
+        self.pending.insert(request, "sync_form_state".to_owned());
+        merge_config_patch(self.config_mut(), &patch);
+        self.sync_controls(window, cx, true);
+        self.error = None;
+        cx.notify();
+    }
+    pub(super) fn apply_polish_style(
+        &mut self,
+        style: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (mode, level, structured, tone, persona) = match style {
+            "prompt" => ("prompt", "balanced", true, "direct", "default"),
+            "structured" => ("dictation", "balanced", true, "neutral", "default"),
+            "technical" => ("dictation", "balanced", true, "direct", "technical"),
+            "chat" => ("dictation", "minimal", false, "gentle", "chat"),
+            _ => ("dictation", "minimal", false, "neutral", "default"),
+        };
+        self.apply_form_patch(
+            json!({
+                "enable_polish": true,
+                "llm": {
+                    "polish_mode": mode,
+                    "level": level,
+                    "structured": structured,
+                    "tone": tone,
+                    "persona": persona,
+                }
+            }),
+            window,
+            cx,
+        );
+    }
+    pub(super) fn pending_learning_count(&self) -> usize {
+        self.array("dictionary_learning_records")
+            .iter()
+            .filter(|record| matches!(record["status"].as_str(), Some("review" | "pending")))
+            .count()
+    }
+    pub(super) fn attention_count(&self) -> usize {
+        let checks = self.array("environment_checks");
+        let mut issues = checks
+            .iter()
+            .filter(|check| check["status"] != "ok")
+            .count();
+        if checks.is_empty() && get(self.config(), "_api_key_set") != true {
+            issues += 1;
+        }
+        if get(self.config(), "ui.onboarding_skipped") == true && issues == 0 {
+            issues += 1;
+        }
+        issues
     }
     pub(super) fn action(&mut self, action: &str, params: Value, cx: &mut Context<Self>) -> u64 {
         let request = self.action_request(action, params);
@@ -728,16 +861,19 @@ impl Settings {
             "noisy" => (6., 280),
             _ => (4., 200),
         };
-        for (key, value) in [
-            ("audio.gain_mode", json!("manual")),
-            ("audio.gain", json!(gain)),
-            ("audio.highpass_filter", json!(true)),
-            ("audio.highpass_freq", json!(freq)),
-            ("audio.soft_limiter", json!(true)),
-        ] {
-            self.set_config(key, value, window, cx);
-        }
-        self.sync_controls(window, cx, true);
+        self.apply_form_patch(
+            json!({
+                "audio": {
+                    "gain_mode": "manual",
+                    "gain": gain,
+                    "highpass_filter": true,
+                    "highpass_freq": freq,
+                    "soft_limiter": true,
+                }
+            }),
+            window,
+            cx,
+        );
     }
     pub(super) fn stage_delete(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         if let Some((previous, _)) = self.pending_deletion.take() {
@@ -844,7 +980,8 @@ impl Settings {
                     }
                 }
                 if key.as_deref().is_some_and(|key| {
-                    schema::FIELDS.iter().any(|field| field.key == key)
+                    key == "sync_form_state"
+                        || schema::FIELDS.iter().any(|field| field.key == key)
                         || [
                             "setAsrModel",
                             "setDevice",
@@ -1017,6 +1154,9 @@ impl Settings {
                 if let Some(tab) = params["tab"].as_str() {
                     self.switch_tab(Tab::from_id(tab), window, cx);
                 }
+                if params["open_calibration"] == true && !self.audio_busy() {
+                    self.calibration.open = true;
+                }
                 self.focus_recording = params["recording_id"].as_str().map(str::to_owned);
             }
             "select_tab" => {
@@ -1128,5 +1268,28 @@ fn normalize_snapshot(snapshot: &mut Value) {
     snapshot["config"]["_version"] = snapshot["version"].clone();
     if snapshot["config"]["update_channel"].is_null() {
         snapshot["config"]["update_channel"] = json!("stable");
+    }
+    if !snapshot["config"]["ui"].is_object() {
+        snapshot["config"]["ui"] = json!({});
+    }
+    if snapshot["config"]["ui"]["capsule_position"].is_null() {
+        snapshot["config"]["ui"]["capsule_position"] = json!("bottom");
+    }
+}
+
+fn merge_config_patch(target: &mut Value, patch: &Value) {
+    let (Some(target), Some(patch)) = (target.as_object_mut(), patch.as_object()) else {
+        return;
+    };
+    for (key, value) in patch {
+        if value.is_object() {
+            let entry = target.entry(key.clone()).or_insert_with(|| json!({}));
+            if !entry.is_object() {
+                *entry = json!({});
+            }
+            merge_config_patch(entry, value);
+        } else {
+            target.insert(key.clone(), value.clone());
+        }
     }
 }

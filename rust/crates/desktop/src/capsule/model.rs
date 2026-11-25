@@ -13,6 +13,71 @@ pub const COMPACT_BAR_COUNT: usize = 10;
 pub const SILENCE_THRESHOLD: f64 = 0.005;
 pub const HIDE_DELAY: f64 = 0.25;
 pub const FAILURE_DURATION: f64 = 4.0;
+pub const WARNING_DURATION: f64 = 3.0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlacementMode {
+    Bottom,
+    Top,
+    Custom,
+}
+
+impl PlacementMode {
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "top" => Self::Top,
+            "custom" => Self::Custom,
+            _ => Self::Bottom,
+        }
+    }
+}
+
+/// Compute screen origin for the capsule given screen bounds, visible bounds
+/// (excluding menu bar / dock), panel size, and user placement preference.
+pub fn compute_origin(
+    screen: Frame,
+    visible: Frame,
+    width: f64,
+    height: f64,
+    mode: PlacementMode,
+    custom_x: Option<f64>,
+    custom_y: Option<f64>,
+) -> (f64, f64) {
+    match mode {
+        PlacementMode::Bottom => (screen.x + (screen.width - width) / 2.0, screen.y + 20.0),
+        PlacementMode::Top => (
+            visible.x + (visible.width - width) / 2.0,
+            (visible.y + visible.height - height - 16.0).max(visible.y + 8.0),
+        ),
+        PlacementMode::Custom => {
+            let max_x = (visible.width - width).max(0.0);
+            let max_y = (visible.height - height).max(0.0);
+            let nx = custom_x.unwrap_or(0.5).clamp(0.0, 1.0);
+            let ny = custom_y.unwrap_or(0.04).clamp(0.0, 1.0);
+            (visible.x + nx * max_x, visible.y + ny * max_y)
+        }
+    }
+}
+
+/// Clamp a frame origin so expanded transcripts never clip off screen edges,
+/// including secondary displays with nonzero origins.
+pub fn clamp_frame_to_visible(
+    origin_x: f64,
+    origin_y: f64,
+    width: f64,
+    height: f64,
+    visible: Frame,
+) -> (f64, f64) {
+    let min_x = visible.x;
+    let max_x = (visible.x + visible.width - width).max(min_x);
+    let min_y = visible.y;
+    let max_y = (visible.y + visible.height - height).max(min_y);
+    (origin_x.clamp(min_x, max_x), origin_y.clamp(min_y, max_y))
+}
+
+pub fn format_elapsed(seconds: u64) -> String {
+    format!("{}:{:02}", seconds / 60, seconds % 60)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct Frame {
@@ -52,6 +117,7 @@ pub struct Layout {
     pub cancel: Frame,
     pub finish: Frame,
     pub recording_label: Frame,
+    pub timer_label: Frame,
     pub thinking_label: Frame,
     pub progress_track: Frame,
     pub progress_fill: Frame,
@@ -60,6 +126,7 @@ pub struct Layout {
     pub cancel_visible: bool,
     pub finish_visible: bool,
     pub recording_label_visible: bool,
+    pub timer_visible: bool,
     pub thinking_label_visible: bool,
     pub progress_visible: bool,
     pub streaming_visible: bool,
@@ -73,6 +140,7 @@ pub struct LayoutInput<'a> {
     pub state: State,
     pub expanded: bool,
     pub label_width: f64,
+    pub timer_width: f64,
     pub thinking_width: f64,
     pub progress: f64,
     pub bar_heights: &'a [f64; BAR_COUNT],
@@ -119,6 +187,7 @@ pub fn translation<'a>(language: &str, key: &'a str) -> &'a str {
         ("zh", "searching") => "搜索中",
         ("zh", "generating") => "生成中",
         ("zh", "failure") => "听写失败",
+        ("zh", "polish_warning") => "润色未完成 · 保留原文",
         (_, "prompt") => "Prompt",
         (_, "transcribing") => "Transcribing",
         (_, "polishing") => "Polishing",
@@ -126,6 +195,7 @@ pub fn translation<'a>(language: &str, key: &'a str) -> &'a str {
         (_, "searching") => "Searching",
         (_, "generating") => "Generating",
         (_, "failure") => "Dictation failed",
+        (_, "polish_warning") => "Polish failed · Original kept",
         _ => key,
     }
 }
@@ -138,6 +208,7 @@ pub fn layout(input: LayoutInput<'_>) -> Layout {
         state,
         expanded,
         label_width,
+        timer_width,
         thinking_width,
         progress,
         bar_heights,
@@ -146,16 +217,38 @@ pub fn layout(input: LayoutInput<'_>) -> Layout {
     let processing = state == State::Processing;
     let connection = state == State::ConnectionError;
     let label_visible = recording && is_prompt(mode);
+    let buttons_visible = recording && matches!(mode, "handsFree" | "prompt");
+    let timer_visible = buttons_visible && timer_width > 0.0;
     let label_width = if label_visible {
         label_width.ceil()
     } else {
         0.0
     };
+    let timer_width = if timer_visible {
+        timer_width.ceil()
+    } else {
+        0.0
+    };
+    let timer_gap = if timer_width > 0.0 { 6.0 } else { 0.0 };
     let thinking_width = thinking_width.ceil().max(112.0);
     let mut compact_width: f64 = match mode {
         "pushToTalk" => 64.0,
-        "handsFree" => 126.0,
-        "prompt" => 178.0,
+        "handsFree" => {
+            126.0
+                + if timer_visible {
+                    timer_width + timer_gap
+                } else {
+                    0.0
+                }
+        }
+        "prompt" => {
+            178.0
+                + if timer_visible {
+                    timer_width + timer_gap
+                } else {
+                    0.0
+                }
+        }
         "promptPushToTalk" => 112.0,
         _ => 126.0,
     };
@@ -165,35 +258,47 @@ pub fn layout(input: LayoutInput<'_>) -> Layout {
             .max(thinking_width + 8.0 + 48.0 + 24.0);
     }
     if label_visible {
-        compact_width = compact_width
-            .max(label_width + 8.0 + 38.0 + if mode == "prompt" { 80.0 } else { 24.0 });
+        compact_width = compact_width.max(
+            label_width
+                + 8.0
+                + 38.0
+                + timer_width
+                + timer_gap
+                + if mode == "prompt" { 86.0 } else { 24.0 },
+        );
     }
     let surface_width = if expanded {
         width - 40.0
     } else {
-        compact_width
+        compact_width.min(width - 16.0)
     };
     let surface_height = if expanded { height - 24.0 } else { 36.0 };
-    let buttons_visible = recording && matches!(mode, "handsFree" | "prompt");
     let row_center = if expanded {
         surface_height - 18.0
     } else {
         18.0
     };
     let bar_count = if expanded {
-        let inset = if buttons_visible { 42.0 } else { 12.0 };
-        let space =
-            surface_width - 2.0 * inset - label_width - if label_width > 0.0 { 8.0 } else { 0.0 };
+        let inset = if buttons_visible { 44.0 } else { 12.0 };
+        let space = surface_width
+            - 2.0 * inset
+            - label_width
+            - if label_width > 0.0 { 8.0 } else { 0.0 }
+            - timer_width
+            - timer_gap;
         (((space + 2.0) / 4.0).floor() as usize).clamp(COMPACT_BAR_COUNT, BAR_COUNT)
     } else {
         COMPACT_BAR_COUNT
     };
     let bars_width = bar_count as f64 * 4.0 - 2.0;
     let label_gap = if label_width > 0.0 { 8.0 } else { 0.0 };
-    let group_x = (surface_width - label_width - label_gap - bars_width) / 2.0;
+    let group_width = label_width + label_gap + bars_width + timer_gap + timer_width;
+    let group_x = (surface_width - group_width) / 2.0;
     let bars_x = group_x + label_width + label_gap;
+    let timer_x = bars_x + bars_width + timer_gap;
     let processing_width = thinking_width + if connection { 0.0 } else { 8.0 + 48.0 };
     let processing_x = (surface_width - processing_width) / 2.0;
+    // Larger 26x26pt hit-friendly targets while remaining centered inside the 36pt pill.
     Layout {
         surface: Frame::new(
             (width - surface_width) / 2.0,
@@ -201,9 +306,10 @@ pub fn layout(input: LayoutInput<'_>) -> Layout {
             surface_width,
             surface_height,
         ),
-        cancel: Frame::new(10.0, row_center - 11.0, 22.0, 22.0),
-        finish: Frame::new(surface_width - 32.0, row_center - 11.0, 22.0, 22.0),
+        cancel: Frame::new(7.0, row_center - 13.0, 26.0, 26.0),
+        finish: Frame::new(surface_width - 33.0, row_center - 13.0, 26.0, 26.0),
         recording_label: Frame::new(group_x, row_center - 9.0, label_width, 18.0),
+        timer_label: Frame::new(timer_x, row_center - 8.0, timer_width, 16.0),
         thinking_label: Frame::new(processing_x, row_center - 9.0, thinking_width, 18.0),
         progress_track: Frame::new(
             processing_x + thinking_width + 8.0,
@@ -231,6 +337,7 @@ pub fn layout(input: LayoutInput<'_>) -> Layout {
         cancel_visible: buttons_visible || connection,
         finish_visible: buttons_visible && !connection,
         recording_label_visible: label_visible,
+        timer_visible,
         thinking_label_visible: processing || connection,
         progress_visible: processing,
         streaming_visible: expanded,
@@ -329,6 +436,11 @@ mod tests {
                         state: State::Recording,
                         expanded,
                         label_width: label,
+                        timer_width: if matches!(mode, "handsFree" | "prompt") {
+                            28.0
+                        } else {
+                            0.0
+                        },
                         thinking_width: 90.0,
                         progress: 0.0,
                         bar_heights: &heights,
@@ -340,12 +452,70 @@ mod tests {
                             assert!(b.max_x() <= l.finish.x - 4.0);
                         }
                     }
+                    if l.timer_visible && l.finish_visible {
+                        assert!(l.timer_label.max_x() <= l.finish.x - 4.0);
+                    }
                     if l.cancel_visible && l.recording_label_visible {
                         assert!(l.recording_label.x >= l.cancel.max_x() + 4.0);
                     }
                 }
             }
         }
+    }
+    #[test]
+    fn placement_modes_compute_bounded_screen_origins() {
+        let screen = Frame::new(0.0, 0.0, 1440.0, 900.0);
+        let visible = Frame::new(0.0, 40.0, 1440.0, 835.0);
+        assert_eq!(
+            compute_origin(
+                screen,
+                visible,
+                240.0,
+                80.0,
+                PlacementMode::Bottom,
+                None,
+                None
+            ),
+            (600.0, 20.0)
+        );
+        assert_eq!(
+            compute_origin(screen, visible, 240.0, 80.0, PlacementMode::Top, None, None),
+            (600.0, 779.0)
+        );
+        let (cx, cy) = compute_origin(
+            screen,
+            visible,
+            240.0,
+            80.0,
+            PlacementMode::Custom,
+            Some(0.25),
+            Some(0.5),
+        );
+        assert_eq!((cx, cy), (300.0, 417.5));
+        // Secondary display with nonzero origin & partial/absent custom coordinates.
+        let secondary = Frame::new(1440.0, 120.0, 1920.0, 1080.0);
+        assert_eq!(
+            compute_origin(
+                secondary,
+                secondary,
+                240.0,
+                80.0,
+                PlacementMode::Custom,
+                None,
+                Some(0.5)
+            ),
+            (1440.0 + 840.0, 120.0 + 500.0)
+        );
+        assert_eq!(
+            clamp_frame_to_visible(3200.0, 1180.0, 360.0, 200.0, secondary),
+            (1440.0 + 1920.0 - 360.0, 120.0 + 1080.0 - 200.0)
+        );
+        assert_eq!(
+            clamp_frame_to_visible(1400.0, 80.0, 360.0, 200.0, secondary),
+            (1440.0, 120.0)
+        );
+        assert_eq!(format_elapsed(0), "0:00");
+        assert_eq!(format_elapsed(75), "1:15");
     }
     #[test]
     fn elapsed_integration_is_frame_rate_independent_for_progress_and_reduced_motion() {
