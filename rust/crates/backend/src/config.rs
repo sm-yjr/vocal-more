@@ -145,6 +145,7 @@ impl Config {
             "native_fast_paste",
             "restore_clipboard",
             "screen_context_enabled",
+            "cursor_context_enabled",
             "enable_polish",
         ] {
             if let Some(v) = value.get(key) {
@@ -199,6 +200,7 @@ impl Config {
             | "native_fast_paste"
             | "restore_clipboard"
             | "screen_context_enabled"
+            | "cursor_context_enabled"
             | "audio.highpass_filter"
             | "audio.soft_limiter"
             | "asr.use_dictionary_corpus"
@@ -222,11 +224,13 @@ impl Config {
             "audio.capture_channels"
             | "audio.blocksize"
             | "audio.highpass_freq"
+            | "audio.tail_padding_ms"
             | "llm.max_tokens" => {
                 let (min, max) = match key {
                     "audio.capture_channels" => (1.0, 3.0),
                     "audio.blocksize" => (128.0, 8192.0),
                     "audio.highpass_freq" => (50.0, 500.0),
+                    "audio.tail_padding_ms" => (0.0, 500.0),
                     _ => (1.0, 65536.0),
                 };
                 if key == "audio.blocksize" && ["640", "1600"].contains(&py_string(value).trim()) {
@@ -272,9 +276,9 @@ impl Config {
                 let model = self.get("asr.model").as_str().unwrap_or("");
                 if asr_model(model).is_none_or(|m| m["transport"] != backend) {
                     self.0["asr"]["model"] = json!(match backend.as_str().unwrap() {
-                        "short_file" => "qwen3-asr-flash",
-                        "omni_offline" => "qwen3.5-omni-plus",
-                        _ => "qwen3.5-omni-flash-realtime",
+                        "short_file" => "qwen-audio-3.1-asr-flash",
+                        "omni_offline" => "qwen3.8-omni-flash",
+                        _ => "qwen-audio-3.1-asr-flash-message",
                     });
                 }
                 backend
@@ -283,7 +287,7 @@ impl Config {
                 let id = value
                     .as_str()
                     .filter(|id| asr_model(id).is_some())
-                    .unwrap_or("qwen3.5-omni-flash-realtime");
+                    .unwrap_or("qwen-audio-3.1-asr-flash-message");
                 self.0["asr"]["backend"] = asr_model(id).unwrap()["transport"].clone();
                 json!(id)
             }
@@ -317,8 +321,9 @@ impl Config {
             "llm.model" => json!(
                 value
                     .as_str()
+                    .map(|s| if s == "qwen-plus" { "qwen3.5-plus" } else { s })
                     .filter(|s| llm_model(s).is_some())
-                    .unwrap_or("qwen3.5-plus")
+                    .unwrap_or("qwen3.8-flash")
             ),
             "llm.polish_mode" => choice(value, &["dictation", "prompt"], "dictation"),
             "llm.level" => {

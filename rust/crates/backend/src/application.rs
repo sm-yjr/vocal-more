@@ -4,6 +4,7 @@ use crate::{
     billing,
     catalog::CONTRACT,
     config::{Config, ConfigRepository},
+    context::{self, RecentHistory},
     dictionary::{self, Dictionary},
     history::{History, PreparedHistory},
     http::Completion,
@@ -71,6 +72,7 @@ enum Internal {
     Core(u64, Status),
     Finished(u64, Result<Outcome>),
     MicStop(u64),
+    TailFinish(u64),
     Stage(u64, String),
     Partial(u64, String),
     Retry(String, Result<Completion>),
@@ -88,8 +90,10 @@ struct Active {
     provider: Provider,
     mode: String,
     microphone_test: bool,
+    is_native: bool,
     mic_started: bool,
     finish_at: Option<Instant>,
+    tail_finish: Option<CancellationToken>,
     core_done: bool,
     prepared: Option<(Outcome, PreparedHistory)>,
     streamed: String,
@@ -128,6 +132,7 @@ struct State {
     last_result: Value,
     paste_blocked: bool,
     observation: Option<Observation>,
+    recent_history: RecentHistory,
     started_at: Instant,
 }
 fn now() -> f64 {
@@ -220,6 +225,7 @@ impl Application {
             last_result: Value::Null,
             paste_blocked: false,
             observation: None,
+            recent_history: RecentHistory::default(),
             started_at: Instant::now(),
         };
         state.prepare_audio();
@@ -515,9 +521,26 @@ impl State {
             "DashScope API key is missing"
         );
         let source = self.source(params)?;
+        let is_native = source.is_native();
         let mut provider = self.provider(params["context"].as_str().unwrap_or(""));
         if !microphone_test && let Some(scene) = provider.config.scenes().active() {
             provider.scene.clone_from(&scene.description);
+        }
+        if !microphone_test {
+            let excluded = self.excluded_bundle_ids();
+            let initial_cursor = if provider.config.get("cursor_context_enabled") == true {
+                params
+                    .get("cursor_context")
+                    .and_then(|snapshot| context::parse_cursor_context(snapshot, &excluded))
+            } else {
+                None
+            };
+            let bundle = initial_cursor
+                .as_ref()
+                .map(|ctx| ctx.app_bundle_id.as_str())
+                .unwrap_or("");
+            provider.set_recent_turns(self.recent_history.recent_for(bundle, Instant::now()));
+            provider.set_cursor_context(initial_cursor);
         }
         let screen_context = !microphone_test && params["screen_context"] == true;
         let initial_screen_frame = if screen_context {
@@ -590,8 +613,10 @@ impl State {
             provider,
             mode: self.mode.clone(),
             microphone_test,
+            is_native,
             mic_started: false,
             finish_at: None,
+            tail_finish: None,
             core_done: false,
             prepared: None,
             streamed: String::new(),
@@ -635,17 +660,56 @@ impl State {
         });
         Ok(json!({"ok":true,"generation":generation,"recording_id":core.recording_id}))
     }
+    fn excluded_bundle_ids(&self) -> Vec<String> {
+        self.config
+            .config
+            .get("dictionary_learning.excluded_bundle_ids")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    }
     fn finish(&mut self) -> Result<Value> {
-        if let Some(active) = &mut self.active {
-            active.finish_at.get_or_insert_with(Instant::now);
-        }
-        let Some(active) = &self.active else {
+        let Some(active) = &mut self.active else {
             return Ok(json!({"ok":true}));
         };
+        active.finish_at.get_or_insert_with(Instant::now);
         if !active.core_done {
-            let generation = active.core_generation;
-            self.active_host().finish(generation)?;
-            self.change_state("processing");
+            let tail_ms = if !active.microphone_test && active.is_native {
+                active
+                    .provider
+                    .config
+                    .get("audio.tail_padding_ms")
+                    .as_u64()
+                    .unwrap_or(0)
+                    .min(500)
+            } else {
+                0
+            };
+            if tail_ms > 0 {
+                if active.tail_finish.is_none() {
+                    let generation = active.generation;
+                    let token = active.cancel.child_token();
+                    active.tail_finish = Some(token.clone());
+                    let internal = self.internal.clone();
+                    self.tasks.spawn(async move {
+                        tokio::select! {
+                            biased;
+                            _ = token.cancelled() => {},
+                            _ = tokio::time::sleep(Duration::from_millis(tail_ms)) => {
+                                let _ = internal.send(Internal::TailFinish(generation)).await;
+                            }
+                        }
+                    });
+                    self.change_state("processing");
+                }
+            } else {
+                let generation = active.core_generation;
+                self.active_host().finish(generation)?;
+                self.change_state("processing");
+            }
         }
         self.pressed_at = None;
         self.latched = false;
@@ -656,7 +720,10 @@ impl State {
         self.claimed_paste = None;
         self.pressed_at = None;
         self.latched = false;
-        if let Some(active) = &self.active {
+        if let Some(active) = &mut self.active {
+            if let Some(tail) = active.tail_finish.take() {
+                tail.cancel();
+            }
             active.cancel.cancel();
             let generation = active.core_generation;
             if !active.core_done {
@@ -938,6 +1005,32 @@ impl State {
                 let jpeg = STANDARD.decode(encoded)?;
                 let generation = active.core_generation;
                 self.active_host().append_image(generation, jpeg.into())?;
+                Ok(json!({"accepted":true}))
+            }
+            "update_session_context" => {
+                let excluded = self.excluded_bundle_ids();
+                let Some(active) = &mut self.active else {
+                    return Ok(json!({"accepted":false}));
+                };
+                if active.microphone_test
+                    || params["generation"].as_u64() != Some(active.generation)
+                    || active.provider.config.get("cursor_context_enabled") != true
+                {
+                    return Ok(json!({"accepted":false}));
+                }
+                let Some(ctx) = context::parse_cursor_context(&params["snapshot"], &excluded)
+                else {
+                    return Ok(json!({"accepted":false}));
+                };
+                let recent = self
+                    .recent_history
+                    .recent_for(&ctx.app_bundle_id, Instant::now());
+                active.provider.set_recent_turns(recent);
+                active.provider.set_cursor_context(Some(ctx.clone()));
+                let core_generation = active.core_generation;
+                let _ = self
+                    .active_host()
+                    .update_context(core_generation, json!(ctx));
                 Ok(json!({"accepted":true}))
             }
             "claim_paste" => {
@@ -1407,6 +1500,19 @@ impl State {
                         );
                     }
                     self.last_result = json!({"text":result.final_text,"raw_text":result.raw_text,"generation":generation});
+                    let bundle = provider
+                        .cursor_context
+                        .as_ref()
+                        .map(|ctx| ctx.app_bundle_id.as_str())
+                        .unwrap_or("");
+                    if !self
+                        .excluded_bundle_ids()
+                        .iter()
+                        .any(|excluded| !bundle.is_empty() && excluded == bundle)
+                    {
+                        self.recent_history
+                            .record(&result.final_text, bundle, Instant::now());
+                    }
                     self.emit("final_result",json!({"text":result.final_text,"raw_text":result.raw_text,"recording_id":id,"billing":result.billing,"generation":generation}));
                     if let Some(text) = result.paste_text {
                         self.paste(text, result.raw_text, id.clone(), &provider, false);
@@ -1486,6 +1592,21 @@ impl State {
                     a.generation == generation && a.microphone_test && !a.core_done
                 }) {
                     let _ = self.finish();
+                }
+            }
+            Internal::TailFinish(generation) => {
+                let core_generation = self
+                    .active
+                    .as_mut()
+                    .filter(|a| {
+                        a.generation == generation && !a.core_done && !a.cancel.is_cancelled()
+                    })
+                    .and_then(|a| {
+                        a.tail_finish.take()?;
+                        Some(a.core_generation)
+                    });
+                if let Some(core_generation) = core_generation {
+                    let _ = self.active_host().finish(core_generation);
                 }
             }
             Internal::Retry(id, result) => {

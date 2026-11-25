@@ -161,6 +161,9 @@ impl Platform {
     pub fn capture_focused(&self, request_id: Value) -> Result<()> {
         self.ax()?.capture(request_id)
     }
+    pub fn capture_context(&self, request_id: Value) -> Result<()> {
+        self.ax()?.capture_context(request_id)
+    }
     pub fn retain_observation(&self, id: &str, snapshot: &Value) -> Result<()> {
         self.ax()?.retain(id, snapshot)
     }

@@ -2050,6 +2050,7 @@ impl Settings {
                                 "audio.highpass_filter",
                                 "audio.highpass_freq",
                                 "audio.soft_limiter",
+                                "audio.tail_padding_ms",
                                 "audio.waveform_ceiling_dbfs",
                             ],
                             cx,
@@ -2192,6 +2193,13 @@ impl Settings {
                 cap_badges =
                     cap_badges.child(badge(self.text("流式实时", "Realtime"), Tone::Neutral, cx));
             }
+            if model["pipeline"] == "hybrid_asr" {
+                cap_badges = cap_badges.child(badge(
+                    self.text("输入法专精 · 原生去口语", "Input-method native polish"),
+                    Tone::Success,
+                    cx,
+                ));
+            }
             if model["pipeline"] == "native_asr" {
                 cap_badges = cap_badges.child(badge(
                     self.text("原生直出（跳过润色）", "Native direct"),
@@ -2213,7 +2221,13 @@ impl Settings {
                     cx,
                 ));
             }
-            if model["supports_instant_hotwords"] == true {
+            if model["supports_super_hotwords"] == true {
+                cap_badges = cap_badges.child(badge(
+                    self.text("超级热词", "Super hotwords"),
+                    Tone::Primary,
+                    cx,
+                ));
+            } else if model["supports_instant_hotwords"] == true {
                 cap_badges = cap_badges.child(badge(
                     self.text("即时词典", "Instant hotwords"),
                     Tone::Neutral,
@@ -2225,14 +2239,15 @@ impl Settings {
         let mut recognition_card = titled_card(
             self.text("语音识别", "Speech Recognition"),
             Some(self.text(
-                "选择云端实时识别模型与语言，并决定是否结合屏幕上下文辅助识别。",
-                "Choose the ASR model, spoken language, and screen-context assistance.",
+                "选择云端实时识别模型与语言，并配置光标上下文与屏幕上下文辅助识别。",
+                "Choose the ASR model, spoken language, cursor context, and screen assistance.",
             )),
             cx,
         )
         .child(self.field_row("asr.model", false, cx))
         .child(cap_badges)
         .child(self.field_row("asr.language", true, cx))
+        .child(self.field_row("cursor_context_enabled", false, cx))
         .child(self.field_row("screen_context_enabled", false, cx));
 
         if get(self.config(), "screen_context_enabled") == true

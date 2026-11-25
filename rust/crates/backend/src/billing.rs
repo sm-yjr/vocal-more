@@ -89,17 +89,25 @@ pub fn asr(model: &str, seconds: f64, raw_usage: &Value) -> Value {
     }
     let mut costs = json!({});
     let mut total = 0.0;
-    for (name, direction, modality) in [
-        ("input_text", "input", "text"),
-        ("input_audio", "input", "audio"),
-        ("output_text", "output", "text"),
-        ("output_audio", "output", "audio"),
+    let input_text_tokens = integer(&usage["input_tokens_details"]["text_tokens"]);
+    let mut input_audio_tokens = integer(&usage["input_tokens_details"]["audio_tokens"]);
+    let mut output_text_tokens = integer(&usage["output_tokens_details"]["text_tokens"]);
+    let output_audio_tokens = integer(&usage["output_tokens_details"]["audio_tokens"]);
+    let prompt_tokens = integer(&usage["prompt_tokens"]);
+    let completion_tokens = integer(&usage["completion_tokens"]);
+    if input_text_tokens == 0 && input_audio_tokens == 0 && prompt_tokens > 0 {
+        input_audio_tokens = prompt_tokens;
+    }
+    if output_text_tokens == 0 && output_audio_tokens == 0 && completion_tokens > 0 {
+        output_text_tokens = completion_tokens;
+    }
+    for (name, tokens) in [
+        ("input_text", input_text_tokens),
+        ("input_audio", input_audio_tokens),
+        ("output_text", output_text_tokens),
+        ("output_audio", output_audio_tokens),
     ] {
-        let cost =
-            integer(&usage[format!("{direction}_tokens_details")][format!("{modality}_tokens")])
-                as f64
-                * number(&prices[name])
-                / 1_000_000.0;
+        let cost = tokens as f64 * number(&prices[name]) / 1_000_000.0;
         costs[name] = json!(rounded(cost, 6));
         total += cost;
     }

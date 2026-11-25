@@ -1190,6 +1190,102 @@
     "changes": {}
   },
   {
+    "key": "audio.tail_padding_ms",
+    "input": 200,
+    "changes": {}
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": true,
+    "changes": {
+      "audio.tail_padding_ms": 1
+    }
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": false,
+    "changes": {
+      "audio.tail_padding_ms": 0
+    }
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": 0,
+    "changes": {
+      "audio.tail_padding_ms": 0
+    }
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": 1,
+    "changes": {
+      "audio.tail_padding_ms": 1
+    }
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": -10,
+    "changes": {
+      "audio.tail_padding_ms": 0
+    }
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": 999999,
+    "changes": {
+      "audio.tail_padding_ms": 500
+    }
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": 0.25,
+    "changes": {
+      "audio.tail_padding_ms": 0
+    }
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": "",
+    "changes": {}
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": "false",
+    "changes": {}
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": "42.5",
+    "changes": {
+      "audio.tail_padding_ms": 42
+    }
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "audio.tail_padding_ms",
+    "input": {},
+    "changes": {}
+  },
+  {
     "key": "asr.backend",
     "input": "realtime_ws",
     "changes": {}
@@ -1271,7 +1367,7 @@
   },
   {
     "key": "asr.model",
-    "input": "qwen3.5-omni-flash-realtime",
+    "input": "qwen-audio-3.1-asr-flash-message",
     "changes": {}
   },
   {
@@ -1759,7 +1855,7 @@
   },
   {
     "key": "llm.model",
-    "input": "qwen3.5-plus",
+    "input": "qwen3.8-flash",
     "changes": {}
   },
   {
@@ -4394,6 +4490,94 @@
     "changes": {}
   },
   {
+    "key": "cursor_context_enabled",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": null,
+    "changes": {}
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": true,
+    "changes": {}
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": false,
+    "changes": {
+      "cursor_context_enabled": false
+    }
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": 0,
+    "changes": {
+      "cursor_context_enabled": false
+    }
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": 1,
+    "changes": {}
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": -10,
+    "changes": {}
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": 999999,
+    "changes": {}
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": 0.25,
+    "changes": {}
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": "",
+    "changes": {
+      "cursor_context_enabled": false
+    }
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": "invalid",
+    "changes": {}
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": "false",
+    "changes": {
+      "cursor_context_enabled": false
+    }
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": "yes",
+    "changes": {}
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": "42.5",
+    "changes": {}
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": [],
+    "changes": {}
+  },
+  {
+    "key": "cursor_context_enabled",
+    "input": {},
+    "changes": {}
+  },
+  {
     "key": "default_mode",
     "input": "realtime_long",
     "changes": {}
@@ -4558,7 +4742,7 @@
     "input": "short_file",
     "changes": {
       "asr.backend": "short_file",
-      "asr.model": "qwen3-asr-flash"
+      "asr.model": "qwen-audio-3.1-asr-flash"
     }
   },
   {
@@ -4566,7 +4750,27 @@
     "input": "omni_offline",
     "changes": {
       "asr.backend": "omni_offline",
-      "asr.model": "qwen3.5-omni-plus"
+      "asr.model": "qwen3.8-omni-flash"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen-audio-3.1-asr-flash-message",
+    "changes": {}
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen-audio-3.1-asr-flash-streaming",
+    "changes": {
+      "asr.model": "qwen-audio-3.1-asr-flash-streaming"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen-audio-3.1-asr-flash",
+    "changes": {
+      "asr.backend": "short_file",
+      "asr.model": "qwen-audio-3.1-asr-flash"
     }
   },
   {
@@ -4587,7 +4791,9 @@
   {
     "key": "asr.model",
     "input": "qwen3.5-omni-flash-realtime",
-    "changes": {}
+    "changes": {
+      "asr.model": "qwen3.5-omni-flash-realtime"
+    }
   },
   {
     "key": "asr.model",
@@ -4610,6 +4816,20 @@
     "changes": {
       "asr.backend": "omni_offline",
       "asr.model": "qwen3.5-omni-plus"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen-audio-3.1-realtime-plus",
+    "changes": {
+      "asr.model": "qwen-audio-3.1-realtime-plus"
+    }
+  },
+  {
+    "key": "asr.model",
+    "input": "qwen-audio-3.1-realtime-flash",
+    "changes": {
+      "asr.model": "qwen-audio-3.1-realtime-flash"
     }
   },
   {

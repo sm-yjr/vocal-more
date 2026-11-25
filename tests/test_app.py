@@ -1040,7 +1040,7 @@ def test_build_menu_localizes_titles_when_ui_language_is_chinese(
     titles = [item.title for item in app.menu if item]
     assert "环境：待检查" in titles
     assert "录音模式：实时长录（切换）" in titles
-    assert "识别模型：Qwen3.5 Omni Flash Realtime" in titles
+    assert "识别模型：Qwen Audio 3.1 ASR Flash Message" in titles
     assert "启用润色" in titles
     assert "润色强度：轻度" in titles
     assert "导出诊断包…" in titles

@@ -106,6 +106,81 @@ def test_native_audio_library_builds_and_uses_accelerate_dsp(tmp_path):
     # The displayed level follows the existing post-gain, 0..1 UI contract.
     assert rms.value == pytest.approx(1.0)
 
+    # Low-voice DRC + thresholded soft limiter: keep quiet whisper signals linear
+    # while smoothly limiting sudden loud plosives below full-scale clipping.
+    quiet_frames = 128
+    quiet_source = (ctypes.c_float * quiet_frames)(*([0.05] * quiet_frames))
+    quiet_pcm = (ctypes.c_int16 * quiet_frames)()
+    quiet_rms = ctypes.c_float()
+    assert (
+        library.vm_audio_test_process(
+            quiet_source, quiet_frames, 2.0, True, quiet_pcm, ctypes.byref(quiet_rms)
+        )
+        == 0
+    )
+    # 0.05 * 2.0 = 0.10 (-20 dBFS, below -19 dBFS DRC knee) stays linear.
+    assert abs(quiet_pcm[-1] - round(0.10 * 32767)) <= 2
+
+    loud_frames = 256
+    loud_source = (ctypes.c_float * loud_frames)(*([0.9] * loud_frames))
+    loud_pcm = (ctypes.c_int16 * loud_frames)()
+    loud_rms = ctypes.c_float()
+    assert (
+        library.vm_audio_test_process(
+            loud_source, loud_frames, 4.0, True, loud_pcm, ctypes.byref(loud_rms)
+        )
+        == 0
+    )
+    # Must be smoothly compressed and strictly below full-scale hard clipping.
+    assert 12000 < loud_pcm[-1] < 31200
+
+    # 4th-order Butterworth high-pass filter (-24 dB/oct): strongly attenuates
+    # 60 Hz HVAC hum while preserving 800 Hz speech energy.
+    library.vm_audio_test_highpass.argtypes = [
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_uint32,
+        ctypes.c_float,
+        ctypes.c_float,
+        ctypes.POINTER(ctypes.c_float),
+    ]
+    library.vm_audio_test_highpass.restype = ctypes.c_int32
+    sr = 16000.0
+    n_hp = 3200
+    t = np.arange(n_hp, dtype=np.float32) / sr
+    hum_60 = np.sin(2.0 * np.pi * 60.0 * t).astype(np.float32)
+    speech_800 = np.sin(2.0 * np.pi * 800.0 * t).astype(np.float32)
+    out_60 = np.empty(n_hp, dtype=np.float32)
+    out_800 = np.empty(n_hp, dtype=np.float32)
+    assert (
+        library.vm_audio_test_highpass(
+            hum_60.ctypes.data_as(float_pointer),
+            n_hp,
+            sr,
+            200.0,
+            out_60.ctypes.data_as(float_pointer),
+        )
+        == 0
+    )
+    assert (
+        library.vm_audio_test_highpass(
+            speech_800.ctypes.data_as(float_pointer),
+            n_hp,
+            sr,
+            200.0,
+            out_800.ctypes.data_as(float_pointer),
+        )
+        == 0
+    )
+    # Measure steady-state RMS in the second half (skip initial transient).
+    attenuation_60_db = 20.0 * np.log10(
+        np.sqrt(np.mean(out_60[1600:] ** 2)) / np.sqrt(np.mean(hum_60[1600:] ** 2))
+    )
+    passband_800_db = 20.0 * np.log10(
+        np.sqrt(np.mean(out_800[1600:] ** 2)) / np.sqrt(np.mean(speech_800[1600:] ** 2))
+    )
+    assert attenuation_60_db < -18.0
+    assert passband_800_db > -0.5
+
     library.vm_audio_test_queue.argtypes = [
         ctypes.c_uint32,
         ctypes.c_uint32,

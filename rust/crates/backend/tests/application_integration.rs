@@ -103,7 +103,7 @@ impl Fixture {
                     let classify=payload["model"]=="qwen3.7-plus" && payload["response_format"]["type"]=="json_object";
                     let compatible=headers.contains("compatible-mode");
                     let text=if classify {json!({"decision":"add","term":"GitHub","aliases":["github"],"term_type":"proper_name","confidence":0.02}).to_string()}
-                        else if payload["model"]=="qwen3.5-plus" {"润色后的Rust文本".into()}else{"文件里的rust文本".into()};
+                        else if matches!(payload["model"].as_str(), Some("qwen3.5-plus" | "qwen3.8-flash" | "qwen3.8-max")) {"润色后的Rust文本".into()}else{"文件里的rust文本".into()};
                     let body=if compatible {json!({"choices":[{"message":{"content":text},"finish_reason":"stop"}],"usage":{"input_tokens":40,"output_tokens":8}})}
                         else {json!({"output":{"choices":[{"message":{"content":[{"text":text}]},"finish_reason":"stop"}]},"usage":{"input_tokens":40,"output_tokens":8}})}.to_string();
                     let response=format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len());
@@ -235,6 +235,11 @@ async fn dictation_scene_is_persisted_and_snapshotted_for_realtime_and_fallback(
     let mut events = app.subscribe();
     let description = "我在玩《巫师 3》，会提到杰洛特和昆特牌。";
 
+    app.call(
+        "set_asr_model",
+        json!({"model":"qwen3.5-omni-flash-realtime"}),
+    )
+    .await?;
     app.call("set_config", json!({"key":"enable_polish","value":false}))
         .await?;
     app.call(
@@ -624,6 +629,114 @@ async fn offline_dictation_latency_probe() -> Result<()> {
             values[values.len() - 1]
         );
     }
+    app.call("shutdown", json!({})).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn message_asr_dual_track_and_cross_turn_context_work_end_to_end() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    let temp = tempfile::tempdir()?;
+    let app = fixture.app(temp.path()).await?;
+    let mut events = app.subscribe();
+
+    // Turn 1: default qwen-audio-3.1-asr-flash-message with default minimal polish runs single-pass (no HTTP LLM call).
+    let started = app
+        .call(
+            "start",
+            json!({
+                "source": {"kind": "stream"},
+                "cursor_context": {
+                    "app_name": "Cursor",
+                    "bundle_id": "com.todesktop.230313mzl4w4u92",
+                    "window_title": "provider.rs — vocal-more",
+                    "before_cursor": "let route = needs_second_stage_polish(&config);",
+                    "after_cursor": "",
+                    "selected_text": "ButterworthHighpass4"
+                }
+            }),
+        )
+        .await?;
+    for _ in 0..5 {
+        app.call(
+            "append",
+            json!({"generation": started["generation"], "pcm_base64": STANDARD.encode(vec![1u8; 1280])}),
+        )
+        .await?;
+    }
+    app.call("finish", json!({})).await?;
+    let first = event(&mut events, "final_result").await?;
+    assert_eq!(first["text"], "原始的 rust 文本");
+    assert!(
+        fixture.requests.lock().unwrap().is_empty(),
+        "default minimal mode on qwen-audio-3.1-asr-flash-message must skip second-stage HTTP LLM"
+    );
+    let session_1 = fixture.sessions.lock().unwrap()[0].clone();
+    assert_eq!(
+        session_1["payload"]["model"],
+        "qwen-audio-3.1-asr-flash-message"
+    );
+    assert_eq!(
+        session_1["payload"]["parameters"]["disfluency_removal_enabled"],
+        true
+    );
+    let vocab = session_1["payload"]["parameters"]["vocabulary"]
+        .as_object()
+        .unwrap();
+    assert_eq!(
+        vocab.get("ButterworthHighpass4"),
+        Some(&json!(50)),
+        "selected identifier must be promoted as dynamic super hotword: {vocab:?}"
+    );
+    idle(&app).await?;
+
+    // Turn 2: switch to balanced polish; hybrid_asr cascades to qwen3.8-flash and carries turn 1 in recent history.
+    app.call(
+        "set_config",
+        json!({"key": "llm.level", "value": "balanced"}),
+    )
+    .await?;
+    let started_2 = app
+        .call(
+            "start",
+            json!({
+                "source": {"kind": "stream"},
+                "cursor_context": {
+                    "app_name": "Cursor",
+                    "bundle_id": "com.todesktop.230313mzl4w4u92",
+                    "window_title": "provider.rs — vocal-more",
+                    "before_cursor": "",
+                    "after_cursor": "",
+                    "selected_text": ""
+                }
+            }),
+        )
+        .await?;
+    for _ in 0..5 {
+        app.call(
+            "append",
+            json!({"generation": started_2["generation"], "pcm_base64": STANDARD.encode(vec![1u8; 1280])}),
+        )
+        .await?;
+    }
+    app.call("finish", json!({})).await?;
+    let second = event(&mut events, "final_result").await?;
+    assert_eq!(second["text"], "润色后的 Rust 文本");
+    let requests = fixture.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["model"], "qwen3.8-flash");
+    let session_2 = fixture.sessions.lock().unwrap()[1].clone();
+    let turns = session_2["payload"]["input"]["context"].as_array().unwrap();
+    assert!(
+        turns.iter().any(|t| {
+            t["content"][0]["text"]
+                .as_str()
+                .is_some_and(|s| s.contains("原始的 rust 文本"))
+        }),
+        "turn 2 must carry recent dictation history for the same app: {turns:?}"
+    );
+    idle(&app).await?;
+
     app.call("shutdown", json!({})).await?;
     Ok(())
 }

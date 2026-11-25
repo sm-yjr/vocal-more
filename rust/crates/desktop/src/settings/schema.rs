@@ -361,12 +361,28 @@ pub const FIELDS: &[Field] = &[
     field!(
         "audio.soft_limiter",
         Audio,
-        "软限幅",
-        "Soft limiter",
+        "动态压缩与软限幅",
+        "Dynamics & soft limiter",
         true,
         Kind::Toggle,
-        "提高增益时缓和峰值，减少削波。",
-        "Soften peaks at high gain and avoid clipping."
+        "提高增益时平滑压限峰值并保护低声动态，减少削波失真。",
+        "Smoothly compress peaks and protect low-voice dynamics at high gain."
+    ),
+    field!(
+        "audio.tail_padding_ms",
+        Audio,
+        "松键尾音宽限",
+        "Release tail padding",
+        true,
+        Kind::Slider {
+            min: 0.,
+            max: 500.,
+            step: 25.,
+            unit: "ms",
+            gain_db: false
+        },
+        "松开快捷键后继续采集尾音的时长，避免吞掉句末最后一个字。",
+        "Keep capturing briefly after key release to prevent clipped final syllables."
     ),
     field!(
         "asr.model",
@@ -391,6 +407,16 @@ pub const FIELDS: &[Field] = &[
         ]),
         "保持自动识别可流畅支持中英双语混说。",
         "Automatic works best for bilingual Chinese and English dictation."
+    ),
+    field!(
+        "cursor_context_enabled",
+        Ai,
+        "光标上下文与动态热词",
+        "Cursor context & dynamic hotwords",
+        false,
+        Kind::Toggle,
+        "开始听写时读取光标前后文、选中文本和窗口标题以提升术语和同音词准确率；自动跳过密码框与排除应用。",
+        "Read surrounding text, selection, and window title at dictation start for better terms; skips password fields and excluded apps."
     ),
     field!(
         "screen_context_enabled",
@@ -609,6 +635,7 @@ pub const SECTIONS: &[(Tab, &str, &str, &[&str])] = &[
             "audio.highpass_filter",
             "audio.highpass_freq",
             "audio.soft_limiter",
+            "audio.tail_padding_ms",
             "audio.waveform_ceiling_dbfs",
         ],
     ),
@@ -616,7 +643,12 @@ pub const SECTIONS: &[(Tab, &str, &str, &[&str])] = &[
         Tab::Ai,
         "语音识别",
         "Speech Recognition",
-        &["asr.model", "asr.language", "screen_context_enabled"],
+        &[
+            "asr.model",
+            "asr.language",
+            "cursor_context_enabled",
+            "screen_context_enabled",
+        ],
     ),
     (
         Tab::Ai,

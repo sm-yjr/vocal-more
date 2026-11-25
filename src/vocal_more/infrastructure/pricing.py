@@ -71,9 +71,56 @@ _OMNI_PRICING = {
         "output_text": 4.5,
         "output_audio": 12.0,
     },
+    # 2026-11-25 核对自百炼模型广场（华北 2 北京，原价）。
+    "qwen-audio-3.1-asr-flash-message": {
+        "input_text": 6.0,
+        "input_audio": 6.0,
+        "output_text": 4.5,
+        "output_audio": 0.0,
+    },
+    "qwen-audio-3.1-asr-flash-streaming": {
+        "input_text": 6.0,
+        "input_audio": 6.0,
+        "output_text": 4.5,
+        "output_audio": 0.0,
+    },
+    "qwen-audio-3.1-asr-flash": {
+        "input_text": 0.8,
+        "input_audio": 0.8,
+        "output_text": 2.7,
+        "output_audio": 0.0,
+    },
+    "qwen-audio-3.1-realtime-flash": {
+        "input_text": 1.5,
+        "input_audio": 6.0,
+        "output_text": 4.5,
+        "output_audio": 12.0,
+    },
+    "qwen-audio-3.1-realtime-plus": {
+        "input_text": 5.0,
+        "input_audio": 40.0,
+        "output_text": 40.0,
+        "output_audio": 150.0,
+    },
 }
 
 _TEXT_TIERED_PRICING = {
+    "qwen3.8-flash": [
+        {
+            "max_prompt_tokens": 1_000_000,
+            "input_non_thinking": 0.8,
+            "input_thinking": 0.8,
+            "output": 2.7,
+        },
+    ],
+    "qwen3.8-max": [
+        {
+            "max_prompt_tokens": 1_000_000,
+            "input_non_thinking": 12.0,
+            "input_thinking": 12.0,
+            "output": 36.0,
+        },
+    ],
     "qwen3.5-plus": [
         {
             "max_prompt_tokens": 128 * 1024,
@@ -261,6 +308,12 @@ def build_asr_billing(
     input_audio_tokens = _safe_int(input_details.get("audio_tokens"))
     output_text_tokens = _safe_int(output_details.get("text_tokens"))
     output_audio_tokens = _safe_int(output_details.get("audio_tokens"))
+    prompt_tokens = _safe_int(normalized_usage.get("prompt_tokens"))
+    completion_tokens = _safe_int(normalized_usage.get("completion_tokens"))
+    if input_text_tokens == 0 and input_audio_tokens == 0 and prompt_tokens > 0:
+        input_audio_tokens = prompt_tokens
+    if output_text_tokens == 0 and output_audio_tokens == 0 and completion_tokens > 0:
+        output_text_tokens = completion_tokens
 
     input_text_cost = input_text_tokens * omni_pricing["input_text"] / 1_000_000
     input_audio_cost = input_audio_tokens * omni_pricing["input_audio"] / 1_000_000

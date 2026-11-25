@@ -155,7 +155,12 @@ async fn serve(
             other => anyhow::bail!("unexpected client message: {other:?}"),
         }
         if broken && !pcm.is_empty() {
-            send(&mut socket,json!({"type":"error","error":{"code":"fixture_disconnected","message":"must-not-echo-sensitive-provider-detail"}})).await?;
+            let err = if recognition {
+                json!({"header":{"event":"task-failed","task_id":task,"error_code":"fixture_disconnected","error_message":"must-not-echo-sensitive-provider-detail"},"payload":{}})
+            } else {
+                json!({"type":"error","error":{"code":"fixture_disconnected","message":"must-not-echo-sensitive-provider-detail"}})
+            };
+            send(&mut socket, err).await?;
             return Ok(pcm);
         }
     }
@@ -235,7 +240,7 @@ async fn all_realtime_models_exchange_real_pcm_and_complete_under_existing_polis
 async fn degraded_transport_retains_subsequent_audio_until_user_finishes() -> Result<()> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let endpoint = format!("ws://{}", listener.local_addr()?);
-    let server = tokio::spawn(serve(listener, false, true, true));
+    let server = tokio::spawn(serve(listener, true, false, true));
     let dir = tempfile::tempdir()?;
     let mut host = Host::new(RecordingStore::open(dir.path()).await?, None, None);
     let generation = host
@@ -443,4 +448,176 @@ fn omni_realtime_contract_uses_the_supported_asr_submodel_and_preserves_legacy_f
             .unwrap()
     );
     assert!(legacy_fast["input_audio_transcription_model"].is_null());
+}
+
+#[test]
+fn qwen_audio_3_1_message_builds_super_hotwords_vad_tuning_and_dual_track_routing() -> Result<()> {
+    let mut config = Config::default();
+    assert_eq!(
+        config.get("asr.model").as_str(),
+        Some("qwen-audio-3.1-asr-flash-message")
+    );
+    config.apply_update("audio.gain_mode", &json!("manual"))?;
+    config.apply_update("audio.gain", &json!(8.0))?;
+    config.apply_update("audio.highpass_freq", &json!(220))?;
+
+    let mut provider = Provider::new(
+        config.clone(),
+        vec![vocal_more_backend::dictionary::Entry {
+            term: "阿里云百炼".into(),
+            aliases: vec!["阿里云白练".into()],
+        }],
+        "开发工具",
+        Endpoints::loopback("http://127.0.0.1:1", "ws://127.0.0.1:1")?,
+        None,
+    );
+    provider.set_cursor_context(Some(vocal_more_backend::context::CursorContext {
+        app_name: "Cursor".into(),
+        app_bundle_id: "com.todesktop.cursor".into(),
+        window_title: "provider.rs — vocal-more".into(),
+        before_cursor: "检查 `ButterworthHighpass4` 滤波效果".into(),
+        after_cursor: String::new(),
+        selected_text: "SpeechAnalyzer".into(),
+    }));
+    provider.set_recent_turns(vec!["上一句提到 Qwen3.8 Omni".into()]);
+
+    // Default minimal dictation runs single-pass with native disfluency removal.
+    assert!(!provider.needs_second_stage_polish());
+    let start = provider.recognition_start("task-1");
+    let params = &start["payload"]["parameters"];
+    assert_eq!(params["disfluency_removal_enabled"], true);
+    assert_eq!(params["intermediate_result_enabled"], true);
+    assert_eq!(params["vad_model"], "near_meeting_16k");
+    assert_eq!(params["speech_noise_threshold"], -0.25);
+    assert_eq!(params["vocabulary"]["阿里云百炼"], 50);
+    assert_eq!(params["vocabulary"]["SpeechAnalyzer"], 50);
+    assert_eq!(params["vocabulary"]["ButterworthHighpass4"], 50);
+    let turns = start["payload"]["input"]["context"].as_array().unwrap();
+    assert_eq!(turns.len(), 3);
+
+    // Enabling advanced polish (e.g. prompt mode or translation) cascades to LLM
+    // and turns off native disfluency removal to keep raw ASR input faithful.
+    provider
+        .config
+        .apply_update("llm.polish_mode", &json!("prompt"))?;
+    assert!(provider.needs_second_stage_polish());
+    let prompt_start = provider.recognition_start("task-2");
+    assert_eq!(
+        prompt_start["payload"]["parameters"]["disfluency_removal_enabled"],
+        false
+    );
+
+    // continue-task payload carries refreshed multi-turn context.
+    let cont = provider.recognition_continue_context("task-2").unwrap();
+    assert_eq!(cont["header"]["action"], "continue-task");
+    assert_eq!(
+        cont["payload"]["input"]["context"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn qwen_audio_3_1_message_streams_continue_task_context_and_parses_token_usage() -> Result<()>
+{
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let endpoint = format!("ws://{}", listener.local_addr()?);
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await?;
+        let mut socket =
+            accept_hdr_async(stream, |_: &Request, response: Response| Ok(response)).await?;
+        let first: Value = serde_json::from_str(next(&mut socket).await?.to_text()?)?;
+        let task = first["header"]["task_id"].clone();
+        ensure!(first["payload"]["model"] == "qwen-audio-3.1-asr-flash-message");
+        send(
+            &mut socket,
+            json!({"header":{"event":"task-started","task_id":task},"payload":{}}),
+        )
+        .await?;
+        let mut saw_continue = false;
+        loop {
+            match next(&mut socket).await? {
+                Message::Binary(_) => {}
+                Message::Text(raw) => {
+                    let event: Value = serde_json::from_str(&raw)?;
+                    if event["header"]["action"] == "continue-task" {
+                        saw_continue = !event["payload"]["input"]["context"]
+                            .as_array()
+                            .unwrap_or(&vec![])
+                            .is_empty();
+                    } else if event["header"]["action"] == "finish-task" {
+                        send(
+                            &mut socket,
+                            json!({
+                                "header": {"event": "result-generated", "task_id": task},
+                                "payload": {
+                                    "output": {
+                                        "sentence": {
+                                            "sentence_id": 1,
+                                            "sentence_end": true,
+                                            "text": "请检查 SpeechAnalyzer。"
+                                        }
+                                    },
+                                    "usage": {"duration": 2, "input_tokens": 84, "output_tokens": 6, "total_tokens": 90}
+                                }
+                            }),
+                        )
+                        .await?;
+                        send(
+                            &mut socket,
+                            json!({
+                                "header": {"event": "task-finished", "task_id": task},
+                                "payload": {
+                                    "output": {},
+                                    "usage": {"duration": 2, "input_tokens": 84, "output_tokens": 6, "total_tokens": 90}
+                                }
+                            }),
+                        )
+                        .await?;
+                        break;
+                    }
+                }
+                other => anyhow::bail!("unexpected message: {other:?}"),
+            }
+        }
+        Ok::<_, anyhow::Error>(saw_continue)
+    });
+
+    let config = Config::default();
+    let provider = provider(config, &endpoint);
+    let dir = tempfile::tempdir()?;
+    let mut host = Host::new(RecordingStore::open(dir.path()).await?, None, None);
+    let generation = host
+        .start_external(Source::Stream, provider.external()?)
+        .await?
+        .generation;
+    while !host.status().asr_ready {
+        sleep(Duration::from_millis(2)).await;
+    }
+    host.update_context(
+        generation,
+        json!({
+            "app_name": "Xcode",
+            "app_bundle_id": "com.apple.dt.Xcode",
+            "window_title": "Audio.swift",
+            "before_cursor": "let analyzer = SpeechAnalyzer()",
+            "after_cursor": "",
+            "selected_text": "SpeechAnalyzer"
+        }),
+    )?;
+    for _ in 0..3 {
+        host.append(generation, vec![1u8; 1280].into())?;
+    }
+    host.finish(generation)?;
+    let status = wait_terminal(&host, Duration::from_secs(3)).await?;
+    assert_eq!(status.phase, Phase::Completed, "{:?}", status.error);
+    assert_eq!(status.transcript, "请检查 SpeechAnalyzer。");
+    assert_eq!(status.usage["input_tokens"], 84);
+    assert_eq!(status.usage["output_tokens"], 6);
+    assert!(server.await??, "server must observe continue-task context");
+    host.shutdown().await?;
+    Ok(())
 }

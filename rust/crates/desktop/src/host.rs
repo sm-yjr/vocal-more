@@ -70,6 +70,22 @@ enum Pending {
     Prepare(Delivery),
     SnapshotForSettings(String, bool),
 }
+struct CursorContextSession {
+    request: u64,
+    epoch: u64,
+    generation: Option<u64>,
+    snapshot: Option<Value>,
+}
+impl CursorContextSession {
+    fn matches(&self, request_id: &Value) -> bool {
+        request_id["request"].as_u64() == Some(self.request)
+            && request_id["epoch"].as_u64() == Some(self.epoch)
+    }
+    fn take_ready(&mut self) -> Option<(u64, Value)> {
+        let generation = self.generation?;
+        self.snapshot.take().map(|snapshot| (generation, snapshot))
+    }
+}
 struct ScreenSession {
     request: u64,
     epoch: u64,
@@ -146,6 +162,7 @@ pub struct DesktopHost {
     hotkey_start: Option<(u64, u64, Instant)>,
     last_text: String,
     prompt_hint: String,
+    cursor_context: Option<CursorContextSession>,
     screen: Option<ScreenSession>,
     screen_worker: ScreenWorker,
     screen_serial: u64,
@@ -197,6 +214,7 @@ impl DesktopHost {
                 hotkey_start: None,
                 last_text: String::new(),
                 prompt_hint: String::new(),
+                cursor_context: None,
                 screen: None,
                 screen_worker,
                 screen_serial: 0,
@@ -431,23 +449,36 @@ impl DesktopHost {
             request.method.as_str(),
             "start" | "hotkey_pressed" | "toggle_recording"
         ) && self.snapshot["state"] == "idle"
-            && self.snapshot["config"]["screen_context_enabled"] == true
-            && self.screen.is_none()
         {
-            request.params["screen_context"] = json!(true);
-            let now = Instant::now();
-            self.screen = Some(ScreenSession {
-                request: request.id,
-                epoch: request.epoch,
-                generation: None,
-                initial: None,
-                started: now,
-                last_capture: now,
-            });
-            self.capture_screen(true);
+            if self.snapshot["config"]["cursor_context_enabled"] == true
+                && let Some(platform) = &self.platform
+            {
+                self.cursor_context = Some(CursorContextSession {
+                    request: request.id,
+                    epoch: request.epoch,
+                    generation: None,
+                    snapshot: None,
+                });
+                let _ = platform
+                    .capture_context(json!({"request": request.id, "epoch": request.epoch}));
+            }
+            if self.snapshot["config"]["screen_context_enabled"] == true && self.screen.is_none() {
+                request.params["screen_context"] = json!(true);
+                let now = Instant::now();
+                self.screen = Some(ScreenSession {
+                    request: request.id,
+                    epoch: request.epoch,
+                    generation: None,
+                    initial: None,
+                    started: now,
+                    last_capture: now,
+                });
+                self.capture_screen(true);
+            }
         }
         if request.method == "cancel" {
             self.hotkey_start.take();
+            self.cursor_context = None;
             self.screen = None;
             self.pastes.clear();
             self.deliveries.clear();
@@ -516,7 +547,17 @@ impl DesktopHost {
                 {
                     self.screen = None;
                 }
-                if params["method"] != "append_screen_frame" {
+                if self
+                    .cursor_context
+                    .as_ref()
+                    .is_some_and(|ctx| ctx.request == id)
+                {
+                    self.cursor_context = None;
+                }
+                if !matches!(
+                    params["method"].as_str(),
+                    Some("append_screen_frame" | "update_session_context")
+                ) {
                     self.notify(params["message"].as_str().unwrap_or("Operation failed"));
                 }
                 if matches!(
@@ -558,6 +599,12 @@ impl DesktopHost {
                                 && screen.generation == params["generation"].as_u64()
                         }) {
                             self.screen = None;
+                        }
+                        if self.cursor_context.as_ref().is_some_and(|ctx| {
+                            ctx.epoch == params["_ui_epoch"].as_u64().unwrap_or(u64::MAX)
+                                && ctx.generation == params["generation"].as_u64()
+                        }) {
+                            self.cursor_context = None;
                         }
                         if !self.capsule.is_failure() {
                             self.capsule.update_state("hidden");
@@ -661,6 +708,7 @@ impl DesktopHost {
                 }
             }
             "platform_focused_snapshot" => self.focused_snapshot(&params),
+            "platform_cursor_context" => self.cursor_context_captured(&params),
             "observation_poll" => {
                 if let Some(platform) = &mut self.platform
                     && let Some(id) = params["observation_id"].as_str()
@@ -964,7 +1012,46 @@ impl DesktopHost {
                 platform.notify_localized("screen_context_started");
             }
         }
+        if let Some(ctx) = &mut self.cursor_context
+            && ctx.request == id
+        {
+            ctx.generation = result["generation"].as_u64();
+        }
         self.send_initial_frame();
+        self.send_cursor_context();
+    }
+    fn cursor_context_captured(&mut self, params: &Value) {
+        let Some(ctx) = &mut self.cursor_context else {
+            return;
+        };
+        if !ctx.matches(&params["request_id"]) || ctx.epoch != self.commands.paste_epoch() {
+            return;
+        }
+        let snapshot = &params["snapshot"];
+        if snapshot.is_object() {
+            ctx.snapshot = Some(snapshot.clone());
+            self.send_cursor_context();
+        } else {
+            self.cursor_context = None;
+        }
+    }
+    fn send_cursor_context(&mut self) {
+        let Some(ctx) = &mut self.cursor_context else {
+            return;
+        };
+        if ctx.epoch != self.commands.paste_epoch() {
+            self.cursor_context = None;
+            return;
+        }
+        let Some((generation, snapshot)) = ctx.take_ready() else {
+            return;
+        };
+        self.cursor_context = None;
+        self.send(
+            "update_session_context",
+            json!({"generation": generation, "snapshot": snapshot}),
+            None,
+        );
     }
     fn focused_snapshot(&mut self, params: &Value) {
         if let Some(token) = params["request_id"]["token"].as_str()

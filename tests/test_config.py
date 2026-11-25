@@ -28,17 +28,19 @@ def test_config_load(tmp_path, monkeypatch):
     assert config.audio.input_device is None
     assert config.audio.gain_mode == "automatic"
     assert config.asr.backend == "realtime_ws"
-    assert config.asr.model == "qwen3.5-omni-flash-realtime"
+    assert config.asr.model == "qwen-audio-3.1-asr-flash-message"
     assert config.asr.language == "auto"
     assert config.asr.batch_mode == "manual"
     assert config.asr.realtime_url == ""
     assert config.native_fast_paste is False
     assert config.restore_clipboard is True
+    assert config.cursor_context_enabled is True
+    assert config.audio.tail_padding_ms == 200
     assert config.update_channel is None
     assert config.network.proxy_url == ""
     assert config.asr.use_dictionary_corpus is True
     assert config.asr.extra_corpus_terms == []
-    assert config.llm.model == "qwen3.5-plus"
+    assert config.llm.model == "qwen3.8-flash"
     assert config.llm.temperature == 0.0
     assert config.llm.enable_thinking is False
     assert config.llm.max_tokens == 1024
@@ -536,7 +538,7 @@ def test_config_new_fields_roundtrip(tmp_path, monkeypatch):
     loaded = Config.load()
     assert loaded.audio.input_device == "MacBook Pro Microphone"
     assert loaded.asr.backend == "short_file"
-    assert loaded.asr.model == "qwen3-asr-flash"
+    assert loaded.asr.model == "qwen-audio-3.1-asr-flash"
     assert loaded.asr.extra_corpus_terms == ["Vocal More", "DashScope"]
     assert loaded.llm.enable_thinking is True
     assert loaded.llm.max_tokens == 128
@@ -1045,8 +1047,8 @@ def test_parse_llm_model_unknown_falls_back():
     """Test _parse_llm_model falls back to default for unknown IDs."""
     from vocal_more.config import _parse_llm_model
 
-    assert _parse_llm_model("nonexistent") == "qwen3.5-plus"
-    assert _parse_llm_model("") == "qwen3.5-plus"
+    assert _parse_llm_model("nonexistent") == "qwen3.8-flash"
+    assert _parse_llm_model("") == "qwen3.8-flash"
 
 
 def test_parse_llm_model_alias_preserved():
@@ -1071,8 +1073,8 @@ def test_parse_asr_model_unknown_falls_back():
     """Test _parse_asr_model falls back to default for unknown IDs."""
     from vocal_more.config import _parse_asr_model
 
-    assert _parse_asr_model("bogus") == "qwen3.5-omni-flash-realtime"
-    assert _parse_asr_model("") == "qwen3.5-omni-flash-realtime"
+    assert _parse_asr_model("bogus") == "qwen-audio-3.1-asr-flash-message"
+    assert _parse_asr_model("") == "qwen-audio-3.1-asr-flash-message"
 
 
 def test_get_llm_model_info():

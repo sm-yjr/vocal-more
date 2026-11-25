@@ -214,7 +214,7 @@ def test_dispatch_get_config(handler):
 
     assert result["api_key"] == ""
     assert result["audio"]["sample_rate"] == 16000
-    assert result["llm"]["model"] == "qwen3.5-plus"
+    assert result["llm"]["model"] == "qwen3.8-flash"
     assert result["enable_polish"] is True
 
 

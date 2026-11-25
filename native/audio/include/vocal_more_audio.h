@@ -145,6 +145,14 @@ VM_AUDIO_EXPORT int32_t vm_audio_test_process(
     float *out_rms
 );
 
+VM_AUDIO_EXPORT int32_t vm_audio_test_highpass(
+    const float *source,
+    uint32_t frames,
+    float sample_rate,
+    float cutoff_hz,
+    float *destination
+);
+
 VM_AUDIO_EXPORT int32_t vm_audio_test_queue(
     uint32_t queue_blocks,
     uint32_t frames_per_block,

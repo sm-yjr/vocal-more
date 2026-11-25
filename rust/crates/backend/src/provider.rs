@@ -3,6 +3,7 @@
 use crate::{
     catalog::asr_model,
     config::Config,
+    context::{self, CursorContext},
     dictionary::{self, Entry},
     text::{self, PromptKind},
 };
@@ -11,7 +12,12 @@ use base64::Engine;
 use bytes::Bytes;
 use futures_util::SinkExt;
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, future::pending, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    future::pending,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::{
     sync::mpsc,
     task::JoinSet,
@@ -84,6 +90,8 @@ pub struct Provider {
     pub entries: Vec<Entry>,
     pub context: String,
     pub(crate) scene: String,
+    pub(crate) cursor_context: Option<CursorContext>,
+    pub(crate) recent_turns: Vec<String>,
     pub endpoints: Endpoints,
     screen_context: bool,
     key: Arc<str>,
@@ -109,6 +117,8 @@ impl Provider {
             entries,
             context: context.trim().to_string(),
             scene: String::new(),
+            cursor_context: None,
+            recent_turns: Vec::new(),
             endpoints,
             screen_context: false,
             key: Arc::from(key),
@@ -119,6 +129,62 @@ impl Provider {
     }
     pub fn model_info(&self) -> &'static Value {
         asr_model(self.model()).expect("normalized ASR model")
+    }
+    pub fn workspace_host(&self) -> Option<String> {
+        if self.endpoints.fixture {
+            return None;
+        }
+        let raw = self
+            .config
+            .get("asr.realtime_url")
+            .as_str()
+            .filter(|s| !s.is_empty())?;
+        let url = url::Url::parse(raw).ok()?;
+        let host = url.host_str()?;
+        host.ends_with(".maas.aliyuncs.com")
+            .then(|| host.to_string())
+    }
+    pub fn recognition_url(&self) -> String {
+        if let Some(host) = self.workspace_host() {
+            format!("wss://{host}/api-ws/v1/inference")
+        } else {
+            self.endpoints.recognition.clone()
+        }
+    }
+    pub fn http_base_url(&self) -> String {
+        if let Some(host) = self.workspace_host() {
+            format!("https://{host}")
+        } else {
+            self.endpoints.http.clone()
+        }
+    }
+    pub fn needs_second_stage_polish(&self) -> bool {
+        if self.config.get("enable_polish") != true {
+            return false;
+        }
+        let pipeline = self.model_info()["pipeline"].as_str().unwrap_or("");
+        if pipeline == "cascade" {
+            return true;
+        }
+        if pipeline != "hybrid_asr" {
+            return false;
+        }
+        let llm = &self.config.0["llm"];
+        let has_override = llm["prompt_overrides"].as_object().is_some_and(|map| {
+            map.values().any(|item| {
+                item["enabled"] == true
+                    && item["prompt"]
+                        .as_str()
+                        .is_some_and(|p| !p.trim().is_empty())
+            })
+        });
+        llm["polish_mode"] != "dictation"
+            || llm["output_language"] != "auto"
+            || llm["level"] != "minimal"
+            || llm["tone"] != "neutral"
+            || llm["persona"] != "default"
+            || llm["structured"] == true
+            || has_override
     }
     pub fn wants_response(&self) -> bool {
         self.model_info()["always_request_response"] == true
@@ -136,6 +202,12 @@ impl Provider {
         self.screen_context = true;
         Ok(())
     }
+    pub fn set_cursor_context(&mut self, cursor: Option<CursorContext>) {
+        self.cursor_context = cursor;
+    }
+    pub fn set_recent_turns(&mut self, turns: Vec<String>) {
+        self.recent_turns = turns;
+    }
     pub fn corpus(&self) -> String {
         if self.config.get("asr.use_dictionary_corpus") != true {
             return String::new();
@@ -147,6 +219,103 @@ impl Provider {
                 .as_array()
                 .unwrap(),
         )
+    }
+    pub fn build_vocabulary(&self, allow_super: bool) -> serde_json::Map<String, Value> {
+        let mut vocabulary = serde_json::Map::new();
+        let mut super_count = 0_usize;
+        let max_super = if allow_super { 50 } else { 0 };
+        let use_dict = self.config.get("asr.use_dictionary_corpus") == true;
+
+        // 1. Dictionary canonical terms (top 35 get super hotword weight 50 on 3.1 ASR)
+        if use_dict {
+            for entry in &self.entries {
+                let term = entry.term.trim();
+                if vocabulary.len() >= 2000 {
+                    break;
+                }
+                if !context::is_valid_hotword(term) || vocabulary.contains_key(term) {
+                    continue;
+                }
+                let weight = if super_count < max_super.min(35) {
+                    super_count += 1;
+                    50
+                } else {
+                    4
+                };
+                vocabulary.insert(term.into(), json!(weight));
+            }
+        }
+
+        // 2. Dynamic symbols/identifiers extracted from pre-dictation AX cursor context
+        if let Some(cursor) = &self.cursor_context {
+            for term in context::extract_dynamic_hotwords(cursor, 60) {
+                if vocabulary.len() >= 2000 {
+                    break;
+                }
+                if vocabulary.contains_key(&term) || !context::is_valid_hotword(&term) {
+                    continue;
+                }
+                let weight = if super_count < max_super {
+                    super_count += 1;
+                    50
+                } else {
+                    4
+                };
+                vocabulary.insert(term, json!(weight));
+            }
+        }
+
+        // 3. Extra user-supplied corpus terms
+        if use_dict {
+            for raw in self
+                .config
+                .get("asr.extra_corpus_terms")
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                if vocabulary.len() >= 2000 {
+                    break;
+                }
+                let term = crate::config::py_string(raw);
+                let term = term.trim();
+                if !context::is_valid_hotword(term) || vocabulary.contains_key(term) {
+                    continue;
+                }
+                vocabulary.insert(term.into(), json!(4));
+            }
+        }
+
+        vocabulary
+    }
+    pub fn recognition_context_turns(&self) -> Vec<Value> {
+        context::build_recognition_context_turns(
+            &self.scene,
+            &self.context,
+            self.cursor_context.as_ref(),
+            &self.recent_turns,
+        )
+    }
+    pub fn recognition_continue_context(&self, task: &str) -> Option<Value> {
+        if self.model_info()["supports_continue_context"] != true {
+            return None;
+        }
+        let turns = self.recognition_context_turns();
+        if turns.is_empty() {
+            return None;
+        }
+        Some(json!({
+            "header": {
+                "action": "continue-task",
+                "task_id": task,
+                "streaming": "duplex"
+            },
+            "payload": {
+                "input": {
+                    "context": turns
+                }
+            }
+        }))
     }
     pub(crate) fn api_key(&self) -> Result<Option<&str>> {
         if self.endpoints.fixture {
@@ -175,11 +344,20 @@ impl Provider {
     }
 
     pub(crate) fn prompt(&self, kind: PromptKind) -> String {
+        let appendix = context::build_prompt_context_appendix(
+            self.cursor_context.as_ref(),
+            &self.recent_turns,
+        );
+        let full_context = [self.context.as_str(), appendix.as_str()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
         text::build_prompt_with_scene(
             &self.config,
             kind,
             &dictionary::format_prompt(&self.entries),
-            &self.context,
+            &full_context,
             &self.scene,
         )
     }
@@ -235,20 +413,48 @@ impl Provider {
     }
 
     pub fn recognition_start(&self, task: &str) -> Value {
-        let mut parameters = json!({"format":"pcm","sample_rate":16000,"semantic_punctuation_enabled":true,"heartbeat":true});
-        if self.model_info()["supports_instant_hotwords"] == true {
-            parameters["semantic_punctuation_enabled"] = json!(false);
-            parameters["punctuation_prediction_enabled"] = json!(true);
-            let mut vocabulary = serde_json::Map::new();
-            for term in self
-                .corpus()
-                .lines()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .take(2000)
-            {
-                vocabulary.insert(term.into(), json!(4));
+        let info = self.model_info();
+        let is_message_asr = info["supports_native_disfluency_removal"] == true;
+        let mut parameters = if is_message_asr {
+            let native_polish =
+                self.config.get("enable_polish") == true && !self.needs_second_stage_polish();
+            let mut params = json!({
+                "format": "pcm",
+                "sample_rate": 16000,
+                "heartbeat": true,
+                "intermediate_result_enabled": true,
+                "disfluency_removal_enabled": native_polish
+            });
+            if info["supports_vad_tuning"] == true {
+                params["vad_model"] = json!("near_meeting_16k");
+                let gain_mode = self.config.get("audio.gain_mode").as_str().unwrap_or("");
+                let gain = self.config.get("audio.gain").as_f64().unwrap_or(1.0);
+                let highpass_freq = self
+                    .config
+                    .get("audio.highpass_freq")
+                    .as_f64()
+                    .unwrap_or(200.0);
+                if gain_mode == "manual" && gain >= 6.0 && highpass_freq < 260.0 {
+                    params["speech_noise_threshold"] = json!(-0.25);
+                } else if highpass_freq >= 260.0 {
+                    params["speech_noise_threshold"] = json!(0.2);
+                }
             }
+            params
+        } else {
+            json!({
+                "format": "pcm",
+                "sample_rate": 16000,
+                "semantic_punctuation_enabled": true,
+                "heartbeat": true
+            })
+        };
+        if info["supports_instant_hotwords"] == true {
+            if !is_message_asr {
+                parameters["semantic_punctuation_enabled"] = json!(false);
+                parameters["punctuation_prediction_enabled"] = json!(true);
+            }
+            let vocabulary = self.build_vocabulary(info["supports_super_hotwords"] == true);
             if !vocabulary.is_empty() {
                 parameters["vocabulary"] = Value::Object(vocabulary);
             }
@@ -256,15 +462,11 @@ impl Provider {
         if self.config.get("asr.language") != "auto" {
             parameters["language_hints"] = json!([self.config.get("asr.language")]);
         }
-        let context = [self.scene.as_str(), self.context.as_str()]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n");
-        let input = if context.is_empty() {
+        let turns = self.recognition_context_turns();
+        let input = if turns.is_empty() {
             json!({})
         } else {
-            json!({"context":[{"role":"user","content":[{"type":"input_text","text":context.chars().take(crate::scenes::DESCRIPTION_LIMIT).collect::<String>()}]}]})
+            json!({"context": turns})
         };
         json!({"header":{"action":"run-task","task_id":task,"streaming":"duplex"},"payload":{"task_group":"audio","task":"asr","function":"recognition","model":self.model(),"parameters":parameters,"input":input}})
     }
@@ -281,8 +483,9 @@ impl Provider {
             "model does not use realtime transport"
         );
         let recognition = provider.model_info()["protocol"] == "audio_recognition";
+        let recognition_url = provider.recognition_url();
         let endpoint = if recognition {
-            &provider.endpoints.recognition
+            recognition_url.as_str()
         } else {
             provider.endpoints.realtime.as_deref().unwrap_or_else(|| {
                 provider
@@ -427,6 +630,9 @@ impl Provider {
                             segment_tx.send(NetworkInput::Image(jpeg)).await
                                 .context("realtime segment image queue closed")?;
                         }
+                        Some(NetworkInput::Context(ctx)) => {
+                            let _ = segment_tx.send(NetworkInput::Context(ctx)).await;
+                        }
                         Some(NetworkInput::Finish) => {
                             segment_tx.send(NetworkInput::Finish).await
                                 .context("realtime final segment closed")?;
@@ -462,7 +668,7 @@ impl Provider {
     }
 
     async fn realtime_once(
-        self,
+        mut self,
         mut input: mpsc::Receiver<NetworkInput>,
         cancel: CancellationToken,
         reporter: NetworkReporter,
@@ -472,7 +678,8 @@ impl Provider {
             _ = cancel.cancelled() => bail!("ASR cancelled"),
             result = async {
                 let recognition = self.model_info()["protocol"] == "audio_recognition";
-                let endpoint = if recognition { &self.endpoints.recognition } else {
+                let recognition_url = self.recognition_url();
+                let endpoint = if recognition { recognition_url.as_str() } else {
                     self.endpoints.realtime.as_deref().unwrap_or_else(|| {
                         self.config.get("asr.realtime_url").as_str().filter(|s| !s.is_empty()).unwrap_or("wss://dashscope.aliyuncs.com/api-ws/v1/realtime")
                     })
@@ -481,6 +688,20 @@ impl Provider {
                 if !recognition { url.query_pairs_mut().append_pair("model",self.model()); }
                 let proxy = self.config.get("network.proxy_url").as_str().filter(|value| !value.is_empty());
                 let mut socket = timeout(CONNECT_TIMEOUT, protocol::connect_url_with_proxy(url,self.api_key()?,proxy)).await.context("ASR connection timed out")??;
+                // Drain any cursor context that arrived while TLS/WS handshake was
+                // in flight so it can enrich the initial run-task / session.update
+                // (including dynamic hotwords) with zero added startup latency.
+                let mut prebuffered: VecDeque<NetworkInput> = VecDeque::new();
+                while let Ok(item) = input.try_recv() {
+                    match item {
+                        NetworkInput::Context(value) => {
+                            if let Ok(ctx) = serde_json::from_value::<CursorContext>(value) {
+                                self.cursor_context = Some(ctx);
+                            }
+                        }
+                        other => prebuffered.push_back(other),
+                    }
+                }
                 let task = uuid::Uuid::new_v4().simple().to_string();
                 send_json(&mut socket, if recognition { self.recognition_start(&task) } else { self.session_update() }).await?;
                 timeout(CONNECT_TIMEOUT, async {
@@ -504,12 +725,16 @@ impl Provider {
                 let mut heartbeat = tokio::time::interval(Duration::from_secs(15)); heartbeat.tick().await;
                 loop {
                     enum Event { Input(Option<NetworkInput>), Server(Value), Heartbeat, Timeout }
-                    let event = tokio::select! {
-                        value = input.recv(), if !committed => Event::Input(value),
-                        value = protocol::receive(&mut socket) => Event::Server(value?),
-                        _ = heartbeat.tick() => Event::Heartbeat,
-                        _ = async { match completion_deadline { Some(d) => tokio::time::sleep_until(d).await, None => pending().await } } => Event::Timeout,
-                        _ = async { match response_start_deadline { Some(d) => tokio::time::sleep_until(d).await, None => pending().await } }, if !accumulator.response_started => Event::Timeout,
+                    let event = if !committed && let Some(item) = prebuffered.pop_front() {
+                        Event::Input(Some(item))
+                    } else {
+                        tokio::select! {
+                            value = input.recv(), if !committed => Event::Input(value),
+                            value = protocol::receive(&mut socket) => Event::Server(value?),
+                            _ = heartbeat.tick() => Event::Heartbeat,
+                            _ = async { match completion_deadline { Some(d) => tokio::time::sleep_until(d).await, None => pending().await } } => Event::Timeout,
+                            _ = async { match response_start_deadline { Some(d) => tokio::time::sleep_until(d).await, None => pending().await } }, if !accumulator.response_started => Event::Timeout,
+                        }
                     };
                     match event {
                         Event::Timeout => bail!("ASR result deadline exceeded; recover from recorded audio"),
@@ -546,6 +771,16 @@ impl Provider {
                                 // The provider requires at least one audio append before
                                 // an image append. Keep only the newest pre-audio frame.
                                 pending_image = Some(jpeg);
+                            }
+                        },
+                        Event::Input(Some(NetworkInput::Context(value))) => {
+                            if let Ok(ctx) = serde_json::from_value::<CursorContext>(value) {
+                                self.cursor_context = Some(ctx);
+                                if recognition
+                                    && let Some(update) = self.recognition_continue_context(&task)
+                                {
+                                    send_json(&mut socket, update).await?;
+                                }
                             }
                         },
                         Event::Input(Some(NetworkInput::Finish)) => {
@@ -800,6 +1035,9 @@ impl RealtimeText {
                 }
                 "task-finished" => {
                     ensure!(committed, "ASR finished before audio commit");
+                    if let Some(usage) = event["payload"].get("usage").filter(|u| !u.is_null()) {
+                        self.usage = usage.clone();
+                    }
                     self.completed = true;
                 }
                 _ => {}

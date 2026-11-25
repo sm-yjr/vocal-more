@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::{
-    billing,
-    catalog::asr_model,
-    dictionary,
+    billing, dictionary,
     http::{Completion, TextCallback},
     provider::Provider,
     text,
@@ -67,9 +65,7 @@ pub fn finishes_locally(provider: &Provider, status: &Status, streamed: &str) ->
         && status.phase == Phase::Completed
         && status.pcm_bytes >= 3200
         && !status.transcript.trim().is_empty()
-        && !(provider.config.get("enable_polish") == true
-            && !asr_model(provider.model()).is_some_and(|m| m["pipeline"] != "cascade")
-            && streamed.is_empty())
+        && !(provider.needs_second_stage_polish() && streamed.is_empty())
 }
 
 pub async fn finish(
@@ -109,10 +105,11 @@ pub async fn finish(
     let mut final_text = dictionary::normalize_text(&raw, &provider.entries);
     let mut bills = completion_billing(&completion, seconds);
     let mut warnings = vec![];
-    // Python uses the selected pipeline to decide whether a second text model
-    // is needed, including after an HTTP fallback from that realtime model.
-    let single_pass = asr_model(provider.model()).is_some_and(|m| m["pipeline"] != "cascade");
-    if provider.config.get("enable_polish") == true && !single_pass && streamed.is_empty() {
+    // Dual-track routing: single-pass models (inline Omni, native ASR, or
+    // hybrid_asr in default minimal dictation) skip the second LLM hop.
+    // Cascade models and hybrid_asr with advanced polish/prompt/translation
+    // settings route the accurate ASR transcript through the polish LLM.
+    if provider.needs_second_stage_polish() && streamed.is_empty() {
         stage("polishing");
         match provider.polish(&raw, cancel, partial).await {
             Ok(polished) => {

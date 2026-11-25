@@ -462,6 +462,132 @@ private:
     uint32_t frames_per_slot_;
 };
 
+struct BiquadSection {
+    double b0 = 1.0;
+    double b1 = 0.0;
+    double b2 = 0.0;
+    double a1 = 0.0;
+    double a2 = 0.0;
+    double z1 = 0.0;
+    double z2 = 0.0;
+
+    void configure_highpass(double sample_rate, double cutoff_hz, double q) noexcept {
+        const double clamped_hz = std::clamp(cutoff_hz, 20.0, sample_rate * 0.45);
+        const double w0 = 2.0 * M_PI * clamped_hz / sample_rate;
+        const double cos_w0 = std::cos(w0);
+        const double sin_w0 = std::sin(w0);
+        const double alpha = sin_w0 / (2.0 * q);
+        const double a0 = 1.0 + alpha;
+        b0 = ((1.0 + cos_w0) * 0.5) / a0;
+        b1 = -(1.0 + cos_w0) / a0;
+        b2 = ((1.0 + cos_w0) * 0.5) / a0;
+        a1 = (-2.0 * cos_w0) / a0;
+        a2 = (1.0 - alpha) / a0;
+    }
+
+    void reset() noexcept {
+        z1 = 0.0;
+        z2 = 0.0;
+    }
+
+    inline double process(double x) noexcept {
+        const double y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        return y;
+    }
+};
+
+// 4th-order Butterworth high-pass (-24 dB/oct) composed of two cascaded biquads.
+struct ButterworthHighpass4 {
+    static constexpr double kQ1 = 0.541196100146197;
+    static constexpr double kQ2 = 1.3065629648763766;
+
+    BiquadSection stage1;
+    BiquadSection stage2;
+    double configured_rate = 0.0;
+    double configured_cutoff = 0.0;
+
+    void ensure_configured(double sample_rate, double cutoff_hz) noexcept {
+        if (std::abs(sample_rate - configured_rate) > 1.0e-6 ||
+            std::abs(cutoff_hz - configured_cutoff) > 1.0e-6) {
+            stage1.configure_highpass(sample_rate, cutoff_hz, kQ1);
+            stage2.configure_highpass(sample_rate, cutoff_hz, kQ2);
+            configured_rate = sample_rate;
+            configured_cutoff = cutoff_hz;
+        }
+    }
+
+    void reset() noexcept {
+        stage1.reset();
+        stage2.reset();
+    }
+
+    void process_in_place(float *samples, uint32_t frames) noexcept {
+        for (uint32_t index = 0; index < frames; ++index) {
+            const double y1 = stage1.process(static_cast<double>(samples[index]));
+            samples[index] = static_cast<float>(stage2.process(y1));
+        }
+    }
+};
+
+// Smooth soft-knee DRC + thresholded ceiling limiter for low-voice speech:
+// preserves quiet whispers linearly while smoothly taming plosives and loud peaks.
+struct LowVoiceDynamics {
+    float envelope = 0.0F;
+
+    void reset() noexcept {
+        envelope = 0.0F;
+    }
+
+    void process_in_place(float *samples, uint32_t frames, float sample_rate) noexcept {
+        constexpr float kThresholdDb = -16.0F;
+        constexpr float kKneeWidthDb = 6.0F;
+        constexpr float kHalfKneeDb = kKneeWidthDb * 0.5F;
+        constexpr float kRatio = 3.0F;
+        constexpr float kInvSlope = (1.0F / kRatio) - 1.0F;
+        constexpr float kLimiterKnee = 0.708F;     // -3.0 dBFS: linear below this
+        constexpr float kLimiterCeiling = 0.944F;  // -0.5 dBFS: smooth asymptotic ceiling
+        constexpr float kLimiterHeadroom = kLimiterCeiling - kLimiterKnee;
+
+        const float rate = std::max(8000.0F, sample_rate);
+        const float attack = std::exp(-1.0F / (0.005F * rate));
+        const float release = std::exp(-1.0F / (0.090F * rate));
+
+        float env = envelope;
+        for (uint32_t index = 0; index < frames; ++index) {
+            float sample = samples[index];
+            const float level = std::abs(sample);
+            const float coeff = level > env ? attack : release;
+            env = coeff * env + (1.0F - coeff) * level;
+
+            if (env > 1.0e-5F) {
+                const float env_db = 20.0F * std::log10(env);
+                const float over_db = env_db - kThresholdDb;
+                float gain_db = 0.0F;
+                if (over_db >= kHalfKneeDb) {
+                    gain_db = kInvSlope * over_db;
+                } else if (over_db > -kHalfKneeDb) {
+                    const float delta = over_db + kHalfKneeDb;
+                    gain_db = kInvSlope * (delta * delta) / (2.0F * kKneeWidthDb);
+                }
+                if (gain_db < 0.0F) {
+                    sample *= std::pow(10.0F, gain_db / 20.0F);
+                }
+            }
+
+            const float abs_sample = std::abs(sample);
+            if (abs_sample > kLimiterKnee) {
+                const float excess = (abs_sample - kLimiterKnee) / kLimiterHeadroom;
+                const float limited = kLimiterKnee + kLimiterHeadroom * std::tanh(excess);
+                sample = sample >= 0.0F ? limited : -limited;
+            }
+            samples[index] = sample;
+        }
+        envelope = env;
+    }
+};
+
 void convert_float_to_pcm(
     const float *source,
     float *work,
@@ -469,6 +595,8 @@ void convert_float_to_pcm(
     uint32_t frames,
     float gain,
     bool soft_limiter,
+    float sample_rate,
+    LowVoiceDynamics *dynamics,
     float &rms
 ) noexcept {
     vDSP_rmsqv(source, 1, &rms, frames);
@@ -477,8 +605,11 @@ void convert_float_to_pcm(
         vDSP_vsmul(work, 1, &gain, work, 1, frames);
     }
     if (soft_limiter && std::abs(gain - 1.0F) > 1.0e-6F) {
-        for (uint32_t index = 0; index < frames; ++index) {
-            work[index] = std::tanh(work[index]);
+        if (dynamics != nullptr) {
+            dynamics->process_in_place(work, frames, sample_rate);
+        } else {
+            LowVoiceDynamics local_dynamics;
+            local_dynamics.process_in_place(work, frames, sample_rate);
         }
     }
     const float lower = -1.0F;
@@ -544,8 +675,8 @@ struct vm_audio_stream {
     uint32_t pending_frames = 0;
     std::vector<float> work;
     std::vector<int16_t> pcm_work;
-    float hp_previous_input = 0.0F;
-    float hp_previous_output = 0.0F;
+    ButterworthHighpass4 highpass_filter;
+    LowVoiceDynamics dynamics;
 
     std::atomic<bool> started{false};
     std::atomic<double> source_sample_rate{0.0};
@@ -573,24 +704,13 @@ void highpass_in_place(vm_audio_stream *stream, float *samples, uint32_t frames)
     if (!stream->highpass_enabled.load(std::memory_order_relaxed)) {
         return;
     }
-    const float frequency = std::max(
-        0.0F,
-        stream->highpass_frequency.load(std::memory_order_relaxed)
-    );
-    const float rate = static_cast<float>(stream->target_sample_rate);
-    const float alpha = frequency <= 0.0F
-        ? 1.0F
-        : 1.0F / (1.0F + 2.0F * static_cast<float>(M_PI) * frequency / rate);
-    float previous_input = stream->hp_previous_input;
-    float previous_output = stream->hp_previous_output;
-    for (uint32_t index = 0; index < frames; ++index) {
-        const float current = samples[index];
-        previous_output = alpha * (previous_output + current - previous_input);
-        previous_input = current;
-        samples[index] = previous_output;
+    const float frequency = stream->highpass_frequency.load(std::memory_order_relaxed);
+    if (frequency <= 0.0F) {
+        return;
     }
-    stream->hp_previous_input = previous_input;
-    stream->hp_previous_output = previous_output;
+    const double rate = static_cast<double>(stream->target_sample_rate);
+    stream->highpass_filter.ensure_configured(rate, static_cast<double>(frequency));
+    stream->highpass_filter.process_in_place(samples, frames);
 }
 
 void publish_pending(vm_audio_stream *stream, uint32_t frames) noexcept {
@@ -611,6 +731,8 @@ void publish_pending(vm_audio_stream *stream, uint32_t frames) noexcept {
         frames,
         gain,
         limiter,
+        static_cast<float>(stream->target_sample_rate),
+        &stream->dynamics,
         rms
     );
     if (stream->pcm_queue->push(stream->pcm_work.data(), frames, rms)) {
@@ -805,8 +927,8 @@ bool install_session_locked(
     stream->first_tap_latency_ns.store(0, std::memory_order_release);
     stream->first_pcm_latency_ns.store(0, std::memory_order_release);
     stream->pending_frames = 0;
-    stream->hp_previous_input = 0.0F;
-    stream->hp_previous_output = 0.0F;
+    stream->highpass_filter.reset();
+    stream->dynamics.reset();
     [stream->converter reset];
     stream->pcm_queue = std::make_unique<PCMQueue>(
         stream->queue_blocks,
@@ -1562,8 +1684,33 @@ int32_t vm_audio_test_process(
             frames,
             software_gain,
             soft_limiter,
+            16000.0F,
+            nullptr,
             *out_rms
         );
+        return 0;
+    } catch (...) {
+        return -1;
+    }
+}
+
+int32_t vm_audio_test_highpass(
+    const float *source,
+    uint32_t frames,
+    float sample_rate,
+    float cutoff_hz,
+    float *destination
+) {
+    if (source == nullptr || destination == nullptr || frames == 0 ||
+        frames > kMaximumBlockFrames || sample_rate < kMinimumSampleRate ||
+        sample_rate > kMaximumSampleRate || cutoff_hz <= 0.0F) {
+        return -1;
+    }
+    try {
+        std::memcpy(destination, source, frames * sizeof(float));
+        ButterworthHighpass4 filter;
+        filter.ensure_configured(static_cast<double>(sample_rate), static_cast<double>(cutoff_hz));
+        filter.process_in_place(destination, frames);
         return 0;
     } catch (...) {
         return -1;

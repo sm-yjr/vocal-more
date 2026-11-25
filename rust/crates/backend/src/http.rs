@@ -53,7 +53,7 @@ impl Provider {
         let payload = json!({"model":model,"input":{"messages":[{"role":"user","content":[{"text":"Reply with OK."}]}]},
             "parameters":{"enable_thinking":false,"max_tokens":1}});
         let mut request = client
-            .post(format!("{}{MULTIMODAL}", self.endpoints.http))
+            .post(format!("{}{MULTIMODAL}", self.http_base_url()))
             .json(&payload);
         if let Some(key) = self.api_key()? {
             request = request.bearer_auth(key);
@@ -142,6 +142,37 @@ impl Provider {
 
     pub fn short_file_request(&self, model: &str, pcm: &[u8]) -> Result<Value> {
         let audio = format!("data:audio/wav;base64,{}", STANDARD.encode(wav_bytes(pcm)?));
+        let info = asr_model(model);
+        if info.is_some_and(|m| m["protocol"] == "qwen_audio_http") {
+            let mut messages = self.recognition_context_turns();
+            messages.push(json!({
+                "role": "user",
+                "content": [{"type": "input_audio", "input_audio": {"data": audio}}]
+            }));
+            let mut parameters = json!({
+                "format": "wav",
+                "sample_rate": 16000
+            });
+            let vocabulary =
+                self.build_vocabulary(info.is_some_and(|m| m["supports_super_hotwords"] == true));
+            if !vocabulary.is_empty() {
+                parameters["vocabulary"] = Value::Object(vocabulary);
+            }
+            if self.config.get("asr.language") != "auto" {
+                parameters["language_hints"] = json!([self.config.get("asr.language")]);
+            }
+            if info.is_some_and(|m| m["supports_native_disfluency_removal"] == true)
+                && self.config.get("enable_polish") == true
+                && !self.needs_second_stage_polish()
+            {
+                parameters["disfluency_removal_enabled"] = json!(true);
+            }
+            return Ok(json!({
+                "model": model,
+                "input": {"messages": messages},
+                "parameters": parameters
+            }));
+        }
         let corpus = self.corpus();
         let mut messages = Vec::new();
         let context = [self.scene.as_str(), corpus.as_str()]
@@ -236,7 +267,7 @@ impl Provider {
             .pool_max_idle_per_host(0)
             .build()?;
         let mut request = client
-            .post(format!("{}{path}", self.endpoints.http))
+            .post(format!("{}{path}", self.http_base_url()))
             .json(&payload);
         if let Some(key) = self.api_key()? {
             request = request.bearer_auth(key);

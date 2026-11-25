@@ -1102,7 +1102,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 3.9036,
       "estimated": false,
       "usage": {
         "prompt_tokens": 130000,
@@ -1113,8 +1113,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 3.9,
+        "output_text": 0.0036,
         "output_audio": 0.0
       }
     }
@@ -1133,7 +1133,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 27.045,
       "estimated": false,
       "usage": {
         "prompt_tokens": 900000,
@@ -1144,8 +1144,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 27.0,
+        "output_text": 0.045,
         "output_audio": 0.0
       }
     }
@@ -1164,7 +1164,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 0.00021,
       "estimated": false,
       "usage": {
         "prompt_tokens": 7,
@@ -1179,7 +1179,7 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
+        "input_audio": 0.00021,
         "output_text": 0.0,
         "output_audio": 0.0
       }
@@ -1312,7 +1312,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 5.2048,
       "estimated": false,
       "usage": {
         "prompt_tokens": 130000,
@@ -1323,8 +1323,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 5.2,
+        "output_text": 0.0048,
         "output_audio": 0.0
       }
     }
@@ -1343,7 +1343,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 36.06,
       "estimated": false,
       "usage": {
         "prompt_tokens": 900000,
@@ -1354,8 +1354,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 36.0,
+        "output_text": 0.06,
         "output_audio": 0.0
       }
     }
@@ -1374,7 +1374,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 0.00028,
       "estimated": false,
       "usage": {
         "prompt_tokens": 7,
@@ -1389,7 +1389,7 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
+        "input_audio": 0.00028,
         "output_text": 0.0,
         "output_audio": 0.0
       }
@@ -1522,7 +1522,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 6.8948,
       "estimated": false,
       "usage": {
         "prompt_tokens": 130000,
@@ -1533,8 +1533,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 6.89,
+        "output_text": 0.0048,
         "output_audio": 0.0
       }
     }
@@ -1553,7 +1553,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 47.76,
       "estimated": false,
       "usage": {
         "prompt_tokens": 900000,
@@ -1564,8 +1564,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 47.7,
+        "output_text": 0.06,
         "output_audio": 0.0
       }
     }
@@ -1584,7 +1584,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 0.000371,
       "estimated": false,
       "usage": {
         "prompt_tokens": 7,
@@ -1599,7 +1599,7 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
+        "input_audio": 0.000371,
         "output_text": 0.0,
         "output_audio": 0.0
       }
@@ -1732,7 +1732,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 2.341596,
       "estimated": false,
       "usage": {
         "prompt_tokens": 130000,
@@ -1743,8 +1743,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 2.34,
+        "output_text": 0.001596,
         "output_audio": 0.0
       }
     }
@@ -1763,7 +1763,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 16.21995,
       "estimated": false,
       "usage": {
         "prompt_tokens": 900000,
@@ -1774,8 +1774,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 16.2,
+        "output_text": 0.01995,
         "output_audio": 0.0
       }
     }
@@ -1794,7 +1794,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 0.000126,
       "estimated": false,
       "usage": {
         "prompt_tokens": 7,
@@ -1809,7 +1809,7 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
+        "input_audio": 0.000126,
         "output_text": 0.0,
         "output_audio": 0.0
       }
@@ -1942,7 +1942,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 10.4072,
       "estimated": false,
       "usage": {
         "prompt_tokens": 130000,
@@ -1953,8 +1953,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 10.4,
+        "output_text": 0.0072,
         "output_audio": 0.0
       }
     }
@@ -1973,7 +1973,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 72.09,
       "estimated": false,
       "usage": {
         "prompt_tokens": 900000,
@@ -1984,8 +1984,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 72.0,
+        "output_text": 0.09,
         "output_audio": 0.0
       }
     }
@@ -2004,7 +2004,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 0.00056,
       "estimated": false,
       "usage": {
         "prompt_tokens": 7,
@@ -2019,7 +2019,7 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
+        "input_audio": 0.00056,
         "output_text": 0.0,
         "output_audio": 0.0
       }
@@ -2152,7 +2152,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 3.5124,
       "estimated": false,
       "usage": {
         "prompt_tokens": 130000,
@@ -2163,8 +2163,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 3.51,
+        "output_text": 0.0024,
         "output_audio": 0.0
       }
     }
@@ -2183,7 +2183,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 24.33,
       "estimated": false,
       "usage": {
         "prompt_tokens": 900000,
@@ -2194,8 +2194,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 24.3,
+        "output_text": 0.03,
         "output_audio": 0.0
       }
     }
@@ -2214,7 +2214,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 0.000189,
       "estimated": false,
       "usage": {
         "prompt_tokens": 7,
@@ -2229,7 +2229,7 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
+        "input_audio": 0.000189,
         "output_text": 0.0,
         "output_audio": 0.0
       }
@@ -2362,7 +2362,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 0.104324,
       "estimated": false,
       "usage": {
         "prompt_tokens": 130000,
@@ -2373,8 +2373,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 0.104,
+        "output_text": 0.000324,
         "output_audio": 0.0
       }
     }
@@ -2393,7 +2393,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 0.72405,
       "estimated": false,
       "usage": {
         "prompt_tokens": 900000,
@@ -2404,8 +2404,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 0.72,
+        "output_text": 0.00405,
         "output_audio": 0.0
       }
     }
@@ -2424,7 +2424,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 6e-06,
       "estimated": false,
       "usage": {
         "prompt_tokens": 7,
@@ -2439,7 +2439,7 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
+        "input_audio": 6e-06,
         "output_text": 0.0,
         "output_audio": 0.0
       }
@@ -2572,7 +2572,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 0.78054,
       "estimated": false,
       "usage": {
         "prompt_tokens": 130000,
@@ -2583,8 +2583,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 0.78,
+        "output_text": 0.00054,
         "output_audio": 0.0
       }
     }
@@ -2603,7 +2603,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 5.40675,
       "estimated": false,
       "usage": {
         "prompt_tokens": 900000,
@@ -2614,8 +2614,8 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
-        "input_audio": 0.0,
-        "output_text": 0.0,
+        "input_audio": 5.4,
+        "output_text": 0.00675,
         "output_audio": 0.0
       }
     }
@@ -2634,7 +2634,7 @@
       "region": "cn-beijing",
       "pricing_basis": "token_usage",
       "audio_seconds": 8.275,
-      "cost_cny": 0.0,
+      "cost_cny": 4.2e-05,
       "estimated": false,
       "usage": {
         "prompt_tokens": 7,
@@ -2649,7 +2649,1057 @@
       },
       "cost_breakdown_cny": {
         "input_text": 0.0,
+        "input_audio": 4.2e-05,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash-message",
+    "seconds": 8.275,
+    "usage": null,
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash-message",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.000348,
+      "estimated": true,
+      "usage": {
+        "input_tokens": 58,
+        "output_tokens": 0,
+        "total_tokens": 58,
+        "input_tokens_details": {
+          "audio_tokens": 58
+        },
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.000348,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash-message",
+    "seconds": 8.275,
+    "usage": {},
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash-message",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
         "input_audio": 0.0,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash-message",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 50,
+      "input_tokens_details": {
+        "audio_tokens": 80,
+        "text_tokens": 20
+      },
+      "output_tokens_details": {
+        "text_tokens": 49,
+        "audio_tokens": 1
+      }
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash-message",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.000821,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+        "prompt_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "completion_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        },
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "input_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "output_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        }
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.00012,
+        "input_audio": 0.00048,
+        "output_text": 0.00022,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash-message",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 130000,
+      "completion_tokens": 120
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash-message",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.78054,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 130000,
+        "completion_tokens": 120,
+        "total_tokens": 130120,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.78,
+        "output_text": 0.00054,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash-message",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 900000,
+      "completion_tokens": 1500
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash-message",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 5.40675,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 900000,
+        "completion_tokens": 1500,
+        "total_tokens": 901500,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 5.4,
+        "output_text": 0.00675,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash-message",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": "7",
+      "output_tokens": -4
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash-message",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 4.2e-05,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 0,
+        "total_tokens": 7,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {},
+        "input_tokens": 7,
+        "output_tokens": 0,
+        "input_tokens_details": {},
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 4.2e-05,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash-streaming",
+    "seconds": 8.275,
+    "usage": null,
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash-streaming",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.000348,
+      "estimated": true,
+      "usage": {
+        "input_tokens": 58,
+        "output_tokens": 0,
+        "total_tokens": 58,
+        "input_tokens_details": {
+          "audio_tokens": 58
+        },
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.000348,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash-streaming",
+    "seconds": 8.275,
+    "usage": {},
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash-streaming",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.0,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash-streaming",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 50,
+      "input_tokens_details": {
+        "audio_tokens": 80,
+        "text_tokens": 20
+      },
+      "output_tokens_details": {
+        "text_tokens": 49,
+        "audio_tokens": 1
+      }
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash-streaming",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.000821,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+        "prompt_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "completion_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        },
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "input_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "output_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        }
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.00012,
+        "input_audio": 0.00048,
+        "output_text": 0.00022,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash-streaming",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 130000,
+      "completion_tokens": 120
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash-streaming",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.78054,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 130000,
+        "completion_tokens": 120,
+        "total_tokens": 130120,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.78,
+        "output_text": 0.00054,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash-streaming",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 900000,
+      "completion_tokens": 1500
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash-streaming",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 5.40675,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 900000,
+        "completion_tokens": 1500,
+        "total_tokens": 901500,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 5.4,
+        "output_text": 0.00675,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash-streaming",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": "7",
+      "output_tokens": -4
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash-streaming",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 4.2e-05,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 0,
+        "total_tokens": 7,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {},
+        "input_tokens": 7,
+        "output_tokens": 0,
+        "input_tokens_details": {},
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 4.2e-05,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash",
+    "seconds": 8.275,
+    "usage": null,
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 4.6e-05,
+      "estimated": true,
+      "usage": {
+        "input_tokens": 58,
+        "output_tokens": 0,
+        "total_tokens": 58,
+        "input_tokens_details": {
+          "audio_tokens": 58
+        },
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 4.6e-05,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash",
+    "seconds": 8.275,
+    "usage": {},
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.0,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 50,
+      "input_tokens_details": {
+        "audio_tokens": 80,
+        "text_tokens": 20
+      },
+      "output_tokens_details": {
+        "text_tokens": 49,
+        "audio_tokens": 1
+      }
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.000212,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+        "prompt_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "completion_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        },
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "input_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "output_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        }
+      },
+      "cost_breakdown_cny": {
+        "input_text": 1.6e-05,
+        "input_audio": 6.4e-05,
+        "output_text": 0.000132,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 130000,
+      "completion_tokens": 120
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.104324,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 130000,
+        "completion_tokens": 120,
+        "total_tokens": 130120,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.104,
+        "output_text": 0.000324,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 900000,
+      "completion_tokens": 1500
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.72405,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 900000,
+        "completion_tokens": 1500,
+        "total_tokens": 901500,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.72,
+        "output_text": 0.00405,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-asr-flash",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": "7",
+      "output_tokens": -4
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-asr-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 6e-06,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 0,
+        "total_tokens": 7,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {},
+        "input_tokens": 7,
+        "output_tokens": 0,
+        "input_tokens_details": {},
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 6e-06,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-realtime-flash",
+    "seconds": 8.275,
+    "usage": null,
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-realtime-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.000348,
+      "estimated": true,
+      "usage": {
+        "input_tokens": 58,
+        "output_tokens": 0,
+        "total_tokens": 58,
+        "input_tokens_details": {
+          "audio_tokens": 58
+        },
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.000348,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-realtime-flash",
+    "seconds": 8.275,
+    "usage": {},
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-realtime-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.0,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-realtime-flash",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 50,
+      "input_tokens_details": {
+        "audio_tokens": 80,
+        "text_tokens": 20
+      },
+      "output_tokens_details": {
+        "text_tokens": 49,
+        "audio_tokens": 1
+      }
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-realtime-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.000742,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+        "prompt_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "completion_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        },
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "input_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "output_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        }
+      },
+      "cost_breakdown_cny": {
+        "input_text": 3e-05,
+        "input_audio": 0.00048,
+        "output_text": 0.00022,
+        "output_audio": 1.2e-05
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-realtime-flash",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 130000,
+      "completion_tokens": 120
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-realtime-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.78054,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 130000,
+        "completion_tokens": 120,
+        "total_tokens": 130120,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.78,
+        "output_text": 0.00054,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-realtime-flash",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 900000,
+      "completion_tokens": 1500
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-realtime-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 5.40675,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 900000,
+        "completion_tokens": 1500,
+        "total_tokens": 901500,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 5.4,
+        "output_text": 0.00675,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-realtime-flash",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": "7",
+      "output_tokens": -4
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-realtime-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 4.2e-05,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 0,
+        "total_tokens": 7,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {},
+        "input_tokens": 7,
+        "output_tokens": 0,
+        "input_tokens_details": {},
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 4.2e-05,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-realtime-plus",
+    "seconds": 8.275,
+    "usage": null,
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-realtime-plus",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.00232,
+      "estimated": true,
+      "usage": {
+        "input_tokens": 58,
+        "output_tokens": 0,
+        "total_tokens": 58,
+        "input_tokens_details": {
+          "audio_tokens": 58
+        },
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.00232,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-realtime-plus",
+    "seconds": 8.275,
+    "usage": {},
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-realtime-plus",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.0,
+        "output_text": 0.0,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-realtime-plus",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 50,
+      "input_tokens_details": {
+        "audio_tokens": 80,
+        "text_tokens": 20
+      },
+      "output_tokens_details": {
+        "text_tokens": 49,
+        "audio_tokens": 1
+      }
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-realtime-plus",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.00541,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+        "prompt_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "completion_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        },
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "input_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "output_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        }
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0001,
+        "input_audio": 0.0032,
+        "output_text": 0.00196,
+        "output_audio": 0.00015
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-realtime-plus",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 130000,
+      "completion_tokens": 120
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-realtime-plus",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 5.2048,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 130000,
+        "completion_tokens": 120,
+        "total_tokens": 130120,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 5.2,
+        "output_text": 0.0048,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-realtime-plus",
+    "seconds": 8.275,
+    "usage": {
+      "prompt_tokens": 900000,
+      "completion_tokens": 1500
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-realtime-plus",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 36.06,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 900000,
+        "completion_tokens": 1500,
+        "total_tokens": 901500,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 36.0,
+        "output_text": 0.06,
+        "output_audio": 0.0
+      }
+    }
+  },
+  {
+    "stage": "asr",
+    "model": "qwen-audio-3.1-realtime-plus",
+    "seconds": 8.275,
+    "usage": {
+      "input_tokens": "7",
+      "output_tokens": -4
+    },
+    "expected": {
+      "stage": "asr",
+      "model": "qwen-audio-3.1-realtime-plus",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "audio_seconds": 8.275,
+      "cost_cny": 0.00028,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 0,
+        "total_tokens": 7,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {},
+        "input_tokens": 7,
+        "output_tokens": 0,
+        "input_tokens_details": {},
+        "output_tokens_details": {}
+      },
+      "cost_breakdown_cny": {
+        "input_text": 0.0,
+        "input_audio": 0.00028,
         "output_text": 0.0,
         "output_audio": 0.0
       }
@@ -2716,6 +3766,754 @@
       "output_tokens": -4
     },
     "expected": null
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-flash",
+    "thinking": true,
+    "usage": null,
+    "expected": null
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-flash",
+    "thinking": false,
+    "usage": null,
+    "expected": null
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-flash",
+    "thinking": true,
+    "usage": {},
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "thinking_enabled": true,
+      "input_price_cny_per_million": 0.8,
+      "output_price_cny_per_million": 2.7,
+      "cost_breakdown_cny": {
+        "input": 0.0,
+        "output": 0.0
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-flash",
+    "thinking": false,
+    "usage": {},
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "thinking_enabled": false,
+      "input_price_cny_per_million": 0.8,
+      "output_price_cny_per_million": 2.7,
+      "cost_breakdown_cny": {
+        "input": 0.0,
+        "output": 0.0
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-flash",
+    "thinking": true,
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 50,
+      "input_tokens_details": {
+        "audio_tokens": 80,
+        "text_tokens": 20
+      },
+      "output_tokens_details": {
+        "text_tokens": 49,
+        "audio_tokens": 1
+      }
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 0.000215,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+        "prompt_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "completion_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        },
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "input_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "output_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        }
+      },
+      "thinking_enabled": true,
+      "input_price_cny_per_million": 0.8,
+      "output_price_cny_per_million": 2.7,
+      "cost_breakdown_cny": {
+        "input": 8e-05,
+        "output": 0.000135
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-flash",
+    "thinking": false,
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 50,
+      "input_tokens_details": {
+        "audio_tokens": 80,
+        "text_tokens": 20
+      },
+      "output_tokens_details": {
+        "text_tokens": 49,
+        "audio_tokens": 1
+      }
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 0.000215,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+        "prompt_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "completion_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        },
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "input_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "output_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        }
+      },
+      "thinking_enabled": false,
+      "input_price_cny_per_million": 0.8,
+      "output_price_cny_per_million": 2.7,
+      "cost_breakdown_cny": {
+        "input": 8e-05,
+        "output": 0.000135
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-flash",
+    "thinking": true,
+    "usage": {
+      "prompt_tokens": 130000,
+      "completion_tokens": 120
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 0.104324,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 130000,
+        "completion_tokens": 120,
+        "total_tokens": 130120,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "thinking_enabled": true,
+      "input_price_cny_per_million": 0.8,
+      "output_price_cny_per_million": 2.7,
+      "cost_breakdown_cny": {
+        "input": 0.104,
+        "output": 0.000324
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-flash",
+    "thinking": false,
+    "usage": {
+      "prompt_tokens": 130000,
+      "completion_tokens": 120
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 0.104324,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 130000,
+        "completion_tokens": 120,
+        "total_tokens": 130120,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "thinking_enabled": false,
+      "input_price_cny_per_million": 0.8,
+      "output_price_cny_per_million": 2.7,
+      "cost_breakdown_cny": {
+        "input": 0.104,
+        "output": 0.000324
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-flash",
+    "thinking": true,
+    "usage": {
+      "prompt_tokens": 900000,
+      "completion_tokens": 1500
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 0.72405,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 900000,
+        "completion_tokens": 1500,
+        "total_tokens": 901500,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "thinking_enabled": true,
+      "input_price_cny_per_million": 0.8,
+      "output_price_cny_per_million": 2.7,
+      "cost_breakdown_cny": {
+        "input": 0.72,
+        "output": 0.00405
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-flash",
+    "thinking": false,
+    "usage": {
+      "prompt_tokens": 900000,
+      "completion_tokens": 1500
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 0.72405,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 900000,
+        "completion_tokens": 1500,
+        "total_tokens": 901500,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "thinking_enabled": false,
+      "input_price_cny_per_million": 0.8,
+      "output_price_cny_per_million": 2.7,
+      "cost_breakdown_cny": {
+        "input": 0.72,
+        "output": 0.00405
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-flash",
+    "thinking": true,
+    "usage": {
+      "input_tokens": "7",
+      "output_tokens": -4
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 6e-06,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 0,
+        "total_tokens": 7,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {},
+        "input_tokens": 7,
+        "output_tokens": 0,
+        "input_tokens_details": {},
+        "output_tokens_details": {}
+      },
+      "thinking_enabled": true,
+      "input_price_cny_per_million": 0.8,
+      "output_price_cny_per_million": 2.7,
+      "cost_breakdown_cny": {
+        "input": 6e-06,
+        "output": 0.0
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-flash",
+    "thinking": false,
+    "usage": {
+      "input_tokens": "7",
+      "output_tokens": -4
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-flash",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 6e-06,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 0,
+        "total_tokens": 7,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {},
+        "input_tokens": 7,
+        "output_tokens": 0,
+        "input_tokens_details": {},
+        "output_tokens_details": {}
+      },
+      "thinking_enabled": false,
+      "input_price_cny_per_million": 0.8,
+      "output_price_cny_per_million": 2.7,
+      "cost_breakdown_cny": {
+        "input": 6e-06,
+        "output": 0.0
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-max",
+    "thinking": true,
+    "usage": null,
+    "expected": null
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-max",
+    "thinking": false,
+    "usage": null,
+    "expected": null
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-max",
+    "thinking": true,
+    "usage": {},
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-max",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "thinking_enabled": true,
+      "input_price_cny_per_million": 12.0,
+      "output_price_cny_per_million": 36.0,
+      "cost_breakdown_cny": {
+        "input": 0.0,
+        "output": 0.0
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-max",
+    "thinking": false,
+    "usage": {},
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-max",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 0.0,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "thinking_enabled": false,
+      "input_price_cny_per_million": 12.0,
+      "output_price_cny_per_million": 36.0,
+      "cost_breakdown_cny": {
+        "input": 0.0,
+        "output": 0.0
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-max",
+    "thinking": true,
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 50,
+      "input_tokens_details": {
+        "audio_tokens": 80,
+        "text_tokens": 20
+      },
+      "output_tokens_details": {
+        "text_tokens": 49,
+        "audio_tokens": 1
+      }
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-max",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 0.003,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+        "prompt_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "completion_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        },
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "input_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "output_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        }
+      },
+      "thinking_enabled": true,
+      "input_price_cny_per_million": 12.0,
+      "output_price_cny_per_million": 36.0,
+      "cost_breakdown_cny": {
+        "input": 0.0012,
+        "output": 0.0018
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-max",
+    "thinking": false,
+    "usage": {
+      "input_tokens": 100,
+      "output_tokens": 50,
+      "input_tokens_details": {
+        "audio_tokens": 80,
+        "text_tokens": 20
+      },
+      "output_tokens_details": {
+        "text_tokens": 49,
+        "audio_tokens": 1
+      }
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-max",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 0.003,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 100,
+        "completion_tokens": 50,
+        "total_tokens": 150,
+        "prompt_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "completion_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        },
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "input_tokens_details": {
+          "audio_tokens": 80,
+          "text_tokens": 20
+        },
+        "output_tokens_details": {
+          "text_tokens": 49,
+          "audio_tokens": 1
+        }
+      },
+      "thinking_enabled": false,
+      "input_price_cny_per_million": 12.0,
+      "output_price_cny_per_million": 36.0,
+      "cost_breakdown_cny": {
+        "input": 0.0012,
+        "output": 0.0018
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-max",
+    "thinking": true,
+    "usage": {
+      "prompt_tokens": 130000,
+      "completion_tokens": 120
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-max",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 1.56432,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 130000,
+        "completion_tokens": 120,
+        "total_tokens": 130120,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "thinking_enabled": true,
+      "input_price_cny_per_million": 12.0,
+      "output_price_cny_per_million": 36.0,
+      "cost_breakdown_cny": {
+        "input": 1.56,
+        "output": 0.00432
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-max",
+    "thinking": false,
+    "usage": {
+      "prompt_tokens": 130000,
+      "completion_tokens": 120
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-max",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 1.56432,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 130000,
+        "completion_tokens": 120,
+        "total_tokens": 130120,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "thinking_enabled": false,
+      "input_price_cny_per_million": 12.0,
+      "output_price_cny_per_million": 36.0,
+      "cost_breakdown_cny": {
+        "input": 1.56,
+        "output": 0.00432
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-max",
+    "thinking": true,
+    "usage": {
+      "prompt_tokens": 900000,
+      "completion_tokens": 1500
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-max",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 10.854,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 900000,
+        "completion_tokens": 1500,
+        "total_tokens": 901500,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "thinking_enabled": true,
+      "input_price_cny_per_million": 12.0,
+      "output_price_cny_per_million": 36.0,
+      "cost_breakdown_cny": {
+        "input": 10.8,
+        "output": 0.054
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-max",
+    "thinking": false,
+    "usage": {
+      "prompt_tokens": 900000,
+      "completion_tokens": 1500
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-max",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 10.854,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 900000,
+        "completion_tokens": 1500,
+        "total_tokens": 901500,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      },
+      "thinking_enabled": false,
+      "input_price_cny_per_million": 12.0,
+      "output_price_cny_per_million": 36.0,
+      "cost_breakdown_cny": {
+        "input": 10.8,
+        "output": 0.054
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-max",
+    "thinking": true,
+    "usage": {
+      "input_tokens": "7",
+      "output_tokens": -4
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-max",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 8.4e-05,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 0,
+        "total_tokens": 7,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {},
+        "input_tokens": 7,
+        "output_tokens": 0,
+        "input_tokens_details": {},
+        "output_tokens_details": {}
+      },
+      "thinking_enabled": true,
+      "input_price_cny_per_million": 12.0,
+      "output_price_cny_per_million": 36.0,
+      "cost_breakdown_cny": {
+        "input": 8.4e-05,
+        "output": 0.0
+      }
+    }
+  },
+  {
+    "stage": "polish",
+    "model": "qwen3.8-max",
+    "thinking": false,
+    "usage": {
+      "input_tokens": "7",
+      "output_tokens": -4
+    },
+    "expected": {
+      "stage": "polish",
+      "model": "qwen3.8-max",
+      "region": "cn-beijing",
+      "pricing_basis": "token_usage",
+      "cost_cny": 8.4e-05,
+      "estimated": false,
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 0,
+        "total_tokens": 7,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {},
+        "input_tokens": 7,
+        "output_tokens": 0,
+        "input_tokens_details": {},
+        "output_tokens_details": {}
+      },
+      "thinking_enabled": false,
+      "input_price_cny_per_million": 12.0,
+      "output_price_cny_per_million": 36.0,
+      "cost_breakdown_cny": {
+        "input": 8.4e-05,
+        "output": 0.0
+      }
+    }
   },
   {
     "stage": "polish",

@@ -17,6 +17,7 @@ from .config_parsing import (
     MAX_HIGHPASS_FREQ,
     MAX_LLM_MAX_TOKENS,
     MAX_LLM_TEMPERATURE,
+    MAX_TAIL_PADDING_MS,
     MIN_AUDIO_BLOCKSIZE,
     MIN_AUDIO_CHANNELS,
     MIN_AUDIO_GAIN,
@@ -24,6 +25,7 @@ from .config_parsing import (
     MIN_HIGHPASS_FREQ,
     MIN_LLM_MAX_TOKENS,
     MIN_LLM_TEMPERATURE,
+    MIN_TAIL_PADDING_MS,
     clamp_float,
     clamp_int,
     parse_bool,
@@ -165,6 +167,7 @@ class AudioConfig:
     highpass_freq: int = 200
     soft_limiter: bool = True
     waveform_ceiling_dbfs: float = DEFAULT_WAVEFORM_CEILING_DBFS
+    tail_padding_ms: int = 200
 
     def __post_init__(self) -> None:
         self.sample_rate = OUTPUT_SAMPLE_RATE_HZ
@@ -188,7 +191,7 @@ class ASRConfig:
     """ASR configuration."""
 
     backend: ASRBackend = "realtime_ws"
-    model: str = "qwen3.5-omni-flash-realtime"
+    model: str = "qwen-audio-3.1-asr-flash-message"
     language: ASRLanguage = "auto"
     batch_mode: Literal["manual"] = "manual"
     realtime_url: str = ""
@@ -200,7 +203,7 @@ class ASRConfig:
 class LLMConfig:
     """LLM configuration for text polishing."""
 
-    model: str = "qwen3.5-plus"
+    model: str = "qwen3.8-flash"
     temperature: float = 0.0
     enable_thinking: bool = False
     max_tokens: int = 1024
@@ -328,13 +331,13 @@ def _parse_llm_model(raw: str) -> str:
         return "qwen3.5-plus"
     if raw and raw in LLM_MODEL_IDS:
         return raw
-    return "qwen3.5-plus"
+    return "qwen3.8-flash"
 
 
 def _parse_asr_model(raw: str) -> str:
     if raw and raw in ASR_MODEL_IDS:
         return raw
-    return "qwen3.5-omni-flash-realtime"
+    return "qwen-audio-3.1-asr-flash-message"
 
 
 def _parse_level(raw: str) -> Literal["minimal", "balanced", "strong"]:
@@ -443,6 +446,7 @@ class AppConfig:
     native_fast_paste: bool = False
     restore_clipboard: bool = True
     screen_context_enabled: bool = False
+    cursor_context_enabled: bool = True
     default_mode: str = "realtime_long"
     # None follows the release channel embedded in the app bundle. This keeps
     # existing Alpha installations on their Alpha feed until the user makes an
@@ -467,6 +471,7 @@ class AppConfig:
             "native_fast_paste",
             "restore_clipboard",
             "screen_context_enabled",
+            "cursor_context_enabled",
             "default_mode",
             "update_channel",
         ):
@@ -553,6 +558,7 @@ class AppConfig:
             "native_fast_paste",
             "restore_clipboard",
             "screen_context_enabled",
+            "cursor_context_enabled",
             "enable_polish",
             "update_channel",
         ):
@@ -611,6 +617,10 @@ class AppConfig:
         elif field_name == "screen_context_enabled":
             self.screen_context_enabled = parse_bool(
                 value, self.screen_context_enabled
+            )
+        elif field_name == "cursor_context_enabled":
+            self.cursor_context_enabled = parse_bool(
+                value, self.cursor_context_enabled
             )
         elif field_name == "default_mode":
             self.default_mode = _parse_default_mode(value)
@@ -711,6 +721,13 @@ class AppConfig:
                 default=self.audio.waveform_ceiling_dbfs,
                 minimum=MIN_WAVEFORM_CEILING_DBFS,
                 maximum=MAX_WAVEFORM_CEILING_DBFS,
+            )
+        elif field_name == "tail_padding_ms":
+            self.audio.tail_padding_ms = clamp_int(
+                value,
+                default=self.audio.tail_padding_ms,
+                minimum=MIN_TAIL_PADDING_MS,
+                maximum=MAX_TAIL_PADDING_MS,
             )
         else:
             raise ValueError(f"Unknown config key: audio.{field_name}")
@@ -867,6 +884,7 @@ class AppConfig:
                 "highpass_freq": self.audio.highpass_freq,
                 "soft_limiter": self.audio.soft_limiter,
                 "waveform_ceiling_dbfs": self.audio.waveform_ceiling_dbfs,
+                "tail_padding_ms": self.audio.tail_padding_ms,
             },
             "asr": {
                 "backend": self.asr.backend,
@@ -931,6 +949,7 @@ class AppConfig:
             "native_fast_paste": self.native_fast_paste,
             "restore_clipboard": self.restore_clipboard,
             "screen_context_enabled": self.screen_context_enabled,
+            "cursor_context_enabled": self.cursor_context_enabled,
             "default_mode": self.default_mode,
             "update_channel": self.update_channel,
         }

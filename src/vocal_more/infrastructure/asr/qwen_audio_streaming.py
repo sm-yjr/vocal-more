@@ -115,13 +115,30 @@ class StreamingRecognitionConversation:
         model_info = get_asr_model_info(model) or {}
         if model_info.get("supports_instant_hotwords"):
             # Canonical terms only; aliases remain deterministic local mappings.
-            vocabulary = dict.fromkeys(
-                (term.strip() for term in corpus_text.splitlines() if term.strip()), 4
-            )
+            allow_super = bool(model_info.get("supports_super_hotwords"))
+            vocabulary: dict[str, int] = {}
+            super_count = 0
+            for term in (line.strip() for line in corpus_text.splitlines() if line.strip()):
+                if len(vocabulary) >= 2000 or term in vocabulary:
+                    continue
+                if term.isascii():
+                    if len(term) > 64 or len(term.split()) > 7:
+                        continue
+                elif len(term) > 15:
+                    continue
+                if allow_super and super_count < 50:
+                    vocabulary[term] = 50
+                    super_count += 1
+                else:
+                    vocabulary[term] = 4
             if vocabulary:
-                kwargs["vocabulary"] = dict(list(vocabulary.items())[:2000])
-            kwargs["semantic_punctuation_enabled"] = False
-            kwargs["punctuation_prediction_enabled"] = True
+                kwargs["vocabulary"] = vocabulary
+            if model_info.get("supports_native_disfluency_removal"):
+                kwargs.pop("semantic_punctuation_enabled", None)
+                kwargs["intermediate_result_enabled"] = True
+            else:
+                kwargs["semantic_punctuation_enabled"] = False
+                kwargs["punctuation_prediction_enabled"] = True
         if language:
             kwargs["language_hints"] = [language]
         self._start_kwargs: dict = {}

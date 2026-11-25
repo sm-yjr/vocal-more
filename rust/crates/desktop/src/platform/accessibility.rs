@@ -20,6 +20,8 @@ use std::{
 /// Optional correction learning must not dominate result delivery. The budget
 /// includes time queued behind an earlier AX operation, not just each IPC call.
 pub const AX_CAPTURE_BUDGET: Duration = Duration::from_millis(150);
+/// Pre-dictation cursor context runs concurrently with audio/network startup.
+pub const AX_CONTEXT_BUDGET: Duration = Duration::from_millis(80);
 fn remaining_timeout(deadline: Instant, now: Instant) -> Option<f32> {
     let remaining = deadline.checked_duration_since(now)?;
     (!remaining.is_zero()).then(|| remaining.min(Duration::from_millis(40)).as_secs_f32())
@@ -146,6 +148,120 @@ fn focused(deadline: Instant) -> Option<Snapshot> {
         deadline,
     )
 }
+fn cursor_context_snapshot(deadline: Instant) -> Value {
+    if !unsafe { ffi::AXIsProcessTrusted() }
+        || remaining_timeout(deadline, Instant::now()).is_none()
+    {
+        return Value::Null;
+    }
+    let Some(system) = (unsafe { ffi::Owned::from_create(ffi::AXUIElementCreateSystemWide()) })
+    else {
+        return Value::Null;
+    };
+    let focused_app = attribute(system.as_ptr(), "AXFocusedApplication", deadline);
+    let mut pid = 0;
+    if let Some(app_el) = &focused_app {
+        let _ = unsafe { ffi::AXUIElementGetPid(app_el.as_ptr(), &mut pid) };
+    }
+    let focused_el = attribute(system.as_ptr(), "AXFocusedUIElement", deadline);
+    if pid == 0
+        && let Some(el) = &focused_el
+    {
+        let _ = unsafe { ffi::AXUIElementGetPid(el.as_ptr(), &mut pid) };
+    }
+    if pid == 0 {
+        return Value::Null;
+    }
+    let (bundle, app_name) = unsafe {
+        let app: Option<objc2::rc::Retained<AnyObject>> =
+            msg_send![class(c"NSRunningApplication"), runningApplicationWithProcessIdentifier:pid];
+        app.map(|app| {
+            let bundle: Option<objc2::rc::Retained<objc2_foundation::NSString>> =
+                msg_send![&*app, bundleIdentifier];
+            let name: Option<objc2::rc::Retained<objc2_foundation::NSString>> =
+                msg_send![&*app, localizedName];
+            (
+                bundle.map(|v| v.to_string()).unwrap_or_default(),
+                name.map(|v| v.to_string()).unwrap_or_default(),
+            )
+        })
+        .unwrap_or_default()
+    };
+    let window_title = focused_app
+        .as_ref()
+        .and_then(|app_el| attribute(app_el.as_ptr(), "AXFocusedWindow", deadline))
+        .and_then(|win| text_attribute(win.as_ptr(), "AXTitle", deadline))
+        .unwrap_or_default();
+
+    let mut is_secure = false;
+    let mut before_cursor = String::new();
+    let mut after_cursor = String::new();
+    let mut selected_text = String::new();
+
+    if let Some(el) = focused_el {
+        let role = text_attribute(el.as_ptr(), "AXRole", deadline).unwrap_or_default();
+        let subrole = text_attribute(el.as_ptr(), "AXSubrole", deadline);
+        let secure_marker =
+            format!("{role} {}", subrole.as_deref().unwrap_or("unknown")).to_lowercase();
+        // Fail closed: if subrole cannot be verified or looks like a password/secure
+        // field, never read AXValue or AXSelectedText.
+        is_secure = subrole.is_none()
+            || secure_marker.contains("secure")
+            || secure_marker.contains("password");
+        if !is_secure {
+            if let Some(selected) = text_attribute(el.as_ptr(), "AXSelectedText", deadline) {
+                selected_text = selected.chars().take(200).collect();
+            }
+            if matches!(
+                role.as_str(),
+                "AXTextField" | "AXTextArea" | "AXComboBox" | "AXSearchField" | "AXWebArea"
+            ) && let Some(value) = text_attribute(el.as_ptr(), "AXValue", deadline)
+                && value.chars().take(32_001).count() <= 32_000
+            {
+                let range = attribute(el.as_ptr(), "AXSelectedTextRange", deadline).and_then(|v| {
+                    let mut range = ffi::Range::default();
+                    if unsafe {
+                        ffi::AXValueGetType(v.as_ptr()) == 4
+                            && ffi::AXValueGetValue(
+                                v.as_ptr(),
+                                4,
+                                (&mut range as *mut ffi::Range).cast(),
+                            )
+                    } {
+                        utf16_range(&value, range.location, range.length)
+                    } else {
+                        None
+                    }
+                });
+                let chars: Vec<char> = value.chars().collect();
+                let (start, len) = range.unwrap_or((chars.len(), 0));
+                let start = start.min(chars.len());
+                let end = (start + len).min(chars.len());
+                before_cursor = chars[start.saturating_sub(200)..start].iter().collect();
+                after_cursor = chars[end..(end + 100).min(chars.len())].iter().collect();
+                if selected_text.is_empty() && end > start {
+                    selected_text = chars[start..end].iter().take(200).collect();
+                }
+            }
+        }
+    }
+    if is_secure {
+        return json!({
+            "is_secure": true,
+            "app_bundle_id": bundle,
+            "app_name": app_name
+        });
+    }
+    json!({
+        "is_secure": false,
+        "app_bundle_id": bundle,
+        "app_name": app_name,
+        "window_title": window_title,
+        "before_cursor": before_cursor,
+        "after_cursor": after_cursor,
+        "selected_text": selected_text
+    })
+}
 pub fn utf16_range(text: &str, start: isize, length: isize) -> Option<(usize, usize)> {
     let start = usize::try_from(start).ok()?;
     let end = start.checked_add(usize::try_from(length).ok()?)?;
@@ -174,6 +290,7 @@ pub fn utf16_range(text: &str, start: isize, length: isize) -> Option<(usize, us
 
 enum Command {
     Capture(Value, Instant),
+    CaptureContext(Value, Instant),
     Retain(String, Value),
     Poll(String),
     End(String),
@@ -198,6 +315,10 @@ impl AccessibilityWorker {
                         let captured=focused(deadline);let value=captured.as_ref().map(|s|s.value.clone()).unwrap_or(Value::Null);
                         if let Some(captured)=captured {pending.clear();pending.insert(captured.value["target_id"].as_str().unwrap_or_default().into(),captured);}
                         if !stopping.load(Ordering::Acquire) {commands.request("platform_event",json!({"method":"platform_focused_snapshot","params":{"request_id":request_id,"snapshot":value}}));}
+                    },
+                    Command::CaptureContext(request_id,deadline)=>{
+                        let value=cursor_context_snapshot(deadline);
+                        if !stopping.load(Ordering::Acquire) {commands.request("platform_event",json!({"method":"platform_cursor_context","params":{"request_id":request_id,"snapshot":value}}));}
                     },
                     Command::Retain(id,value)=>{if let Some(snapshot)=pending.remove(value["target_id"].as_str().unwrap_or_default()) && snapshot.value["pid"]==value["pid"] {retained.insert(id,snapshot);}},
                     Command::Poll(id)=>{
@@ -232,6 +353,12 @@ impl AccessibilityWorker {
     }
     pub fn capture(&self, id: Value) -> Result<()> {
         self.submit(Command::Capture(id, Instant::now() + AX_CAPTURE_BUDGET))
+    }
+    pub fn capture_context(&self, id: Value) -> Result<()> {
+        self.submit(Command::CaptureContext(
+            id,
+            Instant::now() + AX_CONTEXT_BUDGET,
+        ))
     }
     pub fn retain(&self, id: &str, snapshot: &Value) -> Result<()> {
         self.submit(Command::Retain(id.into(), snapshot.clone()))

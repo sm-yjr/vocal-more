@@ -4,6 +4,7 @@ pub mod billing;
 pub mod catalog;
 pub mod coach;
 pub mod config;
+pub mod context;
 pub mod dictionary;
 pub mod history;
 pub mod http;

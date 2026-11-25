@@ -100,6 +100,7 @@ pub(crate) enum Input {
 pub enum NetworkInput {
     Pcm(Bytes),
     Image(Bytes),
+    Context(serde_json::Value),
     Finish,
 }
 
@@ -180,6 +181,7 @@ struct Active {
     source: Source,
     input: mpsc::Sender<Input>,
     visual: mpsc::Sender<Bytes>,
+    context: mpsc::Sender<serde_json::Value>,
     cancel: CancellationToken,
     stop: CancellationToken,
     // The acceptance barrier makes "cancel accepted" mutually exclusive with
@@ -323,6 +325,7 @@ impl Host {
         let (state_tx, state_rx) = watch::channel(initial);
         let (input_tx, input_rx) = mpsc::channel(crate::AUDIO_QUEUE_BLOCKS);
         let (visual_tx, visual_rx) = mpsc::channel(2);
+        let (context_tx, context_rx) = mpsc::channel(2);
         let cancel = CancellationToken::new();
         let stop = CancellationToken::new();
         let committing = Arc::new(Mutex::new(false));
@@ -338,6 +341,7 @@ impl Host {
             input_tx: input_tx.clone(),
             input_rx,
             visual_rx,
+            context_rx,
             cancel: cancel.clone(),
             stop: stop.clone(),
             committing: committing.clone(),
@@ -352,6 +356,7 @@ impl Host {
             source: request.source,
             input: input_tx,
             visual: visual_tx,
+            context: context_tx,
             cancel,
             stop,
             committing,
@@ -420,6 +425,15 @@ impl Host {
                 anyhow::anyhow!("session input is closed")
             }
         })?;
+        Ok(())
+    }
+
+    pub fn update_context(&mut self, generation: u64, context: serde_json::Value) -> Result<()> {
+        let active = self.active_for(generation)?;
+        if active.finishing {
+            return Ok(());
+        }
+        let _ = active.context.try_send(context);
         Ok(())
     }
 
@@ -497,6 +511,7 @@ struct Session {
     input_tx: mpsc::Sender<Input>,
     input_rx: mpsc::Receiver<Input>,
     visual_rx: mpsc::Receiver<Bytes>,
+    context_rx: mpsc::Receiver<serde_json::Value>,
     cancel: CancellationToken,
     stop: CancellationToken,
     committing: Arc<Mutex<bool>>,
@@ -570,6 +585,7 @@ impl Session {
         self.stop.cancel();
         self.input_rx.close();
         self.visual_rx.close();
+        self.context_rx.close();
         network_cancel.cancel();
         if let Some(network) = network {
             network.abort();
@@ -656,6 +672,7 @@ impl Session {
             enum Event {
                 Input(Option<Input>),
                 Image(Option<Bytes>),
+                Context(Option<serde_json::Value>),
                 Network(Result<String>),
                 Stop,
                 Timeout,
@@ -666,6 +683,7 @@ impl Session {
                 biased;
                 _ = self.cancel.cancelled() => Event::Cancel,
                 _ = tokio::time::sleep_until(audio_deadline), if native && ready && !finished && stop_deadline.is_none() => Event::Stalled,
+                value = self.context_rx.recv(), if !finished => Event::Context(value),
                 value = self.visual_rx.recv(), if !finished => Event::Image(value),
                 value = self.input_rx.recv(), if !finished => Event::Input(value),
                 value = async {
@@ -822,6 +840,12 @@ impl Session {
                     }
                 }
                 Event::Image(None) => {}
+                Event::Context(Some(context)) => {
+                    if network.is_some() {
+                        let _ = network_tx.try_send(NetworkInput::Context(context));
+                    }
+                }
+                Event::Context(None) => {}
                 Event::Input(Some(Input::Finish)) => {
                     finished = true;
                     finish_at = Some(Instant::now());
@@ -914,6 +938,7 @@ async fn run_network(
                     Event::Input(Some(NetworkInput::Image(_))) => {
                         bail!("screen frames are unsupported by the core realtime protocol")
                     },
+                    Event::Input(Some(NetworkInput::Context(_))) => {},
                     Event::Input(Some(NetworkInput::Finish)) => {
                         if !pending_pcm.is_empty() {
                             timeout(SEND_TIMEOUT, protocol::send(&mut socket, protocol::append_event(&pending_pcm))).await.context("tail audio send timeout")??;

@@ -30,9 +30,9 @@ def test_checks_every_displayed_model_independently():
     assert {(model, key) for model, key in calls} == {
         (model, "sk-secret") for _, model, _ in DASHSCOPE_MODELS
     }
-    assert len(results) == 10
-    assert [result["family"] for result in results].count("asr") == 6
-    assert [result["family"] for result in results].count("llm") == 4
+    assert len(results) == 13
+    assert [result["family"] for result in results].count("asr") == 7
+    assert [result["family"] for result in results].count("llm") == 6
     assert all(result["status"] == "ok" for result in results)
     assert all(result["display_name"] for result in results)
     assert all("api_key" not in result for result in results)
@@ -63,7 +63,7 @@ def test_reports_provider_failure_without_hiding_other_models():
         "latency_ms": failed["latency_ms"],
         "error": "ModelAccessDenied: Model is not enabled",
     }
-    assert sum(result["status"] == "ok" for result in results) == 9
+    assert sum(result["status"] == "ok" for result in results) == 12
 
 
 def test_missing_key_returns_an_error_for_every_model_without_calling_provider():
@@ -75,7 +75,7 @@ def test_missing_key_returns_an_error_for_every_model_without_calling_provider()
         model_call=unexpected_call,
     )
 
-    assert len(results) == len(DASHSCOPE_MODELS) == 10
+    assert len(results) == len(DASHSCOPE_MODELS) == 13
     assert all(result["status"] == "error" for result in results)
     assert all(result["error"] == "API key is missing" for result in results)
 

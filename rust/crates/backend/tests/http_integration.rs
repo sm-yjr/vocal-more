@@ -130,7 +130,7 @@ async fn streamed_polish_handles_fragmented_unicode_and_matches_dashscope_reques
     let (headers, request) = server.await??;
     assert!(headers.contains("/api/v1/services/aigc/multimodal-generation/generation"));
     assert!(headers.to_lowercase().contains("x-dashscope-sse: enable"));
-    assert_eq!(request["model"], "qwen3.5-plus");
+    assert_eq!(request["model"], "qwen3.8-flash");
     assert_eq!(request["parameters"]["incremental_output"], true);
     assert!(request["parameters"].get("stream").is_none());
     assert_eq!(
@@ -146,7 +146,12 @@ async fn all_file_models_send_complete_wav_and_parse_their_response_envelopes() 
     let path = temp.path().join("fixture.wav");
     let pcm = (0..6400).map(|n| (n % 251) as u8).collect::<Vec<_>>();
     std::fs::write(&path, wav_bytes(&pcm)?)?;
-    for model in ["qwen3-asr-flash", "qwen3.5-omni-plus", "qwen3.5-omni-flash"] {
+    for model in [
+        "qwen3-asr-flash",
+        "qwen-audio-3.1-asr-flash",
+        "qwen3.5-omni-plus",
+        "qwen3.5-omni-flash",
+    ] {
         let omni = model.contains("omni");
         let body = if omni {
             event(json!({"choices":[{"delta":{"content":"文件结果"},"finish_reason":"stop"}]}))
@@ -165,6 +170,10 @@ async fn all_file_models_send_complete_wav_and_parse_their_response_envelopes() 
         assert_eq!(request["model"], model);
         let data = if omni {
             request["messages"][1]["content"][0]["input_audio"]["data"]
+                .as_str()
+                .unwrap()
+        } else if model == "qwen-audio-3.1-asr-flash" {
+            request["input"]["messages"][0]["content"][0]["input_audio"]["data"]
                 .as_str()
                 .unwrap()
         } else {

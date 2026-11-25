@@ -15,11 +15,12 @@
         "highpass_filter": true,
         "highpass_freq": 200,
         "soft_limiter": true,
-        "waveform_ceiling_dbfs": -6.0
+        "waveform_ceiling_dbfs": -6.0,
+        "tail_padding_ms": 200
       },
       "asr": {
         "backend": "realtime_ws",
-        "model": "qwen3.5-omni-flash-realtime",
+        "model": "qwen-audio-3.1-asr-flash-message",
         "language": "auto",
         "batch_mode": "manual",
         "realtime_url": "",
@@ -27,7 +28,7 @@
         "extra_corpus_terms": []
       },
       "llm": {
-        "model": "qwen3.5-plus",
+        "model": "qwen3.8-flash",
         "temperature": 0.0,
         "enable_thinking": false,
         "max_tokens": 1024,
@@ -68,6 +69,7 @@
       "native_fast_paste": false,
       "restore_clipboard": true,
       "screen_context_enabled": false,
+      "cursor_context_enabled": true,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -90,11 +92,12 @@
         "highpass_filter": true,
         "highpass_freq": 200,
         "soft_limiter": true,
-        "waveform_ceiling_dbfs": -6.0
+        "waveform_ceiling_dbfs": -6.0,
+        "tail_padding_ms": 200
       },
       "asr": {
         "backend": "realtime_ws",
-        "model": "qwen3.5-omni-flash-realtime",
+        "model": "qwen-audio-3.1-asr-flash-message",
         "language": "auto",
         "batch_mode": "manual",
         "realtime_url": "",
@@ -102,7 +105,7 @@
         "extra_corpus_terms": []
       },
       "llm": {
-        "model": "qwen3.5-plus",
+        "model": "qwen3.8-flash",
         "temperature": 0.0,
         "enable_thinking": false,
         "max_tokens": 1024,
@@ -143,6 +146,7 @@
       "native_fast_paste": false,
       "restore_clipboard": true,
       "screen_context_enabled": false,
+      "cursor_context_enabled": true,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -168,11 +172,12 @@
         "highpass_filter": true,
         "highpass_freq": 200,
         "soft_limiter": true,
-        "waveform_ceiling_dbfs": -6.0
+        "waveform_ceiling_dbfs": -6.0,
+        "tail_padding_ms": 200
       },
       "asr": {
         "backend": "realtime_ws",
-        "model": "qwen3.5-omni-flash-realtime",
+        "model": "qwen-audio-3.1-asr-flash-message",
         "language": "auto",
         "batch_mode": "manual",
         "realtime_url": "",
@@ -180,7 +185,7 @@
         "extra_corpus_terms": []
       },
       "llm": {
-        "model": "qwen3.5-plus",
+        "model": "qwen3.8-flash",
         "temperature": 0.0,
         "enable_thinking": false,
         "max_tokens": 1024,
@@ -221,6 +226,7 @@
       "native_fast_paste": false,
       "restore_clipboard": true,
       "screen_context_enabled": false,
+      "cursor_context_enabled": true,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -246,7 +252,8 @@
         "highpass_filter": true,
         "highpass_freq": 200,
         "soft_limiter": true,
-        "waveform_ceiling_dbfs": -6.0
+        "waveform_ceiling_dbfs": -6.0,
+        "tail_padding_ms": 200
       },
       "asr": {
         "backend": "realtime_ws",
@@ -258,7 +265,7 @@
         "extra_corpus_terms": []
       },
       "llm": {
-        "model": "qwen3.5-plus",
+        "model": "qwen3.8-flash",
         "temperature": 0.0,
         "enable_thinking": false,
         "max_tokens": 1024,
@@ -299,6 +306,7 @@
       "native_fast_paste": false,
       "restore_clipboard": true,
       "screen_context_enabled": false,
+      "cursor_context_enabled": true,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -323,11 +331,12 @@
         "highpass_filter": true,
         "highpass_freq": 200,
         "soft_limiter": true,
-        "waveform_ceiling_dbfs": -6.0
+        "waveform_ceiling_dbfs": -6.0,
+        "tail_padding_ms": 200
       },
       "asr": {
         "backend": "realtime_ws",
-        "model": "qwen3.5-omni-flash-realtime",
+        "model": "qwen-audio-3.1-asr-flash-message",
         "language": "auto",
         "batch_mode": "manual",
         "realtime_url": "",
@@ -335,7 +344,7 @@
         "extra_corpus_terms": []
       },
       "llm": {
-        "model": "qwen3.5-plus",
+        "model": "qwen3.8-flash",
         "temperature": 0.0,
         "enable_thinking": false,
         "max_tokens": 1024,
@@ -376,6 +385,7 @@
       "native_fast_paste": false,
       "restore_clipboard": true,
       "screen_context_enabled": false,
+      "cursor_context_enabled": true,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -398,11 +408,12 @@
         "highpass_filter": true,
         "highpass_freq": 200,
         "soft_limiter": true,
-        "waveform_ceiling_dbfs": -6.0
+        "waveform_ceiling_dbfs": -6.0,
+        "tail_padding_ms": 200
       },
       "asr": {
         "backend": "realtime_ws",
-        "model": "qwen3.5-omni-flash-realtime",
+        "model": "qwen-audio-3.1-asr-flash-message",
         "language": "auto",
         "batch_mode": "manual",
         "realtime_url": "",
@@ -410,7 +421,7 @@
         "extra_corpus_terms": []
       },
       "llm": {
-        "model": "qwen3.5-plus",
+        "model": "qwen3.8-flash",
         "temperature": 0.0,
         "enable_thinking": false,
         "max_tokens": 1024,
@@ -451,6 +462,7 @@
       "native_fast_paste": false,
       "restore_clipboard": true,
       "screen_context_enabled": false,
+      "cursor_context_enabled": true,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -477,11 +489,12 @@
         "highpass_filter": true,
         "highpass_freq": 200,
         "soft_limiter": true,
-        "waveform_ceiling_dbfs": -6.0
+        "waveform_ceiling_dbfs": -6.0,
+        "tail_padding_ms": 200
       },
       "asr": {
         "backend": "realtime_ws",
-        "model": "qwen3.5-omni-flash-realtime",
+        "model": "qwen-audio-3.1-asr-flash-message",
         "language": "auto",
         "batch_mode": "manual",
         "realtime_url": "",
@@ -489,7 +502,7 @@
         "extra_corpus_terms": []
       },
       "llm": {
-        "model": "qwen3.5-plus",
+        "model": "qwen3.8-flash",
         "temperature": 0.0,
         "enable_thinking": false,
         "max_tokens": 1024,
@@ -530,6 +543,7 @@
       "native_fast_paste": false,
       "restore_clipboard": true,
       "screen_context_enabled": false,
+      "cursor_context_enabled": true,
       "default_mode": "realtime_long",
       "update_channel": null
     }
@@ -560,11 +574,12 @@
         "highpass_filter": true,
         "highpass_freq": 200,
         "soft_limiter": true,
-        "waveform_ceiling_dbfs": -6.0
+        "waveform_ceiling_dbfs": -6.0,
+        "tail_padding_ms": 200
       },
       "asr": {
         "backend": "realtime_ws",
-        "model": "qwen3.5-omni-flash-realtime",
+        "model": "qwen-audio-3.1-asr-flash-message",
         "language": "auto",
         "batch_mode": "manual",
         "realtime_url": "",
@@ -572,7 +587,7 @@
         "extra_corpus_terms": []
       },
       "llm": {
-        "model": "qwen3.5-plus",
+        "model": "qwen3.8-flash",
         "temperature": 0.0,
         "enable_thinking": false,
         "max_tokens": 1024,
@@ -613,6 +628,7 @@
       "native_fast_paste": false,
       "restore_clipboard": true,
       "screen_context_enabled": false,
+      "cursor_context_enabled": true,
       "default_mode": "realtime_long",
       "update_channel": null
     }

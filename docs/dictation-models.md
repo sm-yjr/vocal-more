@@ -1,17 +1,29 @@
 # 听写模型与通信分类
 
-核对日期：2026-09-21。`domain/model_catalog.py` 保存模型通信协议和输出能力；`ASR_MODEL_CATALOG` 是设置页、菜单、RPC 初始化和 Windows 共用的可选听写列表。`ALL_ASR_MODELS` 保留旧配置解析、历史录音与失败恢复需要的模型资料。此次下架范围是可选列表，旧配置不会被静默改写，兼容后端及失败时的降级仍保留。
+核对日期：2026-11-25。`domain/model_catalog.py` 保存模型通信协议和输出能力；`ASR_MODEL_CATALOG` 是设置页、菜单、RPC 初始化和 Windows 共用的可选听写列表。`ALL_ASR_MODELS` 保留旧配置解析、历史录音与失败恢复需要的模型资料。下架范围仅限可选列表，旧配置不会被静默改写，兼容后端及失败时的降级仍保留。
 
 | 选择顺序 | 模型 | 通信协议 | 正常听写链路 |
 | --- | --- | --- | --- |
-| 1 | Qwen3.8 Omni Flash Realtime | WebSocket / Omni realtime，Base64 PCM + JPEG 帧 | 主模型直接输出语义听写；可选润色与“看屏幕说话” |
-| 2 | Qwen3.5 Omni Plus Realtime | WebSocket / Omni realtime，Base64 PCM | 同一会话内按指令输出润色文本 |
-| 3 | Qwen3.5 Omni Flash Realtime | WebSocket / Omni realtime，Base64 PCM | 同上 |
-| 4 | Qwen Audio 3.0 ASR Flash Streaming | WebSocket / audio recognition，二进制 PCM | 原生热词、上下文、标点，直接输出转写 |
-| 5 | Qwen Audio 3.0 Realtime Plus | WebSocket / realtime conversation，Base64 PCM | 按听写指令返回文本响应 |
-| 6 | Qwen Audio 3.0 Realtime Flash | WebSocket / realtime conversation，Base64 PCM | 同上 |
+| 1 | Qwen Audio 3.1 ASR Flash Message（默认） | WebSocket / audio recognition，二进制 PCM | 双轨 `hybrid_asr`：原生口语顺滑、超级热词（`weight=50`）、多轮 `input.context` 与 `continue-task`；默认精简模式单级直出，开启指令/强润色/翻译时自动级联 `qwen3.8-flash` |
+| 2 | Qwen Audio 3.1 ASR Flash Streaming | WebSocket / audio recognition，二进制 PCM | 低延迟流式 ASR，原生热词、上下文、标点，直接输出转写 |
+| 3 | Qwen3.8 Omni Flash Realtime | WebSocket / Omni realtime，Base64 PCM + JPEG 帧 | 主模型直接输出语义听写；可选内联润色与“看屏幕说话” |
+| 4 | Qwen Audio 3.1 Realtime Plus | WebSocket / realtime conversation，Base64 PCM | 按听写指令返回文本响应 |
+| 5 | Qwen Audio 3.1 Realtime Flash | WebSocket / realtime conversation，Base64 PCM | 同上 |
+| 6 | Qwen3.5 Omni Plus Realtime | WebSocket / Omni realtime，Base64 PCM | 同一会话内按指令输出润色文本 |
+| 7 | Qwen3.5 Omni Flash Realtime | WebSocket / Omni realtime，Base64 PCM | 同上 |
+| 8 | Qwen Audio 3.0 ASR Flash Streaming | WebSocket / audio recognition，二进制 PCM | 原生热词、上下文、标点，直接输出转写 |
+| 9 | Qwen Audio 3.0 Realtime Plus | WebSocket / realtime conversation，Base64 PCM | 按听写指令返回文本响应 |
+| 10 | Qwen Audio 3.0 Realtime Flash | WebSocket / realtime conversation，Base64 PCM | 同上 |
 
-排序采用官方语音识别推荐作为听写入口，Omni 家族按官方最新一代优先、同代 Plus、Flash 顺序排列，然后是语音对话 Plus、Flash。这是结合听写场景的产品排序；官方没有提供跨 ASR、Omni、语音对话三类模型的统一排名。现有默认模型仍为 Qwen3.5 Omni Flash Realtime，避免改变新建配置的指令润色能力；Qwen3.8 Omni Flash Realtime 已于 2026-09-21 用真实音频端到端验证（转写完整准确），但服务端 `session.created` 默认 voice `Chelsie` 提交音频会被拒（`Voice 'Chelsie' is not supported`），必须显式 `voice="Tina"`——现有 `asr_engine` 对 Omni realtime 系列的默认值恰好是 Tina，无需适配。`qwen3.8-omni-plus-realtime` 尚未开放（WebSocket 握手后即被静默断开），未加入目录。官方提供的日期快照没有逐一重复列出。专用翻译、电话 8 kHz 与非实时文件模型不加入普通听写菜单。
+## 双轨路由与默认模型
+
+- **默认听写模型**：`qwen-audio-3.1-asr-flash-message`（输入法旗舰），默认短音频离线降级走 `qwen-audio-3.1-asr-flash`（`qwen_audio_http`），默认文本润色模型为 `qwen3.8-flash`（可选 `qwen3.8-max`）。
+- **双轨 `hybrid_asr`**：当用户在 `qwen-audio-3.1-asr-flash-message` 下使用默认的日常听写（`polish.mode == "dictation"`、轻量强度 `minimal`、未设置翻译/自定义语气人设/结构化输出/Prompt 覆写）时，直接开启服务端原生 `disfluency_removal_enabled=true` 单级直出，跳过二级 LLM 以获得最低延迟；一旦启用 Prompt 模式、跨语种翻译、`balanced`/`strong` 润色、结构化列表或自定义语气/提示词，则自动关闭服务端顺滑并级联第二级文本润色模型。
+- **动态光标语境与跨轮记忆**：`cursor_context_enabled` 默认开启（密码/安全输入框和黑名单应用严格 fail-closed）。听写启动时并发读取聚焦应用名、窗口标题、选中文本和光标前后语境，将代码/技术标识符提升为即时超级热词（`weight=50`，上限 50 条，遵循非 ASCII ≤15 字 / ASCII ≤7 词边界），并保留同一应用 5 分钟内最近 3 轮听写记录写入 `input.context`；若 AX 快照晚于 WebSocket 握手返回，通过 `continue-task` 会话中热更新上下文。
+- **低声 VAD 适配**：使用 `vad_model="near_meeting_16k"`，结合 `audio.speech_noise_threshold`（低声/安静场景偏低、嘈杂场景偏高）和原生 4 阶 Butterworth 高通 + 动态压缩/软限幅管线，提升办公室低声听写召回率。
+- **看屏幕说话**：开启后仍自动路由至 `qwen3.8-omni-flash-realtime`（离线降级走 `qwen3.8-omni-flash`），携带压缩 JPEG 帧并复用会话级语音指令。
+
+排序以专用输入法/实时 ASR 优先，其次是支持“看屏幕说话”的 Qwen3.8 Omni Flash Realtime 与 Qwen Audio 3.1 Realtime 系列，最后保留 3.5 Omni 与 3.0 Audio 兼容项。`qwen3.8-omni-plus-realtime` 尚未开放（WebSocket 握手后即被静默断开），未加入目录。官方提供的日期快照没有逐一重复列出。专用翻译、电话 8 kHz 与非实时文件模型不加入普通听写菜单。
 
 Qwen3.8 Omni Flash Realtime 长音频离线降级走 `qwen3.8-omni-flash`（按目录后缀规则推导，HTTP 通道已实测可用）。费用按 2026-09-21 官方原价接入：realtime 输入音频 6 元/百万 Token（约为 3.5 Flash Realtime 的 22%），输出语音时音频及对应文本分别计费；离线版输入不分模态统一 0.8 元/百万 Token，纯文本输出。
 
