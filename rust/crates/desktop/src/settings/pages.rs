@@ -264,6 +264,19 @@ impl Settings {
                 "Selected native ASR transcribes directly and skips second-stage polish.",
             );
         }
+        if key == "enable_polish" && self.hybrid_asr() {
+            return if self.hybrid_needs_second_stage() {
+                self.text(
+                    "当前风格已自动级联二阶段润色模型；切回“原话轻修”可恢复单级极速直出。",
+                    "Current style cascades to the polish LLM; switch to Light Clean for single-pass speed.",
+                )
+            } else {
+                self.text(
+                    "原话轻修模式由 3.1 输入法模型原生顺滑直出；切换结构化、风格或翻译时自动级联润色模型。",
+                    "Light Clean runs natively inside 3.1 ASR; structured, styled, or translated modes cascade automatically.",
+                )
+            };
+        }
         if (key == "audio.gain" || key == "audio.soft_limiter")
             && get(self.config(), "audio.gain_mode") == "automatic"
             && self.snapshot["audio_input_status"]["gain_control"] == "apple_agc"
@@ -647,15 +660,32 @@ impl Settings {
 
         let polish_on = get(self.config(), "enable_polish") == true && !self.native_asr();
         let polish_summary = if self.native_asr() {
-            self.text("原生直出模型（已跳过）", "Native ASR (inline)")
+            self.text("原生直出模型（已跳过）", "Native ASR (direct)")
         } else if polish_on {
-            match self.active_polish_style() {
+            let base = match self.active_polish_style() {
                 Some("structured") => self.text("清晰结构化", "Structured"),
                 Some("technical") => self.text("技术文档", "Technical"),
                 Some("chat") => self.text("轻松聊天", "Casual Chat"),
                 Some("prompt") => self.text("AI 提示词", "AI Prompt"),
                 Some("minimal") => self.text("原话轻修", "Light Clean"),
                 _ => self.text("自定义润色风格", "Custom polish style"),
+            };
+            if self.hybrid_asr() {
+                if self.hybrid_needs_second_stage() {
+                    match self.active_polish_style() {
+                        Some("structured") => {
+                            self.text("清晰结构化 · 联动润色", "Structured · +LLM")
+                        }
+                        Some("technical") => self.text("技术文档 · 联动润色", "Technical · +LLM"),
+                        Some("chat") => self.text("轻松聊天 · 联动润色", "Casual Chat · +LLM"),
+                        Some("prompt") => self.text("AI 提示词 · 联动润色", "AI Prompt · +LLM"),
+                        _ => self.text("自定义风格 · 联动润色", "Custom · +LLM"),
+                    }
+                } else {
+                    self.text("原话轻修 · 原生极速", "Light Clean · Fast native")
+                }
+            } else {
+                base
             }
         } else {
             self.text("已关闭（原话直出）", "Off (raw transcript)")
@@ -708,6 +738,7 @@ impl Settings {
             );
 
         let screen_on = get(self.config(), "screen_context_enabled") == true;
+        let cursor_on = get(self.config(), "cursor_context_enabled") == true;
         let screen_card = card(cx)
             .flex_1()
             .gap_2p5()
@@ -741,7 +772,9 @@ impl Settings {
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
                     .child(if screen_on {
-                        self.text("辅助代码与专词识别", "Assists terms & code")
+                        self.text("屏幕画面 + 光标上下文", "Screen + cursor context")
+                    } else if cursor_on {
+                        self.text("光标上下文与动态热词", "Cursor context & hotwords")
                     } else {
                         self.text("仅使用语音上下文", "Voice context only")
                     }),
@@ -750,7 +783,19 @@ impl Settings {
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(self.text("屏幕内容不会成为粘贴文本", "Screen text is never pasted")),
+                    .child(if screen_on {
+                        self.text(
+                            "自动路由至 Qwen3.8 Omni，屏幕内容不会粘贴",
+                            "Auto-routes to Qwen3.8 Omni; screen text never pasted",
+                        )
+                    } else if cursor_on {
+                        self.text(
+                            "读取当前输入框附近术语，自动跳过密码框",
+                            "Reads nearby terms; skips password fields",
+                        )
+                    } else {
+                        self.text("屏幕内容不会成为粘贴文本", "Screen text is never pasted")
+                    }),
             );
 
         let quick_grid = if self.narrow {
@@ -1955,8 +2000,11 @@ impl Settings {
             .as_f64()
             .unwrap_or(200.0);
         let hp_on = get(self.config(), "audio.highpass_filter") == true;
+        let tail_ms = get(self.config(), "audio.tail_padding_ms")
+            .as_u64()
+            .unwrap_or(200);
         let summary = format!(
-            "{} · {} · {}",
+            "{} · {} · {} · {} {} ms",
             if get(self.config(), "audio.gain_mode") == "automatic" {
                 self.text("自动增益", "Auto gain").to_owned()
             } else {
@@ -1967,15 +2015,17 @@ impl Settings {
                 )
             },
             if hp_on {
-                format!("{} {hp_freq:.0} Hz", self.text("高通", "HPF"))
+                format!("{} {hp_freq:.0} Hz", self.text("4阶高通", "4th HPF"))
             } else {
                 self.text("高通关闭", "HPF Off").to_owned()
             },
             if get(self.config(), "audio.soft_limiter") == true {
-                self.text("软限幅开", "Limiter On")
+                self.text("动态限幅开", "Dynamics On")
             } else {
-                self.text("软限幅关", "Limiter Off")
-            }
+                self.text("动态限幅关", "Dynamics Off")
+            },
+            self.text("尾音", "Tail"),
+            tail_ms
         );
 
         let advanced_audio =
@@ -2250,15 +2300,44 @@ impl Settings {
         .child(self.field_row("cursor_context_enabled", false, cx))
         .child(self.field_row("screen_context_enabled", false, cx));
 
+        if get(self.config(), "cursor_context_enabled") == true && !self.accessibility_ready() {
+            recognition_card = recognition_card.child(
+                h_flex()
+                    .w_full()
+                    .justify_between()
+                    .items_center()
+                    .gap_2()
+                    .flex_wrap()
+                    .px_3()
+                    .py_2()
+                    .rounded(cx.theme().radius)
+                    .bg(cx.theme().yellow_light)
+                    .border_1()
+                    .border_color(cx.theme().yellow.opacity(0.45))
+                    .child(div().text_xs().child(self.text(
+                        "开启“辅助功能”权限后才能读取光标前后文与选中术语。",
+                        "Grant Accessibility permission so cursor context can read nearby terms.",
+                    )))
+                    .child(
+                        Button::new("ai-fix-ax")
+                            .xsmall()
+                            .label(self.text("打开辅助功能设置", "Accessibility Settings"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.action("openAccessibilitySettings", json!({}), cx);
+                            })),
+                    ),
+            );
+        }
+
         if get(self.config(), "screen_context_enabled") == true
             && selected_model.is_some_and(|m| m["supports_screen_context"] != true)
         {
             recognition_card = recognition_card.child(banner(
                 self.text(
-                    "当前识别模型暂不支持屏幕上下文，请切换到支持“看屏幕说话”的实时模型。",
-                    "The selected model does not support screen context. Pick a screen-aware model above.",
+                    "已开启“看屏幕说话”：听写时将自动使用 Qwen3.8 Omni Flash Realtime 结合屏幕画面识别，关闭后自动恢复当前所选模型。",
+                    "Screen Context is on: dictation automatically routes to Qwen3.8 Omni Flash Realtime and returns to your selected model when turned off.",
                 ),
-                Tone::Warning,
+                Tone::Primary,
                 cx,
             ));
         }
@@ -2309,6 +2388,32 @@ impl Settings {
                 Tone::Warning,
                 cx,
             ));
+        } else if self.hybrid_asr() && get(self.config(), "enable_polish") == true {
+            let llm_model = get(self.config(), "llm.model")
+                .as_str()
+                .unwrap_or("qwen3.8-flash");
+            if self.hybrid_needs_second_stage() {
+                polish_card = polish_card.child(banner(
+                    if self.english() {
+                        format!(
+                            "Active pipeline: 3.1 ASR transcription → {llm_model} second-stage polish."
+                        )
+                    } else {
+                        format!("当前链路：3.1 ASR 识别 → {llm_model} 二阶段深度润色。")
+                    },
+                    Tone::Primary,
+                    cx,
+                ));
+            } else {
+                polish_card = polish_card.child(banner(
+                    self.text(
+                        "当前链路：3.1 输入法模型原生单级顺滑（极速低延迟，自动跳过二阶段大模型）。",
+                        "Active pipeline: 3.1 Message native single-pass cleanup (lowest latency, skips second-stage LLM).",
+                    ),
+                    Tone::Success,
+                    cx,
+                ));
+            }
         }
 
         polish_card = polish_card
@@ -2348,7 +2453,7 @@ impl Settings {
         };
         let llm_model = get(self.config(), "llm.model")
             .as_str()
-            .unwrap_or("qwen3.5-plus");
+            .unwrap_or("qwen3.8-flash");
         let ai_advanced = self.disclosure(
             "ai",
             self.text(
@@ -2400,6 +2505,16 @@ impl Settings {
                     for (key, zh, en) in [
                         ("transport", "传输方式", "Transport"),
                         ("pipeline", "处理流水线", "Pipeline"),
+                        (
+                            "supports_super_hotwords",
+                            "超级热词（权重 50）",
+                            "Super hotwords",
+                        ),
+                        (
+                            "supports_native_disfluency_removal",
+                            "原生口语顺滑",
+                            "Native disfluency removal",
+                        ),
                         ("language_count", "支持语言数量", "Languages"),
                         ("chinese_dialect_count", "中文方言数量", "Chinese dialects"),
                         (

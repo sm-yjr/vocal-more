@@ -345,6 +345,39 @@ impl Settings {
             .find(|model| &model["id"] == get(self.config(), "asr.model"))
             .is_some_and(|model| model["pipeline"] == "native_asr")
     }
+    pub(super) fn hybrid_asr(&self) -> bool {
+        self.array("asr_models")
+            .iter()
+            .find(|model| &model["id"] == get(self.config(), "asr.model"))
+            .is_some_and(|model| model["pipeline"] == "hybrid_asr")
+    }
+    pub(super) fn hybrid_needs_second_stage(&self) -> bool {
+        if get(self.config(), "enable_polish") != true {
+            return false;
+        }
+        let llm = &self.config()["llm"];
+        let has_override = llm["prompt_overrides"].as_object().is_some_and(|map| {
+            map.values().any(|item| {
+                item["enabled"] == true
+                    && item["prompt"]
+                        .as_str()
+                        .is_some_and(|p| !p.trim().is_empty())
+            })
+        });
+        llm["polish_mode"] != "dictation"
+            || llm["output_language"] != "auto"
+            || llm["level"] != "minimal"
+            || llm["tone"] != "neutral"
+            || llm["persona"] != "default"
+            || llm["structured"] == true
+            || has_override
+    }
+    pub(super) fn accessibility_ready(&self) -> bool {
+        !self
+            .array("environment_checks")
+            .iter()
+            .any(|check| check["key"] == "accessibility" && check["status"] != "ok")
+    }
     pub(super) fn audio_busy(&self) -> bool {
         matches!(self.mic, MicState::Starting | MicState::Recording)
             || self.snapshot["audio_input_status"]["phase"]

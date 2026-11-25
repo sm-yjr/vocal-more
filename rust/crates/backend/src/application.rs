@@ -307,6 +307,12 @@ impl State {
         );
         self.emit("audio_input_status", self.input_status());
         self.prepare_audio();
+        if self.config.config.get("cursor_context_enabled") != true {
+            self.recent_history.clear();
+        } else {
+            let excluded = self.excluded_bundle_ids();
+            self.recent_history.purge_excluded(&excluded);
+        }
         self.schedule_learning(Duration::ZERO);
         if self
             .observation
@@ -1025,12 +1031,13 @@ impl State {
                 let recent = self
                     .recent_history
                     .recent_for(&ctx.app_bundle_id, Instant::now());
-                active.provider.set_recent_turns(recent);
+                active.provider.set_recent_turns(recent.clone());
                 active.provider.set_cursor_context(Some(ctx.clone()));
                 let core_generation = active.core_generation;
-                let _ = self
-                    .active_host()
-                    .update_context(core_generation, json!(ctx));
+                let _ = self.active_host().update_context(
+                    core_generation,
+                    json!({"cursor": ctx, "recent_turns": recent}),
+                );
                 Ok(json!({"accepted":true}))
             }
             "claim_paste" => {
@@ -1505,10 +1512,11 @@ impl State {
                         .as_ref()
                         .map(|ctx| ctx.app_bundle_id.as_str())
                         .unwrap_or("");
-                    if !self
-                        .excluded_bundle_ids()
-                        .iter()
-                        .any(|excluded| !bundle.is_empty() && excluded == bundle)
+                    if provider.config.get("cursor_context_enabled") == true
+                        && !self
+                            .excluded_bundle_ids()
+                            .iter()
+                            .any(|excluded| !bundle.is_empty() && excluded == bundle)
                     {
                         self.recent_history
                             .record(&result.final_text, bundle, Instant::now());

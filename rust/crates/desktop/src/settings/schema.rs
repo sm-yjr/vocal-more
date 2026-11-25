@@ -339,8 +339,8 @@ pub const FIELDS: &[Field] = &[
         "High-pass filter",
         true,
         Kind::Toggle,
-        "削减风扇、空调和桌面低频振动。",
-        "Reduce fan, air-conditioning and low-frequency rumble."
+        "4 阶高通滤波，更彻底削减风扇、空调和桌面低频振动。",
+        "4th-order high-pass filter cuts fan, AC, and desk rumble."
     ),
     field!(
         "audio.highpass_freq",
@@ -425,8 +425,8 @@ pub const FIELDS: &[Field] = &[
         "Screen context",
         false,
         Kind::Toggle,
-        "屏幕内容用于辅助识别专有名词和代码，不会成为口述文本；需要兼容模型和空间端点。",
-        "Screen content assists recognition and does not become dictated text; requires a compatible model and workspace endpoint."
+        "开启后自动切换多模态实时模型结合屏幕识别专有名词与代码，不会将屏幕内容粘贴为文本。",
+        "Automatically uses a screen-aware realtime model to recognize visible terms and code; never pastes screen text."
     ),
     field!(
         "asr.realtime_url",
@@ -445,8 +445,8 @@ pub const FIELDS: &[Field] = &[
         "Enable polish",
         false,
         Kind::Toggle,
-        "原生 ASR 模型直接转写，跳过第二阶段润色。",
-        "Native ASR transcribes directly and skips second-stage polish."
+        "清理口语词并按所选风格整理表达；3.1 输入法模型默认轻修模式走原生极速直出。",
+        "Clean filler words and refine output; 3.1 Message runs native single-pass cleanup in Light Clean mode."
     ),
     field!(
         "llm.polish_mode",
@@ -594,12 +594,12 @@ pub const FIELDS: &[Field] = &[
     field!(
         "dictionary_learning.excluded_bundle_ids",
         Dictionary,
-        "排除的应用",
+        "隐私排除应用",
         "Excluded applications",
         true,
         Kind::List,
-        "用逗号分隔应用 Bundle ID，失焦或按回车保存。",
-        "Separate application bundle IDs with commas; saves on blur or Enter."
+        "同时跳过自动词典学习与光标上下文读取；用逗号分隔 Bundle ID，失焦或按回车保存。",
+        "Skipped by both dictionary learning and cursor context; comma-separated bundle IDs, saves on blur or Enter."
     ),
 ];
 

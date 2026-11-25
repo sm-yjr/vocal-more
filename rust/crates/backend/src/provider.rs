@@ -208,6 +208,31 @@ impl Provider {
     pub fn set_recent_turns(&mut self, turns: Vec<String>) {
         self.recent_turns = turns;
     }
+    fn apply_context_update(&mut self, value: Value) -> bool {
+        if let Some(obj) = value.as_object()
+            && obj.contains_key("cursor")
+        {
+            let mut updated = false;
+            if let Ok(ctx) = serde_json::from_value::<CursorContext>(obj["cursor"].clone()) {
+                self.cursor_context = Some(ctx);
+                updated = true;
+            }
+            if let Some(turns) = obj.get("recent_turns").and_then(Value::as_array) {
+                self.recent_turns = turns
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect();
+                updated = true;
+            }
+            return updated;
+        }
+        if let Ok(ctx) = serde_json::from_value::<CursorContext>(value) {
+            self.cursor_context = Some(ctx);
+            return true;
+        }
+        false
+    }
     pub fn corpus(&self) -> String {
         if self.config.get("asr.use_dictionary_corpus") != true {
             return String::new();
@@ -695,9 +720,7 @@ impl Provider {
                 while let Ok(item) = input.try_recv() {
                     match item {
                         NetworkInput::Context(value) => {
-                            if let Ok(ctx) = serde_json::from_value::<CursorContext>(value) {
-                                self.cursor_context = Some(ctx);
-                            }
+                            self.apply_context_update(value);
                         }
                         other => prebuffered.push_back(other),
                     }
@@ -774,13 +797,11 @@ impl Provider {
                             }
                         },
                         Event::Input(Some(NetworkInput::Context(value))) => {
-                            if let Ok(ctx) = serde_json::from_value::<CursorContext>(value) {
-                                self.cursor_context = Some(ctx);
-                                if recognition
-                                    && let Some(update) = self.recognition_continue_context(&task)
-                                {
-                                    send_json(&mut socket, update).await?;
-                                }
+                            if self.apply_context_update(value)
+                                && recognition
+                                && let Some(update) = self.recognition_continue_context(&task)
+                            {
+                                send_json(&mut socket, update).await?;
                             }
                         },
                         Event::Input(Some(NetworkInput::Finish)) => {

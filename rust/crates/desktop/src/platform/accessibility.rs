@@ -30,8 +30,15 @@ struct Snapshot {
     element: ffi::Owned,
     value: Value,
 }
-fn attribute(element: ffi::Ref, name: &str, deadline: Instant) -> Option<ffi::Owned> {
-    let timeout = remaining_timeout(deadline, Instant::now())?;
+const AX_ERROR_ATTRIBUTE_UNSUPPORTED: i32 = -25205;
+const AX_ERROR_NO_VALUE: i32 = -25212;
+
+fn attribute_checked(
+    element: ffi::Ref,
+    name: &str,
+    deadline: Instant,
+) -> Result<Option<ffi::Owned>, ()> {
+    let timeout = remaining_timeout(deadline, Instant::now()).ok_or(())?;
     unsafe {
         ffi::AXUIElementSetMessagingTimeout(element, timeout);
     }
@@ -44,14 +51,47 @@ fn attribute(element: ffi::Ref, name: &str, deadline: Instant) -> Option<ffi::Ow
         )
     };
     let value = unsafe { ffi::Owned::from_create(out) };
-    if error == 0 && Instant::now() < deadline {
-        value
-    } else {
-        None
+    if Instant::now() >= deadline {
+        return Err(());
     }
+    if error == 0 {
+        Ok(value)
+    } else if error == AX_ERROR_ATTRIBUTE_UNSUPPORTED || error == AX_ERROR_NO_VALUE {
+        Ok(None)
+    } else {
+        Err(())
+    }
+}
+fn attribute(element: ffi::Ref, name: &str, deadline: Instant) -> Option<ffi::Owned> {
+    attribute_checked(element, name, deadline).ok().flatten()
 }
 fn text_attribute(element: ffi::Ref, name: &str, deadline: Instant) -> Option<String> {
     attribute(element, name, deadline).and_then(|v| ffi::cf_string(v.as_ptr()))
+}
+fn optional_text_attribute(
+    element: ffi::Ref,
+    name: &str,
+    deadline: Instant,
+) -> Result<Option<String>, ()> {
+    Ok(attribute_checked(element, name, deadline)?.and_then(|v| ffi::cf_string(v.as_ptr())))
+}
+fn is_secure_field(
+    role: &Result<Option<String>, ()>,
+    subrole: &Result<Option<String>, ()>,
+) -> bool {
+    let Ok(role) = role else {
+        return true;
+    };
+    let Ok(subrole) = subrole else {
+        return true;
+    };
+    let marker = format!(
+        "{} {}",
+        role.as_deref().unwrap_or(""),
+        subrole.as_deref().unwrap_or("")
+    )
+    .to_lowercase();
+    marker.contains("secure") || marker.contains("password")
 }
 fn snapshot(element: ffi::Owned, expected: Option<&Value>, deadline: Instant) -> Option<Snapshot> {
     remaining_timeout(deadline, Instant::now())?;
@@ -199,15 +239,13 @@ fn cursor_context_snapshot(deadline: Instant) -> Value {
     let mut selected_text = String::new();
 
     if let Some(el) = focused_el {
-        let role = text_attribute(el.as_ptr(), "AXRole", deadline).unwrap_or_default();
-        let subrole = text_attribute(el.as_ptr(), "AXSubrole", deadline);
-        let secure_marker =
-            format!("{role} {}", subrole.as_deref().unwrap_or("unknown")).to_lowercase();
-        // Fail closed: if subrole cannot be verified or looks like a password/secure
-        // field, never read AXValue or AXSelectedText.
-        is_secure = subrole.is_none()
-            || secure_marker.contains("secure")
-            || secure_marker.contains("password");
+        let role_res = optional_text_attribute(el.as_ptr(), "AXRole", deadline);
+        let subrole_res = optional_text_attribute(el.as_ptr(), "AXSubrole", deadline);
+        // Fail closed on IPC error/timeout or any secure/password role/subrole,
+        // while allowing standard editors/text areas (AXTextArea, AXWebArea, etc.)
+        // that explicitly report AXSubrole as unsupported/no-value.
+        is_secure = is_secure_field(&role_res, &subrole_res);
+        let role = role_res.ok().flatten().unwrap_or_default();
         if !is_secure {
             if let Some(selected) = text_attribute(el.as_ptr(), "AXSelectedText", deadline) {
                 selected_text = selected.chars().take(200).collect();
@@ -413,5 +451,21 @@ mod tests {
         assert_eq!(utf16_range("a🦀中b", 2, 1), None);
         assert_eq!(utf16_range("a🦀中b", 0, 9), None);
         assert_eq!(utf16_range("", 0, 0), Some((0, 0)));
+    }
+    #[test]
+    fn cursor_security_allows_plain_text_areas_without_subrole_and_fails_closed_on_secure_or_ipc_error()
+     {
+        assert!(!is_secure_field(&Ok(Some("AXTextArea".into())), &Ok(None)));
+        assert!(!is_secure_field(&Ok(Some("AXWebArea".into())), &Ok(None)));
+        assert!(is_secure_field(
+            &Ok(Some("AXTextField".into())),
+            &Ok(Some("AXSecureTextField".into()))
+        ));
+        assert!(is_secure_field(
+            &Ok(Some("AXSecureTextField".into())),
+            &Ok(None)
+        ));
+        assert!(is_secure_field(&Ok(Some("AXTextField".into())), &Err(())));
+        assert!(is_secure_field(&Err(()), &Ok(None)));
     }
 }

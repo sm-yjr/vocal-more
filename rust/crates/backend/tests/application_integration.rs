@@ -737,6 +737,46 @@ async fn message_asr_dual_track_and_cross_turn_context_work_end_to_end() -> Resu
     );
     idle(&app).await?;
 
+    // Turn 3: disabling cursor_context_enabled immediately clears recent_history and rejects late context updates.
+    app.call(
+        "set_config",
+        json!({"key": "cursor_context_enabled", "value": false}),
+    )
+    .await?;
+    let started_3 = app
+        .call("start", json!({"source": {"kind": "stream"}}))
+        .await?;
+    let rejected = app
+        .call(
+            "update_session_context",
+            json!({
+                "generation": started_3["generation"],
+                "snapshot": {
+                    "app_name": "Cursor",
+                    "app_bundle_id": "com.todesktop.230313mzl4w4u92",
+                    "window_title": "provider.rs",
+                    "before_cursor": "let x = 1;"
+                }
+            }),
+        )
+        .await?;
+    assert_eq!(rejected["accepted"], false);
+    for _ in 0..5 {
+        app.call(
+            "append",
+            json!({"generation": started_3["generation"], "pcm_base64": STANDARD.encode(vec![1u8; 1280])}),
+        )
+        .await?;
+    }
+    app.call("finish", json!({})).await?;
+    let _ = event(&mut events, "final_result").await?;
+    let session_3 = fixture.sessions.lock().unwrap()[2].clone();
+    assert!(
+        session_3["payload"]["input"].get("context").is_none(),
+        "disabled cursor context must clear prior recent history: {session_3}"
+    );
+    idle(&app).await?;
+
     app.call("shutdown", json!({})).await?;
     Ok(())
 }

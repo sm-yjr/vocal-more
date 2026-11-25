@@ -93,6 +93,19 @@ impl RecentHistory {
         matched
     }
 
+    pub fn clear(&mut self) {
+        self.turns.clear();
+    }
+
+    pub fn purge_excluded(&mut self, excluded: &[String]) {
+        if excluded.is_empty() {
+            return;
+        }
+        self.turns.retain(|turn| {
+            turn.app_bundle_id.is_empty() || !excluded.iter().any(|id| id == &turn.app_bundle_id)
+        });
+    }
+
     fn prune(&mut self, now: Instant) {
         while let Some(front) = self.turns.front() {
             if now.saturating_duration_since(front.recorded_at) > RECENT_TURN_TTL {

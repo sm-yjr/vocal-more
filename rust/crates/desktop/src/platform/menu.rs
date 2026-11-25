@@ -383,6 +383,14 @@ impl Menu {
                 );
             }
         }
+        let cursor = config["cursor_context_enabled"].as_bool().unwrap_or(true);
+        self.add(
+            &menu,
+            self.t("光标上下文", "Cursor Context"),
+            Some("set_config"),
+            json!({"key":"cursor_context_enabled","value":!cursor}),
+            cursor,
+        );
         let screen = config["screen_context_enabled"].as_bool().unwrap_or(false);
         self.add(
             &menu,
