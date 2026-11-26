@@ -59,10 +59,30 @@ def seal(directory: Path, context: dict, baseline: dict, origin: dict | None = N
         raise ReleaseError("Candidate lacks successful final DMG verification")
     if report.get("version") != context["version"] or report.get("channel") != context["channel"]:
         raise ReleaseError("Verified bundle version/channel differs from source")
-    workflow_ref = os.environ["GITHUB_WORKFLOW_REF"]
-    workflow_path = workflow_ref.split("@", 1)[0].removeprefix(REPOSITORY + "/")
-    if workflow_path not in WORKFLOWS or os.environ["GITHUB_REPOSITORY"] != REPOSITORY:
-        raise ReleaseError("Candidate must be produced by an approved repository workflow")
+    local = (
+        os.environ.get("VOCAL_MORE_LOCAL_RELEASE") == "1"
+        and os.environ.get("GITHUB_ACTIONS") != "true"
+    )
+    if local:
+        producer = {
+            "workflow_path": "local",
+            "workflow_head_sha": context["source_sha"],
+            "run_id": 0,
+            "attempt": 1,
+            "event": "local",
+        }
+    else:
+        workflow_ref = os.environ["GITHUB_WORKFLOW_REF"]
+        workflow_path = workflow_ref.split("@", 1)[0].removeprefix(REPOSITORY + "/")
+        if workflow_path not in WORKFLOWS or os.environ["GITHUB_REPOSITORY"] != REPOSITORY:
+            raise ReleaseError("Candidate must be produced by an approved repository workflow")
+        producer = {
+            "workflow_path": workflow_path,
+            "workflow_head_sha": os.environ["GITHUB_SHA"],
+            "run_id": int(os.environ["GITHUB_RUN_ID"]),
+            "attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+            "event": os.environ["GITHUB_EVENT_NAME"],
+        }
     now = datetime.now(timezone.utc)
     expires = now + timedelta(days=14)
     if origin:
@@ -78,9 +98,7 @@ def seal(directory: Path, context: dict, baseline: dict, origin: dict | None = N
     build.setdefault("completed_at", now.isoformat())
     manifest = {
         "schema_version": SCHEMA, "policy": POLICY, **context,
-        "producer": {"workflow_path": workflow_path, "workflow_head_sha": os.environ["GITHUB_SHA"],
-                     "run_id": int(os.environ["GITHUB_RUN_ID"]), "attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
-                     "event": os.environ["GITHUB_EVENT_NAME"]},
+        "producer": producer,
         "prepared_at": now.isoformat(), "expires_at": expires.isoformat(),
         "baseline": baseline, "files": files, "origin_candidate": origin,
         "build": build,

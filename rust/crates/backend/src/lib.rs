@@ -6,6 +6,7 @@ pub mod coach;
 pub mod config;
 pub mod context;
 pub mod dictionary;
+pub mod guard;
 pub mod history;
 pub mod http;
 pub mod learning;

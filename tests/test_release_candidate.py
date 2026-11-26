@@ -226,3 +226,24 @@ def test_empty_notes_and_lock_version_mismatch_fail_preflight(tmp_path):
     (tmp_path / "uv.lock").write_text('[[package]]\nname="vocal-more"\nversion="0.6.1"\n')
     with pytest.raises(ReleaseError, match="uv.lock"):
         read_context(tmp_path, SOURCE)
+
+
+def test_local_release_seal_works_outside_actions_and_never_bypasses_ci_checks(tmp_path, monkeypatch):
+    context, directory, sealed = make_candidate(tmp_path, monkeypatch)
+    baseline_state = sealed["baseline"]
+    (directory / "manifest.json").unlink()
+    monkeypatch.setenv("VOCAL_MORE_LOCAL_RELEASE", "1")
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.delenv("GITHUB_WORKFLOW_REF", raising=False)
+    manifest = candidate.seal(directory, context, baseline_state)
+    assert manifest["producer"]["workflow_path"] == "local"
+    assert manifest["producer"]["event"] == "local"
+    assert manifest["producer"]["workflow_head_sha"] == context["source_sha"]
+
+    # Inside GitHub Actions, VOCAL_MORE_LOCAL_RELEASE must never bypass workflow provenance.
+    (directory / "manifest.json").unlink()
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_WORKFLOW_REF", "sm-yjr/vocal-more/.github/workflows/untrusted.yml@refs/heads/main")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "sm-yjr/vocal-more")
+    with pytest.raises(ReleaseError, match="approved repository workflow"):
+        candidate.seal(directory, context, baseline_state)

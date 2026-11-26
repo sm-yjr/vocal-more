@@ -598,10 +598,18 @@ impl Provider {
                 .context("rollover duration missing")?
                 * 32_000,
         );
+        let vad_rollover_enabled = rollover_bytes >= ROLLOVER_VAD_MIN_LIMIT_BYTES;
         let mut segments = JoinSet::new();
         let mut results = BTreeMap::new();
         let mut index = 0_usize;
         let mut segment_bytes = 0_u64;
+        let mut trailing_silence_bytes = 0_u64;
+        let mut overlap_ring: Vec<u8> = Vec::with_capacity(if vad_rollover_enabled {
+            ROLLOVER_OVERLAP_BYTES
+        } else {
+            0
+        });
+        let mut latest_segment_tail: Option<String> = None;
         let mut input_finished = false;
         let (mut segment_tx, segment_rx) = mpsc::channel(vocal_more_core::AUDIO_QUEUE_BLOCKS);
         let provider = self.clone();
@@ -624,6 +632,12 @@ impl Provider {
                     let Some(completed) = completed else { continue };
                     let (completed_index, result) = completed.context("realtime segment worker failed")?;
                     let result = result?;
+                    let trimmed = result.text.trim();
+                    if !trimmed.is_empty() {
+                        let chars: Vec<char> = trimmed.chars().collect();
+                        let start = chars.len().saturating_sub(200);
+                        latest_segment_tail = Some(chars[start..].iter().collect());
+                    }
                     results.insert(completed_index, result);
                     if input_finished && segments.is_empty() {
                         break;
@@ -632,20 +646,54 @@ impl Provider {
                 next = input.recv(), if !input_finished => {
                     match next {
                         Some(NetworkInput::Pcm(pcm)) => {
-                            if should_rollover(segment_bytes, pcm.len(), rollover_bytes) {
+                            let is_silent = vad_rollover_enabled
+                                && pcm_rms_i16(&pcm) < ROLLOVER_SILENCE_RMS_THRESHOLD;
+                            if is_silent {
+                                trailing_silence_bytes =
+                                    trailing_silence_bytes.saturating_add(pcm.len() as u64);
+                            } else {
+                                trailing_silence_bytes = 0;
+                            }
+
+                            let soft_cut = should_soft_rollover(
+                                segment_bytes,
+                                rollover_bytes,
+                                trailing_silence_bytes,
+                            );
+                            let hard_cut = should_rollover(segment_bytes, pcm.len(), rollover_bytes);
+
+                            if soft_cut || hard_cut {
                                 segment_tx.send(NetworkInput::Finish).await
                                     .context("realtime rollover segment closed")?;
                                 index += 1;
                                 let (next_tx, next_rx) = mpsc::channel(vocal_more_core::AUDIO_QUEUE_BLOCKS);
                                 segment_tx = next_tx;
                                 segment_bytes = 0;
-                                let provider = self.clone();
+                                trailing_silence_bytes = 0;
+                                let mut provider = self.clone();
+                                if let Some(tail) = &latest_segment_tail {
+                                    provider.recent_turns.push(tail.clone());
+                                }
                                 let segment_cancel = cancel.clone();
                                 let segment_reporter = reporter.segment(index);
                                 let segment_index = index;
                                 segments.spawn(async move {
                                     (segment_index, provider.realtime_once(next_rx, segment_cancel, segment_reporter).await)
                                 });
+                                // On a forced hard cut (continuous speech with no pause),
+                                // replay the last 1.5s into the next segment so words at the
+                                // boundary are never chopped in half.
+                                if hard_cut && !soft_cut && vad_rollover_enabled && !overlap_ring.is_empty() {
+                                    let overlap = Bytes::copy_from_slice(&overlap_ring);
+                                    segment_bytes += overlap.len() as u64;
+                                    segment_tx.send(NetworkInput::Pcm(overlap)).await
+                                        .context("realtime segment overlap queue closed")?;
+                                }
+                                overlap_ring.clear();
+                            }
+
+                            if vad_rollover_enabled {
+                                push_overlap(&mut overlap_ring, &pcm, ROLLOVER_OVERLAP_BYTES);
                             }
                             segment_bytes += pcm.len() as u64;
                             segment_tx.send(NetworkInput::Pcm(pcm)).await
@@ -672,14 +720,8 @@ impl Provider {
         let mut raw = String::new();
         let mut usage = json!({});
         for (_, result) in results {
-            if !text.is_empty() && !result.text.is_empty() {
-                text.push('\n');
-            }
-            text.push_str(result.text.trim());
-            if !raw.is_empty() && !result.raw.is_empty() {
-                raw.push('\n');
-            }
-            raw.push_str(result.raw.trim());
+            append_segment_text(&mut text, &result.text);
+            append_segment_text(&mut raw, &result.raw);
             merge_usage(&mut usage, &result.usage);
         }
         ensure!(
@@ -870,13 +912,143 @@ fn merge_usage(total: &mut Value, next: &Value) {
     }
 }
 
+const ROLLOVER_VAD_MIN_LIMIT_BYTES: u64 = 60 * 32_000;
+const ROLLOVER_SILENCE_WINDOW_BYTES: u64 = 30 * 32_000;
+const ROLLOVER_SILENCE_MIN_BYTES: u64 = 9_600; // 300ms @ 16kHz 16-bit mono
+const ROLLOVER_SILENCE_RMS_THRESHOLD: f32 = 220.0; // ~ -43.5 dBFS
+const ROLLOVER_OVERLAP_BYTES: usize = 48_000; // 1.5s overlap on forced hard cut
+
+fn pcm_rms_i16(pcm: &[u8]) -> f32 {
+    let (samples, _) = pcm.as_chunks::<2>();
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum_sq: f64 = samples
+        .iter()
+        .map(|pair| {
+            let v = i16::from_le_bytes(*pair) as f64;
+            v * v
+        })
+        .sum();
+    (sum_sq / samples.len() as f64).sqrt() as f32
+}
+
+fn push_overlap(ring: &mut Vec<u8>, pcm: &[u8], cap: usize) {
+    if cap == 0 || pcm.is_empty() {
+        return;
+    }
+    if pcm.len() >= cap {
+        ring.clear();
+        ring.extend_from_slice(&pcm[pcm.len() - cap..]);
+    } else {
+        ring.extend_from_slice(pcm);
+        if ring.len() > cap {
+            let excess = ring.len() - cap;
+            ring.drain(..excess);
+        }
+    }
+}
+
 fn should_rollover(current_bytes: u64, incoming_bytes: usize, limit_bytes: u64) -> bool {
     current_bytes > 0 && current_bytes.saturating_add(incoming_bytes as u64) > limit_bytes
 }
 
+fn should_soft_rollover(current_bytes: u64, limit_bytes: u64, silence_bytes: u64) -> bool {
+    limit_bytes >= ROLLOVER_VAD_MIN_LIMIT_BYTES
+        && current_bytes >= limit_bytes.saturating_sub(ROLLOVER_SILENCE_WINDOW_BYTES)
+        && silence_bytes >= ROLLOVER_SILENCE_MIN_BYTES
+}
+
+fn is_boundary_meaningful(ch: char) -> bool {
+    ch.is_alphanumeric()
+        || matches!(
+            ch as u32,
+            0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x3040..=0x30FF | 0xAC00..=0xD7AF
+        )
+}
+
+/// Joins two consecutive segment transcripts, deduplicating any short overlapping
+/// boundary phrase introduced by a forced 1.5s audio overlap.
+pub(crate) fn append_segment_text(acc: &mut String, next: &str) {
+    let next = next.trim();
+    if next.is_empty() {
+        return;
+    }
+    if acc.is_empty() {
+        acc.push_str(next);
+        return;
+    }
+    let acc_tokens: Vec<char> = acc
+        .chars()
+        .filter(|ch| is_boundary_meaningful(*ch))
+        .flat_map(char::to_lowercase)
+        .collect();
+    let acc_tail = &acc_tokens[acc_tokens.len().saturating_sub(28)..];
+
+    let mut next_tokens: Vec<(char, usize)> = Vec::new();
+    for (idx, ch) in next.char_indices() {
+        if is_boundary_meaningful(ch) {
+            let end = idx + ch.len_utf8();
+            for lower in ch.to_lowercase() {
+                next_tokens.push((lower, end));
+            }
+            if next_tokens.len() >= 28 {
+                break;
+            }
+        }
+    }
+
+    let max_k = acc_tail.len().min(next_tokens.len());
+    let mut matched_trim: Option<usize> = None;
+    for k in (2..=max_k).rev() {
+        let suffix = &acc_tail[acc_tail.len() - k..];
+        if suffix
+            .iter()
+            .zip(next_tokens[..k].iter())
+            .all(|(a, (b, _))| a == b)
+        {
+            let has_non_ascii = suffix.iter().any(|ch| !ch.is_ascii());
+            // For pure ASCII require at least 5 chars so short tokens like "in" never falsely match.
+            if has_non_ascii || k >= 5 {
+                matched_trim = Some(next_tokens[k - 1].1);
+                break;
+            }
+        }
+    }
+
+    if let Some(trim_at) = matched_trim {
+        let remainder = next[trim_at..].trim_start();
+        if !remainder.is_empty() {
+            if remainder.chars().next().is_some_and(is_boundary_meaningful) {
+                while acc.ends_with(['。', '，', ',', '.']) {
+                    acc.pop();
+                }
+            }
+            let needs_space = acc
+                .chars()
+                .last()
+                .is_some_and(|c| c.is_ascii_alphanumeric())
+                && remainder
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphanumeric());
+            if needs_space {
+                acc.push(' ');
+            }
+            acc.push_str(remainder);
+        }
+    } else {
+        acc.push('\n');
+        acc.push_str(next);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{merge_usage, should_rollover};
+    use super::{
+        ROLLOVER_SILENCE_MIN_BYTES, append_segment_text, merge_usage, pcm_rms_i16, push_overlap,
+        should_rollover, should_soft_rollover,
+    };
     use serde_json::json;
 
     #[test]
@@ -884,6 +1056,61 @@ mod tests {
         assert!(!should_rollover(0, 1280, 17_280_000));
         assert!(!should_rollover(17_278_720, 1280, 17_280_000));
         assert!(should_rollover(17_280_000, 1280, 17_280_000));
+    }
+
+    #[test]
+    fn soft_rollover_waits_for_window_and_silence() {
+        let limit = 540 * 32_000;
+        let window_start = 510 * 32_000;
+        assert!(!should_soft_rollover(
+            window_start - 1,
+            limit,
+            ROLLOVER_SILENCE_MIN_BYTES
+        ));
+        assert!(!should_soft_rollover(
+            window_start,
+            limit,
+            ROLLOVER_SILENCE_MIN_BYTES - 1
+        ));
+        assert!(should_soft_rollover(
+            window_start,
+            limit,
+            ROLLOVER_SILENCE_MIN_BYTES
+        ));
+        // Fixture small limits skip soft rollover so byte boundaries stay exact.
+        assert!(!should_soft_rollover(
+            5_000,
+            6_400,
+            ROLLOVER_SILENCE_MIN_BYTES
+        ));
+    }
+
+    #[test]
+    fn rms_and_overlap_ring_handle_pcm_bounds() {
+        let silent = vec![0u8; 640];
+        assert_eq!(pcm_rms_i16(&silent), 0.0);
+        let loud: Vec<u8> = (0..320).flat_map(|_| 4000_i16.to_le_bytes()).collect();
+        assert!((pcm_rms_i16(&loud) - 4000.0).abs() < 1.0);
+
+        let mut ring = Vec::new();
+        push_overlap(&mut ring, &[1, 2, 3, 4], 6);
+        push_overlap(&mut ring, &[5, 6, 7, 8], 6);
+        assert_eq!(ring, vec![3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn segment_merge_deduplicates_overlap_and_preserves_distinct_segments() {
+        let mut zh = "今天我们讨论语音识别延迟优化。".to_string();
+        append_segment_text(&mut zh, "延迟优化的具体方案如下");
+        assert_eq!(zh, "今天我们讨论语音识别延迟优化的具体方案如下");
+
+        let mut en = "We should measure latency before".to_string();
+        append_segment_text(&mut en, "before shipping the release");
+        assert_eq!(en, "We should measure latency before shipping the release");
+
+        let mut distinct = "第1段".to_string();
+        append_segment_text(&mut distinct, "第2段");
+        assert_eq!(distinct, "第1段\n第2段");
     }
 
     #[test]

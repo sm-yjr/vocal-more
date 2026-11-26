@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::{
-    billing, dictionary,
+    billing, dictionary, guard,
     http::{Completion, TextCallback},
     provider::Provider,
     text,
@@ -82,11 +82,22 @@ pub async fn finish(
     ensure!(status.pcm_bytes >= 3200, "Recording is too short");
     let seconds = status.pcm_bytes as f64 / 32000.0;
     stage("transcribing");
+    let mut warnings = vec![];
     let realtime = provider.model_info()["transport"] == "realtime_ws";
+    let bypass_raw = status.raw_transcript.trim().to_owned();
     let completion =
         if realtime && status.phase == Phase::Completed && !status.transcript.trim().is_empty() {
+            let mut primary = status.transcript;
+            if !bypass_raw.is_empty()
+                && primary.trim() != bypass_raw
+                && let Some(reason) =
+                    guard::detect_answer_drift(&primary, &bypass_raw, &provider.config)
+            {
+                warnings.push(reason.warning().into());
+                primary = bypass_raw.clone();
+            }
             Completion {
-                text: status.transcript,
+                text: primary,
                 model: provider.model().into(),
                 usage: status.usage,
                 inline_polished: provider.model_info()["handles_inline_polish"] == true
@@ -102,9 +113,12 @@ pub async fn finish(
     ensure!(!cancel.is_cancelled(), "recording cancelled");
     let raw = completion.text.trim().to_owned();
     ensure!(!raw.is_empty(), "Empty transcription");
+    ensure!(
+        !guard::is_short_audio_hallucination(&raw, seconds),
+        "No clear speech detected"
+    );
     let mut final_text = dictionary::normalize_text(&raw, &provider.entries);
     let mut bills = completion_billing(&completion, seconds);
-    let mut warnings = vec![];
     // Dual-track routing: single-pass models (inline Omni, native ASR, or
     // hybrid_asr in default minimal dictation) skip the second LLM hop.
     // Cascade models and hybrid_asr with advanced polish/prompt/translation
@@ -113,7 +127,13 @@ pub async fn finish(
         stage("polishing");
         match provider.polish(&raw, cancel, partial).await {
             Ok(polished) => {
-                final_text = polished.text;
+                if let Some(reason) =
+                    guard::detect_answer_drift(&polished.text, &raw, &provider.config)
+                {
+                    warnings.push(reason.warning().into());
+                } else {
+                    final_text = polished.text;
+                }
                 bills.push(billing::polish(
                     &polished.model,
                     provider.config.get("llm.enable_thinking") == true,
@@ -155,4 +175,76 @@ pub async fn finish(
         billing: billing::merge(&bills),
         warnings,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{config::Config, provider::Endpoints};
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn omni_assistant_reply_drift_falls_back_to_bypass_transcript() -> Result<()> {
+        let mut config = Config::default();
+        config.apply_update("asr.model", &json!("qwen3.8-omni-flash-realtime"))?;
+        let provider = Provider::new(
+            config,
+            vec![],
+            "",
+            Endpoints::loopback("http://127.0.0.1:1", "ws://127.0.0.1:1")?,
+            Some("fixture-key"),
+        );
+        let status = Status {
+            phase: Phase::Completed,
+            pcm_bytes: 64_000, // 2.0s
+            transcript: "好的，为您解答：这个接口返回 500 通常是后端空指针异常导致的。".into(),
+            raw_transcript: "这个接口为什么返回500？".into(),
+            usage: json!({"input_tokens": 100, "output_tokens": 30}),
+            ..Default::default()
+        };
+        let outcome = finish(
+            provider,
+            status,
+            Path::new("/nonexistent.wav"),
+            "",
+            &CancellationToken::new(),
+            Arc::new(|_| {}),
+            None,
+        )
+        .await?;
+        assert_eq!(outcome.final_text, "这个接口为什么返回 500？");
+        assert!(!outcome.warnings.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn short_silence_hallucination_is_rejected_before_paste() -> Result<()> {
+        let provider = Provider::new(
+            Config::default(),
+            vec![],
+            "",
+            Endpoints::loopback("http://127.0.0.1:1", "ws://127.0.0.1:1")?,
+            Some("fixture-key"),
+        );
+        let status = Status {
+            phase: Phase::Completed,
+            pcm_bytes: 16_000, // 0.5s
+            transcript: "字幕由 Amara.org 社区提供".into(),
+            raw_transcript: "字幕由 Amara.org 社区提供".into(),
+            ..Default::default()
+        };
+        let err = finish(
+            provider,
+            status,
+            Path::new("/nonexistent.wav"),
+            "",
+            &CancellationToken::new(),
+            Arc::new(|_| {}),
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("No clear speech detected"));
+        Ok(())
+    }
 }

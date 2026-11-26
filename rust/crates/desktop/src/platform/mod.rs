@@ -7,7 +7,7 @@ mod hotkeys;
 mod menu;
 mod paste;
 mod playback;
-mod screen;
+pub mod screen;
 mod termination;
 mod updater;
 

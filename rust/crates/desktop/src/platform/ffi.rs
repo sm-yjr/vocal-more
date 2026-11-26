@@ -86,6 +86,9 @@ unsafe extern "C" {
     pub fn CFStringGetLength(value: Ref) -> isize;
     pub fn CFStringGetMaximumSizeForEncoding(length: isize, encoding: u32) -> isize;
     pub fn CFStringGetCString(value: Ref, buffer: *mut c_char, size: isize, encoding: u32) -> bool;
+    pub fn CFArrayGetCount(array: Ref) -> isize;
+    pub fn CFArrayGetValueAtIndex(array: Ref, idx: isize) -> Ref;
+    pub fn CFNumberGetValue(number: Ref, the_type: isize, value_ptr: MutRef) -> bool;
     pub fn CFDataCreateMutable(allocator: Ref, capacity: isize) -> Ref;
     pub fn CFDataGetLength(data: Ref) -> isize;
     pub fn CFDataGetBytePtr(data: Ref) -> *const u8;
@@ -151,6 +154,16 @@ unsafe extern "C" {
     pub fn CGMainDisplayID() -> u32;
     pub fn CGSessionCopyCurrentDictionary() -> Ref;
     pub fn CGDisplayCreateImage(display: u32) -> Ref;
+    pub fn CGDisplayCreateImageForRect(display: u32, rect: Rect) -> Ref;
+    pub fn CGDisplayBounds(display: u32) -> Rect;
+    pub fn CGGetDisplaysWithRect(
+        rect: Rect,
+        max_displays: u32,
+        displays: *mut u32,
+        matching_display_count: *mut u32,
+    ) -> i32;
+    pub fn CGWindowListCopyWindowInfo(option: u32, relative_to_window: u32) -> Ref;
+    pub fn CGRectMakeWithDictionaryRepresentation(dict: Ref, rect: *mut Rect) -> bool;
     pub fn CGPreflightScreenCaptureAccess() -> bool;
     pub fn CGRequestScreenCaptureAccess() -> bool;
     pub fn CGImageGetWidth(image: Ref) -> usize;

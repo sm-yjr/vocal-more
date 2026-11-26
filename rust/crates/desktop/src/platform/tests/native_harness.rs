@@ -451,12 +451,13 @@ fn run() -> Result<()> {
     println!("PASS exact AX target retention across focus changes + Unicode selection");
     verify_playback(&mut platform, &events, &directory)?;
     match platform::capture_screen(false) {
-        Ok(bytes) => {
+        Ok(frame) => {
             ensure!(
-                bytes.starts_with(&[0xff, 0xd8, 0xff]) && bytes.len() <= platform::MAX_JPEG_BYTES,
+                frame.jpeg.starts_with(&[0xff, 0xd8, 0xff])
+                    && frame.jpeg.len() <= platform::MAX_JPEG_BYTES,
                 "screen frame violates JPEG/190 KiB contract"
             );
-            println!("PASS real main-display JPEG {} bytes", bytes.len());
+            println!("PASS real focused-screen JPEG {} bytes", frame.jpeg.len());
         }
         Err(error) => bail!("screen capture permission/runtime verification failed: {error}"),
     }

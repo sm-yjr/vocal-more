@@ -39,6 +39,7 @@ python3 packaging/macos/verify_release_artifact.py "$DMG" \
 CANDIDATE_DIR="/tmp/vocal-more-candidate-${RELEASE_TAG}"
 BACKUP_DIR="/tmp/vocal-more-backup-${RELEASE_TAG}"
 rm -rf "$CANDIDATE_DIR" "$BACKUP_DIR"
+export VOCAL_MORE_LOCAL_RELEASE=1
 python3 packaging/release_cli.py prepare-feed \
   --source-sha "$SOURCE_SHA" --tag "$RELEASE_TAG" --artifact-id 0 \
   --directory "$CANDIDATE_DIR"

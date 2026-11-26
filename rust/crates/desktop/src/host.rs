@@ -91,6 +91,7 @@ struct ScreenSession {
     epoch: u64,
     generation: Option<u64>,
     initial: Option<String>,
+    last_fingerprint: Option<[u8; platform::screen::FINGERPRINT_LEN]>,
     started: Instant,
     last_capture: Instant,
 }
@@ -121,8 +122,9 @@ impl ScreenWorker {
             while let Ok(job)=receiver.recv() {
                 let result=platform::capture_screen(job.initial);
                 let params=match result {
-                    Ok(jpeg)=>json!({"serial":job.serial,"request":job.request,"epoch":job.epoch,"generation":job.generation,
-                        "initial":job.initial,"jpeg_base64":STANDARD.encode(jpeg)}),
+                    Ok(frame)=>json!({"serial":job.serial,"request":job.request,"epoch":job.epoch,"generation":job.generation,
+                        "initial":job.initial,"jpeg_base64":STANDARD.encode(frame.jpeg),
+                        "fingerprint":frame.fingerprint.as_slice()}),
                     Err(error)=>json!({"serial":job.serial,"request":job.request,"epoch":job.epoch,"generation":job.generation,
                         "initial":job.initial,"error":error.to_string()}),
                 };
@@ -470,6 +472,7 @@ impl DesktopHost {
                     epoch: request.epoch,
                     generation: None,
                     initial: None,
+                    last_fingerprint: None,
                     started: now,
                     last_capture: now,
                 });
@@ -1156,10 +1159,29 @@ impl DesktopHost {
             self.notify(&message);
             return;
         }
+        let fingerprint = params["fingerprint"].as_array().and_then(|arr| {
+            if arr.len() != platform::screen::FINGERPRINT_LEN {
+                return None;
+            }
+            let mut buf = [0u8; platform::screen::FINGERPRINT_LEN];
+            for (idx, val) in arr.iter().enumerate() {
+                buf[idx] = val.as_u64()? as u8;
+            }
+            Some(buf)
+        });
         if params["initial"] == true {
             screen.initial = params["jpeg_base64"].as_str().map(str::to_owned);
+            screen.last_fingerprint = fingerprint;
             self.send_initial_frame();
         } else if params["generation"].as_u64() == screen.generation {
+            if let (Some(prev), Some(curr)) = (&screen.last_fingerprint, &fingerprint)
+                && platform::screen::frames_visually_similar(prev, curr)
+            {
+                return;
+            }
+            if fingerprint.is_some() {
+                screen.last_fingerprint = fingerprint;
+            }
             let generation = screen.generation;
             let jpeg = params["jpeg_base64"].clone();
             self.send(
@@ -1563,6 +1585,7 @@ mod tests {
             epoch: 3,
             generation: None,
             initial: None,
+            last_fingerprint: None,
             started: now,
             last_capture: now,
         }
