@@ -33,6 +33,15 @@ impl Settings {
         let editor = self.scene_editor.as_ref()?;
         Some(editor.testing_input_ids())
     }
+    pub fn testing_dict_term_editor_ids(&self) -> Option<(ElementId, ElementId)> {
+        self.dict.testing_term_editor_ids()
+    }
+    pub fn testing_dict_batch_input_id(&self) -> ElementId {
+        self.dict.testing_batch_input_id()
+    }
+    pub fn testing_dict_review_editor_ids(&self) -> Option<(ElementId, ElementId)> {
+        self.dict.testing_review_editor_ids()
+    }
     pub fn testing_prompt_id(&self, category: &str) -> Option<ElementId> {
         Some(("input", self.prompts.get(category)?.entity_id()).into())
     }

@@ -136,6 +136,34 @@ impl LearningStore {
             .query_map([limit.clamp(1, 1000)], row)?
             .collect::<rusqlite::Result<Vec<_>>>()?)
     }
+    pub fn list_for_ui(&self, history_limit: usize) -> Result<Vec<Job>> {
+        let limit = history_limit.clamp(1, 1000);
+        let mut jobs = self
+            .connection
+            .prepare(
+                "SELECT * FROM dictionary_learning_jobs \
+                 WHERE status IN ('review','pending','processing','retry','applying','reverting') \
+                 ORDER BY created_at DESC,id DESC",
+            )?
+            .query_map([], row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let recent = self
+            .connection
+            .prepare(
+                "SELECT * FROM dictionary_learning_jobs \
+                 WHERE status NOT IN ('review','pending','processing','retry','applying','reverting') \
+                 ORDER BY created_at DESC,id DESC LIMIT ?1",
+            )?
+            .query_map([limit], row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        jobs.extend(recent);
+        jobs.sort_by(|a, b| {
+            b.created_at
+                .total_cmp(&a.created_at)
+                .then_with(|| b.id.cmp(&a.id))
+        });
+        Ok(jobs)
+    }
     pub fn enqueue(&mut self, candidates: &[Value], now: f64) -> Result<Vec<Job>> {
         if candidates.is_empty() {
             return Ok(vec![]);
@@ -311,20 +339,70 @@ impl LearningStore {
         Ok(())
     }
     pub fn approve(&self, id: &str, dictionary: &mut Dictionary, now: f64) -> Result<bool> {
+        self.approve_with_override(id, dictionary, None, None, now)
+    }
+    pub fn approve_with_override(
+        &self,
+        id: &str,
+        dictionary: &mut Dictionary,
+        override_term: Option<&str>,
+        override_aliases: Option<&Value>,
+        now: f64,
+    ) -> Result<bool> {
         let Some(job) = self
             .get(id)?
             .filter(|j| j.status == "review" && j.result.is_some())
         else {
             return Ok(false);
         };
-        self.apply(
-            &job,
-            job.result.as_ref().unwrap(),
-            dictionary,
-            "review",
-            now,
-        )?;
+        let mut decision = job.result.clone().unwrap();
+        if let Some(term) = override_term {
+            let clean = term.trim();
+            ensure!(!clean.is_empty(), "term is required");
+            decision.term = clean.into();
+        }
+        if let Some(raw_aliases) = override_aliases {
+            decision.aliases = crate::dictionary::aliases(raw_aliases);
+        }
+        decision.aliases.retain(|alias| alias != &decision.term);
+        self.apply(&job, &decision, dictionary, "review", now)?;
         Ok(true)
+    }
+    pub fn supersede_renamed_term(&mut self, old_term: &str, now: f64) -> Result<usize> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let jobs = tx
+            .prepare("SELECT * FROM dictionary_learning_jobs WHERE status='applied'")?
+            .query_map([], row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut updated = 0usize;
+        for job in jobs {
+            if job.result.as_ref().is_some_and(|d| d.term == old_term)
+                && (job.term_created || !job.aliases_added.is_empty())
+            {
+                tx.execute(
+                    "UPDATE dictionary_learning_jobs SET term_created=0,aliases_added_json='[]',updated_at=?1 WHERE id=?2",
+                    params![now, job.id],
+                )?;
+                updated += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(updated)
+    }
+    pub fn clear_history(&mut self) -> Result<usize> {
+        let deleted = self.connection.execute(
+            "DELETE FROM dictionary_learning_jobs \
+             WHERE status IN ('ignored','reverted','failed') \
+               AND (observation_id='' OR NOT EXISTS ( \
+                 SELECT 1 FROM dictionary_learning_jobs j2 \
+                 WHERE j2.observation_id=dictionary_learning_jobs.observation_id \
+                   AND j2.status IN ('pending','processing','retry','applying','reverting') \
+               ))",
+            [],
+        )?;
+        Ok(deleted)
     }
     pub fn reject(&mut self, id: &str, now: f64) -> Result<bool> {
         let Some(job) = self

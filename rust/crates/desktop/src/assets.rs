@@ -7,6 +7,7 @@ use std::borrow::Cow;
 icon_assets!(
     SettingsIcons,
     [
+        ArrowUpDown,
         AudioLines,
         BookA,
         BookOpen,
@@ -17,18 +18,26 @@ icon_assets!(
         CircleCheck,
         Clock,
         Copy,
+        FolderOpen,
         House,
         Keyboard,
+        ListPlus,
         Mic,
+        Pencil,
         Play,
+        Plus,
         RefreshCw,
         RotateCcwClock,
+        Search,
         Settings,
+        Shield,
         SlidersHorizontal,
         Sparkles,
         Square,
+        Trash,
         TriangleAlert,
         WandSparkles,
+        X,
     ]
 );
 

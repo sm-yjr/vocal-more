@@ -645,3 +645,83 @@ fn close_preserves_queued_ui_alias_edits_and_history_deletion() -> Result<()> {
     host.report("shutdown_durable_aliases",json!({"persisted_gain":config.get("audio.gain"),"preview_not_persisted":true,"dictionary_add_remove_survived":true,"history_file_deleted":true,"restart_idle":true}))?;
     Ok(())
 }
+
+#[test]
+fn new_dictionary_writes_survive_immediate_shutdown() -> Result<()> {
+    let data = tempfile::tempdir()?;
+    // Seed a terminal ignored record so clearDictionaryLearningHistory persistence is actually verified.
+    {
+        let mut store = vocal_more_backend::learning_store::LearningStore::open(
+            &data.path().join("dictionary-learning.sqlite3"),
+            10.0,
+        )?;
+        let ev = vocal_more_backend::learning::evidence(&json!({
+            "raw_text": "foo", "pasted_text": "foo", "baseline_text": "foo",
+            "edited_text": "bar", "recording_id": "rec-shutdown", "observation_id": "obs-shutdown"
+        }))?;
+        store.enqueue(
+            &vocal_more_backend::learning::split(&ev, "obs-shutdown"),
+            10.0,
+        )?;
+        let job = store.claim(10.0)?.unwrap();
+        store.finish(
+            &job.id,
+            "ignored",
+            &vocal_more_backend::learning::Decision::ignore("not_a_reusable_term"),
+            None,
+            11.0,
+        )?;
+        assert_eq!(store.list(10)?.len(), 1);
+    }
+
+    let mut host = Host::start(data.path())?;
+    let batch = host.admit(
+        "ui_action",
+        json!({
+            "action": "batchAddDictEntries",
+            "entries": [{"term": "InitialTerm", "aliases": ["init"]}]
+        }),
+    )?;
+    let update = host.admit(
+        "ui_action",
+        json!({
+            "action": "updateDictEntry",
+            "old_term": "InitialTerm",
+            "term": "RenamedTerm",
+            "aliases": ["init", "renamed"]
+        }),
+    )?;
+    let restore = host.admit(
+        "ui_action",
+        json!({
+            "action": "restoreDictEntries",
+            "entries": [{"term": "RestoredTerm", "aliases": ["restored"], "index": 0}]
+        }),
+    )?;
+    let clear = host.admit(
+        "ui_action",
+        json!({"action": "clearDictionaryLearningHistory"}),
+    )?;
+    host.driver.send(batch);
+    host.driver.send(update);
+    host.driver.send(restore);
+    host.driver.send(clear);
+    host.close()?;
+
+    let dictionary =
+        vocal_more_backend::dictionary::Dictionary::open(&data.path().join("dictionary.yaml"))?;
+    assert_eq!(dictionary.entries.len(), 2);
+    assert_eq!(dictionary.entries[0].term, "RestoredTerm");
+    assert_eq!(dictionary.entries[1].term, "RenamedTerm");
+    assert_eq!(dictionary.entries[1].aliases, vec!["init", "renamed"]);
+
+    let store = vocal_more_backend::learning_store::LearningStore::open(
+        &data.path().join("dictionary-learning.sqlite3"),
+        20.0,
+    )?;
+    assert!(
+        store.list(10)?.is_empty(),
+        "queued clearDictionaryLearningHistory did not survive shutdown drain"
+    );
+    Ok(())
+}

@@ -780,3 +780,176 @@ async fn message_asr_dual_track_and_cross_turn_context_work_end_to_end() -> Resu
     app.call("shutdown", json!({})).await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn dictionary_edit_batch_restore_reload_and_learning_clear_work_end_to_end() -> Result<()> {
+    let fixture = Fixture::new().await?;
+    let temp = tempfile::tempdir()?;
+    let app = fixture.app(temp.path()).await?;
+
+    let initial = app.call("snapshot", json!({})).await?;
+    assert_eq!(
+        initial["dictionary_path"].as_str(),
+        Some(
+            temp.path()
+                .join("dictionary.yaml")
+                .to_string_lossy()
+                .as_ref()
+        )
+    );
+
+    // Batch add: 2 new entries + 1 merge + 1 empty skipped.
+    let batch = app
+        .call(
+            "ui_action",
+            json!({
+                "action": "batchAddDictEntries",
+                "entries": [
+                    {"term": "Kubernetes", "aliases": ["k8s", "库伯内蒂斯"]},
+                    {"term": "GPUI", "aliases": ["gp ui"]},
+                    {"term": "Kubernetes", "aliases": ["k8s", "K8S"]},
+                    {"term": "   ", "aliases": ["ignored"]}
+                ]
+            }),
+        )
+        .await?;
+    assert_eq!(batch["summary"]["added_terms"], 2);
+    assert_eq!(batch["summary"]["updated_terms"], 1);
+    assert_eq!(batch["summary"]["added_aliases"], 4);
+    assert_eq!(batch["summary"]["skipped"], 1);
+
+    // Update in place with expected_aliases precondition and rename conflict rejection.
+    assert!(
+        app.call(
+            "ui_action",
+            json!({
+                "action": "updateDictEntry",
+                "old_term": "GPUI",
+                "term": "GPUI Kit",
+                "aliases": ["gp ui", "gpui kit"],
+                "expected_aliases": ["stale alias"]
+            })
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        app.call(
+            "ui_action",
+            json!({
+                "action": "updateDictEntry",
+                "old_term": "GPUI",
+                "term": "Kubernetes",
+                "aliases": ["gp ui"]
+            })
+        )
+        .await
+        .is_err()
+    );
+    app.call(
+        "ui_action",
+        json!({
+            "action": "updateDictEntry",
+            "old_term": "GPUI",
+            "term": "GPUI Kit",
+            "aliases": ["gp ui", "gpui kit"],
+            "expected_aliases": ["gp ui"]
+        }),
+    )
+    .await?;
+    let entries = app.call("get_dictionary", json!({})).await?;
+    assert_eq!(entries[0]["term"], "Kubernetes");
+    assert_eq!(entries[1]["term"], "GPUI Kit");
+    assert_eq!(entries[1]["aliases"], json!(["gp ui", "gpui kit"]));
+
+    // Immediate remove returns authoritative removed metadata; restore puts it back at original index.
+    let removed = app
+        .call(
+            "ui_action",
+            json!({"action": "removeDictEntry", "term": "Kubernetes"}),
+        )
+        .await?;
+    assert_eq!(removed["removed"][0]["index"], 0);
+    assert_eq!(
+        app.call("get_dictionary", json!({})).await?[0]["term"],
+        "GPUI Kit"
+    );
+
+    app.call(
+        "ui_action",
+        json!({"action": "restoreDictEntries", "entries": removed["removed"]}),
+    )
+    .await?;
+    let restored = app.call("get_dictionary", json!({})).await?;
+    assert_eq!(restored[0]["term"], "Kubernetes");
+    assert_eq!(restored[1]["term"], "GPUI Kit");
+
+    // Strict reload rejects malformed YAML without emptying live memory, and accepts valid edits & empty list.
+    let dict_path = temp.path().join("dictionary.yaml");
+    std::fs::write(&dict_path, "not_entries: []\n")?;
+    assert!(
+        app.call("ui_action", json!({"action": "reloadDict"}))
+            .await
+            .is_err()
+    );
+    std::fs::write(&dict_path, "entries:\n  - term: {unexpected: value}\n")?;
+    assert!(
+        app.call("ui_action", json!({"action": "reloadDict"}))
+            .await
+            .is_err()
+    );
+    std::fs::write(
+        &dict_path,
+        "entries:\n  - term: Valid\n    aliases:\n      - {unexpected: value}\n",
+    )?;
+    assert!(
+        app.call("ui_action", json!({"action": "reloadDict"}))
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        app.call("get_dictionary", json!({}))
+            .await?
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    std::fs::write(
+        &dict_path,
+        "entries:\n  - term: Vocal More\n    aliases:\n      - vocalmore\n",
+    )?;
+    let reloaded = app
+        .call("ui_action", json!({"action": "reloadDict"}))
+        .await?;
+    assert_eq!(reloaded["count"], 1);
+    assert_eq!(
+        app.call("get_dictionary", json!({})).await?[0]["term"],
+        "Vocal More"
+    );
+
+    std::fs::write(&dict_path, "entries: []\n")?;
+    let emptied = app
+        .call("ui_action", json!({"action": "reloadDict"}))
+        .await?;
+    assert_eq!(emptied["count"], 0);
+
+    std::fs::remove_file(&dict_path)?;
+    assert!(
+        app.call("ui_action", json!({"action": "reloadDict"}))
+            .await
+            .is_err()
+    );
+
+    // Clear learning history RPC succeeds cleanly even when empty.
+    let cleared = app
+        .call(
+            "ui_action",
+            json!({"action": "clearDictionaryLearningHistory"}),
+        )
+        .await?;
+    assert_eq!(cleared["cleared"], 0);
+
+    app.call("shutdown", json!({})).await?;
+    Ok(())
+}

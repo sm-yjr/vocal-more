@@ -3,6 +3,7 @@
 //! the application backend owns all durable configuration and recordings.
 mod calibration;
 pub mod components;
+mod dictionary;
 mod pages;
 mod scenes;
 pub mod schema;
@@ -70,6 +71,7 @@ pub struct Settings {
     pub(super) prompt_category: &'static str,
     pub(super) term: Entity<InputState>,
     pub(super) aliases: Entity<InputState>,
+    dict: dictionary::State,
     pub(super) filter: Entity<InputState>,
     pub(super) capture: shortcut::Capture,
     pub(super) show_key: bool,
@@ -140,6 +142,7 @@ impl Settings {
             prompt_category: "output_type",
             term: cx.new(|cx| InputState::new(window, cx)),
             aliases: cx.new(|cx| InputState::new(window, cx)),
+            dict: dictionary::State::new(window, cx),
             filter: cx.new(|cx| InputState::new(window, cx)),
             capture: Default::default(),
             show_key: false,
@@ -184,6 +187,8 @@ impl Settings {
                                 } else {
                                     "sk-…"
                                 }
+                            } else if field.key == "dictionary_learning.excluded_bundle_ids" {
+                                "com.1password.1password, com.apple.Terminal"
                             } else {
                                 ""
                             })
@@ -307,6 +312,26 @@ impl Settings {
             .detach();
             this.prompts.insert(category, input);
         }
+        cx.subscribe_in(
+            &this.term,
+            window,
+            |this, _, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => cx.notify(),
+                InputEvent::PressEnter { .. } => this.submit_quick_add_term(window, cx),
+                _ => {}
+            },
+        )
+        .detach();
+        cx.subscribe_in(
+            &this.aliases,
+            window,
+            |this, _, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => cx.notify(),
+                InputEvent::PressEnter { .. } => this.submit_quick_add_term(window, cx),
+                _ => {}
+            },
+        )
+        .detach();
         cx.subscribe(&this.filter, |_, _, _: &InputEvent, cx| cx.notify())
             .detach();
         this.sync_placeholders(window, cx);
@@ -649,7 +674,12 @@ impl Settings {
     pub(super) fn pending_learning_count(&self) -> usize {
         self.array("dictionary_learning_records")
             .iter()
-            .filter(|record| matches!(record["status"].as_str(), Some("review" | "pending")))
+            .filter(|record| {
+                record["status"].as_str() == Some("review")
+                    && record["term"]
+                        .as_str()
+                        .is_some_and(|term| !term.trim().is_empty())
+            })
             .count()
     }
     pub(super) fn attention_count(&self) -> usize {
@@ -714,11 +744,15 @@ impl Settings {
     /// so they are not mistaken for saved entries.
     fn sync_placeholders(&self, window: &mut Window, cx: &mut Context<Self>) {
         for (input, zh, en) in [
-            (&self.term, "例如 Vocal More", "e.g. Vocal More"),
+            (
+                &self.term,
+                "标准词条（如 Vocal More）",
+                "Standard term (e.g. Vocal More)",
+            ),
             (
                 &self.aliases,
-                "例如 vocal more, vocalmore",
-                "e.g. vocal more, vocalmore",
+                "误识别别名，逗号分隔（选填）",
+                "Aliases, comma-separated (optional)",
             ),
             (&self.filter, "搜索录音文本", "Search recording text"),
         ] {
@@ -727,6 +761,7 @@ impl Settings {
                 input.set_placeholder(placeholder, window, cx)
             });
         }
+        self.dict.sync_placeholders(self.english(), window, cx);
     }
     fn sync_controls(&mut self, window: &mut Window, cx: &mut Context<Self>, force: bool) {
         for field in schema::FIELDS {
@@ -979,13 +1014,14 @@ impl Settings {
             }
             "rpc_response" => {
                 let id = params["request_id"].as_u64().unwrap_or_default();
-                if self.pending.remove(&id).is_some_and(|method| {
-                    matches!(
-                        method.as_str(),
+                if let Some(action) = self.pending.remove(&id) {
+                    if matches!(
+                        action.as_str(),
                         "save_dictation_scene" | "delete_dictation_scene"
-                    )
-                }) {
-                    self.scene_editor = None;
+                    ) {
+                        self.scene_editor = None;
+                    }
+                    self.on_dictionary_rpc_response(id, &action, &params["result"], window, cx);
                 }
                 if params["method"] == "snapshot" {
                     self.snapshot = params["result"].clone();
@@ -997,6 +1033,7 @@ impl Settings {
             "rpc_error" | "request_failed" => {
                 let id = params["request_id"].as_u64().unwrap_or_default();
                 let key = self.pending.remove(&id);
+                self.on_dictionary_rpc_error(id, key.as_deref());
                 self.error = Some(
                     params["message"]
                         .as_str()

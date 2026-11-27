@@ -159,3 +159,118 @@ fn interrupted_journal_keeps_original_undo_and_retry_deadlines() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn ui_listing_override_approve_rename_supersede_and_safe_history_clear() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let db = temp.path().join("learning.sqlite3");
+    let mut dictionary = Dictionary::open(&temp.path().join("dictionary.yaml"))?;
+    let mut store = LearningStore::open(&db, 0.0)?;
+
+    // 1. Seed one early review item and 105 later ignored items; review must never be truncated.
+    store.enqueue(
+        &learning::split(
+            &evidence("百练", "百炼", "r-early", "obs-early"),
+            "obs-early",
+        ),
+        1.0,
+    )?;
+    let early = store.claim(1.0)?.unwrap();
+    let early_decision = store.authorize(&early, decision("百炼", "百练"), 1.0, identity)?;
+    assert_eq!(early_decision.action, "review");
+    store.finish(&early.id, "review", &early_decision, None, 1.0)?;
+
+    for i in 0..105 {
+        let obs = format!("obs-noise-{i}");
+        store.enqueue(
+            &learning::split(&evidence("旧词", "新词", &format!("r-{i}"), &obs), &obs),
+            10.0 + i as f64,
+        )?;
+        let job = store.claim(10.0 + i as f64)?.unwrap();
+        store.finish(
+            &job.id,
+            "ignored",
+            &Decision::ignore("not_a_reusable_term"),
+            None,
+            10.0 + i as f64,
+        )?;
+    }
+
+    let ui_jobs = store.list_for_ui(100)?;
+    assert!(
+        ui_jobs
+            .iter()
+            .any(|job| job.id == early.id && job.status == "review"),
+        "early review item was truncated behind 105 ignored rows"
+    );
+
+    // 2. Approve with edited term & aliases, then rename term, recreate old name, and verify undo does not delete new unrelated entry.
+    assert!(store.approve_with_override(
+        &early.id,
+        &mut dictionary,
+        Some("阿里云百炼"),
+        Some(&json!(["百练", "白练"])),
+        200.0
+    )?);
+    assert_eq!(dictionary.entries[0].term, "阿里云百炼");
+    assert_eq!(dictionary.entries[0].aliases, vec!["百练", "白练"]);
+
+    dictionary.update(
+        "阿里云百炼",
+        "百炼平台",
+        &json!(["百练"]),
+        Some(&["百练".into(), "白练".into()]),
+    )?;
+    assert_eq!(store.supersede_renamed_term("阿里云百炼", 201.0)?, 1);
+    dictionary.add("阿里云百炼", &json!(["手动新建别名"]))?;
+    assert!(store.undo(&early.id, &mut dictionary, 202.0)?);
+    let recreated = dictionary
+        .entries
+        .iter()
+        .find(|entry| entry.term == "阿里云百炼")
+        .expect("recreated entry must not be deleted by superseded undo");
+    assert_eq!(recreated.aliases, vec!["手动新建别名"]);
+
+    // 3. Mixed-status sibling observation: ignored sibling must stay until processing sibling completes.
+    let sibling_a = json!({
+        "raw_text": "foo bar", "pasted_text": "foo bar", "baseline_text": "foo bar",
+        "edited_text": "Foo Bar", "recording_id": "r-mix", "observation_id": "obs-mix"
+    });
+    let sibling_b = json!({
+        "raw_text": "foo bar", "pasted_text": "foo bar", "baseline_text": "foo bar",
+        "edited_text": "Foo Baz", "recording_id": "r-mix", "observation_id": "obs-mix"
+    });
+    let mixed = store.enqueue(&[sibling_a, sibling_b], 300.0)?;
+    assert_eq!(mixed.len(), 2);
+    let first_mix = store.claim(300.0)?.unwrap();
+    store.finish(
+        &first_mix.id,
+        "ignored",
+        &Decision::ignore("not_a_reusable_term"),
+        None,
+        301.0,
+    )?;
+
+    let cleared = store.clear_history()?;
+    assert_eq!(
+        cleared, 106,
+        "105 noise rows + 1 reverted row should be cleared"
+    );
+    assert!(
+        store.get(&first_mix.id)?.is_some(),
+        "ignored sibling of active observation must not be cleared"
+    );
+
+    // Finish second sibling -> now group can claim notification and later be cleared.
+    let second_mix = store.claim(302.0)?.unwrap();
+    store.finish(
+        &second_mix.id,
+        "ignored",
+        &Decision::ignore("not_a_reusable_term"),
+        None,
+        303.0,
+    )?;
+    assert_eq!(store.claim_notification("obs-mix")?, Some(vec![]));
+    assert_eq!(store.clear_history()?, 2);
+    Ok(())
+}

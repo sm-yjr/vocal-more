@@ -461,9 +461,10 @@ impl State {
             {"key":"hotkey_listener","status":platform("hotkey_listener"),"details":if self.platform_status["hotkey_listener"]==true{"running"}else{"not started"}}])
     }
     fn learning_records(&self) -> Result<Value> {
-        Ok(json!(self.learning.list(100)?.into_iter().map(|j|json!({"id":j.id,"status":j.status,"created_at":j.created_at,"updated_at":j.updated_at,
+        Ok(json!(self.learning.list_for_ui(100)?.into_iter().map(|j|json!({"id":j.id,"status":j.status,"created_at":j.created_at,"updated_at":j.updated_at,
             "term":j.result.as_ref().map(|d|d.term.clone()).unwrap_or_default(),"aliases":j.result.as_ref().map(|d|d.aliases.clone()).unwrap_or_default(),
             "confidence":j.result.as_ref().map(|d|d.confidence),"reason_code":j.result.as_ref().map(|d|d.reason_code.clone()).unwrap_or_default(),
+            "apply_origin":j.apply_origin,
             "error":j.error,"observation_id":j.observation_id,"candidate_index":j.candidate_index,"candidate_count":j.candidate_count,
             "model":j.model,"prompt_version":j.prompt_version})).collect::<Vec<_>>()))
     }
@@ -472,6 +473,7 @@ impl State {
             json!({"version":crate::PRODUCT_VERSION,"runtime":"rust","state":self.state,"current_mode":self.mode,"generation":self.generation,
             "config":self.public_config(),"api_key_set":self.key_present(),"asr_models":CONTRACT["asr_models"],"llm_models":CONTRACT["llm_models"],
             "polish_prompt_presets":CONTRACT["prompt_presets"],"devices":self.devices()?,"dictionary":self.dictionary.entries,
+            "dictionary_path":self.dictionary.path,
             "dictionary_learning_records":self.learning_records()?,"recordings":self.history.list(),"recording_storage":self.history.storage_summary(),
             "audio_input_status":self.input_status(),"environment_checks":self.environment(),"backend_data_dir":self.options.data_dir,
             "pending_pastes":self.pending_pastes.values().collect::<Vec<_>>(),"last_result":self.last_result}),
@@ -1111,10 +1113,75 @@ impl State {
                 self.emit("dictionary_changed", json!(self.dictionary.entries));
                 Ok(json!({"ok":true}))
             }
-            "remove_dict_entry" => {
-                self.dictionary.remove(required(&params, "term")?)?;
+            "update_dict_entry" => {
+                let old_term = required(&params, "old_term")?;
+                let new_term = required(&params, "term")?;
+                let expected = params
+                    .get("expected_aliases")
+                    .filter(|value| !value.is_null())
+                    .map(|value| serde_json::from_value::<Vec<String>>(value.clone()))
+                    .transpose()
+                    .context("invalid expected_aliases")?;
+                let renamed = old_term != new_term.trim();
+                let mut superseded = 0usize;
+                let learning = &mut self.learning;
+                self.dictionary.update_journaled(
+                    old_term,
+                    new_term,
+                    &params["aliases"],
+                    expected.as_deref(),
+                    || {
+                        if renamed {
+                            superseded = learning.supersede_renamed_term(old_term, now())?;
+                        }
+                        Ok(())
+                    },
+                )?;
                 self.emit("dictionary_changed", json!(self.dictionary.entries));
+                if superseded > 0 {
+                    self.learning_changed(None, "rename");
+                }
                 Ok(json!({"ok":true}))
+            }
+            "batch_add_dict_entries" => {
+                let raw_entries = params
+                    .get("entries")
+                    .and_then(Value::as_array)
+                    .context("entries array is required")?;
+                let items = raw_entries
+                    .iter()
+                    .map(|entry| {
+                        (
+                            entry["term"].as_str().unwrap_or_default().to_owned(),
+                            entry["aliases"].clone(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let summary = self.dictionary.batch_add(&items)?;
+                self.emit("dictionary_changed", json!(self.dictionary.entries));
+                Ok(json!({"ok":true,"summary":summary}))
+            }
+            "remove_dict_entry" => {
+                let removed = self.dictionary.remove(required(&params, "term")?)?;
+                self.emit("dictionary_changed", json!(self.dictionary.entries));
+                Ok(json!({"ok":true,"removed":removed}))
+            }
+            "restore_dict_entries" => {
+                let entries: Vec<crate::dictionary::RemovedEntry> = serde_json::from_value(
+                    params
+                        .get("entries")
+                        .cloned()
+                        .context("entries array is required")?,
+                )
+                .context("invalid restore entries")?;
+                let restored = self.dictionary.restore(&entries)?;
+                self.emit("dictionary_changed", json!(self.dictionary.entries));
+                Ok(json!({"ok":true,"restored":restored}))
+            }
+            "reload_dict" => {
+                let count = self.dictionary.reload()?;
+                self.emit("dictionary_changed", json!(self.dictionary.entries));
+                Ok(json!({"ok":true,"count":count}))
             }
             "list_recordings" | "get_recordings" => {
                 self.emit("recordings_changed",json!({"recordings":self.history.list(),"storage":self.history.storage_summary()}));
@@ -1234,7 +1301,16 @@ impl State {
                 let id = required(&params, "id")?;
                 let ok = match method {
                     "approve_dictionary_learning" => {
-                        self.learning.approve(id, &mut self.dictionary, now())?
+                        let override_term = params.get("term").and_then(Value::as_str);
+                        let override_aliases =
+                            params.get("aliases").filter(|value| !value.is_null());
+                        self.learning.approve_with_override(
+                            id,
+                            &mut self.dictionary,
+                            override_term,
+                            override_aliases,
+                            now(),
+                        )?
                     }
                     "reject_dictionary_learning" => self.learning.reject(id, now())?,
                     _ => self.learning.undo(id, &mut self.dictionary, now())?,
@@ -1248,6 +1324,11 @@ impl State {
                     },
                 );
                 Ok(json!({"ok":ok}))
+            }
+            "clear_dictionary_learning_history" => {
+                let cleared = self.learning.clear_history()?;
+                self.learning_changed(None, "clear");
+                Ok(json!({"ok":true,"cleared":cleared}))
             }
             "open_config_file" | "open_dict_file" => {
                 let path = if method == "open_config_file" {
@@ -2097,10 +2178,15 @@ fn ui_method(action: &str) -> Result<&'static str> {
         "setDevice" => "set_device",
         "setActiveHotkeys" => "set_active_hotkeys",
         "addDictEntry" => "add_dict_entry",
+        "updateDictEntry" => "update_dict_entry",
+        "batchAddDictEntries" => "batch_add_dict_entries",
         "removeDictEntry" => "remove_dict_entry",
+        "restoreDictEntries" => "restore_dict_entries",
+        "reloadDict" => "reload_dict",
         "approveDictionaryLearning" => "approve_dictionary_learning",
         "rejectDictionaryLearning" => "reject_dictionary_learning",
         "undoDictionaryLearning" => "undo_dictionary_learning",
+        "clearDictionaryLearningHistory" => "clear_dictionary_learning_history",
         "refreshDevices" => "refresh_devices",
         "refreshEnvironment" => "refresh_environment",
         "checkDashScopeModels" => "check_dashscope_models",

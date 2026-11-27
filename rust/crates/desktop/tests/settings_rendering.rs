@@ -27,7 +27,14 @@ mod macos {
         thread,
         time::{Duration, Instant},
     };
-    use vocal_more_backend::{application::Options, config::ConfigRepository, history::History};
+    use vocal_more_backend::{
+        application::Options,
+        config::ConfigRepository,
+        dictionary::Dictionary,
+        history::History,
+        learning::{self, Decision},
+        learning_store::LearningStore,
+    };
     use vocal_more_core::recording::RecordingStore;
     use vocal_more_desktop::{
         assets::Assets,
@@ -62,6 +69,7 @@ mod macos {
             repository.update("ui.advanced_settings", &json!(true))?;
             repository.update("ui.language", &json!("en"))?;
             seed_recording(data.path())?;
+            seed_learning_records(data.path())?;
             let mut options = Options::new(data.path().into());
             options.allow_test_sources = true;
             let (driver, sink, events) = BackendDriver::start(options)?;
@@ -510,6 +518,59 @@ mod macos {
         })
     }
 
+    fn seed_learning_records(path: &Path) -> Result<()> {
+        let mut store = LearningStore::open(&path.join("dictionary-learning.sqlite3"), 1000.0)?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(1_700_000_000.0);
+
+        let review_ev = learning::evidence(&json!({
+            "raw_text": "白练平台",
+            "pasted_text": "白练平台",
+            "baseline_text": "白练平台",
+            "edited_text": "百炼平台",
+            "recording_id": "rec-review",
+            "observation_id": "obs-review"
+        }))?;
+        store.enqueue(&learning::split(&review_ev, "obs-review"), now - 120.0)?;
+        let review_job = store.claim(now - 120.0)?.unwrap();
+        let review_decision = Decision::parse(json!({
+            "decision": "review",
+            "term": "百炼平台",
+            "aliases": ["白练平台"],
+            "term_type": "proper_name",
+            "confidence": 0.91,
+            "reason_code": "awaiting_independent_correction"
+        }))?;
+        store.finish(
+            &review_job.id,
+            "review",
+            &review_decision,
+            None,
+            now - 110.0,
+        )?;
+
+        let ignored_ev = learning::evidence(&json!({
+            "raw_text": "今天天气不错",
+            "pasted_text": "今天天气不错",
+            "baseline_text": "今天天气不错",
+            "edited_text": "今天天气很好",
+            "recording_id": "rec-ignored",
+            "observation_id": "obs-ignored"
+        }))?;
+        store.enqueue(&learning::split(&ignored_ev, "obs-ignored"), now - 300.0)?;
+        let ignored_job = store.claim(now - 300.0)?.unwrap();
+        store.finish(
+            &ignored_job.id,
+            "ignored",
+            &Decision::ignore("not_a_reusable_term"),
+            None,
+            now - 290.0,
+        )?;
+        Ok(())
+    }
+
     fn matrix(this: &mut Harness) -> Result<()> {
         for (prefix, width, height) in [("", 900., 740.), ("minimum-", 640., 480.)] {
             this.resize(width, height)?;
@@ -759,6 +820,10 @@ mod macos {
             "native_fast_paste" | "restore_clipboard" => this.ensure_toggle("auto_paste", true)?,
             "audio.gain" | "audio.soft_limiter" => this.select_index("audio.gain_mode", 1)?,
             "audio.highpass_freq" => this.ensure_toggle("audio.highpass_filter", true)?,
+            "dictionary_learning.excluded_bundle_ids" => {
+                this.scroll_to("dict-tab-privacy")?;
+                this.click("dict-tab-privacy")?;
+            }
             key if key.starts_with("llm.") => this.ensure_toggle("enable_polish", true)?,
             _ => {}
         }
@@ -1375,14 +1440,26 @@ mod macos {
 
         this.click("dictionary")?;
         this.top()?;
+        this.click("dict-tab-terms")?;
         this.scroll_to("dictionary-term")?;
-        this.edit("dictionary-term", "Metal term")?;
-        this.edit("dictionary-aliases", "metal alias, native alias")?;
+        this.click("dictionary-term")?;
+        this.window(|window, cx| {
+            window.press("cmd-a", cx);
+            window.input("Metal term", cx);
+        })?;
+        this.click("dictionary-aliases")?;
+        this.window(|window, cx| {
+            window.press("cmd-a", cx);
+            window.input("metal alias, native alias", cx);
+        })?;
+        this.pump()?;
         this.click("add-term")?;
         this.settle()?;
+        let added_dict = this.call("get_dictionary", json!({}))?;
+        assert_eq!(added_dict[0]["term"], "Metal term");
         assert_eq!(
-            this.call("get_dictionary", json!({}))?[0]["term"],
-            "Metal term"
+            added_dict[0]["aliases"],
+            json!(["metal alias", "native alias"])
         );
         this.scroll_to(("remove-term", 0usize))?;
         this.click(("remove-term", 0usize))?;
@@ -1788,6 +1865,178 @@ mod macos {
         Ok(())
     }
 
+    fn dictionary_workbench(this: &mut Harness) -> Result<()> {
+        this.resize(900., 740.)?;
+        this.set("ui.language", json!("zh"))?;
+        this.click("dictionary")?;
+        this.top()?;
+        this.click("dict-tab-terms")?;
+
+        // 1. Batch import multiple terms.
+        this.scroll_to("dictionary-batch-toggle")?;
+        this.click("dictionary-batch-toggle")?;
+        let batch_id = this
+            .cx
+            .update(|cx| this.view.read(cx).testing_dict_batch_input_id());
+        this.scroll_to(batch_id.clone())?;
+        this.click(batch_id)?;
+        this.window(|window, cx| {
+            window.input("Kubernetes: k8s, 库伯内蒂斯\nGPUI Kit: gpui kit", cx)
+        })?;
+        this.scroll_to("dictionary-batch-import")?;
+        this.click("dictionary-batch-import")?;
+        this.settle()?;
+        let dict = this.call("get_dictionary", json!({}))?;
+        assert_eq!(dict.as_array().unwrap().len(), 2);
+        this.shot("dictionary-terms-populated-zh-light")?;
+
+        // 2. Inline edit term name + remove single alias chip + save.
+        this.scroll_to(("edit-term", 0usize))?;
+        this.click(("edit-term", 0usize))?;
+        let (edit_term_id, _) = this
+            .cx
+            .update(|cx| this.view.read(cx).testing_dict_term_editor_ids())
+            .context("missing dictionary term editor")?;
+        this.scroll_to(edit_term_id.clone())?;
+        this.click(edit_term_id)?;
+        this.window(|window, cx| {
+            window.press("cmd-a", cx);
+            window.input("K8s Cluster", cx);
+        })?;
+        this.scroll_to(("dictionary-edit-remove-alias", 1usize))?;
+        this.click(("dictionary-edit-remove-alias", 1usize))?;
+        this.scroll_to("dictionary-edit-save")?;
+        this.shot("dictionary-term-inline-editor")?;
+        this.click("dictionary-edit-save")?;
+        this.settle()?;
+        let dict = this.call("get_dictionary", json!({}))?;
+        assert_eq!(dict[0]["term"], "K8s Cluster");
+        assert_eq!(dict[0]["aliases"], json!(["k8s"]));
+
+        // 3. Search miss -> quick-add from search query.
+        this.scroll_to("dictionary-search")?;
+        this.edit("dictionary-search", "VocalMore")?;
+        this.scroll_to("dictionary-quick-add-search")?;
+        this.click("dictionary-quick-add-search")?;
+        this.settle()?;
+        assert!(
+            this.call("get_dictionary", json!({}))?
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["term"] == "VocalMore")
+        );
+
+        // 4. Delete and restore at original index via 8s undo banner.
+        this.scroll_to(("remove-term", 0usize))?;
+        this.click(("remove-term", 0usize))?;
+        this.settle()?;
+        this.scroll_to("dictionary-undo-delete")?;
+        this.click("dictionary-undo-delete")?;
+        this.settle()?;
+        assert_eq!(
+            this.call("get_dictionary", json!({}))?[0]["term"],
+            "K8s Cluster"
+        );
+
+        // 5. Suggestions segment: edit & approve review, undo applied, clear history.
+        this.top()?;
+        this.click("dict-tab-suggestions")?;
+        this.shot("dictionary-suggestions-review-zh-light")?;
+        this.scroll_to(("editDictionaryLearning", 0usize))?;
+        this.click(("editDictionaryLearning", 0usize))?;
+        let (review_term_id, _) = this
+            .cx
+            .update(|cx| this.view.read(cx).testing_dict_review_editor_ids())
+            .context("missing review editor")?;
+        this.scroll_to(review_term_id.clone())?;
+        this.click(review_term_id)?;
+        this.window(|window, cx| {
+            window.press("cmd-a", cx);
+            window.input("阿里云百炼", cx);
+        })?;
+        this.scroll_to("dict-review-edit-save")?;
+        this.click("dict-review-edit-save")?;
+        this.settle()?;
+        assert!(
+            this.call("get_dictionary", json!({}))?
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["term"] == "阿里云百炼")
+        );
+
+        this.scroll_to("dict-learning-applied")?;
+        this.click("dict-learning-applied")?;
+        this.shot("dictionary-suggestions-applied-zh-light")?;
+        this.scroll_to(("undoDictionaryLearning", 0usize))?;
+        this.click(("undoDictionaryLearning", 0usize))?;
+        this.settle()?;
+
+        this.scroll_to("dict-learning-history")?;
+        this.click("dict-learning-history")?;
+        this.scroll_to("dict-learning-clear-history")?;
+        this.click("dict-learning-clear-history")?;
+        this.settle()?;
+        assert!(
+            this.call("get_dictionary_learning", json!({}))?
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+
+        // 6. Privacy & File segment: draft merge with preset toggle + strict YAML reload.
+        this.top()?;
+        this.click("dict-tab-privacy")?;
+        this.scroll_to("dictionary_learning.excluded_bundle_ids")?;
+        this.click("dictionary_learning.excluded_bundle_ids")?;
+        this.window(|window, cx| {
+            window.press("cmd-a", cx);
+            window.input("com.example.custom", cx);
+        })?;
+        this.scroll_to("dict-preset-com.1password.1password")?;
+        this.click("dict-preset-com.1password.1password")?;
+        this.settle()?;
+        let excluded = saved_value(this, "dictionary_learning.excluded_bundle_ids")?;
+        assert_eq!(
+            excluded,
+            json!(["com.example.custom", "com.1password.1password"])
+        );
+        this.shot("dictionary-privacy-zh-light")?;
+
+        let dict_path = this.data.path().join("dictionary.yaml");
+        let mut disk_dict = Dictionary::open(&dict_path)?;
+        disk_dict.add("ReloadedTerm", &json!(["reloaded"]))?;
+        this.scroll_to("reload-dictionary")?;
+        this.click("reload-dictionary")?;
+        this.settle()?;
+        assert!(
+            this.call("get_dictionary", json!({}))?
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["term"] == "ReloadedTerm")
+        );
+
+        // Also capture dark theme & minimum 640x480 screenshots of populated dictionary segments.
+        this.cx
+            .update(|cx| Theme::change(ThemeMode::Dark, None, cx));
+        this.top()?;
+        this.click("dict-tab-terms")?;
+        this.shot("dictionary-terms-populated-zh-dark")?;
+        this.resize(640., 480.)?;
+        this.shot("minimum-dictionary-terms-populated-zh-dark")?;
+        this.click("dict-tab-privacy")?;
+        this.shot("minimum-dictionary-privacy-zh-dark")?;
+
+        // Restore neutral viewport/theme/language for any following case.
+        this.cx
+            .update(|cx| Theme::change(ThemeMode::Light, None, cx));
+        this.resize(900., 740.)?;
+        this.set("ui.language", json!("en"))?;
+        Ok(())
+    }
+
     pub fn run() -> Result<()> {
         let mut this = Harness::start()?;
         let case = std::env::var("VOCAL_MORE_UI_CASE").unwrap_or_else(|_| "all".into());
@@ -1798,6 +2047,7 @@ mod macos {
                 "key",
                 "controls",
                 "scenes",
+                "dictionary",
                 "calibration",
                 "onboarding",
                 "admission",
@@ -1825,6 +2075,12 @@ mod macos {
         if case == "all" || case == "scenes" {
             scenes(&mut this)?;
             println!("Native scene create, select, edit and delete persisted");
+        }
+        if case == "all" || case == "dictionary" {
+            dictionary_workbench(&mut this)?;
+            println!(
+                "Native dictionary workbench: batch, inline edit, search quick-add, undo restore, suggestions, privacy draft merge, reload passed"
+            );
         }
         if case == "all" || case == "calibration" {
             calibration(&mut this)?;

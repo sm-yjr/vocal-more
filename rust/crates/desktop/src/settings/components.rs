@@ -387,8 +387,10 @@ pub fn localized_status(status: &str, english: bool) -> (&'static str, Tone) {
 
 pub fn localized_learning_status(status: &str, english: bool) -> (&'static str, Tone) {
     match (status, english) {
-        ("review" | "pending", false) => ("待确认", Tone::Primary),
-        ("review" | "pending", true) => ("Needs review", Tone::Primary),
+        ("review", false) => ("待审核", Tone::Primary),
+        ("review", true) => ("Needs review", Tone::Primary),
+        ("pending" | "processing" | "retry" | "applying", false) => ("分析中", Tone::Neutral),
+        ("pending" | "processing" | "retry" | "applying", true) => ("Analyzing", Tone::Neutral),
         ("applied" | "approved", false) => ("已加入词典", Tone::Success),
         ("applied" | "approved", true) => ("Added to dictionary", Tone::Success),
         ("ignored" | "rejected" | "dismissed", false) => ("已忽略", Tone::Neutral),
@@ -400,4 +402,107 @@ pub fn localized_learning_status(status: &str, english: bool) -> (&'static str, 
         (_, false) => ("处理中", Tone::Neutral),
         (_, true) => ("Processing", Tone::Neutral),
     }
+}
+
+pub fn localized_learning_reason(code: &str, english: bool) -> Option<&'static str> {
+    match (code, english) {
+        ("awaiting_independent_correction", false) => {
+            Some("首次发现此修正；可手动立即加入，或在下次同类修正后自动加入")
+        }
+        ("awaiting_independent_correction", true) => {
+            Some("First occurrence; approve now or wait for a second matching edit")
+        }
+        ("conflicting_corrections", false) => Some("该别名曾对应其他词条或曾被忽略，需人工确认"),
+        ("conflicting_corrections", true) => {
+            Some("Conflicts with an earlier mapping or rejected rule; review needed")
+        }
+        ("same_term_correction", false) => Some("同音或大小写修正，已自动生效"),
+        ("same_term_correction", true) => Some("Phonetic or casing match; applied automatically"),
+        ("repeated_correction", false) => Some("多次独立修正一致，已自动生效"),
+        ("repeated_correction", true) => {
+            Some("Confirmed across separate edits; applied automatically")
+        }
+        ("proper_noun_correction", false) => Some("识别为专有名词修正"),
+        ("proper_noun_correction", true) => Some("Classified as a proper-noun correction"),
+        ("dictionary_conflict", false) => Some("与现有词典规则冲突，已跳过"),
+        ("dictionary_conflict", true) => Some("Conflicts with an existing dictionary rule"),
+        ("not_a_reusable_term" | "non_lexical_mapping" | "non_lexical_phrase", false) => {
+            Some("判定为普通语句改写，非可复用词条")
+        }
+        ("not_a_reusable_term" | "non_lexical_mapping" | "non_lexical_phrase", true) => {
+            Some("Treated as an ordinary rewrite rather than a reusable term")
+        }
+        ("numeric_or_date_change" | "numeric_identifier_change", false) => {
+            Some("涉及数字、日期或编号修改，已跳过")
+        }
+        ("numeric_or_date_change" | "numeric_identifier_change", true) => {
+            Some("Skipped numeric, date, or identifier change")
+        }
+        ("sentence_sized_term" | "term_too_long", false) => Some("片段过长，不适合作为词条"),
+        ("sentence_sized_term" | "term_too_long", true) => Some("Too long to store as a term"),
+        ("alias_too_broad" | "mapping_does_not_explain_edit", false) => {
+            Some("替换范围过宽或无法解释本次修改，已跳过")
+        }
+        ("alias_too_broad" | "mapping_does_not_explain_edit", true) => {
+            Some("Mapping is too broad or does not explain the edit")
+        }
+        ("learning_disabled_or_excluded", false) => Some("自动学习已关闭或该应用处于隐私排除列表"),
+        ("learning_disabled_or_excluded", true) => {
+            Some("Auto-learning disabled or app is in excluded list")
+        }
+        ("", _) => None,
+        (_, false) => Some("已按本地规则过滤"),
+        (_, true) => Some("Filtered by local validation rules"),
+    }
+}
+
+/// Format a Unix epoch timestamp (seconds) into a concise human-readable relative label.
+pub fn readable_unix_timestamp(seconds: f64, english: bool) -> String {
+    if !seconds.is_finite() || seconds <= 0.0 {
+        return "—".into();
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or(seconds);
+    let diff = (now - seconds).max(0.0);
+    if diff < 60.0 {
+        return if english { "Just now" } else { "刚刚" }.into();
+    }
+    if diff < 3600.0 {
+        let mins = (diff / 60.0).floor() as u64;
+        return if english {
+            format!("{mins}m ago")
+        } else {
+            format!("{mins} 分钟前")
+        };
+    }
+    if diff < 86400.0 {
+        let hours = (diff / 3600.0).floor() as u64;
+        return if english {
+            format!("{hours}h ago")
+        } else {
+            format!("{hours} 小时前")
+        };
+    }
+    let days = (diff / 86400.0).floor() as u64;
+    if days < 30 {
+        return if english {
+            format!("{days}d ago")
+        } else {
+            format!("{days} 天前")
+        };
+    }
+    // Fall back to UTC YYYY-MM-DD using civil-from-days formula.
+    let z = (seconds / 86400.0).floor() as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = y + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
 }

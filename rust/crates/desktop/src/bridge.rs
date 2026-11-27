@@ -107,10 +107,14 @@ pub fn durable_method(method: &str, params: &Value) -> bool {
                     | "setDevice"
                     | "setActiveHotkeys"
                     | "addDictEntry"
+                    | "updateDictEntry"
+                    | "batchAddDictEntries"
                     | "removeDictEntry"
+                    | "restoreDictEntries"
                     | "approveDictionaryLearning"
                     | "rejectDictionaryLearning"
                     | "undoDictionaryLearning"
+                    | "clearDictionaryLearningHistory"
                     | "deleteRecording"
             )
         );
@@ -128,10 +132,14 @@ pub fn durable_method(method: &str, params: &Value) -> bool {
             | "select_dictation_scene"
             | "delete_dictation_scene"
             | "add_dict_entry"
+            | "update_dict_entry"
+            | "batch_add_dict_entries"
             | "remove_dict_entry"
+            | "restore_dict_entries"
             | "approve_dictionary_learning"
             | "reject_dictionary_learning"
             | "undo_dictionary_learning"
+            | "clear_dictionary_learning_history"
             | "delete_recording"
     )
 }
