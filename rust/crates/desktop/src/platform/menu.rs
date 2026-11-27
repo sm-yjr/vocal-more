@@ -61,6 +61,15 @@ fn menu(title: &str) -> Retained<AnyObject> {
     }
 }
 impl Menu {
+    pub fn set_visible(&mut self, visible: bool) {
+        if let Some(status) = &self.status {
+            // Keep the same status item, menu, and target for the next show.
+            unsafe {
+                let _: () = msg_send![&**status, setVisible: visible];
+            }
+        }
+    }
+
     pub fn new(mtm: MainThreadMarker, commands: CommandSink, hotkeys_enabled: bool) -> Self {
         let bar: Retained<AnyObject> = unsafe { msg_send![class(c"NSStatusBar"), systemStatusBar] };
         let status: Retained<AnyObject> = unsafe { msg_send![&*bar,statusItemWithLength:-1.0_f64] };

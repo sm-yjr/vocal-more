@@ -8,10 +8,13 @@ use crate::{
     options::DesktopOptions,
     platform::{self, Platform},
     settings::{self, Settings},
+    theme::{self, UiPreferences},
 };
 use anyhow::{Context as _, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use gpui_kit::{AnyWindowHandle, App, AppContext, Context, Entity, WindowId};
+use gpui_kit::{
+    AnyWindowHandle, App, AppContext, Context, Entity, Global, MenuItem, WeakEntity, WindowId,
+};
 use objc2::MainThreadMarker;
 use serde_json::{Value, json};
 use std::{
@@ -19,6 +22,14 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
+
+gpui_kit::actions!(
+    vocal_more,
+    [OpenSettingsFromDock, ExportDiagnosticsFromDock]
+);
+
+struct ReopenHost(WeakEntity<DesktopHost>);
+impl Global for ReopenHost {}
 
 /// Request completion and session presentation have different epochs when
 /// several toggles are admitted before the first starting event reaches AppKit.
@@ -151,6 +162,7 @@ pub struct DesktopHost {
     commands: CommandSink,
     capsule: Capsule,
     platform: Option<Platform>,
+    dock_menu_english: Option<bool>,
     termination: platform::TerminationGate,
     settings: Option<(AnyWindowHandle, Entity<Settings>)>,
     snapshot: Value,
@@ -203,6 +215,7 @@ impl DesktopHost {
                 commands,
                 capsule,
                 platform: None,
+                dock_menu_english: None,
                 termination,
                 settings: None,
                 snapshot: json!({}),
@@ -264,6 +277,23 @@ impl DesktopHost {
             .detach();
             this
         });
+        cx.set_global(ReopenHost(host.downgrade()));
+        cx.on_action(|_: &OpenSettingsFromDock, cx| Self::reopen_settings(cx));
+        cx.on_action(|_: &ExportDiagnosticsFromDock, cx| {
+            let Some(host) = cx
+                .try_global::<ReopenHost>()
+                .and_then(|global| global.0.upgrade())
+            else {
+                return;
+            };
+            let _ = host.update(cx, |host, _| {
+                if let Some(platform) = &mut host.platform
+                    && let Err(error) = platform.action("platform_export_diagnostics", &json!({}))
+                {
+                    host.notify(&error.to_string());
+                }
+            });
+        });
         let quit_host = host.clone();
         cx.on_app_quit(move |cx| {
             quit_host.update(cx, |host, cx| host.close(cx));
@@ -286,6 +316,24 @@ impl DesktopHost {
             .detach();
         }
         Ok(host)
+    }
+
+    pub fn reopen_settings(cx: &mut App) {
+        if let Some(host) = cx
+            .try_global::<ReopenHost>()
+            .and_then(|host| host.0.upgrade())
+        {
+            host.update(cx, |host, cx| {
+                if host.closing {
+                    return;
+                }
+                if host.snapshot["config"].is_object() {
+                    host.open_settings("", false, cx);
+                } else {
+                    host.show_settings_on_start = true;
+                }
+            });
+        }
     }
     fn event(&mut self, event: UiEvent, cx: &mut Context<Self>) {
         if self.closing {
@@ -526,6 +574,7 @@ impl DesktopHost {
                     }
                     Err(error) => self.notify(&error.to_string()),
                 }
+                self.apply_ui_preferences(cx);
                 self.platform_status();
                 if self.show_settings_on_start {
                     self.open_settings("", false, cx);
@@ -736,9 +785,9 @@ impl DesktopHost {
                     self.screen = None;
                 }
                 if let Some(platform) = &mut self.platform {
-                    platform.update_config(&self.snapshot["config"]);
                     platform.update_snapshot(&self.snapshot);
                 }
+                self.apply_ui_preferences(cx);
             }
             "devices_changed" => {
                 self.snapshot["devices"] = params["devices"].clone();
@@ -824,6 +873,13 @@ impl DesktopHost {
                 }
             }
             "mic_test_playback" => {
+                let allowed = self
+                    .settings
+                    .as_ref()
+                    .is_some_and(|(_, view)| view.read(cx).allows_mic_playback());
+                if !allowed {
+                    return;
+                }
                 if let Some(platform) = &mut self.platform
                     && let Some(data) = params["wav_base64"].as_str()
                     && let Err(error) = platform.play_preview(data)
@@ -1207,19 +1263,52 @@ impl DesktopHost {
             None,
         );
     }
+    fn apply_ui_preferences(&mut self, cx: &mut Context<Self>) {
+        let prefs = UiPreferences::from_config(&self.snapshot["config"]);
+        let applied_to_window = self.settings.as_ref().is_some_and(|(window, _)| {
+            window
+                .update(cx, |_, window, cx| {
+                    theme::apply_appearance(&prefs, Some(window), cx)
+                })
+                .is_ok()
+        });
+        if !applied_to_window {
+            theme::apply_appearance(&prefs, None, cx);
+        }
+        if let Some(platform) = &mut self.platform {
+            let english = language(&self.snapshot) == "en";
+            if self.dock_menu_english != Some(english) {
+                let (settings_title, diagnostics_title) = if english {
+                    ("Open Settings…", "Export Diagnostics…")
+                } else {
+                    ("打开设置…", "导出诊断包…")
+                };
+                cx.set_dock_menu(vec![
+                    MenuItem::action(settings_title, OpenSettingsFromDock),
+                    MenuItem::action(diagnostics_title, ExportDiagnosticsFromDock),
+                ]);
+                self.dock_menu_english = Some(english);
+            }
+            platform.apply_icon_visibility(prefs.icon_visibility, cx);
+            platform.apply_app_icon(prefs.app_icon);
+        }
+    }
+
     fn open_settings(&mut self, tab: &str, open_calibration: bool, cx: &mut Context<Self>) {
         if let Some((window, view)) = &self.settings {
             let view = view.clone();
             if window
                 .update(cx, |_, window, cx| {
-                    view.update(cx, |settings, cx| {
-                        settings.on_event(
-                            "settings_focus",
-                            &json!({"tab":tab,"open_calibration":open_calibration}),
-                            window,
-                            cx,
-                        )
-                    });
+                    if !tab.is_empty() || open_calibration {
+                        view.update(cx, |settings, cx| {
+                            settings.on_event(
+                                "settings_focus",
+                                &json!({"tab":tab,"open_calibration":open_calibration}),
+                                window,
+                                cx,
+                            )
+                        });
+                    }
                     window.activate_window();
                 })
                 .is_ok()

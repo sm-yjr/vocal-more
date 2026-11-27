@@ -146,3 +146,61 @@ fn capsule_position_and_custom_coords_persist_safely() -> anyhow::Result<()> {
     assert!(repo.config.get("ui.capsule_custom_x").is_null());
     Ok(())
 }
+
+#[test]
+fn optional_ui_preferences_survive_reload() -> anyhow::Result<()> {
+    let temp = tempfile::tempdir()?;
+    let path = temp.path().join("config.yaml");
+    let mut repo = ConfigRepository::open(&path)?;
+    let preferences = [
+        ("ui.color_scheme", json!("dark")),
+        ("ui.interface_material", json!("classic")),
+        ("ui.reduce_motion", json!(true)),
+        ("ui.app_icon", json!("wave")),
+        ("ui.icon_visibility", json!("dock_only")),
+    ];
+    for (key, value) in &preferences {
+        assert!(repo.config.get(key).is_null(), "{key}");
+        repo.update(key, value)?;
+    }
+
+    let reloaded = ConfigRepository::open(&path)?;
+    for (key, value) in &preferences {
+        assert_eq!(reloaded.config.get(key), value, "{key}");
+    }
+    Ok(())
+}
+
+#[test]
+fn invalid_ui_choices_fall_back_to_defaults() -> anyhow::Result<()> {
+    let mut config = Config::default();
+    for (key, explicit, default) in [
+        ("ui.color_scheme", "light", "auto"),
+        ("ui.interface_material", "classic", "glass"),
+        ("ui.app_icon", "night", "default"),
+        ("ui.icon_visibility", "menu_and_dock", "menu_only"),
+    ] {
+        config.apply_update(key, &json!(explicit))?;
+        assert_eq!(config.get(key), explicit, "{key}");
+        config.apply_update(key, &json!("invalid"))?;
+        assert_eq!(config.get(key), default, "{key}");
+    }
+    Ok(())
+}
+
+#[test]
+fn reduce_motion_uses_config_boolean_coercion() -> anyhow::Result<()> {
+    let mut config = Config::default();
+    for (input, expected) in [
+        (Value::Null, false),
+        (json!(" On "), true),
+        (json!("invalid"), true),
+        (json!(0), false),
+        (json!(true), true),
+        (json!(false), false),
+    ] {
+        config.apply_update("ui.reduce_motion", &input)?;
+        assert_eq!(config.get("ui.reduce_motion"), &json!(expected), "{input}");
+    }
+    Ok(())
+}

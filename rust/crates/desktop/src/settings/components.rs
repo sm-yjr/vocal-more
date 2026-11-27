@@ -7,7 +7,9 @@ use gpui_kit::component::{
     button::{Button, ButtonVariants},
     h_flex, v_flex,
 };
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+
 use serde_json::Value;
 
 /// Elevated inset grouped card sitting on the muted canvas.
@@ -20,7 +22,62 @@ pub fn card(cx: &App) -> Div {
         .bg(cx.theme().group_box)
         .border_1()
         .border_color(cx.theme().border)
-        .rounded(cx.theme().radius_lg)
+        .rounded(px(13.))
+}
+
+/// Heading above a grouped settings card.
+pub fn section_heading(title: impl Into<SharedString>, cx: &App) -> Div {
+    div()
+        .ml_1p5()
+        .text_size(px(13.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(cx.theme().foreground)
+        .child(title.into())
+}
+
+pub fn row_divider(cx: &App) -> Div {
+    div()
+        .w_full()
+        .h(px(1.))
+        .flex_shrink_0()
+        .bg(cx.theme().border)
+}
+
+/// A tabular summary inset into a settings card.
+pub fn summary_strip<const N: usize>(items: [(&str, String); N], large: bool, cx: &App) -> Div {
+    h_flex()
+        .w_full()
+        .items_stretch()
+        .p_3()
+        .rounded(px(9.))
+        .bg(cx.theme().popover)
+        .children(
+            items
+                .into_iter()
+                .enumerate()
+                .map(|(index, (label, value))| {
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .px_2()
+                        .gap_1()
+                        .when(index > 0, |cell| {
+                            cell.border_l_1().border_color(cx.theme().border)
+                        })
+                        .child(
+                            div()
+                                .text_size(px(11.5))
+                                .text_color(cx.theme().muted_foreground)
+                                .child(SharedString::from(label.to_owned())),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(if large { 22. } else { 13. }))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(value),
+                        )
+                }),
+        )
 }
 
 /// Elevated card with a header title and optional muted subtitle.

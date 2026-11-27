@@ -13,18 +13,22 @@ mod updater;
 
 use crate::bridge::CommandSink;
 use anyhow::{Context, Result, bail};
+use gpui_kit::{ActivationPolicy, App};
 use objc2::{
-    MainThreadMarker, msg_send,
+    AnyThread, MainThreadMarker, msg_send,
     rc::Retained,
-    runtime::{AnyClass, AnyObject},
+    runtime::{AnyClass, AnyObject, Bool, Imp, Sel},
+    sel,
 };
-use objc2_foundation::NSString;
+use objc2_app_kit::{NSApplication, NSImage};
+use objc2_foundation::{NSData, NSString};
 pub use screen::{MAX_JPEG_BYTES, capture_screen};
 use serde_json::{Value, json};
 use std::{
     ffi::CStr,
     path::Path,
     ptr,
+    sync::OnceLock,
     time::{Duration, Instant},
 };
 pub use termination::TerminationGate;
@@ -38,6 +42,37 @@ fn class(name: &CStr) -> &'static AnyClass {
         .unwrap_or_else(|| panic!("native class {} unavailable", name.to_string_lossy()))
 }
 
+type ReopenMethod = extern "C-unwind" fn(&AnyObject, Sel, *mut AnyObject, Bool) -> Bool;
+static GPUI_REOPEN: OnceLock<ReopenMethod> = OnceLock::new();
+
+/// Let GPUI dispatch its reopen callback even while the capsule panel is visible.
+pub fn install_dock_reopen() -> Result<()> {
+    let selector = sel!(applicationShouldHandleReopen:hasVisibleWindows:);
+    let method = AnyClass::get(c"GPUIApplicationDelegate")
+        .and_then(|delegate| delegate.instance_method(selector))
+        .context("GPUI's macOS reopen handler is unavailable")?;
+    GPUI_REOPEN.get_or_init(|| {
+        // SAFETY: gpui-pre-macos 0.3.12 registers this exact selector and ABI.
+        // Install only on GPUI's delegate class with the original IMP retained.
+        unsafe {
+            let original = std::mem::transmute::<Imp, ReopenMethod>(method.implementation());
+            method.set_implementation(std::mem::transmute::<ReopenMethod, Imp>(reopen));
+            original
+        }
+    });
+    Ok(())
+}
+
+extern "C-unwind" fn reopen(
+    delegate: &AnyObject,
+    selector: Sel,
+    app: *mut AnyObject,
+    _has_visible_windows: Bool,
+) -> Bool {
+    let original = GPUI_REOPEN.get().expect("GPUI reopen handler installed");
+    original(delegate, selector, app, Bool::NO)
+}
+
 pub struct Platform {
     _main_thread: MainThreadMarker,
     commands: CommandSink,
@@ -47,6 +82,8 @@ pub struct Platform {
     menu: menu::Menu,
     playback: playback::Playback,
     updater: updater::Updater,
+    applied_app_icon: Option<String>,
+    applied_icon_visibility: Option<String>,
     config: Value,
     last_watchdog: Instant,
     closed: bool,
@@ -72,10 +109,64 @@ impl Platform {
             menu,
             playback,
             updater,
+            applied_app_icon: None,
+            applied_icon_visibility: None,
             config: config.clone(),
             last_watchdog: Instant::now(),
             closed: false,
         })
+    }
+    pub fn apply_app_icon(&mut self, icon_id: &str) {
+        let icon_id = match icon_id {
+            "night" | "wave" | "minimal" => icon_id,
+            _ => "default",
+        };
+        if self.applied_app_icon.as_deref() == Some(icon_id) {
+            return;
+        }
+        let data = NSData::with_bytes(crate::assets::app_icon_bytes(icon_id));
+        if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+            let app = NSApplication::sharedApplication(self._main_thread);
+            // SAFETY: the application and decoded image are live on the main thread.
+            unsafe {
+                app.setApplicationIconImage(Some(&image));
+            }
+            self.applied_app_icon = Some(icon_id.into());
+        }
+    }
+    pub fn set_status_item_visible(&mut self, visible: bool) {
+        self.menu.set_visible(visible);
+    }
+    pub fn current_activation_policy(&self) -> isize {
+        NSApplication::sharedApplication(self._main_thread)
+            .activationPolicy()
+            .0
+    }
+    pub fn apply_icon_visibility(&mut self, visibility: &str, cx: &mut App) {
+        if self.applied_icon_visibility.as_deref() == Some(visibility) {
+            return;
+        }
+        match visibility {
+            "menu_and_dock" => {
+                cx.set_activation_policy(ActivationPolicy::Regular);
+                self.set_status_item_visible(true);
+            }
+            "dock_only" => {
+                cx.set_activation_policy(ActivationPolicy::Regular);
+                let regular = self.current_activation_policy() == 0;
+                self.set_status_item_visible(!regular);
+                if !regular {
+                    // Try again on the next authoritative config or resync.
+                    self.applied_icon_visibility = None;
+                    return;
+                }
+            }
+            _ => {
+                self.set_status_item_visible(true);
+                cx.set_activation_policy(ActivationPolicy::Accessory);
+            }
+        }
+        self.applied_icon_visibility = Some(visibility.into());
     }
     pub fn update_config(&mut self, config: &Value) {
         self.config = config.clone();

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::{
     Settings,
+    components::row_divider,
     pages::{actions, note, panel, titled},
 };
 use gpui_kit::component::{
@@ -127,10 +128,15 @@ impl Settings {
             let id = scene.id;
             let active = Some(id) == scenes.active_id;
             let id_label = id.to_string();
-            content = content.child(
+            content = content.child(row_divider(cx)).child(
                 v_flex()
                     .gap_2()
-                    .child(div().text_sm().child(scene.name.clone()))
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(scene.name.clone()),
+                    )
                     .child(
                         actions()
                             .child(
@@ -168,7 +174,7 @@ impl Settings {
                 content = content.child(self.scene_form(editor, busy, cx));
             }
         }
-        titled(self.text("自定义场景", "Dictation Scenes"), content, cx)
+        titled(self.text("自定义听写场景", "Dictation Scenes"), content, cx)
     }
 
     fn scene_form(&self, editor: &Editor, busy: bool, cx: &mut Context<Self>) -> Div {

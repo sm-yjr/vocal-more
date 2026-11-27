@@ -21,17 +21,20 @@ fn run() -> anyhow::Result<()> {
         println!("{}", serde_json::to_string_pretty(&report)?);
         return Ok(());
     }
-    gpui_kit::application()
-        .with_assets(vocal_more_desktop::assets::Assets)
-        .run(move |cx| {
-            gpui_kit::init(cx);
-            if let Err(error) = vocal_more_desktop::theme::install(cx) {
-                eprintln!("Vocal More: {error:#}");
-            }
-            if let Err(error) = vocal_more_desktop::host::DesktopHost::start(options, cx) {
-                eprintln!("Vocal More: {error:#}");
-                cx.quit();
-            }
-        });
+    let app = gpui_kit::application().with_assets(vocal_more_desktop::assets::Assets);
+    app.on_reopen(vocal_more_desktop::host::DesktopHost::reopen_settings);
+    if let Err(error) = vocal_more_desktop::platform::install_dock_reopen() {
+        eprintln!("Vocal More: {error:#}");
+    }
+    app.run(move |cx| {
+        gpui_kit::init(cx);
+        if let Err(error) = vocal_more_desktop::theme::install(cx) {
+            eprintln!("Vocal More: {error:#}");
+        }
+        if let Err(error) = vocal_more_desktop::host::DesktopHost::start(options, cx) {
+            eprintln!("Vocal More: {error:#}");
+            cx.quit();
+        }
+    });
     Ok(())
 }

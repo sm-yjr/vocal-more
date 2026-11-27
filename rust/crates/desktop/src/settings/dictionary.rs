@@ -9,6 +9,7 @@ use super::{
         Tone, badge, banner, card, localized_learning_reason, localized_learning_status,
         readable_unix_timestamp, status_dot,
     },
+    pages::titled,
     schema::{self, get},
 };
 use gpui_kit::assets::IconName;
@@ -780,10 +781,7 @@ impl Settings {
                                     div()
                                         .text_sm()
                                         .font_weight(FontWeight::MEDIUM)
-                                        .child(self.text(
-                                            "自动学习词典",
-                                            "Automatic dictionary learning",
-                                        )),
+                                        .child(self.text("启用自动学习", "Enable automatic learning")),
                                 ),
                         )
                         .child(
@@ -902,7 +900,11 @@ impl Settings {
             .w_full()
             .min_w_0()
             .gap_3()
-            .child(top_bar)
+            .child(titled(
+                self.text("自动学习词典", "Automatic Dictionary Learning"),
+                top_bar,
+                cx,
+            ))
             .child(segmented_bar);
 
         if let Some((message, tone, _)) = &self.dict.notice {
@@ -1961,7 +1963,11 @@ impl Settings {
             .min_w_0()
             .gap_3()
             .child(filter_bar)
-            .child(list_card)
+            .child(titled(
+                self.text("最近学习活动", "Recent Learning Activity"),
+                list_card,
+                cx,
+            ))
     }
 
     fn dictionary_privacy_view(&self, cx: &mut Context<Self>) -> Div {

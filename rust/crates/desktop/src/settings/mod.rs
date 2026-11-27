@@ -12,6 +12,7 @@ mod shortcut;
 pub mod testing;
 
 use crate::bridge::CommandSink;
+use crate::theme::{self, UiPreferences};
 use gpui_kit::component::{
     IndexPath,
     input::{InputEvent, InputState, TextareaState},
@@ -65,6 +66,11 @@ pub struct Settings {
     pub(super) commands: CommandSink,
     pub(super) tab: Tab,
     pub(super) narrow: bool,
+    nav_history: Vec<Tab>,
+    nav_index: usize,
+    page_scroll: ScrollHandle,
+    sidebar_search: Entity<InputState>,
+    shortcut_filter: Entity<InputState>,
     pub(super) controls: HashMap<&'static str, Control>,
     pub(super) prompts: HashMap<&'static str, Entity<TextareaState>>,
     scene_editor: Option<scenes::Editor>,
@@ -82,6 +88,7 @@ pub struct Settings {
     pub(super) mic_error: Option<String>,
     pub(super) mic_playable: bool,
     pub(super) mic_playing: bool,
+    mic_playback_requested: bool,
     mic_auto_play: bool,
     pub(super) calibration: calibration::Calibration,
     pub(super) pending_deletion: Option<(String, u64)>,
@@ -107,12 +114,16 @@ pub fn open(
     cx: &mut App,
 ) -> anyhow::Result<(AnyWindowHandle, Entity<Settings>)> {
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::centered(size(px(900.), px(740.)), cx)),
+        window_bounds: Some(WindowBounds::centered(size(px(890.), px(687.)), cx)),
         window_min_size: Some(size(px(640.), px(480.))),
         titlebar: Some(TitlebarOptions {
-            title: Some("Vocal More".into()),
-            ..Default::default()
+            title: None,
+            appears_transparent: true,
+            traffic_light_position: Some(point(px(18.), px(18.))),
         }),
+        window_background: theme::window_background(&UiPreferences::from_config(
+            &snapshot["config"],
+        )),
         ..Default::default()
     };
     gpui_kit::open_window(options, cx, move |window, cx| {
@@ -129,9 +140,15 @@ impl Settings {
         cx: &mut Context<Self>,
     ) -> Self {
         normalize_snapshot(&mut snapshot);
+        let initial_tab = Tab::from_id(snapshot["initial_tab"].as_str().unwrap_or_default());
         let mut this = Self {
             committed_config: snapshot["config"].clone(),
-            tab: Tab::from_id(snapshot["initial_tab"].as_str().unwrap_or("home")),
+            tab: initial_tab,
+            nav_history: vec![initial_tab],
+            nav_index: 0,
+            page_scroll: ScrollHandle::new(),
+            sidebar_search: cx.new(|cx| InputState::new(window, cx)),
+            shortcut_filter: cx.new(|cx| InputState::new(window, cx)),
             narrow: false,
             focus_recording: snapshot["focus_recording_id"].as_str().map(str::to_owned),
             snapshot,
@@ -153,6 +170,7 @@ impl Settings {
             mic_error: None,
             mic_playable: false,
             mic_playing: false,
+            mic_playback_requested: false,
             mic_auto_play: true,
             calibration: Default::default(),
             pending_deletion: None,
@@ -334,14 +352,46 @@ impl Settings {
         .detach();
         cx.subscribe(&this.filter, |_, _, _: &InputEvent, cx| cx.notify())
             .detach();
+        cx.subscribe(&this.shortcut_filter, |_, _, _: &InputEvent, cx| {
+            cx.notify()
+        })
+        .detach();
+        cx.subscribe_in(
+            &this.sidebar_search,
+            window,
+            |this, input, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => cx.notify(),
+                InputEvent::PressEnter { .. } => {
+                    let query = input.read(cx).value().to_string();
+                    if !query.trim().is_empty()
+                        && let Some(tab) = Tab::ALL
+                            .into_iter()
+                            .find(|tab| this.matches_settings(*tab, &query))
+                    {
+                        input.update(cx, |input, cx| input.set_value("", window, cx));
+                        this.switch_tab(tab, window, cx);
+                    }
+                }
+                _ => {}
+            },
+        )
+        .detach();
         this.sync_placeholders(window, cx);
+        if initial_tab == Tab::History {
+            this.action_request("getRecordings", json!({}));
+        }
         if this.snapshot["open_calibration"] == true && !this.audio_busy() {
             this.calibration.open = true;
         }
-        // Geist light/dark follows the macOS appearance while the window is open.
-        crate::theme::follow_appearance(window, cx);
-        cx.observe_window_appearance(window, |_, window, cx| {
-            crate::theme::follow_appearance(window, cx);
+        theme::apply_appearance(
+            &UiPreferences::from_config(&this.committed_config),
+            Some(window),
+            cx,
+        );
+        cx.observe_window_appearance(window, |this, window, cx| {
+            if UiPreferences::from_config(this.config()).color_scheme == "auto" {
+                gpui_kit::component::Theme::sync_system_appearance(Some(window), cx);
+            }
         })
         .detach();
         this
@@ -524,6 +574,7 @@ impl Settings {
             cx.notify();
             return;
         }
+        let previous = UiPreferences::from_config(self.config());
         let request = match self
             .commands
             .request_checked("set_config", json!({"key":key,"value":value}))
@@ -533,6 +584,7 @@ impl Settings {
                 self.error = Some(error.to_string());
                 let committed = get(&self.committed_config, key).clone();
                 put(self.config_mut(), key, committed);
+                self.apply_appearance_change(&previous, window, cx);
                 if key == "api_key" {
                     self.show_key = false;
                     if let Some(Control::Input(input)) = self.controls.get("api_key") {
@@ -549,6 +601,7 @@ impl Settings {
         };
         self.pending.insert(request, key.to_owned());
         put(self.config_mut(), key, value);
+        self.apply_appearance_change(&previous, window, cx);
         if key == "ui.advanced_settings" {
             self.advanced_sections.clear();
         }
@@ -638,7 +691,9 @@ impl Settings {
             }
         };
         self.pending.insert(request, "sync_form_state".to_owned());
+        let previous = UiPreferences::from_config(self.config());
         merge_config_patch(self.config_mut(), &patch);
+        self.apply_appearance_change(&previous, window, cx);
         self.sync_controls(window, cx, true);
         self.error = None;
         cx.notify();
@@ -703,11 +758,14 @@ impl Settings {
     }
     fn action_request(&mut self, action: &str, mut params: Value) -> u64 {
         params["action"] = json!(action);
-        let result = if action == "openMicrophoneSettings" {
-            self.commands
-                .request_checked("open_microphone_settings", json!({}))
-        } else {
-            self.commands.request_checked("ui_action", params)
+        let result = match action {
+            "openMicrophoneSettings" => self
+                .commands
+                .request_checked("open_microphone_settings", json!({})),
+            "checkForUpdates" => self
+                .commands
+                .request_checked("platform_check_updates", json!({})),
+            _ => self.commands.request_checked("ui_action", params),
         };
         let request = match result {
             Ok(request) => request,
@@ -718,7 +776,13 @@ impl Settings {
             }
         };
         self.pending.insert(request, action.to_owned());
+        if action == "playMicTest" {
+            self.mic_playback_requested = true;
+        }
         request
+    }
+    pub fn allows_mic_playback(&self) -> bool {
+        !self.closed && matches!(self.tab, Tab::Audio | Tab::Engine)
     }
     pub(super) fn recover_rejected_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(action) = self.rejected_action.take() else {
@@ -755,6 +819,8 @@ impl Settings {
                 "Aliases, comma-separated (optional)",
             ),
             (&self.filter, "搜索录音文本", "Search recording text"),
+            (&self.sidebar_search, "搜索设置", "Search Settings"),
+            (&self.shortcut_filter, "筛选快捷键…", "Filter Shortcuts…"),
         ] {
             let placeholder = self.text(zh, en);
             input.update(cx, |input, cx| {
@@ -857,21 +923,82 @@ impl Settings {
         self.sync_controls(window, cx, true);
     }
     pub(super) fn switch_tab(&mut self, tab: Tab, window: &mut Window, cx: &mut Context<Self>) {
-        if tab != Tab::Audio && self.tab == Tab::Audio {
-            self.stop_mic();
-            self.close_calibration();
+        self.transition_to_tab(tab, true, window, cx);
+    }
+
+    fn transition_to_tab(
+        &mut self,
+        tab: Tab,
+        record_history: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if tab != self.tab {
+            if matches!(self.tab, Tab::Audio | Tab::Engine) {
+                self.mic_auto_play = false;
+                if self.mic_playing || self.mic_playback_requested {
+                    self.commands.request("stop_mic_test_playback", json!({}));
+                    self.mic_playing = false;
+                    self.mic_playback_requested = false;
+                }
+                if self.calibration.phase.is_none() {
+                    self.stop_mic();
+                }
+                self.close_calibration();
+            }
+            if self.tab == Tab::Shortcuts && self.capture.active {
+                self.commands.request("end_hotkey_capture", json!({}));
+                self.capture = Default::default();
+            }
+            if record_history {
+                self.nav_history.truncate(self.nav_index + 1);
+                self.nav_history.push(tab);
+                self.nav_index = self.nav_history.len() - 1;
+            }
+            self.tab = tab;
+            self.page_scroll.set_offset(point(px(0.), px(0.)));
         }
-        if self.capture.active {
-            self.commands.request("end_hotkey_capture", json!({}));
-            self.capture = Default::default();
-        }
-        self.tab = tab;
         if tab == Tab::History {
             self.action("getRecordings", json!({}), cx);
         }
         self.sync_controls(window, cx, false);
         cx.notify();
     }
+
+    fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.nav_index > 0 {
+            self.nav_index -= 1;
+            self.transition_to_tab(self.nav_history[self.nav_index], false, window, cx);
+        }
+    }
+
+    fn go_forward(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.nav_index + 1 < self.nav_history.len() {
+            self.nav_index += 1;
+            self.transition_to_tab(self.nav_history[self.nav_index], false, window, cx);
+        }
+    }
+
+    fn apply_appearance_change(
+        &self,
+        previous: &UiPreferences,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let prefs = UiPreferences::from_config(self.config());
+        if (
+            prefs.color_scheme,
+            prefs.interface_material,
+            prefs.reduce_motion,
+        ) != (
+            previous.color_scheme,
+            previous.interface_material,
+            previous.reduce_motion,
+        ) {
+            theme::apply_appearance(&prefs, Some(window), cx);
+        }
+    }
+
     pub(super) fn start_mic(&mut self, cx: &mut Context<Self>) {
         self.mic = MicState::Starting;
         self.mic_error = None;
@@ -981,6 +1108,7 @@ impl Settings {
         if self.closed {
             return;
         }
+        let previous = UiPreferences::from_config(self.config());
         match method {
             "resync" | "snapshot" => {
                 self.snapshot = params.clone();
@@ -1183,12 +1311,19 @@ impl Settings {
                 self.calibration.phase = None;
             }
             "mic_test_playback" => {
-                self.mic_playable = true;
-                self.mic_playing = true;
+                self.mic_playback_requested = false;
+                if self.allows_mic_playback() {
+                    self.mic_playable = true;
+                    self.mic_playing = true;
+                }
             }
-            "mic_test_playback_ended" | "micTestPlaybackEnded" => self.mic_playing = false,
+            "mic_test_playback_ended" | "micTestPlaybackEnded" => {
+                self.mic_playing = false;
+                self.mic_playback_requested = false;
+            }
             "mic_test_playback_error" => {
                 self.mic_playing = false;
+                self.mic_playback_requested = false;
                 self.mic_error = Some(
                     params["message"]
                         .as_str()
@@ -1240,6 +1375,7 @@ impl Settings {
             }
             _ => {}
         }
+        self.apply_appearance_change(&previous, window, cx);
         cx.notify();
     }
     /// Persist a still-focused native editor before the host releases the
@@ -1342,8 +1478,19 @@ fn normalize_snapshot(snapshot: &mut Value) {
     if !snapshot["config"]["ui"].is_object() {
         snapshot["config"]["ui"] = json!({});
     }
-    if snapshot["config"]["ui"]["capsule_position"].is_null() {
-        snapshot["config"]["ui"]["capsule_position"] = json!("bottom");
+    let prefs = UiPreferences::from_config(&snapshot["config"]);
+    let ui = &mut snapshot["config"]["ui"];
+    for (key, default) in [
+        ("capsule_position", json!(prefs.capsule_position)),
+        ("color_scheme", json!(prefs.color_scheme)),
+        ("interface_material", json!(prefs.interface_material)),
+        ("reduce_motion", json!(prefs.reduce_motion)),
+        ("app_icon", json!(prefs.app_icon)),
+        ("icon_visibility", json!(prefs.icon_visibility)),
+    ] {
+        if ui[key].is_null() {
+            ui[key] = default;
+        }
     }
 }
 

@@ -13,9 +13,8 @@ mod macos {
     use anyhow::{Context, Result, bail, ensure};
     use base64::{Engine, engine::general_purpose::STANDARD};
     use gpui_kit::{
-        AnyWindowHandle, App, ElementId, Entity, HeadlessAppContext, ScrollDelta, Window,
-        component::{Theme, ThemeMode},
-        point, px, size,
+        AnyWindowHandle, App, ElementId, Entity, HeadlessAppContext, ScrollDelta, SharedString,
+        Window, point, px, size,
         test::{ElementSnapshot, TestWindowExt},
     };
     use serde_json::{Value, json};
@@ -145,8 +144,24 @@ mod macos {
                         // synthetic key event through the real UI event route.
                         if matches!(
                             request.method.as_str(),
-                            "begin_hotkey_capture" | "end_hotkey_capture"
+                            "begin_hotkey_capture"
+                                | "end_hotkey_capture"
+                                | "platform_check_updates"
                         ) {
+                            continue;
+                        }
+                        // The acceptance harness has no Sparkle controller. Acknowledge
+                        // the host route without sending this intent to Application.
+                        if request.method == "platform_check_updates" {
+                            self.sink.emit(
+                                "rpc_response",
+                                json!({
+                                    "request_id": request.id,
+                                    "method": request.method,
+                                    "params": request.params,
+                                    "result": {"ok":true},
+                                }),
+                            );
                             continue;
                         }
                         self.driver.send(request);
@@ -572,12 +587,12 @@ mod macos {
     }
 
     fn matrix(this: &mut Harness) -> Result<()> {
-        for (prefix, width, height) in [("", 900., 740.), ("minimum-", 640., 480.)] {
+        for (prefix, width, height) in [("", 890., 687.), ("minimum-", 640., 480.)] {
             this.resize(width, height)?;
             for (language, english) in [("en", true), ("zh", false)] {
                 this.set("ui.language", json!(language))?;
-                for (theme, mode) in [("light", ThemeMode::Light), ("dark", ThemeMode::Dark)] {
-                    this.cx.update(|cx| Theme::change(mode, None, cx));
+                for theme in ["light", "dark"] {
+                    this.set("ui.color_scheme", json!(theme))?;
                     for tab in Tab::ALL {
                         this.click(tab.id())?;
                         this.settle()?;
@@ -585,13 +600,15 @@ mod macos {
                         let button = this.find(tab.id())?;
                         assert_eq!(button.label(), Some(tab.title(english)));
                         let anchor = match tab {
-                            Tab::Home => "home-goto-audio",
+                            Tab::Engine => "home-goto-audio",
                             Tab::History => "history-filter",
                             Tab::Dictionary => "dictionary-term",
                             Tab::Audio => "calibrate-whisper",
-                            Tab::Ai => "asr.model",
+                            Tab::Recognition => "asr.model",
                             Tab::Shortcuts => "fn-hotkey",
-                            Tab::General => "api_key",
+                            Tab::General => "check-updates",
+                            Tab::Appearance => "ui.color_scheme--auto",
+                            Tab::Polish => "enable_polish",
                         };
                         assert!(
                             this.find(anchor)?.role().is_some(),
@@ -607,9 +624,49 @@ mod macos {
             }
         }
         this.set("ui.language", json!("en"))?;
-        this.cx
-            .update(|cx| Theme::change(ThemeMode::Light, None, cx));
-        this.resize(900., 740.)?;
+        this.set("ui.color_scheme", json!("light"))?;
+        this.resize(890., 687.)?;
+        Ok(())
+    }
+
+    fn settings_navigation(this: &mut Harness) -> Result<()> {
+        this.set("ui.language", json!("en"))?;
+        this.click("engine")?;
+        this.click("general")?;
+        let update_mark = this.intents.len();
+        this.click("check-updates")?;
+        ensure!(
+            this.intents[update_mark..]
+                .iter()
+                .any(|(method, _)| method == "platform_check_updates")
+        );
+
+        // Type without pressing Enter so live filtering is independently observable.
+        this.click("settings-sidebar-search")?;
+        this.window(|window, cx| window.input("Color scheme", cx))?;
+        this.pump()?;
+        assert!(this.find("appearance")?.visible());
+        ensure!(this.window(|window, _| window.try_find("general").is_none())?);
+        this.window(|window, cx| window.press("enter", cx))?;
+        this.pump()?;
+        assert!(this.find("ui.color_scheme--auto")?.visible());
+
+        this.click("nav-back")?;
+        assert!(this.find("check-updates")?.visible());
+        this.click("nav-forward")?;
+        assert!(this.find("ui.color_scheme--auto")?.visible());
+        this.click("nav-back")?;
+        this.click("history")?;
+        assert!(this.find("history-filter")?.role().is_some());
+        this.click("nav-forward")?;
+        assert!(this.find("history-filter")?.role().is_some());
+        this.click("nav-back")?;
+        assert!(this.find("check-updates")?.visible());
+
+        this.edit("settings-sidebar-search", "fixture with no match")?;
+        assert!(this.find("settings-search-empty")?.visible());
+        this.edit("settings-sidebar-search", "Engine")?;
+        assert!(this.find("home-goto-audio")?.visible());
         Ok(())
     }
 
@@ -697,8 +754,10 @@ mod macos {
         ensure!(this.find(gain_id)?.role() == Some(gpui_kit::Role::Slider));
         gates.push(json!({"dependency":"ui.advanced_settings","pointer_off_hides_advanced_control":true,"per_section_disclosure_toggle":true,"pointer_on_restores_native_control":true}));
 
-        this.click("general")?;
-        this.select_index("ui.capsule_position", 2)?;
+        this.click("appearance")?;
+        this.scroll_to("ui.capsule_position--custom")?;
+        this.click("ui.capsule_position--custom")?;
+        this.settle()?;
         ensure!(saved_value(this, "ui.capsule_position")? == "custom");
         this.scroll_to("reset-capsule-position")?;
         let reset_mark = this.intents.len();
@@ -718,7 +777,7 @@ mod macos {
             "reset-capsule-position produced an unexpected RPC error"
         );
 
-        this.click("shortcuts")?;
+        this.click("general")?;
         this.ensure_toggle("auto_paste", false)?;
         for key in ["native_fast_paste", "restore_clipboard"] {
             let field = *schema::FIELDS
@@ -753,7 +812,7 @@ mod macos {
         gate["enabled_interaction_verified_by_field"] = json!(frequency.key);
         gates.push(gate);
 
-        this.click("ai")?;
+        this.click("recognition")?;
         let snapshot = this.call("snapshot", json!({}))?;
         let models = snapshot["asr_models"]
             .as_array()
@@ -767,12 +826,15 @@ mod macos {
             .position(|model| model["pipeline"] != "native_asr" && model["id"].is_string())
             .context("catalog has no polish-capable ASR")?;
         this.select_index("asr.model", native)?;
+        this.click("polish")?;
         let field = *schema::FIELDS
             .iter()
             .find(|field| field.key == "enable_polish")
             .unwrap();
         let mut gate = disabled_control(this, field)?;
+        this.click("recognition")?;
         this.select_index("asr.model", inline)?;
+        this.click("polish")?;
         this.scroll_to("enable_polish")?;
         ensure!(this.find("enable_polish")?.disabled() != Some(true));
         gate["dependency"] = json!("asr.model: native_asr -> non-native pipeline");
@@ -827,7 +889,22 @@ mod macos {
             key if key.starts_with("llm.") => this.ensure_toggle("enable_polish", true)?,
             _ => {}
         }
-        let id = this.control_id(field.key)?;
+        let before = saved_value(this, field.key)?;
+        let tile_value = match (field.key, field.kind) {
+            (
+                "ui.app_icon" | "ui.color_scheme" | "ui.interface_material" | "ui.capsule_position",
+                Kind::Choice(options),
+            ) => options
+                .iter()
+                .find(|(value, _, _)| before != *value)
+                .map(|(value, _, _)| *value),
+            _ => None,
+        };
+        let id = if let Some(value) = tile_value {
+            SharedString::from(format!("{}--{value}", field.key)).into()
+        } else {
+            this.control_id(field.key)?
+        };
         let initial = this
             .window(|window, _| window.try_find(id.clone()))?
             .with_context(|| format!("{} has no rendered production control", field.key))?;
@@ -853,6 +930,7 @@ mod macos {
             Kind::Secret => gpui_kit::Role::PasswordInput,
             Kind::Text | Kind::List => gpui_kit::Role::TextInput,
             Kind::Slider { .. } => gpui_kit::Role::Slider,
+            Kind::Choice(_) if tile_value.is_some() => gpui_kit::Role::Button,
             Kind::Choice(_) | Kind::Model | Kind::Device => gpui_kit::Role::ComboBox,
         };
         ensure!(
@@ -862,13 +940,17 @@ mod macos {
             expected_role,
             observed.role()
         );
-        let before = saved_value(this, field.key)?;
         let mark = this.intents.len();
         let response_mark = this.terminal.keys().copied().max().unwrap_or_default();
         let mut desired = Value::Null;
         let operation = match field.kind {
             Kind::Toggle => {
-                desired = json!(!before.as_bool().context("toggle config is not boolean")?);
+                let current = if field.key == "ui.reduce_motion" && before.is_null() {
+                    false
+                } else {
+                    before.as_bool().context("toggle config is not boolean")?
+                };
+                desired = json!(!current);
                 this.click(id.clone())?;
                 this.settle()?;
                 "pointer-toggle"
@@ -892,6 +974,12 @@ mod macos {
                 };
                 this.edit(field.key, text)?;
                 "pointer-focus-cmd-a-type-enter"
+            }
+            Kind::Choice(_) if tile_value.is_some() => {
+                desired = json!(tile_value.unwrap());
+                this.click(id.clone())?;
+                this.settle()?;
+                "pointer-choice-tile"
             }
             Kind::Choice(options) => {
                 let target = options
@@ -1010,7 +1098,7 @@ mod macos {
 
     fn configuration_composites(this: &mut Harness) -> Result<Vec<Value>> {
         let mut records = vec![];
-        this.click("ai")?;
+        this.click("polish")?;
         this.ensure_toggle("enable_polish", true)?;
         let mut prompt_categories = vec![];
         for &(category, _, _) in schema::PROMPT_CATEGORIES {
@@ -1080,6 +1168,12 @@ mod macos {
         let keys = saved_value(this, "hotkey.custom_keys")?;
         let legacy = saved_value(this, "hotkey.custom_key")?;
         ensure!(keys[0]["key_code"] == 105 && legacy == keys[0]);
+        this.scroll_to("shortcut-filter")?;
+        this.edit("shortcut-filter", "no matching shortcut")?;
+        ensure!(this.window(|window, _| window.try_find(("remove-key", 105usize)).is_none())?);
+        this.edit("shortcut-filter", "F13")?;
+        ensure!(this.find(("remove-key", 105usize))?.role() == Some(gpui_kit::Role::Button));
+        this.edit("shortcut-filter", "")?;
         this.scroll_to(("remove-key", 105usize))?;
         this.click(("remove-key", 105usize))?;
         this.settle()?;
@@ -1216,21 +1310,22 @@ mod macos {
             missing_composites.is_empty(),
             "composite configuration entries not verified: {missing_composites:?}"
         );
-        this.click("general")?;
+        this.click("engine")?;
         this.scroll_to("clear-api-key")?;
         this.click("clear-api-key")?;
         this.settle()?;
-        this.resize(900., 740.)?;
+        this.resize(890., 687.)?;
         Ok(())
     }
 
     fn key_and_rejection(this: &mut Harness) -> Result<()> {
-        this.click("general")?;
+        this.click("engine")?;
         this.scroll_to("api_key")?;
         this.edit("api_key", "metal-fixture-not-a-credential")?;
         let snapshot = this.call("snapshot", json!({}))?;
         assert_eq!(snapshot["api_key_set"], true);
         assert_eq!(snapshot["config"]["api_key"], "");
+        this.scroll_to("show-api-key")?;
         this.click("show-api-key")?;
         this.settle()?;
         let view = this.view.clone();
@@ -1252,6 +1347,7 @@ mod macos {
         );
         this.shot("key-revealed-synthetic-only")?;
         let revealed_pixels = this.control_pixels("api_key")?;
+        this.scroll_to("show-api-key")?;
         this.click("show-api-key")?;
         this.settle()?;
         assert_eq!(
@@ -1283,14 +1379,14 @@ mod macos {
 
         // A real persistence failure restores the optimistic UI from backend
         // readback; no forged rpc_error and no provider or actual credential.
-        this.click("shortcuts")?;
+        this.click("general")?;
         this.scroll_to("auto_paste")?;
         let before = this.find("auto_paste")?.checked();
         let config_path = this.data.path().join("config.yaml");
         let backup = fs::read(&config_path)?;
         fs::remove_file(&config_path)?;
         fs::create_dir(&config_path)?;
-        this.click("general")?;
+        this.click("engine")?;
         this.scroll_to("api_key")?;
         this.edit("api_key", "rejected-synthetic-key")?;
         let public = this.call("snapshot", json!({}))?;
@@ -1307,7 +1403,7 @@ mod macos {
                 .update(|cx| view.read(cx).testing_input_masked("api_key", cx)),
             Some(true)
         );
-        this.click("shortcuts")?;
+        this.click("general")?;
         this.scroll_to("auto_paste")?;
         this.click("auto_paste")?;
         this.settle()?;
@@ -1327,7 +1423,7 @@ mod macos {
     }
 
     fn controls_and_history(this: &mut Harness) -> Result<()> {
-        this.click("shortcuts")?;
+        this.click("general")?;
         this.top()?;
         let original = this.call("snapshot", json!({}))?["config"]["default_mode"].clone();
         this.scroll_to("default_mode")?;
@@ -1405,7 +1501,7 @@ mod macos {
         );
         this.shot("slider-native-drag-readback")?;
 
-        this.click("ai")?;
+        this.click("polish")?;
         this.top()?;
         this.set("enable_polish", json!(true))?;
         this.scroll_to("custom-prompt-enabled")?;
@@ -1555,8 +1651,8 @@ mod macos {
     }
 
     fn admission_rejection(this: &mut Harness) -> Result<()> {
-        this.resize(900., 740.)?;
-        this.click("shortcuts")?;
+        this.resize(890., 687.)?;
+        this.click("general")?;
         this.top()?;
         this.scroll_to("auto_paste")?;
         let before = this.find("auto_paste")?.checked();
@@ -1582,7 +1678,7 @@ mod macos {
         this.shot("full-ui-queue-rejects-toggle-and-restores")?;
         this.click("dismiss-settings-error")?;
 
-        this.click("general")?;
+        this.click("engine")?;
         this.top()?;
         this.scroll_to("api_key")?;
         this.click("api_key")?;
@@ -1610,6 +1706,7 @@ mod macos {
 
         // Closing while an editor still owns focus must report an unadmitted
         // draft. The failure message names the field without exposing its value.
+        this.click("general")?;
         let previous_proxy =
             this.call("snapshot", json!({}))?["config"]["network"]["proxy_url"].clone();
         this.top()?;
@@ -1799,7 +1896,7 @@ mod macos {
     fn scenes(this: &mut Harness) -> Result<()> {
         this.resize(640., 480.)?;
         this.set("ui.language", json!("zh"))?;
-        this.click("ai")?;
+        this.click("recognition")?;
         this.top()?;
         this.scroll_to("scene-add")?;
         this.click("scene-add")?;
@@ -1866,7 +1963,7 @@ mod macos {
     }
 
     fn dictionary_workbench(this: &mut Harness) -> Result<()> {
-        this.resize(900., 740.)?;
+        this.resize(890., 687.)?;
         this.set("ui.language", json!("zh"))?;
         this.click("dictionary")?;
         this.top()?;
@@ -2019,8 +2116,7 @@ mod macos {
         );
 
         // Also capture dark theme & minimum 640x480 screenshots of populated dictionary segments.
-        this.cx
-            .update(|cx| Theme::change(ThemeMode::Dark, None, cx));
+        this.set("ui.color_scheme", json!("dark"))?;
         this.top()?;
         this.click("dict-tab-terms")?;
         this.shot("dictionary-terms-populated-zh-dark")?;
@@ -2030,9 +2126,8 @@ mod macos {
         this.shot("minimum-dictionary-privacy-zh-dark")?;
 
         // Restore neutral viewport/theme/language for any following case.
-        this.cx
-            .update(|cx| Theme::change(ThemeMode::Light, None, cx));
-        this.resize(900., 740.)?;
+        this.set("ui.color_scheme", json!("light"))?;
+        this.resize(890., 687.)?;
         this.set("ui.language", json!("en"))?;
         Ok(())
     }
@@ -2058,7 +2153,8 @@ mod macos {
         );
         if case == "all" || case == "matrix" {
             matrix(&mut this)?;
-            println!("Metal matrix: 7 tabs + onboarding, light/dark, en/zh, minimum window passed");
+            settings_navigation(&mut this)?;
+            println!("Metal matrix: 9 tabs + onboarding, light/dark, en/zh, minimum window passed");
         }
         if case == "all" || case == "key" {
             key_and_rejection(&mut this)?;

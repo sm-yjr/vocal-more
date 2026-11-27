@@ -165,6 +165,7 @@ struct Renderer {
     connection_title: String,
     notice_tone: NoticeTone,
     expanded: bool,
+    user_reduce_motion: bool,
     reduce_motion: bool,
     animation: Animation,
     layout: Layout,
@@ -323,6 +324,7 @@ impl Renderer {
             connection_title: String::new(),
             notice_tone: NoticeTone::Default,
             expanded: false,
+            user_reduce_motion: false,
             reduce_motion: Self::read_reduce_motion(),
             animation,
             layout: initial_layout,
@@ -368,7 +370,7 @@ impl Renderer {
         }
         if state == State::Recording {
             self.stage = "transcribing".into();
-            self.reduce_motion = Self::read_reduce_motion();
+            self.reduce_motion = self.user_reduce_motion || Self::read_reduce_motion();
             self.animation.reset_waveform();
             for b in &self.waveform {
                 b.setFrame(cgrect(Frame::new(0.0, 0.0, 2.0, 2.0)));
@@ -654,6 +656,9 @@ impl Capsule {
         );
         self.custom_x = config["ui"]["capsule_custom_x"].as_f64();
         self.custom_y = config["ui"]["capsule_custom_y"].as_f64();
+        let reduce = config["ui"]["reduce_motion"].as_bool().unwrap_or(false);
+        self.renderer.user_reduce_motion = reduce;
+        self.renderer.reduce_motion = reduce || Renderer::read_reduce_motion();
     }
     fn active_screen(&self) -> Option<Retained<NSScreen>> {
         let mouse = NSEvent::mouseLocation();

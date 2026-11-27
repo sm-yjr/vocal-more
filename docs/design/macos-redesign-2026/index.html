@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Vocal More · 设置</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="stage">
+    <div class="settings-window">
+      <aside class="sidebar" aria-label="设置导航">
+        <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+        <label class="search sidebar-search"><span data-icon="search"></span><input id="settings-search" type="search" placeholder="搜索设置" aria-label="搜索设置"></label>
+        <nav id="navigation" aria-label="设置分类"></nav>
+      </aside>
+      <main class="detail">
+        <header class="detail-header">
+          <div class="glass history-nav">
+            <button id="back" type="button" aria-label="后退" data-icon="left"></button>
+            <button id="forward" type="button" aria-label="前进" data-icon="right"></button>
+          </div>
+          <h1 id="page-title"></h1>
+          <div id="page-actions"></div>
+        </header>
+        <div class="detail-scroll" id="detail-scroll"></div>
+      </main>
+    </div>
+  </div>
+  <div class="viewer" aria-label="预览控制">
+    <span class="preview-label"><i></i>交互预览模式</span>
+    <div class="segments" aria-label="预览主题">
+      <button type="button" data-theme-choice="light">浅色</button>
+      <button type="button" data-theme-choice="dark">深色</button>
+    </div>
+    <select id="quick-jump" aria-label="跳转到设置页面"></select>
+  </div>
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

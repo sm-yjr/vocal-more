@@ -209,6 +209,7 @@ impl Config {
             | "ui.onboarding_completed"
             | "ui.onboarding_skipped"
             | "ui.advanced_settings"
+            | "ui.reduce_motion"
             | "dictionary_learning.enabled" => {
                 json!(boolean(value, current.as_bool().unwrap_or(false)))
             }
@@ -408,6 +409,14 @@ impl Config {
                 "en",
             ),
             "ui.capsule_position" => choice(value, &["bottom", "top", "custom"], "bottom"),
+            "ui.color_scheme" => choice(value, &["auto", "light", "dark"], "auto"),
+            "ui.interface_material" => choice(value, &["glass", "classic"], "glass"),
+            "ui.app_icon" => choice(value, &["default", "night", "wave", "minimal"], "default"),
+            "ui.icon_visibility" => choice(
+                value,
+                &["menu_only", "menu_and_dock", "dock_only"],
+                "menu_only",
+            ),
             "ui.capsule_custom_x" | "ui.capsule_custom_y" => {
                 if value.is_null() {
                     Value::Null

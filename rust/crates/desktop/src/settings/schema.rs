@@ -5,85 +5,65 @@ use serde_json::{Value, json};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
-    Home,
-    History,
-    Dictionary,
-    Audio,
-    Ai,
-    Shortcuts,
+    Engine,
     General,
+    Audio,
+    Appearance,
+    Recognition,
+    Polish,
+    Shortcuts,
+    Dictionary,
+    History,
 }
 impl Tab {
-    pub const WORKSPACE: [Self; 3] = [Self::Home, Self::History, Self::Dictionary];
-    pub const SETTINGS: [Self; 4] = [Self::Audio, Self::Ai, Self::Shortcuts, Self::General];
-    pub const ALL: [Self; 7] = [
-        Self::Home,
-        Self::History,
-        Self::Dictionary,
-        Self::Audio,
-        Self::Ai,
-        Self::Shortcuts,
+    pub const ALL: [Self; 9] = [
+        Self::Engine,
         Self::General,
+        Self::Audio,
+        Self::Appearance,
+        Self::Recognition,
+        Self::Polish,
+        Self::Shortcuts,
+        Self::Dictionary,
+        Self::History,
     ];
     pub fn id(self) -> &'static str {
         match self {
-            Self::Home => "home",
-            Self::History => "history",
-            Self::Dictionary => "dictionary",
-            Self::Audio => "audio",
-            Self::Ai => "ai",
-            Self::Shortcuts => "shortcuts",
+            Self::Engine => "engine",
             Self::General => "general",
+            Self::Audio => "audio",
+            Self::Appearance => "appearance",
+            Self::Recognition => "recognition",
+            Self::Polish => "polish",
+            Self::Shortcuts => "shortcuts",
+            Self::Dictionary => "dictionary",
+            Self::History => "history",
         }
     }
+
     pub fn title(self, english: bool) -> &'static str {
-        match (self, english) {
-            (Self::Home, false) => "概览",
-            (Self::History, false) => "录音历史",
-            (Self::Dictionary, false) => "个人词典",
-            (Self::Audio, false) => "声音与低声",
-            (Self::Ai, false) => "识别与润色",
-            (Self::Shortcuts, false) => "快捷键与输入",
-            (Self::General, false) => "通用与连接",
-            (Self::Home, true) => "Home",
-            (Self::History, true) => "History",
-            (Self::Dictionary, true) => "Dictionary",
-            (Self::Audio, true) => "Audio & Whisper",
-            (Self::Ai, true) => "AI & Output",
-            (Self::Shortcuts, true) => "Shortcuts & Input",
-            (Self::General, true) => "General",
-        }
+        let (zh, en) = match self {
+            Self::Engine => ("语音引擎", "Engine"),
+            Self::General => ("通用", "General"),
+            Self::Audio => ("音频", "Audio"),
+            Self::Appearance => ("外观与胶囊", "Appearance"),
+            Self::Recognition => ("识别", "Recognition"),
+            Self::Polish => ("润色", "Polish"),
+            Self::Shortcuts => ("快捷键", "Shortcuts"),
+            Self::Dictionary => ("词典", "Dictionary"),
+            Self::History => ("历史", "History"),
+        };
+        if english { en } else { zh }
     }
-    pub fn subtitle(self, english: bool) -> &'static str {
-        match (self, english) {
-            (Self::Home, false) => "系统就绪状态、常用快捷切换与最近听写记录",
-            (Self::History, false) => "搜索、回放、重新识别并管理本地历史录音",
-            (Self::Dictionary, false) => "审核自动学习建议并维护专有名词表",
-            (Self::Audio, false) => "为办公室低声或日常环境选择拾音方案并试音校准",
-            (Self::Ai, false) => "配置识别模型、自定义听写场景、看屏幕说话与文本润色风格",
-            (Self::Shortcuts, false) => "自定义全局触发键、录音手势与自动粘贴行为",
-            (Self::General, false) => "服务密钥、网络代理、悬浮胶囊位置与应用偏好",
-            (Self::Home, true) => "Readiness status, quick toggles, and recent dictations",
-            (Self::History, true) => "Search, replay, retry, and manage local recordings",
-            (Self::Dictionary, true) => "Review learned suggestions and manage custom terms",
-            (Self::Audio, true) => "Tailor pickup for office whispering or everyday speech",
-            (Self::Ai, true) => {
-                "Configure ASR models, dictation scenes, screen context, and polish styles"
-            }
-            (Self::Shortcuts, true) => {
-                "Customize trigger hotkeys, recording gestures, and paste behavior"
-            }
-            (Self::General, true) => "API key, proxy, capsule placement, and app preferences",
-        }
-    }
+
     pub fn from_id(value: &str) -> Self {
         match value {
-            "" | "home" => Self::Home,
-            "recognition" | "polish" | "ai" => Self::Ai,
+            "" | "home" => Self::Engine,
+            "ai" => Self::Recognition,
             other => Self::ALL
                 .into_iter()
                 .find(|tab| tab.id() == other)
-                .unwrap_or(Self::Home),
+                .unwrap_or(Self::Engine),
         }
     }
 }
@@ -140,8 +120,74 @@ macro_rules! field {
 }
 pub const FIELDS: &[Field] = &[
     field!(
-        "api_key",
+        "ui.reduce_motion",
+        Appearance,
+        "减少动态效果",
+        "Reduce motion",
+        false,
+        Kind::Toggle,
+        "简化界面过渡和波形动效。",
+        "Simplify transitions and waveform animation."
+    ),
+    field!(
+        "ui.interface_material",
+        Appearance,
+        "界面材质",
+        "Interface material",
+        false,
+        Kind::Choice(&[
+            ("classic", "经典", "Classic"),
+            ("glass", "液态玻璃", "Liquid Glass")
+        ]),
+        "",
+        ""
+    ),
+    field!(
+        "ui.color_scheme",
+        Appearance,
+        "配色方案",
+        "Color scheme",
+        false,
+        Kind::Choice(&[
+            ("auto", "跟随系统", "System"),
+            ("light", "浅色", "Light"),
+            ("dark", "深色", "Dark")
+        ]),
+        "",
+        ""
+    ),
+    field!(
+        "ui.icon_visibility",
         General,
+        "图标显示位置",
+        "Icon visibility",
+        false,
+        Kind::Choice(&[
+            ("menu_only", "仅菜单栏", "Menu bar only"),
+            ("menu_and_dock", "菜单栏与程序坞", "Menu bar and Dock"),
+            ("dock_only", "仅程序坞", "Dock only")
+        ]),
+        "",
+        ""
+    ),
+    field!(
+        "ui.app_icon",
+        General,
+        "图标样式",
+        "Icon style",
+        false,
+        Kind::Choice(&[
+            ("default", "默认", "Default"),
+            ("night", "暗夜", "Night"),
+            ("wave", "声波", "Wave"),
+            ("minimal", "极简", "Minimal")
+        ]),
+        "",
+        ""
+    ),
+    field!(
+        "api_key",
+        Engine,
         "DashScope API Key",
         "DashScope API Key",
         false,
@@ -161,7 +207,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "ui.capsule_position",
-        General,
+        Appearance,
         "悬浮胶囊位置",
         "Floating capsule position",
         false,
@@ -205,8 +251,8 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "default_mode",
-        Shortcuts,
-        "默认录音模式",
+        General,
+        "默认模式",
         "Default recording mode",
         false,
         Kind::Choice(&[
@@ -218,8 +264,8 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "auto_paste",
-        Shortcuts,
-        "自动输入识别结果",
+        General,
+        "自动粘贴",
         "Automatically paste results",
         false,
         Kind::Toggle,
@@ -228,7 +274,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "streaming_paste",
-        Shortcuts,
+        General,
         "边说边输入",
         "Streaming paste",
         false,
@@ -238,8 +284,8 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "native_fast_paste",
-        Shortcuts,
-        "原生快速输入",
+        General,
+        "原生快速粘贴",
         "Native fast paste",
         true,
         Kind::Toggle,
@@ -248,8 +294,8 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "restore_clipboard",
-        Shortcuts,
-        "恢复原剪贴板",
+        General,
+        "恢复剪贴板",
         "Restore clipboard",
         true,
         Kind::Toggle,
@@ -269,7 +315,7 @@ pub const FIELDS: &[Field] = &[
     field!(
         "audio.capture_backend",
         Audio,
-        "采集模式",
+        "麦克风引擎",
         "Capture backend",
         true,
         Kind::Choice(&[
@@ -386,7 +432,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "asr.model",
-        Ai,
+        Recognition,
         "识别模型",
         "Recognition model",
         false,
@@ -396,7 +442,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "asr.language",
-        Ai,
+        Recognition,
         "识别语言",
         "Recognition language",
         false,
@@ -410,7 +456,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "cursor_context_enabled",
-        Ai,
+        Recognition,
         "光标上下文与动态热词",
         "Cursor context & dynamic hotwords",
         false,
@@ -420,7 +466,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "screen_context_enabled",
-        Ai,
+        Recognition,
         "看屏幕说话",
         "Screen context",
         false,
@@ -430,7 +476,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "asr.realtime_url",
-        Ai,
+        Recognition,
         "空间实时端点",
         "Workspace realtime endpoint",
         true,
@@ -440,8 +486,8 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "enable_polish",
-        Ai,
-        "启用润色",
+        Polish,
+        "启用文本润色",
         "Enable polish",
         false,
         Kind::Toggle,
@@ -450,7 +496,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "llm.polish_mode",
-        Ai,
+        Polish,
         "输出类型",
         "Output type",
         false,
@@ -463,7 +509,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "llm.output_language",
-        Ai,
+        Polish,
         "输出语言",
         "Output language",
         false,
@@ -477,8 +523,8 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "llm.level",
-        Ai,
-        "润色程度",
+        Polish,
+        "润色强度",
         "Polish level",
         false,
         Kind::Choice(&[
@@ -491,7 +537,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "llm.structured",
-        Ai,
+        Polish,
         "结构化输出",
         "Structured output",
         false,
@@ -501,7 +547,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "llm.tone",
-        Ai,
+        Polish,
         "表达语气",
         "Tone",
         false,
@@ -515,7 +561,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "llm.persona",
-        Ai,
+        Polish,
         "写作风格",
         "Persona",
         false,
@@ -531,7 +577,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "llm.model",
-        Ai,
+        Polish,
         "润色模型",
         "Polish model",
         true,
@@ -541,7 +587,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "llm.temperature",
-        Ai,
+        Polish,
         "生成温度",
         "Temperature",
         true,
@@ -557,7 +603,7 @@ pub const FIELDS: &[Field] = &[
     ),
     field!(
         "llm.enable_thinking",
-        Ai,
+        Polish,
         "深度思考",
         "Thinking",
         true,
@@ -606,42 +652,78 @@ pub const FIELDS: &[Field] = &[
 /// Visual grouping for fields inside each tab; every field belongs to exactly one section.
 pub const SECTIONS: &[(Tab, &str, &str, &[&str])] = &[
     (
+        Tab::Engine,
+        "DashScope 服务连接",
+        "DashScope Connection",
+        &["api_key"],
+    ),
+    (Tab::General, "更新", "Updates", &["update_channel"]),
+    (
         Tab::General,
-        "语音服务与网络连接",
-        "Speech Service & Network",
-        &["api_key", "network.proxy_url"],
+        "听写与粘贴",
+        "Dictation & Paste",
+        &[
+            "default_mode",
+            "auto_paste",
+            "native_fast_paste",
+            "restore_clipboard",
+            "streaming_paste",
+        ],
     ),
     (
         Tab::General,
-        "外观与交互偏好",
-        "Appearance & Experience",
-        &["ui.capsule_position", "ui.language", "update_channel"],
+        "应用图标",
+        "App Icon",
+        &["ui.app_icon", "ui.icon_visibility"],
     ),
     (
         Tab::General,
-        "应用与维护",
-        "Application & Maintenance",
-        &["ui.advanced_settings"],
+        "偏好与网络",
+        "Preferences & Network",
+        &["ui.language", "network.proxy_url", "ui.advanced_settings"],
     ),
-    (Tab::Audio, "麦克风", "Microphone", &["audio.input_device"]),
     (
         Tab::Audio,
-        "高级音频参数",
-        "Advanced Audio DSP",
+        "输入与引擎",
+        "Input & Engine",
         &[
+            "audio.input_device",
             "audio.capture_backend",
             "audio.gain_mode",
+        ],
+    ),
+    (
+        Tab::Audio,
+        "信号处理（DSP）",
+        "Signal Processing (DSP)",
+        &[
             "audio.gain",
             "audio.highpass_filter",
             "audio.highpass_freq",
             "audio.soft_limiter",
-            "audio.tail_padding_ms",
             "audio.waveform_ceiling_dbfs",
+            "audio.tail_padding_ms",
         ],
     ),
     (
-        Tab::Ai,
-        "语音识别",
+        Tab::Appearance,
+        "外观",
+        "Appearance",
+        &[
+            "ui.color_scheme",
+            "ui.interface_material",
+            "ui.reduce_motion",
+        ],
+    ),
+    (
+        Tab::Appearance,
+        "悬浮胶囊",
+        "Floating Capsule",
+        &["ui.capsule_position"],
+    ),
+    (
+        Tab::Recognition,
+        "语音识别模型",
         "Speech Recognition",
         &[
             "asr.model",
@@ -651,9 +733,15 @@ pub const SECTIONS: &[(Tab, &str, &str, &[&str])] = &[
         ],
     ),
     (
-        Tab::Ai,
-        "文本润色与输出风格",
-        "Text Polish & Output Style",
+        Tab::Recognition,
+        "Model Studio 实时端点",
+        "Realtime Endpoint",
+        &["asr.realtime_url"],
+    ),
+    (
+        Tab::Polish,
+        "润色与输出风格",
+        "Polish & Output Style",
         &[
             "enable_polish",
             "llm.polish_mode",
@@ -665,31 +753,16 @@ pub const SECTIONS: &[(Tab, &str, &str, &[&str])] = &[
         ],
     ),
     (
-        Tab::Ai,
-        "高级模型端点与参数",
-        "Workspace Endpoint & LLM",
-        &[
-            "asr.realtime_url",
-            "llm.model",
-            "llm.temperature",
-            "llm.enable_thinking",
-        ],
+        Tab::Polish,
+        "高级润色模型",
+        "Advanced Polish Model",
+        &["llm.model", "llm.temperature", "llm.enable_thinking"],
     ),
     (
         Tab::Shortcuts,
-        "录音模式与文本输入",
-        "Recording Mode & Text Insertion",
-        &["default_mode", "auto_paste", "streaming_paste"],
-    ),
-    (
-        Tab::Shortcuts,
-        "高级输入与热键参数",
-        "Advanced Input & Hotkey Tuning",
-        &[
-            "hotkey.double_tap_threshold",
-            "native_fast_paste",
-            "restore_clipboard",
-        ],
+        "高级热键参数",
+        "Advanced Hotkey Tuning",
+        &["hotkey.double_tap_threshold"],
     ),
     (
         Tab::Dictionary,
@@ -728,6 +801,7 @@ pub const ACTIONS: &[&str] = &[
     "refreshEnvironment",
     "openAccessibilitySettings",
     "openMicrophoneSettings",
+    "checkForUpdates",
     "setAsrModel",
     "setDevice",
     "setActiveHotkeys",
@@ -890,13 +964,13 @@ mod tests {
     }
     #[test]
     fn legacy_tab_ids_resolve_to_redesigned_destinations() {
-        assert_eq!(Tab::from_id(""), Tab::Home);
-        assert_eq!(Tab::from_id("home"), Tab::Home);
-        assert_eq!(Tab::from_id("recognition"), Tab::Ai);
-        assert_eq!(Tab::from_id("polish"), Tab::Ai);
-        assert_eq!(Tab::from_id("ai"), Tab::Ai);
+        assert_eq!(Tab::from_id(""), Tab::Engine);
+        assert_eq!(Tab::from_id("home"), Tab::Engine);
+        assert_eq!(Tab::from_id("recognition"), Tab::Recognition);
+        assert_eq!(Tab::from_id("polish"), Tab::Polish);
+        assert_eq!(Tab::from_id("ai"), Tab::Recognition);
         assert_eq!(Tab::from_id("general"), Tab::General);
-        assert_eq!(Tab::from_id("unknown-future-tab"), Tab::Home);
+        assert_eq!(Tab::from_id("unknown-future-tab"), Tab::Engine);
     }
     #[test]
     fn endpoint_and_proxy_validation() {
@@ -1034,11 +1108,16 @@ mod tests {
             "backend registry parser must see the full settings protocol"
         );
         for action in ACTIONS {
-            if *action == "openMicrophoneSettings" {
+            let native_method = match *action {
+                "openMicrophoneSettings" => Some("open_microphone_settings"),
+                "checkForUpdates" => Some("platform_check_updates"),
+                _ => None,
+            };
+            if let Some(method) = native_method {
                 let platform = include_str!("../platform/mod.rs");
                 assert!(
-                    platform.contains("\"open_microphone_settings\""),
-                    "microphone permission action must have a native host route"
+                    platform.contains(&format!("{method:?}")),
+                    "Missing native route: {method}"
                 );
             } else {
                 assert!(

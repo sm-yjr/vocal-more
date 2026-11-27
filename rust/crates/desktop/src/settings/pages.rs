@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Redesigned Apple System Settings × Raycast GPUI views for Vocal More 0.6.2,
-//! built on GPUI Kit 0.9.1 Geist theme tokens and integrated with custom
-//! dictation scenes.
+//! Native Tahoe settings views, backed by the existing desktop settings contracts.
 use super::{
     Control, MicState, Settings, calibration,
     components::{
         Tone, badge, banner, brand_mark, bytes, card, disclosure_header, format_db_from_linear,
         keycap, literal_markdown, localized_mode, localized_status, money, number,
-        readable_timestamp, readout, status_dot, titled_card,
+        readable_timestamp, readout, row_divider, section_heading, status_dot, summary_strip,
+        titled_card,
     },
     schema::{self, Kind, Tab, get},
     shortcut,
@@ -29,16 +28,107 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use serde_json::{Value, json};
 
-fn tab_icon(tab: Tab) -> IconName {
-    match tab {
-        Tab::Home => IconName::House,
-        Tab::History => IconName::Clock,
-        Tab::Dictionary => IconName::BookOpen,
-        Tab::Audio => IconName::Mic,
-        Tab::Ai => IconName::Sparkles,
-        Tab::Shortcuts => IconName::Keyboard,
-        Tab::General => IconName::SlidersHorizontal,
-    }
+fn gradient(top: u32, bottom: u32) -> Background {
+    linear_gradient(
+        145.,
+        linear_color_stop(rgb(top), 0.),
+        linear_color_stop(rgb(bottom), 1.),
+    )
+}
+
+fn app_icon(id: &str, edge: f32) -> Img {
+    img(SharedString::from(format!("icons/{id}.png")))
+        .size(px(edge))
+        .rounded(px(edge / 3.5))
+        .flex_shrink_0()
+}
+
+fn tile(id: impl Into<ElementId>, label: &'static str, selected: bool, cx: &App) -> Button {
+    Button::new(id)
+        .ghost()
+        .w_full()
+        .rounded(px(11.))
+        .selected(selected)
+        .border_2()
+        .border_color(if selected {
+            rgb(0x007aff).into()
+        } else {
+            cx.theme().border
+        })
+        .accessibility_label(label)
+}
+
+fn tile_caption(label: &'static str, selected: bool, cx: &App) -> Div {
+    div()
+        .text_size(px(11.5))
+        .text_center()
+        .text_color(if selected {
+            cx.theme().foreground
+        } else {
+            cx.theme().muted_foreground
+        })
+        .font_weight(if selected {
+            FontWeight::SEMIBOLD
+        } else {
+            FontWeight::NORMAL
+        })
+        .child(label)
+}
+
+fn waveform(heights: &[u8], width: f32) -> Div {
+    waveform_with_color(heights, width, rgb(0xffffff).into())
+}
+
+fn waveform_with_color(heights: &[u8], width: f32, color: Hsla) -> Div {
+    h_flex()
+        .h(px(24.))
+        .items_center()
+        .gap(px(width + 1.))
+        .children(heights.iter().map(|&height| {
+            div()
+                .w(px(width))
+                .h(px(f32::from(height)))
+                .rounded_full()
+                .bg(color)
+        }))
+}
+
+fn mini_window(scheme: &str) -> Div {
+    div()
+        .w(px(46.))
+        .h(px(35.))
+        .rounded(px(6.))
+        .shadow_sm()
+        .border_1()
+        .border_color(rgba(0xffffff8c))
+        .bg(match scheme {
+            "light" => rgb(0xeaf1ff).into(),
+            "dark" => rgb(0x252838).into(),
+            _ => linear_gradient(
+                115.,
+                linear_color_stop(rgb(0xeaf1ff), 0.49),
+                linear_color_stop(rgb(0x252838), 0.51),
+            ),
+        })
+        .child(
+            h_flex().gap(px(2.)).p_1().children(
+                [0xff5f57, 0xfabc32, 0x28c840]
+                    .map(|color| div().size(px(3.)).rounded_full().bg(rgb(color))),
+            ),
+        )
+        .child(
+            v_flex()
+                .ml(px(14.))
+                .mr_1()
+                .gap_px()
+                .children([1, 2].map(|_| {
+                    div()
+                        .w_full()
+                        .h(px(8.))
+                        .rounded(px(2.))
+                        .bg(rgba(0x8b9bb67a))
+                })),
+        )
 }
 
 /// Shared card surface used by sibling submodules such as `scenes.rs`.
@@ -52,13 +142,7 @@ pub(super) fn titled(title: impl Into<SharedString>, content: Div, cx: &App) -> 
         .w_full()
         .min_w_0()
         .gap_2()
-        .child(
-            div()
-                .text_xs()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(cx.theme().muted_foreground)
-                .child(title.into()),
-        )
+        .child(section_heading(title, cx))
         .child(content)
 }
 
@@ -70,7 +154,7 @@ pub(super) fn actions() -> Div {
 /// Muted helper note used by sibling submodules such as `scenes.rs`.
 pub(super) fn note(text: impl Into<SharedString>, cx: &App) -> Div {
     div()
-        .text_xs()
+        .text_size(px(11.5))
         .whitespace_normal()
         .text_color(cx.theme().muted_foreground)
         .child(text.into())
@@ -89,6 +173,7 @@ impl Settings {
             .expect("settings field exists");
         let title = field.title(self.english());
         let disabled = self.disabled(key);
+        let full_width = matches!(field.kind, Kind::Text | Kind::List);
         let control_width = if self.narrow { 260. } else { 290. };
         let element = match &self.controls[key] {
             Control::Toggle => Switch::new(key)
@@ -110,6 +195,7 @@ impl Settings {
                     .aria_label(title)
                     .accessibility_id(key)
                     .w(px(input_w))
+                    .when(full_width, |input| input.w_full())
                     .disabled(disabled);
                 if matches!(field.kind, Kind::Secret) {
                     element = element
@@ -189,7 +275,7 @@ impl Settings {
                     unreachable!()
                 };
                 let value = slider.read(cx).value().start();
-                let track_w = if self.narrow { 176. } else { 205. };
+                let track_w = if self.narrow { 153. } else { 177. };
                 h_flex()
                     .gap_3()
                     .items_center()
@@ -201,7 +287,9 @@ impl Settings {
                             .font_family(cx.theme().mono_font_family.clone())
                             .font_weight(FontWeight::MEDIUM)
                             .min_w(px(64.))
-                            .child(if value.fract().abs() < 0.001 {
+                            .child(if key == "audio.gain" {
+                                format!("{value:+.0} dB · {:.1}×", 10_f32.powf(value / 20.))
+                            } else if value.fract().abs() < 0.001 {
                                 format!("{value:.0} {unit}")
                             } else {
                                 format!("{value:.2} {unit}")
@@ -211,7 +299,8 @@ impl Settings {
             }
         };
         let hint = self.field_hint(key, field);
-        let stack = self.narrow || matches!(field.kind, Kind::Secret);
+        let stack = (self.narrow && !matches!(field.kind, Kind::Toggle))
+            || matches!(field.kind, Kind::Secret | Kind::Text | Kind::List);
         h_flex()
             .id(SharedString::from(format!("setting-row-{key}")))
             .test_support()
@@ -232,11 +321,16 @@ impl Settings {
                     .min_w_0()
                     .w_full()
                     .gap_0p5()
-                    .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(title))
+                    .child(
+                        div()
+                            .text_size(px(13.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(title),
+                    )
                     .when(!hint.is_empty(), |col| {
                         col.child(
                             div()
-                                .text_xs()
+                                .text_size(px(11.5))
                                 .whitespace_normal()
                                 .text_color(if disabled {
                                     cx.theme().yellow
@@ -247,7 +341,12 @@ impl Settings {
                         )
                     }),
             )
-            .child(div().flex_shrink_0().child(element))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .when(full_width, |container| container.w_full())
+                    .child(element),
+            )
             .into_any_element()
     }
 
@@ -296,7 +395,7 @@ impl Settings {
             && get(self.config(), "auto_paste") == false
         {
             return self.text(
-                "需先开启“自动输入识别结果”才会生效。",
+                "需先开启“自动粘贴”才会生效。",
                 "Requires Automatically paste results to be enabled.",
             );
         }
@@ -352,252 +451,253 @@ impl Settings {
     }
 
     // -------------------------------------------------------------------------
-    // 1. Home / Overview (概览)
+    // Voice engine and runtime readiness
     // -------------------------------------------------------------------------
-    fn home_page(&self, cx: &mut Context<Self>) -> Div {
-        let attention = self.attention_count();
-        let preset_name = match self.active_audio_preset() {
-            Some("whisper") => self.text("办公室低声", "Office Whisper"),
-            Some("noisy") => self.text("嘈杂环境", "Noisy Room"),
-            Some("normal") => self.text("正常说话", "Normal Voice"),
-            _ => self.text("自定义音频", "Custom Audio"),
-        };
-        let active_scene = self.active_dictation_scene_name();
-
-        let hero = if attention > 0 {
-            let mut issues = v_flex().gap_2();
-            if get(self.config(), "_api_key_set") != true {
-                issues = issues.child(
-                    h_flex()
-                        .justify_between()
-                        .items_center()
-                        .gap_2()
-                        .flex_wrap()
-                        .child(div().text_xs().child(self.text(
-                            "尚未配置 DashScope API Key",
-                            "DashScope API key is not configured",
-                        )))
+    fn engine_page(&self, cx: &mut Context<Self>) -> Div {
+        let input = &self.snapshot["audio_input_status"];
+        let native = self.native_backend_label(&input["native_backend"]);
+        let hero = card(cx).child(
+            h_flex()
+                .items_center()
+                .gap_2p5()
+                .flex_wrap()
+                .child(self.active_icon(40.))
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_0p5()
                         .child(
-                            Button::new("home-fix-api-key")
-                                .small()
-                                .primary()
-                                .label(self.text("去配置", "Configure"))
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.switch_tab(Tab::General, window, cx)
-                                })),
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(self.text("Vocal More 语音引擎", "Vocal More Engine")),
+                        )
+                        .child(
+                            div()
+                                .id("readiness-summary")
+                                .child(note(format!("{} · {native}", self.engine_state()), cx)),
                         ),
-                );
-            }
-            for check in self
+                )
+                .child(
+                    Button::new("home-refresh-env")
+                        .small()
+                        .rounded(px(20.))
+                        .label(self.text("刷新状态", "Refresh status"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.action("refreshEnvironment", json!({}), cx);
+                            this.action("refreshDevices", json!({}), cx);
+                        })),
+                ),
+        );
+        let device = input["device_name"]
+            .as_str()
+            .filter(|name| !name.is_empty())
+            .unwrap_or(self.text("未检测到设备", "No input detected"));
+        let source_rate = input["source_sample_rate_hz"].as_f64();
+        let rate = source_rate
+            .or_else(|| input["output_sample_rate_hz"].as_f64())
+            .map(|rate| {
+                format!(
+                    " · {} {rate:.0} Hz",
+                    if source_rate.is_some() {
+                        self.text("采集", "Input")
+                    } else {
+                        self.text("输出", "Output")
+                    }
+                )
+            })
+            .unwrap_or_default();
+        let channels = input["capture_channels"]
+            .as_u64()
+            .map(|count| format!(" · {count} {}", self.text("声道", "ch")))
+            .unwrap_or_default();
+        let recording = matches!(self.mic, MicState::Starting | MicState::Recording);
+        let quick_input = card(cx)
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_2p5()
+                    .flex_wrap()
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_0p5()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(self.text("当前输入设备", "Current input device")),
+                            )
+                            .child(note(format!("{device}{channels}{rate}"), cx)),
+                    )
+                    .child(
+                        Button::new("home-goto-audio")
+                            .small()
+                            .rounded(px(20.))
+                            .icon(IconName::Info)
+                            .accessibility_label(self.text("音频设置", "Audio Settings"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.switch_tab(Tab::Audio, window, cx)
+                            })),
+                    )
+                    .when(
+                        !recording && !self.mic_playable && self.mic_error.is_none(),
+                        |row| row.child(self.mic_start_button(cx)),
+                    ),
+            )
+            .when(
+                recording || self.mic_playable || self.mic_error.is_some(),
+                |card| card.child(self.mic_card_body(cx)),
+            );
+
+        let mut status = card(cx).gap_0().py_1();
+        for (key, zh, en) in [
+            (
+                "microphone_permission",
+                "麦克风权限",
+                "Microphone permission",
+            ),
+            ("accessibility", "辅助功能权限", "Accessibility permission"),
+            (
+                "hotkey_listener",
+                "全局快捷键监听",
+                "Global hotkey listener",
+            ),
+            ("input_device", "输入设备可用性", "Input availability"),
+        ] {
+            let state = self
                 .array("environment_checks")
                 .iter()
-                .filter(|c| c["status"] != "ok")
-            {
-                let key = check["key"].as_str().unwrap_or_default();
-                if key == "api_key" && get(self.config(), "_api_key_set") != true {
-                    continue;
-                }
-                let label = match key {
-                    "microphone_permission" => {
-                        self.text("麦克风权限未授权", "Microphone permission required")
-                    }
-                    "accessibility" => {
-                        self.text("辅助功能权限未授权", "Accessibility permission required")
-                    }
-                    "input_device" => {
-                        self.text("未检测到可用麦克风", "No input microphone detected")
-                    }
-                    "hotkey_listener" => {
-                        self.text("全局快捷键监听未就绪", "Global hotkey listener not active")
-                    }
-                    _ => self.text("运行环境需要检查", "Environment needs attention"),
-                };
-                let mut row = h_flex()
-                    .justify_between()
-                    .items_center()
-                    .gap_2()
-                    .flex_wrap()
-                    .child(div().text_xs().child(label));
-                if key == "microphone_permission" {
-                    row = row.child(
+                .find(|check| check["key"] == key);
+            let ok = state.is_some_and(|check| check["status"] == "ok");
+            let message = if ok && matches!(key, "microphone_permission" | "accessibility") {
+                self.text("已授权", "Authorized")
+            } else if ok {
+                self.text("就绪", "Ready")
+            } else if state.is_some_and(|check| check["status"] == "error") {
+                self.text("需要处理", "Needs attention")
+            } else {
+                self.text("尚未确认", "Unverified")
+            };
+            let value = h_flex()
+                .gap_1p5()
+                .items_center()
+                .child(status_dot(
+                    if ok { Tone::Success } else { Tone::Warning },
+                    cx,
+                ))
+                .child(div().text_sm().child(message))
+                .when(!ok && key == "microphone_permission", |row| {
+                    row.child(
                         Button::new("home-fix-mic")
-                            .small()
+                            .xsmall()
                             .label(self.text("打开麦克风设置", "Microphone Settings"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.action("openMicrophoneSettings", json!({}), cx);
                             })),
-                    );
-                } else if key == "accessibility" {
-                    row = row.child(
-                        Button::new(SharedString::from(format!("home-fix-ax-{key}")))
-                            .small()
+                    )
+                })
+                .when(!ok && key == "accessibility", |row| {
+                    row.child(
+                        Button::new("home-fix-ax-accessibility")
+                            .xsmall()
                             .label(self.text("打开辅助功能设置", "Accessibility Settings"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.action("openAccessibilitySettings", json!({}), cx);
                             })),
-                    );
-                }
-                issues = issues.child(row);
-            }
-            if get(self.config(), "ui.onboarding_skipped") == true {
-                issues = issues.child(
+                    )
+                });
+            status = status
+                .child(
                     h_flex()
+                        .py_2p5()
+                        .gap_2()
                         .justify_between()
                         .items_center()
-                        .gap_2()
                         .flex_wrap()
                         .child(
                             div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(self.text(
-                                    "首次引导已跳过，可随时继续完成。",
-                                    "Initial setup was skipped; resume anytime.",
-                                )),
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(self.text(zh, en)),
                         )
-                        .child(
-                            Button::new("home-resume-onboarding")
-                                .small()
-                                .label(self.text("继续引导", "Resume Setup"))
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.onboarding_step = 0;
-                                    this.set_config(
-                                        "ui.onboarding_completed",
-                                        json!(false),
-                                        window,
-                                        cx,
-                                    );
-                                    this.set_config(
-                                        "ui.onboarding_skipped",
-                                        json!(false),
-                                        window,
-                                        cx,
-                                    );
-                                })),
-                        ),
-                );
-            }
-            card(cx)
-                .border_color(cx.theme().yellow.opacity(0.45))
-                .bg(cx.theme().yellow_light)
-                .child(
-                    h_flex()
-                        .justify_between()
-                        .items_center()
-                        .gap_2()
-                        .flex_wrap()
-                        .child(
-                            h_flex()
-                                .items_center()
-                                .gap_2()
-                                .child(status_dot(Tone::Warning, cx))
-                                .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(
-                                    self.text("还有几项准备需要处理", "A few items need attention"),
-                                )),
-                        )
-                        .child(
-                            Button::new("home-refresh-env")
-                                .small()
-                                .icon(IconName::RefreshCw)
-                                .label(self.text("重新检查", "Check again"))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.action("refreshEnvironment", json!({}), cx);
-                                    this.action("refreshDevices", json!({}), cx);
-                                })),
-                        ),
+                        .child(value),
                 )
-                .child(issues)
-        } else {
-            card(cx).child(
-                h_flex()
-                    .w_full()
-                    .justify_between()
-                    .items_center()
-                    .gap_4()
-                    .when(self.narrow, |row| row.flex_col().items_start())
-                    .child(
-                        v_flex()
-                            .gap_2()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                h_flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .flex_wrap()
-                                    .child(status_dot(Tone::Success, cx))
-                                    .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(
-                                        self.text(
-                                            "已就绪，随时轻声听写",
-                                            "Ready for low-voice dictation",
-                                        ),
-                                    ))
-                                    .child(badge(preset_name, Tone::Primary, cx))
-                                    .when_some(active_scene.clone(), |row, scene_name| {
-                                        row.child(badge(
-                                            format!("{}: {scene_name}", self.text("场景", "Scene")),
-                                            Tone::Success,
-                                            cx,
-                                        ))
-                                    }),
-                            )
-                            .child(
-                                h_flex()
-                                    .items_center()
-                                    .gap_1p5()
-                                    .flex_wrap()
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(self.text("按住", "Hold")),
-                                    )
-                                    .child(keycap("Fn", cx))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(self.text(
-                                                "说话 · 轻按免提 ·",
-                                                "to speak · Tap hands-free ·",
-                                            )),
-                                    )
-                                    .child(keycap("Esc", cx))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(self.text("取消", "cancels")),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .flex_shrink_0()
-                            .child(
-                                Button::new("home-calibrate")
-                                    .small()
-                                    .primary()
-                                    .label(self.text("低声校准", "Whisper Calibration"))
-                                    .disabled(self.audio_busy())
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.calibration.open = true;
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                Button::new("home-open-audio")
-                                    .small()
-                                    .label(self.text("试音", "Test Mic"))
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.switch_tab(Tab::Audio, window, cx)
-                                    })),
-                            ),
-                    ),
-            )
+                .child(row_divider(cx));
+        }
+        let echo = match input["echo_cancellation"].as_str() {
+            Some("active") => self.text("回声消除已启用", "Echo cancellation active"),
+            Some("ready") => self.text("回声消除就绪", "Echo cancellation ready"),
+            _ => self.text("低延迟模式", "Low Latency"),
         };
+        let gain = match input["gain_control"].as_str() {
+            Some("apple_agc") => self.text("Apple 自动增益", "Apple automatic gain"),
+            Some("software_fallback") => self.text("软件增益回退", "Software gain fallback"),
+            _ => self.text("手动软件增益", "Manual software gain"),
+        };
+        let last = &input["last_session"];
+        let last_value = if last.is_object() {
+            let dropped = last["queue_dropped_blocks"]
+                .as_u64()
+                .map(|count| format!("{count} {} · ", self.text("丢块", "dropped blocks")))
+                .unwrap_or_default();
+            let verified = if last["start_verified"] == true {
+                self.text("已验证 · ", "Verified · ")
+            } else {
+                ""
+            };
+            format!("{verified}{dropped}{native}")
+        } else {
+            self.text("暂无运行诊断", "No session diagnostics")
+                .to_owned()
+        };
+        status = status
+            .child(
+                readout(
+                    self.text("回声消除与自动增益", "Echo cancellation & gain"),
+                    format!("{echo} · {gain}"),
+                    cx,
+                )
+                .py_2(),
+            )
+            .child(row_divider(cx))
+            .child(
+                readout(
+                    self.text("最近一次录音", "Latest recording"),
+                    last_value,
+                    cx,
+                )
+                .py_2(),
+            );
+        let onboarding_reminder = h_flex()
+            .gap_2()
+            .flex_wrap()
+            .items_center()
+            .child(banner(
+                self.text(
+                    "首次引导已跳过，可随时继续完成。",
+                    "Initial setup was skipped; resume anytime.",
+                ),
+                Tone::Warning,
+                cx,
+            ))
+            .child(
+                Button::new("home-resume-onboarding")
+                    .small()
+                    .label(self.text("继续引导", "Resume Setup"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.onboarding_step = 0;
+                        this.apply_form_patch(
+                            json!({"ui":{"onboarding_completed":false,"onboarding_skipped":false}}),
+                            window,
+                            cx,
+                        );
+                    })),
+            );
 
+        let active_scene = self.active_dictation_scene_name();
         // Quick Controls 3-card grid
         let active_preset = self.active_audio_preset();
         let active_device = self.snapshot["audio_input_status"]["device_name"]
@@ -622,7 +722,7 @@ impl Settings {
                             .child(self.text("声音场景", "Voice Scene")),
                     )
                     .child(
-                        Button::new("home-goto-audio")
+                        Button::new("home-open-audio")
                             .xsmall()
                             .ghost()
                             .label(self.text("详情", "Details"))
@@ -630,6 +730,16 @@ impl Settings {
                                 this.switch_tab(Tab::Audio, window, cx)
                             })),
                     ),
+            )
+            .child(
+                Button::new("home-calibrate")
+                    .xsmall()
+                    .label(self.text("低声校准", "Whisper Calibration"))
+                    .disabled(self.audio_busy())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.calibration.open = true;
+                        cx.notify();
+                    })),
             )
             .child(
                 h_flex().gap_1().flex_wrap().children(
@@ -733,7 +843,7 @@ impl Settings {
                         )
                     })
                     .on_click(
-                        cx.listener(|this, _, window, cx| this.switch_tab(Tab::Ai, window, cx)),
+                        cx.listener(|this, _, window, cx| this.switch_tab(Tab::Polish, window, cx)),
                     ),
             );
 
@@ -954,7 +1064,17 @@ impl Settings {
             .w_full()
             .min_w_0()
             .gap_4()
-            .child(hero)
+            .child(v_flex().gap_2p5().child(hero).child(quick_input))
+            .when(
+                get(self.config(), "ui.onboarding_skipped") == true,
+                |page| page.child(onboarding_reminder),
+            )
+            .child(titled(
+                self.text("系统权限与运行状态", "Permissions & Runtime Status"),
+                status,
+                cx,
+            ))
+            .child(self.connection_card(cx))
             .child(quick_grid)
             .child(recent)
     }
@@ -976,19 +1096,27 @@ impl Settings {
                     )
                 });
 
+        let total_label = if recordings
+            .iter()
+            .any(|record| record["billing"]["estimated"] == true)
+        {
+            self.text("累计费用（含估算）", "Total cost incl. estimates")
+        } else {
+            self.text("累计费用", "Total cost")
+        };
+
         // Compact search + filter toolbar
         let toolbar = h_flex()
             .w_full()
             .min_w_0()
             .gap_2()
             .when(self.narrow, |row| row.flex_col().items_stretch())
-            .child(
-                div().flex_1().min_w_0().child(
-                    Input::new(&self.filter)
-                        .id("history-filter")
-                        .aria_label(self.text("搜索录音文本", "Search recording text")),
-                ),
-            )
+            .child(div().flex_1().min_w_0().child(self.filter_input(
+                "history-filter",
+                &self.filter,
+                self.text("搜索录音文本", "Search recording text"),
+                cx,
+            )))
             .child(
                 h_flex().gap_1().flex_shrink_0().children(
                     [
@@ -1002,6 +1130,7 @@ impl Settings {
                             "history-filter-btn-{filter_id}"
                         )))
                         .small()
+                        .rounded(px(14.))
                         .ghost()
                         .label(self.text(zh, en))
                         .selected(self.history_filter == filter_id)
@@ -1014,76 +1143,81 @@ impl Settings {
             );
 
         // Lightweight single-line summary & storage bar
-        let summary_bar = card(cx).py_3().child(
-            h_flex()
-                .w_full()
-                .justify_between()
-                .items_center()
-                .gap_3()
-                .flex_wrap()
+        let summary_bar = titled(
+            self.text("费用与存储", "Billing & Storage"),
+            card(cx)
+                .gap_2()
+                .child(summary_strip(
+                    [
+                        (total_label, money(total)),
+                        (self.text("识别费用", "Recognition"), money(asr)),
+                        (self.text("润色费用", "Polish"), money(polish)),
+                    ],
+                    true,
+                    cx,
+                ))
+                .child(row_divider(cx))
                 .child(
                     h_flex()
-                        .gap_3()
-                        .flex_wrap()
                         .items_center()
+                        .justify_between()
+                        .gap_2()
+                        .flex_wrap()
                         .child(
-                            div()
-                                .text_xs()
-                                .font_family(cx.theme().mono_font_family.clone())
-                                .child(format!(
-                                    "{} {} · {} ({}/{})",
-                                    recordings.len(),
-                                    self.text("条", "items"),
-                                    bytes(&storage["stored_bytes"]),
-                                    storage["compressed_count"],
-                                    storage["recording_count"]
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .gap_0p5()
+                                .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(
+                                    self.text(
+                                        "音频无损压缩（FLAC）",
+                                        "Lossless audio compression (FLAC)",
+                                    ),
+                                ))
+                                .child(note(
+                                    format!(
+                                        "{} {}/{} · {} {} · {} {}",
+                                        self.text("已归档", "Archived"),
+                                        number(&storage["compressed_count"]),
+                                        number(&storage["recording_count"]),
+                                        self.text("节省", "Saved"),
+                                        bytes(&storage["bytes_saved"]),
+                                        self.text("占用", "Stored"),
+                                        bytes(&storage["stored_bytes"])
+                                    ),
+                                    cx,
                                 )),
                         )
                         .child(
-                            div()
-                                .text_xs()
-                                .font_family(cx.theme().mono_font_family.clone())
-                                .text_color(cx.theme().muted_foreground)
-                                .child(format!(
-                                    "{} {} ({} {} / {} {})",
-                                    self.text("费用", "Cost"),
-                                    money(total),
-                                    self.text("识别", "ASR"),
-                                    money(asr),
-                                    self.text("润色", "Polish"),
-                                    money(polish),
-                                )),
+                            Button::new("compact-history")
+                                .small()
+                                .rounded(px(20.))
+                                .label(if self.compacting {
+                                    self.text("正在压缩…", "Compressing…")
+                                } else {
+                                    self.text("立即压缩", "Compress Now")
+                                })
+                                .disabled(
+                                    self.compacting || number(&storage["recording_count"]) <= 3.,
+                                )
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.action("compactRecordingHistory", json!({}), cx);
+                                })),
                         ),
-                )
-                .child(
-                    Button::new("compact-history")
-                        .xsmall()
-                        .label(self.text(
-                            if self.compacting {
-                                "正在压缩…"
-                            } else {
-                                "压缩较早录音"
-                            },
-                            if self.compacting {
-                                "Compressing…"
-                            } else {
-                                "Compress older"
-                            },
-                        ))
-                        .disabled(self.compacting || number(&storage["recording_count"]) <= 3.)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.action("compactRecordingHistory", json!({}), cx);
-                            cx.notify();
-                        })),
                 ),
+            cx,
         );
 
         let mut page = v_flex()
             .w_full()
             .min_w_0()
-            .gap_3()
+            .gap_2p5()
+            .child(summary_bar)
             .child(toolbar)
-            .child(summary_bar);
+            .child(section_heading(
+                self.text("最近录音", "Recent Recordings"),
+                cx,
+            ));
 
         if self.pending_deletion.is_some() {
             page = page.child(
@@ -1172,7 +1306,108 @@ impl Settings {
                 item = item.border_color(cx.theme().red.opacity(0.45));
             }
 
-            // Metadata header row
+            // Recording actions
+            let retrying = status == "retrying";
+            let no_text = record["transcript"].as_str().unwrap_or_default().is_empty();
+            let play_id = id.clone();
+            let retry_id = id.clone();
+            let copy_id = id.clone();
+            let delete_id = id.clone();
+            let is_playing = self.playing.as_deref() == Some(&id);
+            let is_copied = self.copied.as_deref() == Some(&id);
+
+            let recording_actions = h_flex()
+                .items_center()
+                .gap_1()
+                .child(
+                    Button::new((
+                        if is_playing {
+                            "stopRecording"
+                        } else {
+                            "playRecording"
+                        },
+                        index,
+                    ))
+                    .xsmall()
+                    .rounded(px(12.))
+                    .size(px(24.))
+                    .icon(if is_playing {
+                        IconName::Square
+                    } else {
+                        IconName::Play
+                    })
+                    .accessibility_label(self.text(
+                        if is_playing { "停止回放" } else { "回放" },
+                        if is_playing { "Stop" } else { "Play" },
+                    ))
+                    .disabled(retrying)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let act = if is_playing {
+                            "stopRecording"
+                        } else {
+                            "playRecording"
+                        };
+                        this.action(act, json!({"id": play_id}), cx);
+                        cx.notify();
+                    })),
+                )
+                .child(
+                    Button::new(("copyTranscript", index))
+                        .xsmall()
+                        .rounded(px(12.))
+                        .size(px(24.))
+                        .icon(if is_copied {
+                            IconName::Check
+                        } else {
+                            IconName::Copy
+                        })
+                        .accessibility_label(self.text(
+                            if is_copied {
+                                "已复制"
+                            } else {
+                                "复制文本"
+                            },
+                            if is_copied { "Copied" } else { "Copy" },
+                        ))
+                        .disabled(no_text)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.action("copyTranscript", json!({"id": copy_id}), cx);
+                            cx.notify();
+                        })),
+                )
+                .child({
+                    let btn = Button::new(("retryTranscription", index))
+                        .xsmall()
+                        .rounded(px(12.))
+                        .size(px(24.))
+                        .icon(IconName::RefreshCw)
+                        .accessibility_label(self.text("重新识别", "Retry"))
+                        .disabled(retrying)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.action("retryTranscription", json!({"id": retry_id}), cx);
+                            cx.notify();
+                        }));
+                    if status == "failed" {
+                        btn.primary()
+                    } else {
+                        btn
+                    }
+                })
+                .child(
+                    Button::new(("delete-recording", index))
+                        .xsmall()
+                        .rounded(px(12.))
+                        .size(px(24.))
+                        .ghost()
+                        .icon(IconName::Trash)
+                        .accessibility_label(self.text("删除", "Delete"))
+                        .disabled(retrying)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.stage_delete(delete_id.clone(), window, cx);
+                        })),
+                );
+
+            let duration = duration.max(0.) as u64;
             item = item.child(
                 h_flex()
                     .w_full()
@@ -1183,13 +1418,11 @@ impl Settings {
                     .child(
                         h_flex()
                             .items_center()
-                            .gap_2()
+                            .gap_1p5()
                             .flex_wrap()
-                            .child(status_dot(status_tone, cx))
                             .child(
                                 div()
-                                    .text_xs()
-                                    .font_family(cx.theme().mono_font_family.clone())
+                                    .text_sm()
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(timestamp),
                             )
@@ -1198,28 +1431,15 @@ impl Settings {
                                 Tone::Neutral,
                                 cx,
                             ))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("{duration:.0}s · {model}")),
-                            ),
+                            .child(badge(model.to_owned(), Tone::Neutral, cx))
+                            .child(badge(
+                                format!("{}:{:02}", duration / 60, duration % 60),
+                                Tone::Neutral,
+                                cx,
+                            ))
+                            .child(badge(status_label, status_tone, cx)),
                     )
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_2()
-                            .child(badge(status_label, status_tone, cx))
-                            .when(record_cost > 0.0, |row| {
-                                row.child(
-                                    div()
-                                        .text_xs()
-                                        .font_family(cx.theme().mono_font_family.clone())
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(money(record_cost)),
-                                )
-                            }),
-                    ),
+                    .child(recording_actions),
             );
 
             // Prominent transcript or error body
@@ -1263,112 +1483,22 @@ impl Settings {
                 }
             }
 
-            // Compact footer actions
-            let retrying = status == "retrying";
-            let no_text = record["transcript"].as_str().unwrap_or_default().is_empty();
-            let play_id = id.clone();
-            let retry_id = id.clone();
-            let copy_id = id.clone();
-            let delete_id = id.clone();
-            let is_playing = self.playing.as_deref() == Some(&id);
-            let is_copied = self.copied.as_deref() == Some(&id);
-
-            let footer_actions = h_flex()
-                .w_full()
-                .justify_between()
-                .items_center()
-                .gap_2()
-                .flex_wrap()
-                .pt_1()
-                .border_t_1()
-                .border_color(cx.theme().border.opacity(0.6))
-                .child(
-                    h_flex()
-                        .gap_1p5()
-                        .flex_wrap()
-                        .child(
-                            Button::new((
-                                if is_playing {
-                                    "stopRecording"
-                                } else {
-                                    "playRecording"
-                                },
-                                index,
-                            ))
-                            .xsmall()
-                            .icon(if is_playing {
-                                IconName::Square
-                            } else {
-                                IconName::Play
-                            })
-                            .label(self.text(
-                                if is_playing { "停止回放" } else { "回放" },
-                                if is_playing { "Stop" } else { "Play" },
-                            ))
-                            .disabled(retrying)
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    let act = if is_playing {
-                                        "stopRecording"
-                                    } else {
-                                        "playRecording"
-                                    };
-                                    this.action(act, json!({"id": play_id}), cx);
-                                    cx.notify();
-                                },
-                            )),
-                        )
-                        .child(
-                            Button::new(("copyTranscript", index))
-                                .xsmall()
-                                .icon(if is_copied {
-                                    IconName::Check
-                                } else {
-                                    IconName::Copy
-                                })
-                                .label(self.text(
-                                    if is_copied {
-                                        "已复制"
-                                    } else {
-                                        "复制文本"
-                                    },
-                                    if is_copied { "Copied" } else { "Copy" },
-                                ))
-                                .disabled(no_text)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.action("copyTranscript", json!({"id": copy_id}), cx);
-                                    cx.notify();
-                                })),
-                        )
-                        .child({
-                            let btn = Button::new(("retryTranscription", index))
-                                .xsmall()
-                                .icon(IconName::RefreshCw)
-                                .label(self.text("重新识别", "Retry"))
-                                .disabled(retrying)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.action("retryTranscription", json!({"id": retry_id}), cx);
-                                    cx.notify();
-                                }));
-                            if status == "failed" {
-                                btn.primary()
-                            } else {
-                                btn
-                            }
-                        }),
-                )
-                .child(
-                    Button::new(("delete-recording", index))
-                        .xsmall()
-                        .danger()
-                        .label(self.text("删除", "Delete"))
-                        .disabled(retrying)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.stage_delete(delete_id.clone(), window, cx);
-                        })),
-                );
-
-            page = page.child(item.child(footer_actions));
+            if record_cost > 0. {
+                let qualifier = if record["billing"]["estimated"] == true {
+                    self.text(" · 估算", " · Estimated")
+                } else {
+                    ""
+                };
+                item = item.child(note(
+                    format!(
+                        "{} {}{qualifier}",
+                        self.text("费用", "Cost"),
+                        money(record_cost)
+                    ),
+                    cx,
+                ));
+            }
+            page = page.child(item);
         }
 
         if shown == 0 {
@@ -1475,161 +1605,90 @@ impl Settings {
     // -------------------------------------------------------------------------
     fn audio_page(&self, cx: &mut Context<Self>) -> Div {
         let active_preset = self.active_audio_preset();
-        let presets_data = [
+        let dark = cx.theme().mode.is_dark();
+        let presets = [
             (
                 "whisper",
-                self.text("办公室低声", "Office Whisper"),
-                self.text("推荐", "Recommended"),
-                self.text(
-                    "轻声耳语也能清晰拾音，过滤风扇空调底噪",
-                    "High gain + high-pass filter for quiet shared offices",
-                ),
-                "+18 dB · HPF 220 Hz",
+                "轻声办公",
+                "Office Whisper",
+                "+18 dB",
+                220,
+                (0xdff0f9, 0xddd7f6, 0x4b51a2),
+                (0x343956, 0x3f3258, 0xbfc7ff),
+                [3, 6, 7, 12, 19, 24, 16, 11, 7, 5, 3],
             ),
             (
                 "normal",
-                self.text("正常说话", "Normal Voice"),
-                "",
-                self.text(
-                    "自然动态范围，适合独立房间或日常对话",
-                    "Balanced gain for private rooms and everyday speech",
-                ),
-                "+12 dB · HPF 200 Hz",
+                "普通说话",
+                "Normal Voice",
+                "+12 dB",
+                200,
+                (0xdaf1f1, 0xcbe5ee, 0x196e82),
+                (0x244449, 0x27384d, 0x9be4e5),
+                [4, 11, 17, 20, 12, 24, 17, 22, 16, 13, 8],
             ),
             (
                 "noisy",
-                self.text("嘈杂环境", "Noisy Room"),
-                "",
-                self.text(
-                    "强力削减低频轰鸣，减少开放空间背景干扰",
-                    "Stronger rumble cut for noisy open environments",
-                ),
-                "+16 dB · HPF 280 Hz",
+                "嘈杂环境",
+                "Noisy Room",
+                "+16 dB",
+                280,
+                (0xf5e6d9, 0xedd8e9, 0x914d63),
+                (0x543b36, 0x49304e, 0xf4b4bf),
+                [8, 16, 24, 15, 20, 12, 21, 23, 13, 21, 14],
             ),
         ];
-
-        let preset_cards = presets_data
-            .into_iter()
-            .map(|(id, title, tag, desc, meta)| {
-                let selected = active_preset == Some(id);
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_2()
-                    .p_3()
-                    .rounded(cx.theme().radius_lg)
-                    .border_1()
-                    .border_color(if selected {
-                        cx.theme().foreground
-                    } else {
-                        cx.theme().border
-                    })
-                    .bg(if selected {
-                        cx.theme().secondary
-                    } else {
-                        cx.theme().secondary.opacity(0.35)
-                    })
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .items_center()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(title),
-                            )
-                            .when(!tag.is_empty() && !selected, |row| {
-                                row.child(badge(tag, Tone::Primary, cx))
-                            })
-                            .when(selected, |row| {
-                                row.child(badge(self.text("当前", "Active"), Tone::Success, cx))
-                            }),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .whitespace_normal()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(desc),
-                    )
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .items_center()
-                            .gap_2()
-                            .pt_1()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_family(cx.theme().mono_font_family.clone())
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(meta),
-                            )
-                            .child(
-                                Button::new(id)
-                                    .xsmall()
-                                    .label(if selected {
-                                        self.text("已启用", "Selected")
-                                    } else {
-                                        self.text("使用", "Use")
-                                    })
-                                    .selected(selected)
-                                    .when(selected, |b| b.icon(Icon::new(IconName::Check)))
-                                    .disabled(self.audio_busy())
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.preset(id, window, cx)
-                                    })),
-                            ),
-                    )
-                    .into_any_element()
-            });
-
-        let scene_section = card(cx)
-            .child(
-                h_flex()
-                    .w_full()
-                    .justify_between()
-                    .items_center()
-                    .gap_3()
-                    .flex_wrap()
-                    .child(
-                        v_flex()
-                            .gap_0p5()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(self.text("声音场景预设", "Voice Scene Presets")),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(self.text(
-                                        "一键切换增益、低频滤波与防削波限幅，或通过 8 秒校准自动匹配你的声音。",
-                                        "Tune gain, high-pass filter, and soft limiter together, or run 8s calibration.",
-                                    )),
-                            ),
-                    )
-                    .child(
-                        Button::new("calibrate-whisper")
-                            .small()
-                            .primary()
-                            .label(self.text("低声智能校准", "Whisper calibration"))
-                            .disabled(self.audio_busy())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.calibration.open = true;
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .child(if self.narrow {
-                v_flex().gap_2p5().children(preset_cards)
-            } else {
-                h_flex().gap_2p5().items_stretch().children(preset_cards)
-            });
+        let preset_cards =
+            presets
+                .into_iter()
+                .map(|(id, zh, en, gain, freq, light, night, bars)| {
+                    let selected = active_preset == Some(id);
+                    let title = self.text(zh, en);
+                    let (top, bottom, ink) = if dark { night } else { light };
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_1p5()
+                        .items_center()
+                        .child(
+                            tile(id, title, selected, cx)
+                                .h(px(if self.narrow { 68. } else { 91. }))
+                                .bg(gradient(top, bottom))
+                                .disabled(self.audio_busy())
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.preset(id, window, cx)
+                                }))
+                                .child(
+                                    v_flex()
+                                        .items_center()
+                                        .gap_1()
+                                        .text_color(rgb(ink))
+                                        .child(waveform_with_color(&bars, 2.3, rgb(ink).into()))
+                                        .child(
+                                            div()
+                                                .text_size(px(if self.narrow { 10. } else { 11. }))
+                                                .text_center()
+                                                .font_weight(FontWeight::SEMIBOLD)
+                                                .child(format!(
+                                                    "{gain} · {freq} Hz{}",
+                                                    self.text(" 高通", " HPF")
+                                                )),
+                                        ),
+                                ),
+                        )
+                        .child(tile_caption(title, selected, cx))
+                });
+        let scene_section = titled(self.text("低声场景预设", "Low-Voice Presets"), card(cx)
+            .child(h_flex().gap_2p5().items_stretch().children(preset_cards))
+            .child(row_divider(cx))
+            .child(h_flex().justify_between().items_center().flex_wrap().gap_2()
+                .child(v_flex().flex_1().min_w_0().gap_1()
+                    .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(self.text("低语校准", "Whisper calibration")))
+                    .child(note(self.text("通过 8 秒静默与轻声朗读，推荐增益与波形满幅电平。", "Use eight seconds of silence and soft speech to determine gain and waveform ceiling."), cx)))
+                .child(Button::new("calibrate-whisper").small().primary().rounded(px(20.))
+                    .label(self.text("开始校准", "Start Calibration"))
+                    .disabled(self.audio_busy())
+                    .on_click(cx.listener(|this, _, _, cx| { this.calibration.open = true; cx.notify(); })))), cx);
 
         // Microphone selection + Live Test integrated card
         let input_status = &self.snapshot["audio_input_status"];
@@ -1637,38 +1696,32 @@ impl Settings {
             input_status["microphone_permission"].as_str(),
             Some("denied" | "restricted")
         );
-        let mut mic_section = titled_card(
-            self.text("麦克风与实时试音", "Microphone & Live Test"),
-            Some(self.text(
-                "选择拾音设备，并录一段轻声语音回放验证清晰度。",
-                "Choose your microphone and record a short whisper sample to verify clarity.",
-            )),
-            cx,
-        )
-        .child(self.field_row("audio.input_device", false, cx))
-        .child(
-            h_flex()
-                .gap_2()
-                .flex_wrap()
-                .child(
-                    Button::new("refresh-devices")
-                        .small()
-                        .icon(IconName::RefreshCw)
-                        .label(self.text("刷新设备", "Refresh devices"))
-                        .disabled(self.audio_busy())
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.action("refreshDevices", json!({}), cx);
-                        })),
-                )
-                .child(
-                    Button::new("microphone-permissions")
-                        .small()
-                        .label(self.text("麦克风权限设置", "Microphone permissions"))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.action("openMicrophoneSettings", json!({}), cx);
-                        })),
-                ),
-        );
+        let mut mic_section = card(cx)
+            .gap_2()
+            .child(self.field_row("audio.input_device", false, cx))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .flex_wrap()
+                    .child(
+                        Button::new("refresh-devices")
+                            .small()
+                            .icon(IconName::RefreshCw)
+                            .label(self.text("刷新设备", "Refresh devices"))
+                            .disabled(self.audio_busy())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.action("refreshDevices", json!({}), cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("microphone-permissions")
+                            .small()
+                            .label(self.text("麦克风权限设置", "Microphone permissions"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.action("openMicrophoneSettings", json!({}), cx);
+                            })),
+                    ),
+            );
         if mic_perm_denied {
             mic_section = mic_section.child(banner(
                 self.text(
@@ -1685,7 +1738,9 @@ impl Settings {
         {
             mic_section = mic_section.child(banner(reason.to_owned(), Tone::Warning, cx));
         }
-        mic_section = mic_section.child(self.mic_card_body(cx));
+        mic_section = mic_section
+            .child(row_divider(cx))
+            .child(self.field_group(&["audio.capture_backend", "audio.gain_mode"], cx));
 
         // Collapsible Advanced Audio DSP & Diagnostics
         let gain_linear = get(self.config(), "audio.gain").as_f64().unwrap_or(2.0);
@@ -1721,11 +1776,30 @@ impl Settings {
             tail_ms
         );
 
-        let advanced_audio =
+        let advanced_audio = self.disclosure(
+            "audio",
+            self.text("信号处理（DSP）", "Signal Processing (DSP)"),
+            summary,
+            |this, cx| {
+                this.field_group(
+                    &[
+                        "audio.gain",
+                        "audio.highpass_filter",
+                        "audio.highpass_freq",
+                        "audio.soft_limiter",
+                        "audio.tail_padding_ms",
+                        "audio.waveform_ceiling_dbfs",
+                    ],
+                    cx,
+                )
+            },
+            cx,
+        );
+        let diagnostics =
             self.disclosure(
-                "audio",
-                self.text("高级音频参数与运行诊断", "Advanced Audio DSP & Diagnostics"),
-                summary,
+                "audio-diagnostics",
+                self.text("运行状态与诊断", "Runtime Status & Diagnostics"),
+                self.native_backend_label(&input_status["native_backend"]),
                 |this, cx| {
                     let input = &this.snapshot["audio_input_status"];
                     let labels = [
@@ -1783,22 +1857,7 @@ impl Settings {
                             .selectable(true),
                         );
                     }
-                    v_flex()
-                        .gap_3()
-                        .child(this.field_group(
-                            &[
-                                "audio.capture_backend",
-                                "audio.gain_mode",
-                                "audio.gain",
-                                "audio.highpass_filter",
-                                "audio.highpass_freq",
-                                "audio.soft_limiter",
-                                "audio.tail_padding_ms",
-                                "audio.waveform_ceiling_dbfs",
-                            ],
-                            cx,
-                        ))
-                        .child(diag)
+                    diag
                 },
                 cx,
             );
@@ -1807,9 +1866,48 @@ impl Settings {
             .w_full()
             .min_w_0()
             .gap_4()
+            .child(titled(
+                self.text("输入与引擎", "Input & Engine"),
+                mic_section,
+                cx,
+            ))
             .child(scene_section)
-            .child(mic_section)
             .child(advanced_audio)
+            .child(titled(
+                self.text("测试录音", "Test Recording"),
+                card(cx).child(self.mic_card_body(cx)),
+                cx,
+            ))
+            .child(diagnostics)
+    }
+
+    fn native_backend_label(&self, backend: &Value) -> String {
+        match backend.as_str() {
+            Some("objective_cpp") => self
+                .text(
+                    "原生 Objective-C++ 采集引擎",
+                    "Native Objective-C++ capture",
+                )
+                .to_owned(),
+            Some(backend) => backend.to_owned(),
+            None => self
+                .text("采集后端未知", "Capture backend unknown")
+                .to_owned(),
+        }
+    }
+
+    fn mic_start_button(&self, cx: &mut Context<Self>) -> Button {
+        Button::new("start-mic-test")
+            .small()
+            .primary()
+            .rounded(px(20.))
+            .label(if self.mic == MicState::Done {
+                self.text("重新试音", "Test again")
+            } else {
+                self.text("测试录音", "Test Recording")
+            })
+            .disabled(self.audio_busy())
+            .on_click(cx.listener(|this, _, _, cx| this.start_mic(cx)))
     }
 
     fn mic_card_body(&self, cx: &mut Context<Self>) -> Div {
@@ -1863,26 +1961,10 @@ impl Settings {
             if let Some(error) = &self.mic_error {
                 test = test.child(banner(error.clone(), Tone::Danger, cx));
             }
-            let mut row_actions = h_flex().gap_2().flex_wrap().child(
-                Button::new("start-mic-test")
-                    .small()
-                    .primary()
-                    .icon(IconName::Mic)
-                    .label(self.text(
-                        if self.mic == MicState::Done {
-                            "重新试音"
-                        } else {
-                            "开始试音"
-                        },
-                        if self.mic == MicState::Done {
-                            "Test again"
-                        } else {
-                            "Start mic test"
-                        },
-                    ))
-                    .disabled(self.audio_busy())
-                    .on_click(cx.listener(|this, _, _, cx| this.start_mic(cx))),
-            );
+            let mut row_actions = h_flex()
+                .gap_2()
+                .flex_wrap()
+                .child(self.mic_start_button(cx));
             if self.mic_playable {
                 row_actions = row_actions.child(
                     Button::new("replay-mic-test")
@@ -1921,9 +2003,9 @@ impl Settings {
     }
 
     // -------------------------------------------------------------------------
-    // 5. AI & Output (识别与润色 — Merged Recognition + 0.6.2 Dictation Scenes + Polish)
+    // Recognition and polish
     // -------------------------------------------------------------------------
-    fn ai_page(&self, cx: &mut Context<Self>) -> Div {
+    fn recognition_page(&self, cx: &mut Context<Self>) -> Div {
         let selected_model = self
             .array("asr_models")
             .iter()
@@ -1979,19 +2061,66 @@ impl Settings {
             }
         }
 
-        let mut recognition_card = titled_card(
-            self.text("语音识别", "Speech Recognition"),
-            Some(self.text(
-                "选择云端实时识别模型与语言，并配置光标上下文与屏幕上下文辅助识别。",
-                "Choose the ASR model, spoken language, cursor context, and screen assistance.",
-            )),
-            cx,
-        )
-        .child(self.field_row("asr.model", false, cx))
-        .child(cap_badges)
-        .child(self.field_row("asr.language", true, cx))
-        .child(self.field_row("cursor_context_enabled", false, cx))
-        .child(self.field_row("screen_context_enabled", false, cx));
+        let mut recognition_card = card(cx)
+            .gap_2()
+            .child(self.field_row("asr.model", true, cx))
+            .when_some(selected_model, |card, model| {
+                let transport = if model["transport"] == "realtime_ws" {
+                    self.text("实时 WebSocket", "Realtime WebSocket")
+                } else {
+                    self.text("文件识别", "File transcription")
+                };
+                let language = if model["language_count"].is_number() {
+                    format!(
+                        "{} {} · {} {}",
+                        model["language_count"],
+                        self.text("种语言", "languages"),
+                        model["chinese_dialect_count"].as_u64().unwrap_or(0),
+                        self.text("种中文方言", "Chinese dialects")
+                    )
+                } else {
+                    self.text("依模型而定", "Model dependent").into()
+                };
+                let mut context = model["max_input_tokens"]
+                    .as_u64()
+                    .map(|tokens| format!("{tokens} tokens"))
+                    .unwrap_or_default();
+                if let Some(seconds) = model["rollover_audio_seconds"].as_u64() {
+                    if !context.is_empty() {
+                        context.push_str(" · ");
+                    }
+                    context.push_str(&format!("{seconds} s {}", self.text("续接", "rollover")));
+                }
+                if context.is_empty() {
+                    context = "—".into();
+                }
+                card.child(readout(self.text("传输协议", "Transport"), transport, cx))
+                    .child(cap_badges)
+                    .child(row_divider(cx))
+                    .child(self.field_row("asr.language", false, cx))
+                    .child(summary_strip(
+                        [
+                            (self.text("语言覆盖", "Language coverage"), language),
+                            (self.text("上下文容量", "Context capacity"), context),
+                            (
+                                self.text("多模态", "Multimodal"),
+                                if model["supports_screen_context"] == true {
+                                    self.text("支持看屏幕说话", "Screen context supported")
+                                } else {
+                                    self.text("仅语音输入", "Voice input")
+                                }
+                                .into(),
+                            ),
+                        ],
+                        false,
+                        cx,
+                    ))
+            })
+            .when(selected_model.is_none(), |card| {
+                card.child(self.field_row("asr.language", false, cx))
+            })
+            .child(self.field_row("cursor_context_enabled", true, cx))
+            .child(self.field_row("screen_context_enabled", false, cx));
 
         if get(self.config(), "cursor_context_enabled") == true && !self.accessibility_ready() {
             recognition_card = recognition_card.child(
@@ -2035,10 +2164,121 @@ impl Settings {
             ));
         }
 
-        // 0.6.2 Custom Dictation Scenes (integrated seamlessly between Recognition & Polish)
-        let dictation_scenes_card = self.dictation_scenes(cx);
+        let endpoint_summary = if get(self.config(), "asr.realtime_url")
+            .as_str()
+            .unwrap_or_default()
+            .is_empty()
+        {
+            self.text("公共实时端点", "Public realtime endpoint")
+        } else {
+            self.text("自定义空间端点", "Custom workspace endpoint")
+        };
+        let endpoint = card(cx)
+            .gap_2()
+            .child(readout(
+                self.text("端点类型", "Endpoint type"),
+                endpoint_summary,
+                cx,
+            ))
+            .child(row_divider(cx))
+            .child(self.field_row("asr.realtime_url", false, cx))
+            .child(
+                Button::new("public-endpoint")
+                    .xsmall()
+                    .label(self.text("恢复公共实时端点", "Restore public realtime endpoint"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.set_config("asr.realtime_url", json!(""), window, cx);
+                        this.sync_controls(window, cx, true);
+                    })),
+            );
+        let specs =
+            self.disclosure(
+                "recognition",
+                self.text("识别模型详细规格", "ASR Model Specifications"),
+                endpoint_summary.into(),
+                |this, cx| {
+                    let mut inner = v_flex();
+                    if let Some(model) = this
+                        .array("asr_models")
+                        .iter()
+                        .find(|model| &model["id"] == get(this.config(), "asr.model"))
+                    {
+                        let mut specs =
+                            v_flex()
+                                .gap_1()
+                                .p_3()
+                                .rounded_md()
+                                .bg(cx.theme().secondary.opacity(0.45))
+                                .border_1()
+                                .border_color(cx.theme().border)
+                                .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).child(
+                                    this.text("识别模型详细规格", "ASR Model Specifications"),
+                                ));
+                        for (key, zh, en) in [
+                            ("transport", "传输方式", "Transport"),
+                            ("pipeline", "处理流水线", "Pipeline"),
+                            (
+                                "supports_super_hotwords",
+                                "超级热词（权重 50）",
+                                "Super hotwords",
+                            ),
+                            (
+                                "supports_native_disfluency_removal",
+                                "原生口语顺滑",
+                                "Native disfluency removal",
+                            ),
+                            ("language_count", "支持语言数量", "Languages"),
+                            ("chinese_dialect_count", "中文方言数量", "Chinese dialects"),
+                            (
+                                "max_input_tokens",
+                                "上下文 Token 上限",
+                                "Context token limit",
+                            ),
+                            (
+                                "max_audio_seconds",
+                                "音频时间上限（秒）",
+                                "Maximum audio seconds",
+                            ),
+                            (
+                                "rollover_audio_seconds",
+                                "长录音滚动边界（秒）",
+                                "Rollover seconds",
+                            ),
+                        ] {
+                            if !model[key].is_null() {
+                                specs = specs.child(readout(
+                                    this.text(zh, en),
+                                    schema::display_value(&model[key]),
+                                    cx,
+                                ));
+                            }
+                        }
+                        inner = inner.child(specs);
+                    }
 
-        // Text Polish Card with One-Click Style Presets
+                    inner
+                },
+                cx,
+            );
+        v_flex()
+            .gap_5()
+            .w_full()
+            .min_w_0()
+            .child(titled(
+                self.text("语音识别模型", "Speech Recognition"),
+                recognition_card,
+                cx,
+            ))
+            .child(titled(
+                self.text("Model Studio 实时端点", "Model Studio Realtime Endpoint"),
+                endpoint,
+                cx,
+            ))
+            .child(self.dictation_scenes(cx))
+            .child(specs)
+    }
+
+    fn polish_page(&self, cx: &mut Context<Self>) -> Div {
         let active_style = self.active_polish_style();
         let polish_disabled = self.native_asr();
         let style_bar = h_flex().gap_1p5().flex_wrap().children(
@@ -2062,15 +2302,9 @@ impl Settings {
             }),
         );
 
-        let mut polish_card = titled_card(
-            self.text("文本润色与输出风格", "Text Polish & Output Style"),
-            Some(self.text(
-                "先选一键风格预设，或按需微调输出类型、语气和写作风格。",
-                "Pick a quick style preset or fine-tune output type, tone, and persona.",
-            )),
-            cx,
-        )
-        .child(self.field_row("enable_polish", true, cx));
+        let mut polish_card = card(cx)
+            .py_0()
+            .child(self.field_row("enable_polish", false, cx));
 
         if self.native_asr() {
             polish_card = polish_card.child(banner(
@@ -2109,7 +2343,8 @@ impl Settings {
             }
         }
 
-        polish_card = polish_card
+        let style_card = card(cx)
+            .gap_2()
             .child(
                 v_flex()
                     .gap_1p5()
@@ -2134,113 +2369,21 @@ impl Settings {
                 cx,
             ));
 
-        // Collapsible Advanced Model Endpoint & Custom Prompts
-        let endpoint_summary = if get(self.config(), "asr.realtime_url")
-            .as_str()
-            .unwrap_or_default()
-            .is_empty()
-        {
-            self.text("公共实时端点", "Public realtime endpoint")
-        } else {
-            self.text("自定义空间端点", "Custom workspace endpoint")
-        };
-        let llm_model = get(self.config(), "llm.model")
-            .as_str()
-            .unwrap_or("qwen3.8-flash");
-        let ai_advanced = self.disclosure(
-            "ai",
+        let advanced = self.disclosure(
+            "polish",
             self.text(
-                "高级模型端点与自定义提示词",
-                "Workspace Endpoint, LLM & Custom Prompts",
+                "高级润色模型与自定义 Prompt",
+                "Advanced Polish Model & Custom Prompts",
             ),
-            format!(
-                "{endpoint_summary} · {llm_model} · {}",
-                self.text("5 类自定义提示词", "5 custom prompt categories")
-            ),
+            self.text(
+                "模型参数与 5 类提示词覆盖",
+                "Model parameters and five prompt categories",
+            )
+            .into(),
             |this, cx| {
-                let mut inner =
-                    v_flex()
-                        .gap_3()
-                        .child(this.field_row("asr.realtime_url", false, cx))
-                        .child(
-                            h_flex().child(
-                                Button::new("public-endpoint")
-                                    .xsmall()
-                                    .label(this.text(
-                                        "恢复公共实时端点",
-                                        "Restore public realtime endpoint",
-                                    ))
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.set_config("asr.realtime_url", json!(""), window, cx);
-                                        this.sync_controls(window, cx, true);
-                                    })),
-                            ),
-                        );
-
-                if let Some(model) = this
-                    .array("asr_models")
-                    .iter()
-                    .find(|model| &model["id"] == get(this.config(), "asr.model"))
-                {
-                    let mut specs = v_flex()
-                        .gap_1()
-                        .p_3()
-                        .rounded_md()
-                        .bg(cx.theme().secondary.opacity(0.45))
-                        .border_1()
-                        .border_color(cx.theme().border)
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(this.text("识别模型详细规格", "ASR Model Specifications")),
-                        );
-                    for (key, zh, en) in [
-                        ("transport", "传输方式", "Transport"),
-                        ("pipeline", "处理流水线", "Pipeline"),
-                        (
-                            "supports_super_hotwords",
-                            "超级热词（权重 50）",
-                            "Super hotwords",
-                        ),
-                        (
-                            "supports_native_disfluency_removal",
-                            "原生口语顺滑",
-                            "Native disfluency removal",
-                        ),
-                        ("language_count", "支持语言数量", "Languages"),
-                        ("chinese_dialect_count", "中文方言数量", "Chinese dialects"),
-                        (
-                            "max_input_tokens",
-                            "上下文 Token 上限",
-                            "Context token limit",
-                        ),
-                        (
-                            "max_audio_seconds",
-                            "音频时间上限（秒）",
-                            "Maximum audio seconds",
-                        ),
-                        (
-                            "rollover_audio_seconds",
-                            "长录音滚动边界（秒）",
-                            "Rollover seconds",
-                        ),
-                    ] {
-                        if !model[key].is_null() {
-                            specs = specs.child(readout(
-                                this.text(zh, en),
-                                schema::display_value(&model[key]),
-                                cx,
-                            ));
-                        }
-                    }
-                    inner = inner.child(specs);
-                }
-
-                inner = inner.child(
+                let inner = v_flex().gap_3().child(
                     this.field_group(&["llm.model", "llm.temperature", "llm.enable_thinking"], cx),
                 );
-
                 // 5-category Custom Prompt Override Editor
                 let category = this.prompt_category;
                 let enabled = this.prompt_enabled(category);
@@ -2335,18 +2478,18 @@ impl Settings {
         );
 
         v_flex()
+            .gap_5()
             .w_full()
             .min_w_0()
-            .gap_4()
-            .child(recognition_card)
-            .child(dictation_scenes_card)
             .child(polish_card)
-            .child(ai_advanced)
+            .child(titled(
+                self.text("润色风格", "Polish Style"),
+                style_card,
+                cx,
+            ))
+            .child(advanced)
     }
 
-    // -------------------------------------------------------------------------
-    // 6. Shortcuts & Input (快捷键与输入)
-    // -------------------------------------------------------------------------
     fn shortcuts_page(&self, cx: &mut Context<Self>) -> Div {
         let active = get(self.config(), "hotkey.active_hotkeys")
             .as_array()
@@ -2355,90 +2498,111 @@ impl Settings {
         let fn_enabled = active.iter().any(|key| key == "fn");
         let keys = shortcut::custom_keys(self.config());
 
-        let mut trigger_card = titled_card(
-            self.text("全局触发快捷键", "Global Trigger Hotkeys"),
-            Some(self.text(
-                "按住说话松开结束；短按进入免提长录音；Esc 随时取消。",
-                "Hold to speak and release to finish; tap for hands-free; Escape cancels.",
-            )),
-            cx,
-        )
-        .child(
+        let query = self.shortcut_filter.read(cx).value().trim().to_lowercase();
+        let fn_matches = self
+            .text("fn globe 地球键 内置热键", "fn globe built-in hotkeys")
+            .contains(&query);
+        let built_in = card(cx).py_1().child(
             h_flex()
                 .w_full()
                 .justify_between()
                 .items_center()
                 .gap_3()
                 .py_2()
-                .border_b_1()
-                .border_color(cx.theme().border.opacity(0.7))
                 .child(
-                    h_flex()
-                        .items_center()
-                        .gap_2()
-                        .child(keycap("Fn / Globe", cx))
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child(self.text("内置地球键", "Built-in Globe key")),
-                        ),
+                    h_flex().items_center().gap_2().child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(self.text("Fn 键（按住 / 切换）", "Fn key (hold / toggle)")),
+                    ),
                 )
                 .child(
-                    Switch::new("fn-hotkey")
-                        .accessibility_label("Fn / Globe")
-                        .checked(fn_enabled)
-                        .on_change(cx.listener(move |this, enabled, _, cx| {
-                            let mut active = get(this.config(), "hotkey.active_hotkeys")
-                                .as_array()
-                                .cloned()
-                                .unwrap_or_default();
-                            active.retain(|key| key != "fn");
-                            if *enabled {
-                                active.push(json!("fn"));
-                            }
-                            this.action("setActiveHotkeys", json!({"hotkeys": active}), cx);
-                            cx.notify();
-                        })),
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            Switch::new("fn-hotkey")
+                                .accessibility_label("Fn / Globe")
+                                .checked(fn_enabled)
+                                .on_change(cx.listener(move |this, enabled, _, cx| {
+                                    let mut active = get(this.config(), "hotkey.active_hotkeys")
+                                        .as_array()
+                                        .cloned()
+                                        .unwrap_or_default();
+                                    active.retain(|key| key != "fn");
+                                    if *enabled {
+                                        active.push(json!("fn"));
+                                    }
+                                    this.action("setActiveHotkeys", json!({"hotkeys": active}), cx);
+                                    cx.notify();
+                                })),
+                        )
+                        .child(keycap("Fn", cx)),
                 ),
         );
 
-        let mut custom_list = h_flex().gap_2().flex_wrap();
+        let mut trigger_card = card(cx).gap_0().py_1();
+        let mut shown = 0;
         for key in &keys {
             let code = key["key_code"].clone();
             let name = key["display_name"].as_str().unwrap_or("Key").to_owned();
-            custom_list = custom_list.child(
-                h_flex()
-                    .items_center()
-                    .gap_1p5()
-                    .pl_2p5()
-                    .pr_1()
-                    .py_1()
-                    .rounded(cx.theme().radius)
-                    .bg(cx.theme().secondary.opacity(0.55))
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_family(cx.theme().mono_font_family.clone())
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(name),
-                    )
-                    .child(
-                        Button::new(("remove-key", code.as_u64().unwrap_or_default() as usize))
-                            .xsmall()
-                            .ghost()
-                            .label(self.text("移除", "Remove"))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                let keys = shortcut::custom_keys(this.config())
-                                    .into_iter()
-                                    .filter(|key| key["key_code"] != code)
-                                    .collect::<Vec<_>>();
-                                this.set_config("hotkey.custom_keys", json!(keys), window, cx);
-                            })),
-                    ),
-            );
+            if !name.to_lowercase().contains(&query) {
+                continue;
+            }
+            shown += 1;
+            trigger_card = trigger_card
+                .child(
+                    h_flex()
+                        .w_full()
+                        .justify_between()
+                        .items_center()
+                        .gap_2()
+                        .py_2p5()
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(name.clone()),
+                        )
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(
+                                    div()
+                                        .min_w(px(104.))
+                                        .flex()
+                                        .justify_center()
+                                        .child(keycap(name, cx)),
+                                )
+                                .child(
+                                    Button::new((
+                                        "remove-key",
+                                        code.as_u64().unwrap_or_default() as usize,
+                                    ))
+                                    .xsmall()
+                                    .ghost()
+                                    .icon(IconName::X)
+                                    .accessibility_label(self.text("移除", "Remove"))
+                                    .on_click(cx.listener(
+                                        move |this, _, window, cx| {
+                                            let keys = shortcut::custom_keys(this.config())
+                                                .into_iter()
+                                                .filter(|key| key["key_code"] != code)
+                                                .collect::<Vec<_>>();
+                                            this.set_config(
+                                                "hotkey.custom_keys",
+                                                json!(keys),
+                                                window,
+                                                cx,
+                                            );
+                                        },
+                                    )),
+                                ),
+                        ),
+                )
+                .child(row_divider(cx));
         }
 
         if self.capture.active {
@@ -2456,130 +2620,90 @@ impl Settings {
             trigger_card = trigger_card.child(banner(capture_msg, Tone::Primary, cx));
         }
 
-        trigger_card = trigger_card
-            .child(
-                h_flex()
-                    .justify_between()
-                    .items_center()
-                    .gap_2()
-                    .flex_wrap()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(self.text(
-                                "自定义触发键（最多 8 个，区分左右修饰键）",
-                                "Custom trigger keys (up to 8, left/right modifier aware)",
-                            )),
-                    )
-                    .child(
-                        Button::new("capture-key")
-                            .small()
-                            .primary()
-                            .label(self.text(
-                                if self.capture.active {
-                                    "取消录入"
+        trigger_card = trigger_card.child(
+            h_flex()
+                .justify_between()
+                .items_center()
+                .gap_2()
+                .flex_wrap()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(self.text(
+                            "自定义触发键（最多 8 个，区分左右修饰键）",
+                            "Custom trigger keys (up to 8, left/right modifier aware)",
+                        )),
+                )
+                .child(
+                    Button::new("capture-key")
+                        .small()
+                        .primary()
+                        .label(self.text(
+                            if self.capture.active {
+                                "取消录入"
+                            } else {
+                                "录制快捷键"
+                            },
+                            if self.capture.active {
+                                "Cancel capture"
+                            } else {
+                                "Record Shortcut"
+                            },
+                        ))
+                        .disabled(!self.capture.active && keys.len() >= 8)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.capture.active = !this.capture.active;
+                            this.capture.pending = None;
+                            this.commands.request(
+                                if this.capture.active {
+                                    "begin_hotkey_capture"
                                 } else {
-                                    "添加触发键"
+                                    "end_hotkey_capture"
                                 },
-                                if self.capture.active {
-                                    "Cancel capture"
-                                } else {
-                                    "Add trigger key"
-                                },
-                            ))
-                            .disabled(!self.capture.active && keys.len() >= 8)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.capture.active = !this.capture.active;
-                                this.capture.pending = None;
-                                this.commands.request(
-                                    if this.capture.active {
-                                        "begin_hotkey_capture"
-                                    } else {
-                                        "end_hotkey_capture"
-                                    },
-                                    json!({}),
-                                );
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .when(!keys.is_empty(), |card| card.child(custom_list));
-
-        let input_card = titled_card(
-            self.text("录音模式与文本输入", "Recording Mode & Text Insertion"),
-            Some(self.text(
-                "决定录音默认手势，以及转写完成后如何上屏到当前应用。",
-                "Choose default gesture and how recognized text is inserted.",
-            )),
-            cx,
-        )
-        .child(self.field_group(&["default_mode", "auto_paste", "streaming_paste"], cx));
+                                json!({}),
+                            );
+                            cx.notify();
+                        })),
+                ),
+        );
 
         let double_tap = get(self.config(), "hotkey.double_tap_threshold")
             .as_f64()
             .unwrap_or(0.3);
         let shortcuts_advanced = self.disclosure(
             "shortcuts",
-            self.text("高级输入与热键参数", "Advanced Input & Hotkey Tuning"),
-            format!(
-                "{} {:.2} s · {} · {}",
-                self.text("双击间隔", "Double-tap"),
-                double_tap,
-                if get(self.config(), "native_fast_paste") == true {
-                    self.text("原生快速输入开", "Fast paste On")
-                } else {
-                    self.text("原生快速输入关", "Fast paste Off")
-                },
-                if get(self.config(), "restore_clipboard") == true {
-                    self.text("恢复剪贴板开", "Restore clipboard On")
-                } else {
-                    self.text("恢复剪贴板关", "Restore clipboard Off")
-                }
-            ),
-            |this, cx| {
-                this.field_group(
-                    &[
-                        "hotkey.double_tap_threshold",
-                        "native_fast_paste",
-                        "restore_clipboard",
-                    ],
-                    cx,
-                )
-            },
+            self.text("高级热键参数", "Advanced Hotkey Tuning"),
+            format!("{} {double_tap:.2} s", self.text("双击间隔", "Double-tap")),
+            |this, cx| this.field_group(&["hotkey.double_tap_threshold"], cx),
             cx,
         );
 
-        v_flex()
-            .w_full()
-            .min_w_0()
-            .gap_4()
-            .child(trigger_card)
-            .child(input_card)
+        v_flex().w_full().min_w_0().gap_5()
+            .child(v_flex().gap_2()
+                .child(self.filter_input("shortcut-filter", &self.shortcut_filter, self.text("筛选快捷键", "Filter Shortcuts"), cx))
+                .child(note(self.text(
+                    "按住说话，松开结束。轻按一次进入免手持听写，再按一次结束。按 Esc 取消。",
+                    "Hold to speak and release to finish. Tap once for hands-free, then tap again to finish. Press Esc to cancel."
+                ), cx)))
+            .when(fn_matches, |page| page.child(titled(self.text("内置热键", "Built-in Hotkeys"), built_in, cx)))
+            .when(!fn_matches && shown == 0, |page| page.child(note(self.text("没有匹配的快捷键", "No matching shortcuts"), cx)))
+            .child(titled(self.text("自定义触发键", "Custom Trigger Keys"), trigger_card, cx))
             .child(shortcuts_advanced)
     }
 
     // -------------------------------------------------------------------------
-    // 7. General & Connection (通用与连接)
+    // DashScope credentials and general preferences
     // -------------------------------------------------------------------------
-    fn general_page(&self, cx: &mut Context<Self>) -> Div {
-        let mut connection_card = titled_card(
-            self.text("语音服务与网络连接", "Speech Service & Network"),
-            Some(self.text(
-                "配置 DashScope API Key 与网络代理，并可随时测试模型连通性。",
-                "Configure your DashScope API key, proxy, and verify model availability.",
-            )),
-            cx,
-        )
-        .child(self.field_row("api_key", true, cx))
-        .child(
-            h_flex()
-                .gap_2()
-                .flex_wrap()
-                .child(
+    fn connection_card(&self, cx: &mut Context<Self>) -> Div {
+        let mut connection_card = card(cx)
+            .gap_2()
+            .child(self.field_row("api_key", true, cx))
+            .child(
+                h_flex().gap_2().flex_wrap().child(
                     Button::new("check-models")
                         .small()
-                        .primary()
+                        .rounded(px(20.))
                         .label(self.text(
                             if self.model_checking {
                                 "验证中…"
@@ -2598,23 +2722,12 @@ impl Settings {
                             this.action("checkDashScopeModels", json!({}), cx);
                             cx.notify();
                         })),
-                )
-                .child(
-                    Button::new("obtain-api-key")
-                        .small()
-                        .label(self.text("获取 API Key", "Get API key"))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.action(
-                                "openExternal",
-                                json!({"url": "https://dashscope.console.aliyun.com/apiKey"}),
-                                cx,
-                            );
-                        })),
                 ),
-        );
+            );
 
         if let Some(results) = self.model_results.as_array().filter(|r| !r.is_empty()) {
-            let mut list = v_flex()
+            let mut list = h_flex()
+                .flex_wrap()
                 .gap_1()
                 .p_3()
                 .rounded_md()
@@ -2635,60 +2748,114 @@ impl Settings {
                         .map(|error| format!(" · {error}"))
                         .unwrap_or_default()
                 );
-                list = list.child(readout(name, message, cx));
+                list = list.child(
+                    badge(
+                        format!("{name} · {message}"),
+                        if result["status"] == "ok" {
+                            Tone::Success
+                        } else {
+                            Tone::Warning
+                        },
+                        cx,
+                    )
+                    .max_w_full()
+                    .whitespace_normal(),
+                );
             }
             connection_card = connection_card.child(list);
         }
 
-        connection_card = connection_card.child(self.field_row("network.proxy_url", false, cx));
+        connection_card = connection_card.child(row_divider(cx)).child(
+            h_flex().justify_start().items_center().child(
+                Button::new("obtain-api-key")
+                    .small()
+                    .ghost()
+                    .icon(IconName::ExternalLink)
+                    .label(self.text("获取 API Key", "Get API key"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.action(
+                            "openExternal",
+                            json!({"url": "https://dashscope.console.aliyun.com/apiKey"}),
+                            cx,
+                        );
+                    })),
+            ),
+        );
+        titled(
+            self.text("DashScope 服务连接", "DashScope Connection"),
+            connection_card,
+            cx,
+        )
+    }
 
-        let mut appearance_card = titled_card(
-            self.text("外观与交互偏好", "Appearance & Experience"),
-            Some(self.text(
-                "自定义悬浮胶囊屏幕位置、界面语言与更新通道。",
-                "Customize floating capsule placement, interface language, and update channel.",
+    fn general_page(&self, cx: &mut Context<Self>) -> Div {
+        let updates = card(cx)
+            .gap_1()
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_2p5()
+                    .flex_wrap()
+                    .child(self.active_icon(40.))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_0p5()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Vocal More"),
+                            )
+                            .child(note(
+                                format!("v{}", self.snapshot["version"].as_str().unwrap_or("—")),
+                                cx,
+                            )),
+                    )
+                    .child(
+                        Button::new("check-updates")
+                            .small()
+                            .rounded(px(20.))
+                            .label(self.text("立即检查", "Check Now"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.action("checkForUpdates", json!({}), cx);
+                            })),
+                    ),
+            )
+            .child(row_divider(cx))
+            .child(self.field_row("update_channel", false, cx));
+        let dictation = titled(
+            self.text("听写与粘贴", "Dictation & Paste"),
+            card(cx).py_0().child(self.field_group(
+                &[
+                    "default_mode",
+                    "auto_paste",
+                    "native_fast_paste",
+                    "restore_clipboard",
+                    "streaming_paste",
+                ],
+                cx,
             )),
             cx,
-        )
-        .child(self.field_group(
-            &["ui.capsule_position", "ui.language", "update_channel"],
+        );
+        let icons = titled(
+            self.text("应用图标", "App Icon"),
+            card(cx)
+                .gap_2()
+                .child(note(self.text("图标样式", "Icon style"), cx))
+                .child(self.visual_picker("ui.app_icon", cx))
+                .child(row_divider(cx))
+                .child(self.field_row("ui.icon_visibility", false, cx)),
             cx,
-        ));
+        );
 
-        if get(self.config(), "ui.capsule_position") == "custom" {
-            appearance_card = appearance_card.child(
-                h_flex().child(
-                    Button::new("reset-capsule-position")
-                        .xsmall()
-                        .label(self.text("重置胶囊拖拽位置", "Reset dragged position"))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.apply_form_patch(
-                                json!({
-                                    "ui": {
-                                        "capsule_position": "bottom",
-                                        "capsule_custom_x": null,
-                                        "capsule_custom_y": null,
-                                    }
-                                }),
-                                window,
-                                cx,
-                            );
-                        })),
-                ),
-            );
-        }
-
-        let mut maintenance_card = titled_card(
-            self.text("应用与维护", "Application & Maintenance"),
-            None::<&'static str>,
-            cx,
-        )
-        .child(readout(
-            self.text("版本", "Version"),
-            self.snapshot["version"].as_str().unwrap_or("—"),
-            cx,
-        ))
-        .child(self.field_row("ui.advanced_settings", false, cx));
+        let mut maintenance_card = card(cx)
+            .child(self.field_group(
+                &["ui.language", "network.proxy_url", "ui.advanced_settings"],
+                cx,
+            ))
+            .child(row_divider(cx));
 
         if get(self.config(), "ui.onboarding_skipped") == true {
             maintenance_card = maintenance_card.child(banner(
@@ -2749,9 +2916,200 @@ impl Settings {
             .w_full()
             .min_w_0()
             .gap_4()
-            .child(connection_card)
-            .child(appearance_card)
-            .child(maintenance_card)
+            .child(updates)
+            .child(dictation)
+            .child(icons)
+            .child(titled(
+                self.text("偏好与维护", "Preferences & Maintenance"),
+                maintenance_card,
+                cx,
+            ))
+    }
+
+    fn visual_picker(&self, key: &'static str, cx: &mut Context<Self>) -> Div {
+        let field = schema::FIELDS
+            .iter()
+            .find(|field| field.key == key)
+            .unwrap();
+        let Kind::Choice(options) = field.kind else {
+            unreachable!()
+        };
+        let selected = get(self.config(), key);
+        h_flex()
+            .gap_2p5()
+            .w_full()
+            .items_stretch()
+            .children(options.iter().map(|&(value, zh, en)| {
+                let preview = match key {
+                    "ui.app_icon" => app_icon(value, 38.).into_any_element(),
+                    "ui.color_scheme" => mini_window(value).into_any_element(),
+                    "ui.interface_material" => {
+                        let glass = value == "glass";
+                        div()
+                            .size(px(36.))
+                            .rounded_full()
+                            .border_1()
+                            .border_color(rgb(0xffffff))
+                            .shadow_sm()
+                            .when(glass, |orb| orb.bg(gradient(0xffffff, 0xa3afe1)))
+                            .when(!glass, |orb| orb.bg(rgb(0xf2f3fa)))
+                            .into_any_element()
+                    }
+                    _ => unreachable!(),
+                };
+                let label = self.text(zh, en);
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        tile(
+                            SharedString::from(format!("{key}--{value}")),
+                            label,
+                            *selected == value,
+                            cx,
+                        )
+                        .h(px(60.))
+                        .bg(gradient(0xc5e6f4, 0x8b77cb))
+                        .child(preview)
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.set_config(key, json!(value), window, cx);
+                            },
+                        )),
+                    )
+                    .child(tile_caption(label, *selected == value, cx))
+            }))
+    }
+
+    fn appearance_page(&self, cx: &mut Context<Self>) -> Div {
+        let appearance = titled(
+            self.text("外观", "Appearance"),
+            card(cx)
+                .gap_2p5()
+                .child(
+                    h_flex()
+                        .gap_3()
+                        .items_stretch()
+                        .when(self.narrow, |row| row.flex_col())
+                        .child(
+                            v_flex()
+                                .gap_2()
+                                .flex_1()
+                                .min_w_0()
+                                .child(note(self.text("配色方案", "Color scheme"), cx))
+                                .child(self.visual_picker("ui.color_scheme", cx)),
+                        )
+                        .when(!self.narrow, |row| {
+                            row.child(div().w(px(1.)).bg(cx.theme().border))
+                        })
+                        .child(
+                            v_flex()
+                                .gap_2()
+                                .flex_1()
+                                .min_w_0()
+                                .child(note(self.text("界面材质", "Interface material"), cx))
+                                .child(self.visual_picker("ui.interface_material", cx)),
+                        ),
+                )
+                .child(row_divider(cx))
+                .child(self.field_row("ui.reduce_motion", false, cx)),
+            cx,
+        );
+
+        let position = crate::theme::UiPreferences::from_config(self.config()).capsule_position;
+        let preview = h_flex()
+            .w_full()
+            .h(px(109.))
+            .p_4()
+            .rounded(px(9.))
+            .bg(if cx.theme().mode.is_dark() {
+                gradient(0x353549, 0x252d47)
+            } else {
+                gradient(0xf3effa, 0xcfd9ee)
+            })
+            .justify_center()
+            .when(position == "top", |row| row.items_start())
+            .when(position == "bottom", |row| row.items_end())
+            .when(position == "custom", |row| row.items_center().justify_end())
+            .child(
+                h_flex()
+                    .h(px(36.))
+                    .px_4()
+                    .gap_2p5()
+                    .items_center()
+                    .rounded_full()
+                    .bg(rgb(0x000000))
+                    .border_1()
+                    .border_color(rgba(0xffffff52))
+                    .shadow_lg()
+                    .text_color(rgb(0xeaeaea))
+                    .child(waveform(&[3, 4, 6, 9, 12, 15, 12, 9, 6, 4, 3], 1.7))
+                    .child(
+                        div()
+                            .text_size(px(11.5))
+                            .child(self.text("轻声听写中 · 0:12", "Dictating softly · 0:12")),
+                    ),
+            );
+
+        let mut anchors = div()
+            .relative()
+            .w(px(131.))
+            .h(px(72.))
+            .flex_shrink_0()
+            .rounded(px(10.))
+            .border_1()
+            .border_color(cx.theme().border)
+            .bg(cx.theme().popover);
+        for (value, zh, en, x, y) in [
+            ("top", "顶部", "Top", 31., 4.),
+            ("custom", "自定义", "Custom", 67., 25.),
+            ("bottom", "底部", "Bottom", 31., 46.),
+        ] {
+            let label = self.text(zh, en);
+            anchors = anchors.child(
+                div().absolute().left(px(x)).top(px(y)).child(
+                    Button::new(SharedString::from(format!("ui.capsule_position--{value}")))
+                        .xsmall()
+                        .h(px(20.))
+                        .rounded(px(10.))
+                        .label(label)
+                        .selected(position == value)
+                        .when(position == value, |button| button.primary())
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.set_config("ui.capsule_position", json!(value), window, cx);
+                        })),
+                ),
+            );
+        }
+        let capsule = titled(self.text("悬浮胶囊", "Floating Capsule"), card(cx).gap_2p5()
+            .child(preview)
+            .child(row_divider(cx))
+            .child(h_flex().items_center().gap_3()
+                .child(v_flex().flex_1().min_w_0().gap_1()
+                    .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(self.text("胶囊位置", "Capsule position")))
+                    .child(note(self.text("免手持录音时可直接拖拽至自定义位置。", "Drag the capsule during hands-free recording to customize its position."), cx)))
+                .child(anchors))
+            .child(row_divider(cx))
+            .child(h_flex().justify_between().gap_2().items_center().flex_wrap()
+                .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(self.text("重置自定义位置", "Reset custom position")))
+                .child(Button::new("reset-capsule-position").small().rounded(px(20.))
+                    .label(self.text("恢复底部默认", "Restore bottom default"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.apply_form_patch(json!({"ui": {
+                            "capsule_position": "bottom", "capsule_custom_x": null, "capsule_custom_y": null
+                        }}), window, cx);
+                    })))), cx);
+        v_flex().gap_5().w_full().min_w_0().child(appearance).child(
+            v_flex().gap_2().child(capsule).child(note(
+                self.text(
+                    "悬浮胶囊始终保持深色外观。",
+                    "The floating capsule always uses its dark appearance.",
+                ),
+                cx,
+            )),
+        )
     }
 
     // -------------------------------------------------------------------------
@@ -3261,90 +3619,347 @@ impl Settings {
             .child(contents.child(footer))
     }
 
-    fn sidebar_item(&self, tab: Tab, cx: &mut Context<Self>) -> Div {
-        let pending_dict = if tab == Tab::Dictionary {
+    pub(super) fn matches_settings(&self, tab: Tab, query: &str) -> bool {
+        let en = self.english();
+        let keywords = match tab {
+            Tab::Engine => self.text(
+                "权限 麦克风 试音 API Key",
+                "permissions microphone test API key",
+            ),
+            Tab::Audio => self.text("低声场景预设 低语校准", "whisper presets calibration"),
+            Tab::Recognition => self.text("自定义听写场景", "dictation scenes"),
+            Tab::Polish => self.text("自定义提示词", "custom prompts"),
+            Tab::Shortcuts => self.text("触发键 Fn", "trigger hotkeys Fn"),
+            Tab::Dictionary => self.text(
+                "自定义词条 隐私 学习审查",
+                "custom terms privacy learning review",
+            ),
+            Tab::History => self.text(
+                "录音 费用 存储 压缩",
+                "recordings billing storage compression",
+            ),
+            _ => "",
+        };
+        query.to_lowercase().split_whitespace().all(|word| {
+            tab.title(en).to_lowercase().contains(word)
+                || keywords.to_lowercase().contains(word)
+                || schema::SECTIONS.iter().any(|(owner, zh, title, _)| {
+                    *owner == tab && (if en { title } else { zh }).to_lowercase().contains(word)
+                })
+                || schema::FIELDS
+                    .iter()
+                    .filter(|field| field.tab == tab)
+                    .any(|field| {
+                        field.key.contains(word) || field.title(en).to_lowercase().contains(word)
+                    })
+        })
+    }
+
+    fn active_icon(&self, size: f32) -> impl IntoElement {
+        app_icon(
+            crate::theme::UiPreferences::from_config(self.config()).app_icon,
+            size,
+        )
+    }
+
+    fn engine_state(&self) -> &'static str {
+        if self.attention_count() > 0 {
+            self.text("需要处理", "Needs Attention")
+        } else if matches!(
+            self.snapshot["audio_input_status"]["processing_mode"].as_str(),
+            Some("macos_voice_processing")
+        ) {
+            self.text("就绪 · Apple 语音处理", "Ready · Apple Voice Processing")
+        } else {
+            self.text("就绪 · 低延迟", "Ready · Low Latency")
+        }
+    }
+
+    fn sidebar_item(&self, tab: Tab, cx: &mut Context<Self>) -> Button {
+        let title = tab.title(self.english());
+        let active = self.tab == tab;
+        let featured = tab == Tab::Engine;
+        let pending = if tab == Tab::Dictionary {
             self.pending_learning_count()
         } else {
             0
         };
-        let home_attention = if tab == Tab::Home {
-            self.attention_count()
+        let icon = if featured {
+            self.active_icon(34.).into_any_element()
         } else {
-            0
+            let (name, top, bottom, ink) = match tab {
+                Tab::General => (IconName::Settings, 0xaeb6bf, 0x7e8993, 0xffffff),
+                Tab::Audio => (IconName::AudioLines, 0x38adf9, 0x0969dc, 0xffffff),
+                Tab::Appearance => (IconName::AppWindow, 0xfafafb, 0xd7dae1, 0x626a7a),
+                Tab::Recognition => (IconName::Sparkles, 0xdf78fd, 0x923ed8, 0xffffff),
+                Tab::Polish => (IconName::WandSparkles, 0x258fe4, 0xc654a7, 0xffffff),
+                Tab::Shortcuts => (IconName::Command, 0xfafafb, 0xd7dae1, 0x626a7a),
+                Tab::Dictionary => (IconName::BookOpen, 0xff9b67, 0xee593d, 0xffffff),
+                Tab::History => (IconName::Clock, 0x56d7bb, 0x179b9f, 0xffffff),
+                Tab::Engine => unreachable!(),
+            };
+            h_flex()
+                .size(px(24.))
+                .flex_shrink_0()
+                .rounded(px(6.))
+                .items_center()
+                .justify_center()
+                .bg(gradient(top, bottom))
+                .text_color(rgb(ink))
+                .child(Icon::new(name).small())
+                .into_any_element()
         };
-        let title = tab.title(self.english());
-        let active = self.tab == tab;
-        let mut content = h_flex()
+        Button::new(tab.id())
+            .ghost()
             .w_full()
-            .min_w_0()
-            .items_center()
-            .justify_between()
-            .gap_2()
+            .h(px(if featured { 46. } else { 34. }))
+            .rounded(px(9.))
+            .px_2()
+            .accessibility_label(title)
+            .selected(active)
+            .text_color(cx.theme().sidebar_foreground)
+            .when(active, |button| {
+                button
+                    .bg(cx.theme().sidebar_accent)
+                    .text_color(cx.theme().sidebar_accent_foreground)
+            })
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.sidebar_search
+                    .update(cx, |input, cx| input.set_value("", window, cx));
+                this.switch_tab(tab, window, cx);
+            }))
             .child(
                 h_flex()
-                    .flex_1()
+                    .w_full()
                     .min_w_0()
+                    .gap_2p5()
                     .items_center()
-                    .justify_start()
-                    .gap_2()
+                    .child(icon)
                     .child(
-                        div()
-                            .text_color(if active {
-                                cx.theme().sidebar_accent_foreground
-                            } else {
-                                cx.theme().muted_foreground
-                            })
-                            .child(Icon::new(tab_icon(tab)).small()),
-                    )
-                    .child(
-                        div()
+                        v_flex()
                             .flex_1()
                             .min_w_0()
-                            .text_xs()
-                            .font_weight(if active {
-                                FontWeight::SEMIBOLD
-                            } else {
-                                FontWeight::NORMAL
-                            })
-                            .child(title),
-                    ),
-            );
-        if pending_dict > 0 {
-            content = content.child(badge(format!("{pending_dict}"), Tone::Primary, cx));
-        } else if home_attention > 0 {
-            content = content.child(status_dot(Tone::Warning, cx));
+                            .child(
+                                div()
+                                    .text_size(px(13.5))
+                                    .font_weight(if active || featured {
+                                        FontWeight::SEMIBOLD
+                                    } else {
+                                        FontWeight::NORMAL
+                                    })
+                                    .child(title),
+                            )
+                            .when(featured, |copy| copy.child(note(self.engine_state(), cx))),
+                    )
+                    .when(featured && self.attention_count() > 0, |row| {
+                        row.child(status_dot(Tone::Warning, cx))
+                    })
+                    .when(pending > 0, |row| {
+                        row.child(badge(format!("{pending}"), Tone::Primary, cx))
+                    }),
+            )
+    }
+
+    fn settings_sidebar(&self, cx: &mut Context<Self>) -> Div {
+        let query = self.sidebar_search.read(cx).value().to_string();
+        let mut sidebar = v_flex()
+            .id("settings-sidebar")
+            .overflow_y_scroll()
+            .w(px(if self.narrow { 184. } else { 259. }))
+            .h_full()
+            .flex_shrink_0()
+            .bg(
+                if crate::theme::UiPreferences::from_config(self.config()).interface_material
+                    == "glass"
+                {
+                    cx.theme().sidebar.opacity(0.84)
+                } else {
+                    cx.theme().sidebar
+                },
+            )
+            .border_r_1()
+            .border_color(cx.theme().sidebar_border)
+            .pt(px(44.))
+            .px(px(13.))
+            .pb_3()
+            .gap_3()
+            .child(self.filter_input(
+                "settings-sidebar-search",
+                &self.sidebar_search,
+                self.text("搜索设置", "Search Settings"),
+                cx,
+            ));
+        let mut found = false;
+        for group in [
+            &[Tab::Engine][..],
+            &[Tab::General, Tab::Audio, Tab::Appearance],
+            &[Tab::Recognition, Tab::Polish],
+            &[Tab::Shortcuts, Tab::Dictionary, Tab::History],
+        ] {
+            let mut items = v_flex().gap_0p5();
+            let mut has_items = false;
+            for &tab in group
+                .iter()
+                .filter(|&&tab| self.matches_settings(tab, &query))
+            {
+                items = items.child(self.sidebar_item(tab, cx));
+                has_items = true;
+            }
+            if has_items {
+                sidebar = sidebar.child(items);
+                found = true;
+            }
         }
-        div().w_full().child(
-            Button::new(tab.id())
-                .small()
-                .ghost()
-                .w_full()
-                .rounded(cx.theme().radius)
-                .accessibility_label(title)
-                .selected(active)
-                .text_color(cx.theme().sidebar_foreground)
-                .when(active, |button| {
-                    button
-                        .bg(cx.theme().sidebar_accent)
-                        .text_color(cx.theme().sidebar_accent_foreground)
+        div()
+            .h_full()
+            .flex_shrink_0()
+            .child(sidebar.when(!found, |sidebar| {
+                sidebar.child(
+                    div()
+                        .id("settings-search-empty")
+                        .test_support()
+                        .px_2()
+                        .child(note(
+                            self.text("没有匹配的设置", "No matching settings"),
+                            cx,
+                        )),
+                )
+            }))
+    }
+
+    fn filter_input(
+        &self,
+        id: &'static str,
+        input: &Entity<gpui_kit::component::input::InputState>,
+        label: &'static str,
+        cx: &App,
+    ) -> Div {
+        div()
+            .w_full()
+            .min_w_0()
+            .rounded_full()
+            .bg(cx.theme().secondary)
+            .child(
+                Input::new(input)
+                    .id(id)
+                    .accessibility_id(id)
+                    .aria_label(label)
+                    .appearance(false)
+                    .w_full()
+                    .prefix(
+                        Icon::new(IconName::Search)
+                            .small()
+                            .text_color(cx.theme().muted_foreground),
+                    ),
+            )
+    }
+
+    fn settings_header(&self, cx: &mut Context<Self>) -> Div {
+        let glass =
+            crate::theme::UiPreferences::from_config(self.config()).interface_material == "glass";
+        let surface = cx.theme().popover;
+        let pill = || {
+            h_flex()
+                .h(px(32.))
+                .items_center()
+                .rounded_full()
+                .border_1()
+                .border_color(cx.theme().border)
+                .bg(if glass {
+                    surface.opacity(0.89)
+                } else {
+                    surface
                 })
-                .on_click(cx.listener(move |this, _, window, cx| this.switch_tab(tab, window, cx)))
-                .child(content),
-        )
+        };
+        h_flex()
+            .h(px(56.))
+            .flex_shrink_0()
+            .px(px(24.))
+            .gap(px(14.))
+            .items_center()
+            .child(
+                pill()
+                    .child(
+                        Button::new("nav-back")
+                            .ghost()
+                            .small()
+                            .rounded(px(16.))
+                            .w(px(34.))
+                            .icon(IconName::ChevronLeft)
+                            .accessibility_label(self.text("后退", "Back"))
+                            .disabled(self.nav_index == 0)
+                            .on_click(cx.listener(|this, _, window, cx| this.go_back(window, cx))),
+                    )
+                    .child(div().w(px(1.)).h(px(15.)).bg(cx.theme().border))
+                    .child(
+                        Button::new("nav-forward")
+                            .ghost()
+                            .small()
+                            .rounded(px(16.))
+                            .w(px(34.))
+                            .icon(IconName::ChevronRight)
+                            .accessibility_label(self.text("前进", "Forward"))
+                            .disabled(self.nav_index + 1 == self.nav_history.len())
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.go_forward(window, cx)),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .window_control_area(WindowControlArea::Drag)
+                    .text_size(px(16.))
+                    .font_weight(FontWeight::BOLD)
+                    .child(self.tab.title(self.english())),
+            )
+            .when(
+                matches!(self.tab, Tab::Shortcuts | Tab::History),
+                |header| {
+                    let history = self.tab == Tab::History;
+                    header.child(
+                        pill().size(px(32.)).child(
+                            Button::new("page-actions")
+                                .ghost()
+                                .small()
+                                .rounded(px(16.))
+                                .size(px(30.))
+                                .icon(IconName::Ellipsis)
+                                .accessibility_label(if history {
+                                    self.text("刷新录音", "Refresh recordings")
+                                } else {
+                                    self.text("高级热键参数", "Advanced hotkey tuning")
+                                })
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if history {
+                                        this.action("getRecordings", json!({}), cx);
+                                    } else {
+                                        this.toggle_section("shortcuts", cx);
+                                    }
+                                })),
+                        ),
+                    )
+                },
+            )
     }
 }
 
 impl Render for Settings {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.recover_rejected_action(window, cx);
-        self.narrow = window.viewport_size().width < px(820.);
+        self.narrow = window.viewport_size().width < px(780.);
+        let glass =
+            crate::theme::UiPreferences::from_config(self.config()).interface_material == "glass";
         let mut root = h_flex()
             .relative()
             .size_full()
             .whitespace_normal()
             .font_family(cx.theme().font_family.clone())
             .text_color(cx.theme().foreground)
-            .bg(cx.theme().background);
+            .when(!glass, |root| root.bg(cx.theme().background));
 
         if get(self.config(), "ui.onboarding_completed") != true {
             root = root.child(
@@ -3355,144 +3970,47 @@ impl Render for Settings {
                     .bg(cx.theme().background)
                     .overflow_y_scroll()
                     .p_6()
+                    .pt(px(44.))
                     .child(self.onboarding(cx)),
             );
         } else {
-            let sidebar_w = if self.narrow { 156. } else { 196. };
-            let mut sidebar = v_flex()
-                .w(px(sidebar_w))
-                .h_full()
-                .flex_shrink_0()
-                .px_2p5()
-                .py_4()
-                .gap_3()
-                .bg(cx.theme().sidebar)
-                .border_r_1()
-                .border_color(cx.theme().sidebar_border)
-                .child(
-                    h_flex()
-                        .items_center()
-                        .gap_2()
-                        .px_2()
-                        .pb_1()
-                        .child(brand_mark())
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Vocal More"),
-                        ),
-                );
-
-            let mut workspace_group = v_flex().gap_0p5().child(
-                div()
-                    .px_2()
-                    .pb_1()
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(cx.theme().muted_foreground)
-                    .child(self.text("工作区", "Workspace")),
-            );
-            for tab in Tab::WORKSPACE {
-                workspace_group = workspace_group.child(self.sidebar_item(tab, cx));
-            }
-
-            let mut settings_group = v_flex().gap_0p5().child(
-                div()
-                    .px_2()
-                    .pb_1()
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(cx.theme().muted_foreground)
-                    .child(self.text("设置", "Settings")),
-            );
-            for tab in Tab::SETTINGS {
-                settings_group = settings_group.child(self.sidebar_item(tab, cx));
-            }
-
-            let ready = self.attention_count() == 0;
-            sidebar = sidebar
-                .child(workspace_group)
-                .child(settings_group)
-                .child(div().flex_1())
-                .child(
-                    h_flex()
-                        .id("readiness-summary")
-                        .px_2()
-                        .pt_2()
-                        .border_t_1()
-                        .border_color(cx.theme().sidebar_border)
-                        .justify_between()
-                        .items_center()
-                        .child(
-                            h_flex()
-                                .items_center()
-                                .gap_1p5()
-                                .child(status_dot(
-                                    if ready { Tone::Success } else { Tone::Warning },
-                                    cx,
-                                ))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(if ready {
-                                            self.text("就绪", "Ready")
-                                        } else {
-                                            self.text("待处理", "Setup")
-                                        }),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_family(cx.theme().mono_font_family.clone())
-                                .text_color(cx.theme().muted_foreground)
-                                .child(format!(
-                                    "v{}",
-                                    self.snapshot["version"].as_str().unwrap_or("—")
-                                )),
-                        ),
-                );
-
             let page = match self.tab {
-                Tab::Home => self.home_page(cx),
-                Tab::History => self.history_page(cx),
-                Tab::Dictionary => self.dictionary_page(cx),
-                Tab::Audio => self.audio_page(cx),
-                Tab::Ai => self.ai_page(cx),
-                Tab::Shortcuts => self.shortcuts_page(cx),
+                Tab::Engine => self.engine_page(cx),
                 Tab::General => self.general_page(cx),
+                Tab::Audio => self.audio_page(cx),
+                Tab::Appearance => self.appearance_page(cx),
+                Tab::Recognition => self.recognition_page(cx),
+                Tab::Polish => self.polish_page(cx),
+                Tab::Shortcuts => self.shortcuts_page(cx),
+                Tab::Dictionary => self.dictionary_page(cx),
+                Tab::History => self.history_page(cx),
             };
-
-            root = root.child(sidebar).child(
+            root = root.child(self.settings_sidebar(cx)).child(
                 v_flex()
-                    .id("settings-page")
-                    .test_support()
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .bg(cx.theme().background)
-                    .overflow_y_scroll()
-                    .p_5()
-                    .gap_4()
+                    .bg(if glass {
+                        cx.theme().background.opacity(0.95)
+                    } else {
+                        cx.theme().background
+                    })
+                    .child(self.settings_header(cx))
                     .child(
                         v_flex()
-                            .gap_0p5()
-                            .child(
-                                div()
-                                    .text_xl()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(self.tab.title(self.english())),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(self.tab.subtitle(self.english())),
-                            ),
-                    )
-                    .child(page.max_w(px(760.))),
+                            .id("settings-page")
+                            .test_support()
+                            .track_scroll(&self.page_scroll)
+                            .overflow_y_scroll()
+                            .flex_1()
+                            .min_h_0()
+                            .w_full()
+                            .px(px(24.))
+                            .pt_1()
+                            .pb_6()
+                            .gap_5()
+                            .child(page.flex_shrink_0()),
+                    ),
             );
         }
 
