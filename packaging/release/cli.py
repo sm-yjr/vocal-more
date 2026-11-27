@@ -126,7 +126,7 @@ def resolve(api, context: dict, mode: str) -> tuple[str, int, str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["preflight", "resolve", "fetch", "prepare-feed", "stage", "commit"])
+    parser.add_argument("command", choices=["preflight", "resolve", "fetch", "fetch-prebuilt", "prepare-feed", "stage", "commit"])
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--tag", default="")
     parser.add_argument("--source-sha", default="")
@@ -135,6 +135,9 @@ def main() -> None:
     parser.add_argument("--current-run", type=int, default=0)
     parser.add_argument("--published", action="store_true")
     parser.add_argument("--prepare", action="store_true")
+    parser.add_argument("--prebuilt", action="store_true")
+    parser.add_argument("--dmg-sha256", default="")
+    parser.add_argument("--verification-sha256", default="")
     parser.add_argument("--directory", type=Path, default=Path("candidate"))
     parser.add_argument("--backup", type=Path, default=Path("release-backup"))
     args = parser.parse_args()
@@ -168,11 +171,21 @@ def main() -> None:
             else:
                 candidate.download(api, args.artifact_id, args.directory, context, current_run=args.current_run)
             return
+        if args.command == "fetch-prebuilt":
+            if not args.source_sha or not args.tag or not all(
+                re.fullmatch(r"[0-9a-f]{64}", digest)
+                for digest in (args.dmg_sha256, args.verification_sha256)
+            ):
+                raise ReleaseError("Prebuilt inputs require a release tag, source SHA and both asset digests")
+            candidate.fetch_prebuilt(api, context, args.root, args.dmg_sha256, args.verification_sha256)
+            return
         if args.command == "prepare-feed":
             args.directory.mkdir(parents=True, exist_ok=True)
             origin = None
             build = None
             if args.artifact_id:
+                if args.prebuilt:
+                    raise ReleaseError("Cannot combine a prebuilt draft and a candidate refresh")
                 with tempfile.TemporaryDirectory() as temp:
                     source = Path(temp) / "original"
                     original = candidate.download(api, args.artifact_id, source, context)
@@ -189,6 +202,8 @@ def main() -> None:
             else:
                 shutil.copy2(args.root / "dist" / context["dmg_name"], args.directory / context["dmg_name"])
                 shutil.copy2(args.root / "verification.json", args.directory / "verification.json")
+                if args.prebuilt:
+                    build = {"origin": "local-prebuilt", "started_at": os.environ.get("PREPARE_STARTED_AT")}
             notes = Version.parse(context["version"]).notes_name
             shutil.copy2(args.root / "docs/releases" / notes, args.directory / "release-notes.md")
             state = feed.prepare(api, context, args.directory, args.root)

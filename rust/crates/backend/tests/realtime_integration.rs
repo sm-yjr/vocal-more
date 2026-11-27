@@ -137,6 +137,7 @@ async fn serve(
                         json!({"type":"response.text.done","text":"完成文本"}),
                     )
                     .await?;
+                    send(&mut socket,json!({"type":"response.output_item.done","item":{"status":"completed","content":[{"type":"text","text":"完成文本"}]}})).await?;
                     send(&mut socket,json!({"type":"response.done","response":{"status":"completed","usage":{"input_tokens":10,"output_tokens":2}}})).await?;
                     break;
                 } else if event["header"]["action"] == "finish-task" {
@@ -353,6 +354,14 @@ async fn qwen38_rolls_over_before_the_context_limit_and_merges_results() -> Resu
                 accept_hdr_async(stream, |_: &Request, response: Response| Ok(response)).await?;
             let update: Value = serde_json::from_str(next(&mut socket).await?.to_text()?)?;
             ensure!(update["type"] == "session.update");
+            if index == 2 {
+                ensure!(
+                    update["session"]["instructions"]
+                        .as_str()
+                        .is_some_and(|value| value.contains("RolloverContextMarker")),
+                    "new session lost the cursor context"
+                );
+            }
             send(&mut socket, json!({"type":"session.updated"})).await?;
             let mut pcm = Vec::new();
             loop {
@@ -362,10 +371,13 @@ async fn qwen38_rolls_over_before_the_context_limit_and_merges_results() -> Resu
                         pcm.extend(STANDARD.decode(event["audio"].as_str().unwrap())?);
                     }
                     "input_audio_buffer.commit" => {
-                        send(&mut socket, json!({"type":"conversation.item.input_audio_transcription.completed","item_id":format!("input_{index}"),"transcript":format!("旁路{index}")})).await?;
+                        let transcript = ["请检查接口", "检查接口后保存"][index - 1];
+                        send(&mut socket, json!({"type":"conversation.item.input_audio_transcription.completed","item_id":format!("input_{index}"),"transcript":transcript})).await?;
                     }
                     "response.create" => {
-                        send(&mut socket, json!({"type":"response.done","response":{"status":"completed","output":[{"content":[{"type":"text","text":format!("第{index}段")}]}],"usage":{"input_tokens":10 * index,"output_tokens":index}}})).await?;
+                        let caption = ["请测试接口", "测试接口后的行为"][index - 1];
+                        send(&mut socket, json!({"type":"response.output_item.done","item":{"status":"completed","content":[{"type":"text","text":caption}]}})).await?;
+                        send(&mut socket, json!({"type":"response.done","response":{"status":"completed","output":[{"content":[{"type":"text","text":caption}]}],"usage":{"input_tokens":10 * index,"output_tokens":index}}})).await?;
                         break;
                     }
                     _ => {}
@@ -388,6 +400,7 @@ async fn qwen38_rolls_over_before_the_context_limit_and_merges_results() -> Resu
         .start_external(Source::Stream, provider.external()?)
         .await?
         .generation;
+    host.update_context(generation, json!({"before_cursor":"RolloverContextMarker"}))?;
     for value in 1..=8 {
         loop {
             match host.append(generation, vec![value; 1280].into()) {
@@ -402,8 +415,8 @@ async fn qwen38_rolls_over_before_the_context_limit_and_merges_results() -> Resu
     host.finish(generation)?;
     let status = wait_terminal(&host, Duration::from_secs(3)).await?;
     assert_eq!(status.phase, Phase::Completed, "{:?}", status.error);
-    assert_eq!(status.transcript, "第1段\n第2段");
-    assert_eq!(status.raw_transcript, "旁路1\n旁路2");
+    assert_eq!(status.transcript, "请测试接口\n测试接口后的行为");
+    assert_eq!(status.raw_transcript, "请检查接口\n检查接口后保存");
     assert_eq!(status.usage["input_tokens"], 30);
     assert_eq!(status.usage["output_tokens"], 3);
     let received = server.await??;

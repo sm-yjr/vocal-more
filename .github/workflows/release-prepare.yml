@@ -1,8 +1,5 @@
 name: Prepare Release
 on:
-  push:
-    branches:
-    - main
   workflow_dispatch:
     inputs:
       source_sha:
@@ -13,12 +10,20 @@ on:
         description: Expected version tag (empty means canonical tag)
         type: string
         required: false
+      dmg_sha256:
+        description: SHA-256 of the signed and notarized DMG on the draft release
+        type: string
+        required: false
+      verification_sha256:
+        description: SHA-256 of verification.json on the draft release
+        type: string
+        required: false
 permissions:
   contents: read
   actions: read
 jobs:
   inspect:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.dmg_sha256 == '' && inputs.verification_sha256 == ''
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
@@ -47,3 +52,54 @@ jobs:
       source_sha: ${{ needs.inspect.outputs.source_sha }}
       release_tag: ${{ needs.inspect.outputs.release_tag }}
     secrets: inherit
+  prebuilt:
+    if: github.ref == 'refs/heads/main' && (inputs.dmg_sha256 != '' || inputs.verification_sha256 != '')
+    runs-on: macos-latest
+    timeout-minutes: 12
+    permissions:
+      contents: write
+    steps:
+    - name: Record preparation start
+      run: echo "PREPARE_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+    - name: Check out exact source
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.source_sha }}
+        fetch-depth: 0
+        persist-credentials: false
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Verify prebuilt draft assets
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SOURCE_SHA: ${{ inputs.source_sha }}
+        RELEASE_TAG: ${{ inputs.release_tag }}
+        DMG_SHA256: ${{ inputs.dmg_sha256 }}
+        VERIFICATION_SHA256: ${{ inputs.verification_sha256 }}
+      run: python3 packaging/release_cli.py fetch-prebuilt --source-sha "$SOURCE_SHA" --tag "$RELEASE_TAG"
+        --dmg-sha256 "$DMG_SHA256" --verification-sha256 "$VERIFICATION_SHA256"
+    - name: Sign update feed and seal candidate
+      id: candidate
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SOURCE_SHA: ${{ inputs.source_sha }}
+        RELEASE_TAG: ${{ inputs.release_tag }}
+        SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+      run: python3 packaging/release_cli.py prepare-feed --prebuilt --source-sha "$SOURCE_SHA" --tag "$RELEASE_TAG"
+        --directory "$RUNNER_TEMP/candidate"
+    - name: Upload immutable release candidate
+      id: upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.candidate.outputs.artifact_name }}
+        path: ${{ runner.temp }}/candidate/*
+        if-no-files-found: error
+        retention-days: 14
+        compression-level: 0
+    - name: Mark prebuilt candidate ready
+      env:
+        SOURCE_SHA: ${{ inputs.source_sha }}
+        RELEASE_TAG: ${{ inputs.release_tag }}
+        CANDIDATE_ID: ${{ steps.upload.outputs.artifact-id }}
+      run: 'echo "候选已就绪：$RELEASE_TAG / $SOURCE_SHA；artifact ID: $CANDIDATE_ID" >> "$GITHUB_STEP_SUMMARY"'

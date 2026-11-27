@@ -9,10 +9,13 @@ import platform
 import re
 import stat
 import subprocess
+import sys
+import tempfile
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 
+from .github import named_asset
 from .model import (
     POLICY,
     REPOSITORY,
@@ -31,6 +34,62 @@ REQUIRED = {"release-notes.md", "verification.json", "appcast.xml", "baseline-ap
 
 def artifact_prefix(context: dict) -> str:
     return f"release-candidate-{context['version']}-{context['source_sha']}-"
+
+
+def fetch_prebuilt(api, context: dict, root: Path, dmg_sha: str, report_sha: str) -> None:
+    release = api.release(context["release_tag"])
+    if (not release or not release["draft"] or release["target_commitish"] != context["source_sha"]
+            or bool(release["prerelease"]) != (context["channel"] != "stable")):
+        raise ReleaseError("Prebuilt draft must target the exact source SHA and release channel")
+
+    def asset(name: str, expected: str) -> bytes:
+        entry = named_asset(release, name)
+        if not entry or entry.get("state") != "uploaded":
+            raise ReleaseError(f"Missing prebuilt asset: {name}")
+        data = api.asset_bytes(entry)
+        if sha256(data) != expected:
+            raise ReleaseError(f"Prebuilt asset digest mismatch: {name}")
+        return data
+
+    dmg_name = context["dmg_name"]
+    dmg_bytes = asset(dmg_name, dmg_sha)
+    report_bytes = asset("verification.json", report_sha)
+    expected = {
+        "status": "passed", "dmg_sha256": dmg_sha,
+        "version": context["version"], "channel": context["channel"],
+    }
+    with tempfile.TemporaryDirectory(prefix="vocal-prebuilt-") as temp:
+        directory = Path(temp)
+        dmg = directory / dmg_name
+        dmg.write_bytes(dmg_bytes)
+        try:
+            local = json.loads(report_bytes)
+            notary = local["notarization"]
+            if not notary["id"] or notary["status"] != "Accepted":
+                raise ValueError("missing accepted notarization")
+            write_json(directory / "notary.json", notary)
+            if any(local.get(key) != value for key, value in expected.items()):
+                raise ValueError("verification report does not match the pinned DMG and version")
+        except (TypeError, KeyError, ValueError) as exc:
+            raise ReleaseError(f"Invalid prebuilt verification report: {exc}") from exc
+
+        # The verifier runs the embedded version commands. Keep release tokens
+        # and the Sparkle key out of their environment.
+        clean_env = {key: value for key, value in os.environ.items()
+                     if key not in {"GH_TOKEN", "GITHUB_TOKEN", "SPARKLE_PRIVATE_KEY"}}
+        verified = directory / "verification.json"
+        subprocess.run([sys.executable, str(root / "packaging/macos/verify_release_artifact.py"),
+                        str(dmg), "--report", str(verified),
+                        "--notary-result", str(directory / "notary.json")], check=True, env=clean_env)
+        subprocess.run(["spctl", "-a", "-vv", "-t", "open", "--context", "context:primary-signature", str(dmg)],
+                       check=True, env=clean_env)
+        readback = json.loads(verified.read_text())
+        if any(readback.get(key) != value for key, value in expected.items()):
+            raise ReleaseError("Prebuilt bundle verification differs from the release context")
+
+    (root / "dist").mkdir(exist_ok=True)
+    (root / "dist" / dmg_name).write_bytes(dmg_bytes)
+    (root / "verification.json").write_bytes(report_bytes)
 
 
 def build_metadata(root: Path) -> dict:

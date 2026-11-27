@@ -2,66 +2,54 @@
 
 当前覆盖 macOS arm64、macOS 14.0+ 的 Rust 桌面应用：GPUI Kit 设置页、原生 AppKit 胶囊和内嵌 Rust 业务后端。Windows 打包不在本流程范围内。
 
-**默认采用本机直接发布**（在本地 Apple Silicon Mac 完成测试、编译、Developer ID 签名、公证与 stapling、最终 DMG 校验、Sparkle 签名 feed/delta 生成，以及 GitHub Release 上传与公开读回校验），避免等待 GitHub macOS 托管机。GitHub Actions 的**提前准备候选 + tag 发布**两阶段流程保留为无本机打包环境时的兜底方案（详见 [流程设计记录](release-candidate-design.md)）。
+默认在 Apple Silicon Mac 本地完成测试、编译、Developer ID 签名、公证、stapling 和 DMG 校验。GitHub Actions 使用仓库里的 Sparkle 私钥生成签名更新源和增量包，再发布并读回公开资产。
 
-## 本地直接发布（默认）
+## 本机打包，GitHub 签署更新与发布（默认）
 
-### 本机前置条件
+本机需要 Developer ID Application 签名身份、已存入钥匙串的 `notarytool` 公证 profile 和具备仓库权限的 `gh` 登录。Sparkle 私钥由仓库 Secret `SPARKLE_PRIVATE_KEY` 提供给 Actions。
 
-- 钥匙串已安装 `Developer ID Application` 证书（可通过 `security find-identity -p codesigning -v` 确认）。
-- 已通过 `xcrun notarytool store-credentials` 保存公证凭据 profile（通过环境变量 `VOCAL_MORE_NOTARY_PROFILE` 指定）。
-- 已准备好与内嵌公钥匹配的 Sparkle Ed25519 私钥（通过环境变量 `SPARKLE_PRIVATE_KEY` 传入，禁止写入仓库或日志）。
-- `gh` 已登录且具备 `repo` 权限（`gh auth status`）。
-
-### 发布步骤
-
-1. 更新 `pyproject.toml` 的 `[project].version` 并将 `[tool.vocal-more].build` 递增，同步 `uv.lock` 中 `vocal-more` 的版本，新增非空发布说明 `docs/releases/<version>.md`。
-2. 在本地跑完验证测试（Rust fmt/workspace/Metal 渲染测试 + Python `pytest`），提交并推送到 `main`，记录目标提交的完整 SHA（`SOURCE_SHA=$(git rev-parse HEAD)`）与对应 tag（如 `v0.7.1`）。
-3. 本地构建、签名、公证、校验并生成候选目录与签名 Sparkle 更新源：
+1. 更新 `pyproject.toml` 的版本和构建号，同步 `uv.lock`，新增非空发布说明。完成 Rust 全工作区测试和 Metal 渲染验收、Python 全量测试及设置前端检查后，把提交推到 `main`。
+2. 从干净的目标提交构建、签名、公证并校验最终 DMG。
 
 ```bash
-export SOURCE_SHA="$(git rev-parse HEAD)"
-export RELEASE_TAG="v0.7.1"
+SOURCE_SHA="$(git rev-parse HEAD)"
+RELEASE_TAG="v0.7.3"
 export VOCAL_MORE_NOTARY_PROFILE="vocal-more-notary"
-export SPARKLE_PRIVATE_KEY="..." # 切勿提交到仓库
 export GH_TOKEN="$(gh auth token)"
 
 python3 packaging/release_cli.py preflight --source-sha "$SOURCE_SHA" --tag "$RELEASE_TAG"
 VOCAL_MORE_SKIP_ADHOC_SIGN=1 VOCAL_MORE_TARGET_ARCH=arm64 ./packaging/macos/build_dmg.sh
-
 DMG="dist/Vocal-More-$(python3 packaging/macos/read_version.py).dmg"
-VOCAL_MORE_NOTARY_RESULT_PATH="/tmp/vocal-more-notary-result.json" \
-  ./packaging/macos/notarize_dmg.sh "$DMG"
+NOTARY_RESULT="$(mktemp -t vocal-more-notary)"
+VOCAL_MORE_NOTARY_RESULT_PATH="$NOTARY_RESULT" ./packaging/macos/notarize_dmg.sh "$DMG"
 python3 packaging/macos/verify_release_artifact.py "$DMG" \
-  --report verification.json \
-  --notary-result /tmp/vocal-more-notary-result.json
-
-CANDIDATE_DIR="/tmp/vocal-more-candidate-${RELEASE_TAG}"
-BACKUP_DIR="/tmp/vocal-more-backup-${RELEASE_TAG}"
-rm -rf "$CANDIDATE_DIR" "$BACKUP_DIR"
-export VOCAL_MORE_LOCAL_RELEASE=1
-python3 packaging/release_cli.py prepare-feed \
-  --source-sha "$SOURCE_SHA" --tag "$RELEASE_TAG" --artifact-id 0 \
-  --directory "$CANDIDATE_DIR"
+  --report dist/verification.json --notary-result "$NOTARY_RESULT"
 ```
 
-4. 上传 GitHub Release 资产、公开 Release 并更新签名 Sparkle appcast（完成后再清理本地临时目录与私钥环境变量）：
+3. 将最终 DMG 和校验报告上传到对应版本的 GitHub Release 草稿。Beta 草稿加 `--prerelease`。
+
+```bash
+gh release create "$RELEASE_TAG" "$DMG" dist/verification.json --repo sm-yjr/vocal-more \
+  --target "$SOURCE_SHA" --draft --title "Vocal More 0.7.3+9" \
+  --notes-file "docs/releases/${RELEASE_TAG#v}.md"
+gh workflow run release-prepare.yml --repo sm-yjr/vocal-more --ref main \
+  -f source_sha="$SOURCE_SHA" -f release_tag="$RELEASE_TAG" \
+  -f dmg_sha256="$(shasum -a 256 "$DMG" | cut -d ' ' -f 1)" \
+  -f verification_sha256="$(shasum -a 256 dist/verification.json | cut -d ' ' -f 1)"
+```
+
+4. 等待对应源码提交的 Prepare Release 成功。它会校验草稿来源、两个文件摘要、Developer ID 签名、公证票据和 bundle 版本，然后封存带 Sparkle 签名的候选。只有候选就绪后才创建并推送对应 tag，触发 Release DMG 的候选复用路径。
 
 ```bash
 git tag -a "$RELEASE_TAG" "$SOURCE_SHA" -m "Vocal More $RELEASE_TAG"
-python3 packaging/release_cli.py stage \
-  --tag "$RELEASE_TAG" --source-sha "$SOURCE_SHA" \
-  --directory "$CANDIDATE_DIR" --backup "$BACKUP_DIR"
-python3 packaging/release_cli.py commit \
-  --tag "$RELEASE_TAG" --source-sha "$SOURCE_SHA" \
-  --directory "$CANDIDATE_DIR"
+git push origin "refs/tags/$RELEASE_TAG"
 ```
 
-> 注意：`stage` / `commit` 完成后，公开的 GitHub Release 资产与签名 `sparkle-feed` 即已通过读回校验并生效；如需在 GitHub 上补齐对应 annotated tag 且不希望触发慢路径重建，确认 `commit` 已创建 tag 或按需检查 Actions 队列。
+5. 等待 Release DMG 成功，核对公开 DMG 的 SHA-256 和 `sparkle-feed` 的目标版本。若重试，先检查已有草稿和资产摘要，沿用同一份已经签名的 DMG。
 
-## GitHub Actions 兜底流程
+## GitHub Actions 完整构建兜底
 
-当无本机 macOS 打包环境时，仍可使用两阶段 CI 流程：`main` 上的待发布提交先由 `release-prepare.yml` 完成测试、构建、签名、公证、staple、最终 DMG 验证及 Sparkle 更新包准备；tag 指向相同提交后，Linux job 复用候选并发布。
+本机无法打包时，手动运行 `release-prepare.yml`，提供目标 `source_sha` 和 `release_tag`。省略两个文件摘要即可走完整的 GitHub 构建、公证和候选准备流程。候选就绪后的 tag 发布流程相同。
 
 ## 版本与通道
 
@@ -91,7 +79,7 @@ delta 只从同通道的上一个版本生成：稳定版基于上一稳定版�
 ## 日常发布步骤
 
 1. 更新 `pyproject.toml` 的版本并把 `[tool.vocal-more].build` 加一，同步 `uv.lock` 中 `vocal-more` 的版本，添加非空发布说明。仅改版本时不要接受无关的锁文件重写。完成常规测试后提交并推送到 `main`。
-2. 等待 **Prepare Release** 成功。Summary 的“候选已就绪”会给出完整 source SHA、预计 tag 和 artifact ID。已发布版本的普通 `main` 提交会跳过候选构建。
+2. 等待 **Prepare Release** 成功。Summary 的“候选已就绪”会给出完整 source SHA、预计 tag 和 artifact ID。候选准备由手动触发。
 3. 把 tag 指向该候选的完整 SHA。不要隐式使用本地 HEAD；候选准备后再改代码或说明需要新候选。
 4. 等待 **Release DMG** 完成，确认 Summary 显示发布完成及回执。只有公开 DMG/delta 和签名 feed 读回验证成功才算完成。
 

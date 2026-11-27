@@ -54,6 +54,45 @@ def test_published_release_lookup_does_not_scan_drafts(monkeypatch):
     assert api.release("v0.5.0-alpha.1") == published
 
 
+@pytest.mark.parametrize("mismatch", [None, "source", "dmg", "report", "bundle"])
+def test_prebuilt_candidate_checks_draft_and_both_artifacts(tmp_path, monkeypatch, mismatch):
+    context, directory, _ = make_candidate(tmp_path, monkeypatch)
+    tag = context["release_tag"]
+    api = FakeGitHub()
+    draft = api.add_release(tag, draft=True, prerelease=True)
+    draft["target_commitish"] = "b" * 40 if mismatch == "source" else SOURCE
+    name = context["dmg_name"]
+    dmg = (directory / name).read_bytes()
+    report = (directory / "verification.json").read_bytes()
+    api.add_asset(tag, name, b"wrong dmg" if mismatch == "dmg" else dmg)
+    api.add_asset(tag, "verification.json", b"wrong report" if mismatch == "report" else report)
+    root = tmp_path
+    monkeypatch.setenv("GH_TOKEN", "fake-token")
+    calls = []
+
+    def verify(command, *, check, env):
+        assert check and "GH_TOKEN" not in env
+        calls.append(command)
+        if "--report" in command:
+            readback = json.loads(report)
+            if mismatch == "bundle":
+                readback["version"] = "0.6.0+1"
+            write_json(Path(command[command.index("--report") + 1]), readback)
+
+    monkeypatch.setattr(candidate.subprocess, "run", verify)
+    if mismatch:
+        with pytest.raises(ReleaseError):
+            candidate.fetch_prebuilt(api, context, root, sha256(dmg), sha256(report))
+        assert not (root / "dist").exists()
+        if mismatch != "bundle":
+            assert not calls
+    else:
+        candidate.fetch_prebuilt(api, context, root, sha256(dmg), sha256(report))
+        assert len(calls) == 2
+        assert (root / "dist" / name).read_bytes() == dmg
+        assert (root / "verification.json").read_bytes() == report
+
+
 @pytest.mark.parametrize("project,build,text,tag,channel,bundle,dmg", [
     ("0.6.0", 1, "0.6.0+1", "v0.6.0", "stable", "1", "Vocal-More-0.6.0.dmg"),
     ("0.6.1b12", 58, "0.6.1-beta.12+58", "v0.6.1-beta.12", "beta", "58", "Vocal-More-0.6.1-beta.12.dmg"),

@@ -587,7 +587,7 @@ impl Provider {
     }
 
     async fn realtime_segmented(
-        self,
+        mut self,
         mut input: mpsc::Receiver<NetworkInput>,
         cancel: CancellationToken,
         reporter: NetworkReporter,
@@ -609,7 +609,7 @@ impl Provider {
         } else {
             0
         });
-        let mut latest_segment_tail: Option<String> = None;
+        let mut latest_segment_tail: Option<(usize, String)> = None;
         let mut input_finished = false;
         let (mut segment_tx, segment_rx) = mpsc::channel(vocal_more_core::AUDIO_QUEUE_BLOCKS);
         let provider = self.clone();
@@ -618,6 +618,7 @@ impl Provider {
         segments.spawn(async move {
             (
                 0,
+                false,
                 provider
                     .realtime_once(segment_rx, segment_cancel, segment_reporter)
                     .await,
@@ -630,15 +631,17 @@ impl Provider {
                 _ = cancel.cancelled() => bail!("ASR cancelled"),
                 completed = segments.join_next(), if !segments.is_empty() => {
                     let Some(completed) = completed else { continue };
-                    let (completed_index, result) = completed.context("realtime segment worker failed")?;
+                    let (completed_index, has_overlap, result) = completed.context("realtime segment worker failed")?;
                     let result = result?;
                     let trimmed = result.text.trim();
-                    if !trimmed.is_empty() {
+                    if !trimmed.is_empty()
+                        && latest_segment_tail.as_ref().is_none_or(|(index, _)| completed_index > *index)
+                    {
                         let chars: Vec<char> = trimmed.chars().collect();
                         let start = chars.len().saturating_sub(200);
-                        latest_segment_tail = Some(chars[start..].iter().collect());
+                        latest_segment_tail = Some((completed_index, chars[start..].iter().collect()));
                     }
-                    results.insert(completed_index, result);
+                    results.insert(completed_index, (has_overlap, result));
                     if input_finished && segments.is_empty() {
                         break;
                     }
@@ -671,19 +674,20 @@ impl Provider {
                                 segment_bytes = 0;
                                 trailing_silence_bytes = 0;
                                 let mut provider = self.clone();
-                                if let Some(tail) = &latest_segment_tail {
+                                if let Some((_, tail)) = &latest_segment_tail {
                                     provider.recent_turns.push(tail.clone());
                                 }
+                                let has_overlap = hard_cut && !soft_cut && !overlap_ring.is_empty();
                                 let segment_cancel = cancel.clone();
                                 let segment_reporter = reporter.segment(index);
                                 let segment_index = index;
                                 segments.spawn(async move {
-                                    (segment_index, provider.realtime_once(next_rx, segment_cancel, segment_reporter).await)
+                                    (segment_index, has_overlap, provider.realtime_once(next_rx, segment_cancel, segment_reporter).await)
                                 });
                                 // On a forced hard cut (continuous speech with no pause),
                                 // replay the last 1.5s into the next segment so words at the
                                 // boundary are never chopped in half.
-                                if hard_cut && !soft_cut && vad_rollover_enabled && !overlap_ring.is_empty() {
+                                if has_overlap {
                                     let overlap = Bytes::copy_from_slice(&overlap_ring);
                                     segment_bytes += overlap.len() as u64;
                                     segment_tx.send(NetworkInput::Pcm(overlap)).await
@@ -704,6 +708,7 @@ impl Provider {
                                 .context("realtime segment image queue closed")?;
                         }
                         Some(NetworkInput::Context(ctx)) => {
+                            self.apply_context_update(ctx.clone());
                             let _ = segment_tx.send(NetworkInput::Context(ctx)).await;
                         }
                         Some(NetworkInput::Finish) => {
@@ -719,9 +724,9 @@ impl Provider {
         let mut text = String::new();
         let mut raw = String::new();
         let mut usage = json!({});
-        for (_, result) in results {
-            append_segment_text(&mut text, &result.text);
-            append_segment_text(&mut raw, &result.raw);
+        for (_, (has_overlap, result)) in results {
+            append_segment_text(&mut text, &result.text, has_overlap);
+            append_segment_text(&mut raw, &result.raw, has_overlap);
             merge_usage(&mut usage, &result.usage);
         }
         ensure!(
@@ -969,12 +974,17 @@ fn is_boundary_meaningful(ch: char) -> bool {
 
 /// Joins two consecutive segment transcripts, deduplicating any short overlapping
 /// boundary phrase introduced by a forced 1.5s audio overlap.
-pub(crate) fn append_segment_text(acc: &mut String, next: &str) {
+fn append_segment_text(acc: &mut String, next: &str, has_overlap: bool) {
     let next = next.trim();
     if next.is_empty() {
         return;
     }
     if acc.is_empty() {
+        acc.push_str(next);
+        return;
+    }
+    if !has_overlap {
+        acc.push('\n');
         acc.push_str(next);
         return;
     }
@@ -1101,15 +1111,15 @@ mod tests {
     #[test]
     fn segment_merge_deduplicates_overlap_and_preserves_distinct_segments() {
         let mut zh = "今天我们讨论语音识别延迟优化。".to_string();
-        append_segment_text(&mut zh, "延迟优化的具体方案如下");
+        append_segment_text(&mut zh, "延迟优化的具体方案如下", true);
         assert_eq!(zh, "今天我们讨论语音识别延迟优化的具体方案如下");
 
         let mut en = "We should measure latency before".to_string();
-        append_segment_text(&mut en, "before shipping the release");
+        append_segment_text(&mut en, "before shipping the release", true);
         assert_eq!(en, "We should measure latency before shipping the release");
 
         let mut distinct = "第1段".to_string();
-        append_segment_text(&mut distinct, "第2段");
+        append_segment_text(&mut distinct, "第2段", true);
         assert_eq!(distinct, "第1段\n第2段");
     }
 
@@ -1334,10 +1344,7 @@ impl RealtimeText {
                             prefer_longer(&mut self.response, &event["part"])
                         }
                         "response.output_item.done" => {
-                            prefer_longer(&mut self.response, &event["item"]);
-                            if event["item"]["status"] == "completed" && !self.response.is_empty() {
-                                self.completed = true;
-                            }
+                            prefer_longer(&mut self.response, &event["item"])
                         }
                         "response.done" => {
                             let response = &event["response"];
